@@ -1,4 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { submitIntake } from "./db.js";
+
+// Clinic ID is set via environment variable so the kiosk knows
+// which clinic to write intakes to without requiring a login.
+// Add VITE_CLINIC_ID=your-clinic-uuid to your .env file.
+const KIOSK_CLINIC_ID = import.meta.env.VITE_CLINIC_ID;
 
 // ── Font Load ──────────────────────────────────────────────────────────────────
 const _fl = document.createElement("link");
@@ -664,8 +670,15 @@ export default function IntakeKiosk() {
     const sigDataUrl = canvas ? canvas.toDataURL("image/png") : null;
     const timestamp = new Date().toISOString();
     const record = { _meta: { intakeId, submittedAt: timestamp, lang, status: "pending" }, answers, consent: { privacyAgreed: answers.privacyAgreed, insuranceAgreed: answers.insuranceAgreed, signedAt: timestamp, signatureDataUrl: sigDataUrl } };
-    // Save to shared storage
-    try { await window.storage.set(`intake:${intakeId}`, JSON.stringify(record), true); } catch (e) { console.error("Storage error:", e); }
+    // Submit intake to Supabase
+    try {
+      const payload = {
+        _meta: { intakeId, submittedAt: timestamp, lang, status: "pending" },
+        answers,
+        consent: { privacyAgreed: answers.privacyAgreed, insuranceAgreed: answers.insuranceAgreed, signedAt: timestamp, signatureDataUrl: sigDataUrl }
+      };
+      await submitIntake(payload, KIOSK_CLINIC_ID);
+    } catch (e) { console.error("Intake submit error:", e); }
     // Download HTML "PDF"
     const html = generateHTML(answers, intakeId, sigDataUrl, timestamp, t);
     const blob = new Blob([html], { type: "text/html" });
