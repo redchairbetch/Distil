@@ -1,35 +1,19 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-
-
-// ── SHARED STORAGE HELPERS ────────────────────────────────────────────────────
-const storage = window.storage;
-async function savePatient(patient) {
-  await storage.set(`patient:${patient.id}`, JSON.stringify(patient));
-  await storage.set("patient_list_updated", Date.now().toString());
-}
-async function loadAllPatients() {
-  try {
-    const keys = await storage.list("patient:");
-    const patients = await Promise.all(
-      (keys.keys || []).map(async k => {
-        const r = await storage.get(k);
-        return r ? JSON.parse(r.value) : null;
-      })
-    );
-    return patients.filter(Boolean).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
-  } catch { return []; }
-}
-async function loadPunch(patientId) {
-  try {
-    const r = await storage.get(`punch:${patientId}`);
-    return r?.value ? JSON.parse(r.value) : { cleanings: 0, appointments: 0, log: [] };
-  } catch { return { cleanings: 0, appointments: 0, log: [] }; }
-}
-async function savePunch(patientId, data) {
-  try { await storage.set(`punch:${patientId}`, JSON.stringify(data)); } catch {}
-  // Also write to legacy key so patient app picks it up
-  try { await storage.set("punch_card_used", JSON.stringify({ cleanings: data.cleanings, appointments: data.appointments })); } catch {}
-}
+import {
+  loadAllPatients,
+  savePatient,
+  loadPunch,
+  savePunch,
+  loadClinicSettings,
+  saveClinicSettings,
+  loadProductCatalog,
+  saveProductCatalog,
+  loadPendingIntakes,
+  subscribeToIntakes,
+  acceptIntake as dbAcceptIntake,
+  dismissIntake,
+  signOut,
+} from "./db.js";
 
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
@@ -734,7 +718,7 @@ function generateCounseling(aud){
 const STEPS = ["Patient","Testing","Results","Treatment Options","Coverage","Schedule","Review"];
 
 
-export default function ProviderCRM() {
+export default function ProviderCRM({ staffId, clinicId }) {
   const [clinic, setClinic] = useState(DEFAULT_CLINIC);
   const [clinicDraft, setClinicDraft] = useState(DEFAULT_CLINIC);
   const [clinicSaved, setClinicSaved] = useState(false);
@@ -764,7 +748,7 @@ export default function ProviderCRM() {
 
   const saveCatalog = async (next) => {
     setCatalog(next);
-    try { await storage.set("product_catalog", JSON.stringify(next)); } catch {}
+    try { await saveProductCatalog(next); } catch {}
   };
 
 
@@ -802,17 +786,17 @@ export default function ProviderCRM() {
     loadAllPatients().then(p => { setPatients(p); setLoading(false); });
     (async () => {
       try {
-        const saved = await storage.get("clinic_settings");
-        if (saved?.value) { const c = JSON.parse(saved.value); setClinic(c); setClinicDraft(c); }
-        else { await storage.set("clinic_settings", JSON.stringify(DEFAULT_CLINIC)); }
+        if (clinicId) {
+          const saved = await loadClinicSettings(clinicId);
+          if (saved) { setClinic(saved); setClinicDraft(saved); }
+        }
       } catch {}
       try {
-        const cat = await storage.get("product_catalog");
-        if (cat?.value) setCatalog(JSON.parse(cat.value));
-        else await storage.set("product_catalog", JSON.stringify(CATALOG_DEFAULT));
+        const cat = await loadProductCatalog();
+        if (cat?.length) setCatalog(cat);
       } catch {}
     })();
-  }, []);
+  }, [clinicId]);
 
 
   const refreshPatients = async () => {
@@ -820,45 +804,36 @@ export default function ProviderCRM() {
     setPatients(p);
   };
 
-  // ── Intake Queue Polling ──────────────────────────────────────────────────
-  const pollIntakes = useCallback(async () => {
-    try {
-      const keys = await storage.list("intake:", true);
-      const intakes = await Promise.all(
-        (keys.keys || []).map(async k => {
-          try {
-            const r = await storage.get(k, true);
-            return r?.value ? JSON.parse(r.value) : null;
-          } catch { return null; }
-        })
-      );
-      const pending = intakes.filter(i => i && i._meta?.status === "pending");
-      setPendingIntakes(pending);
-      // Detect new ones and fire toast
-      pending.forEach(i => {
-        const id = i._meta?.intakeId;
-        if (id && !seenIntakeIds.current.has(id)) {
-          seenIntakeIds.current.add(id);
-          const name = `${i.answers?.firstName || ""} ${i.answers?.lastName || ""}`.trim() || "New Patient";
-          setIntakeToast({ name, intakeId: id });
-          // Tab title flash
-          let flashing = true;
-          const orig = document.title;
-          const flashInterval = setInterval(() => {
-            document.title = flashing ? `● New Intake — Distil` : orig;
-            flashing = !flashing;
-          }, 800);
-          setTimeout(() => { clearInterval(flashInterval); document.title = orig; }, 12000);
-        }
-      });
-    } catch {}
+  // ── Intake Queue (Supabase Realtime) ─────────────────────────────────────
+  const fireIntakeToast = useCallback((intake) => {
+    const id = intake._meta?.intakeId;
+    if (!id || seenIntakeIds.current.has(id)) return;
+    seenIntakeIds.current.add(id);
+    const name = `${intake.answers?.firstName || ""} ${intake.answers?.lastName || ""}`.trim() || "New Patient";
+    setIntakeToast({ name, intakeId: id });
+    let flashing = true;
+    const orig = document.title;
+    const flashInterval = setInterval(() => {
+      document.title = flashing ? `● New Intake — Distil` : orig;
+      flashing = !flashing;
+    }, 800);
+    setTimeout(() => { clearInterval(flashInterval); document.title = orig; }, 12000);
   }, []);
 
   useEffect(() => {
-    pollIntakes();
-    const iv = setInterval(pollIntakes, 10000);
-    return () => clearInterval(iv);
-  }, [pollIntakes]);
+    // Load any pending intakes that arrived before this session
+    loadPendingIntakes().then(pending => {
+      setPendingIntakes(pending);
+      pending.forEach(fireIntakeToast);
+    });
+    // Subscribe to new intakes in realtime
+    if (!clinicId) return;
+    const unsubscribe = subscribeToIntakes(clinicId, (intake) => {
+      setPendingIntakes(prev => [...prev, intake]);
+      fireIntakeToast(intake);
+    });
+    return unsubscribe;
+  }, [clinicId, fireIntakeToast]);
 
 
   const buildSideRecord = (s) => {
@@ -915,8 +890,7 @@ export default function ProviderCRM() {
       appointments: form.appointments,
       notes: form.notes,
     };
-    await savePatient(patient);
-    await storage.set("active_patient_id", patient.id);
+    await savePatient(patient, staffId, clinicId);
     setSaved(true);
     await refreshPatients();
     setSelectedPatient(patient);
@@ -951,11 +925,8 @@ export default function ProviderCRM() {
         intake._meta?.intakeId ? `Intake ID: ${intake._meta.intakeId}` : "",
       ].filter(Boolean).join("\n"),
     }));
-    // Mark intake as accepted in shared storage
-    try {
-      const updated = { ...intake, _meta: { ...intake._meta, status: "accepted", acceptedAt: new Date().toISOString() } };
-      await storage.set(`intake:${intake._meta.intakeId}`, JSON.stringify(updated), true);
-    } catch {}
+    // Mark intake as accepted in Supabase
+    try { await dbAcceptIntake(intake._meta.intakeId); } catch {}
     setPendingIntakes(prev => prev.filter(i => i._meta?.intakeId !== intake._meta?.intakeId));
     setShowIntakeQueue(false);
     setStep(0); setSaved(false); setView("new");
@@ -2239,11 +2210,7 @@ export default function ProviderCRM() {
 
   const handleClinicSave = async () => {
     setClinic(clinicDraft);
-    try {
-      await storage.set("clinic_settings", JSON.stringify(clinicDraft));
-      // Push clinic name to shared key so patient app reads it
-      await storage.set("clinic_name", clinicDraft.name);
-    } catch {}
+    try { await saveClinicSettings(clinicId, clinicDraft); } catch {}
     setClinicSaved(true);
     setTimeout(() => setClinicSaved(false), 3000);
   };
