@@ -25,24 +25,330 @@ const DEFAULT_CLINIC = {
 };
 
 
-const DEMO_PLANS = [
-  { carrier: "Humana", planGroup: "Humana TruHearing Standard", tpa: "TruHearing",
-    tiers: [{label:"Standard",price:699},{label:"Advanced",price:999},{label:"Premium",price:1399}] },
-  { carrier: "Humana", planGroup: "Humana TruHearing Advanced", tpa: "TruHearing",
-    tiers: [{label:"Standard",price:599},{label:"Advanced",price:899},{label:"Premium",price:1299}] },
-  { carrier: "Aetna", planGroup: "Aetna TruHearing", tpa: "TruHearing",
-    tiers: [{label:"Standard",price:799},{label:"Advanced",price:1099},{label:"Premium",price:1499}] },
-  { carrier: "UnitedHealthcare", planGroup: "UHC Hearing – Choice Plus", tpa: "United Healthcare Hearing",
-    tiers: [{label:"Level 1",price:0},{label:"Level 2",price:299},{label:"Level 3",price:699},{label:"Level 4",price:999}] },
-  { carrier: "UnitedHealthcare", planGroup: "UHC Hearing – Navigate Plus", tpa: "United Healthcare Hearing",
-    tiers: [{label:"Level 1",price:0},{label:"Level 2",price:399},{label:"Level 3",price:799}] },
-  { carrier: "BCBS", planGroup: "BCBS Nations Hearing", tpa: "Nations Hearing",
-    tiers: [{label:"Standard",price:499},{label:"Advanced",price:899},{label:"Premium",price:1299}] },
-  { carrier: "Cigna", planGroup: "Cigna TruHearing", tpa: "TruHearing",
-    tiers: [{label:"Standard",price:749},{label:"Advanced",price:1049},{label:"Premium",price:1449}] },
-  { carrier: "Medicare Advantage", planGroup: "Medicare Advantage – TruHearing", tpa: "TruHearing",
-    tiers: [{label:"Standard",price:299},{label:"Advanced",price:699},{label:"Premium",price:1099}] },
+const DEMO_PLANS = []; // Legacy placeholder — real plans live in THIRD_PARTY_PLANS
+
+
+// ── THIRD-PARTY EXCLUSIVE PLANS (TruHearing) ─────────────────────────────────
+// Source: TruHearing Third Party Exclusive Plans screenshots, reviewed 2026
+// availableProducts: "signia" | "thSelect" | "signiaMixed" | "choiceFull" | "choiceSignia"
+// signiaPricing keys: Signia level number (1/2/3/5/7) → patient price per aid
+// thSelectPricing keys: "Standard" | "Advanced" | "Premium" → patient price per aid
+const THIRD_PARTY_PLANS = [
+  // ── ANTHEM ──────────────────────────────────────────────────────────────────
+  { id:"anthem_signia_standard", carrier:"Anthem",
+    planNames:["Medicare Preferred PPO","Medicare Supplement","Prefix MBL","Prefix VOD / Prefix YFZ","Prefix L7Q","Prefix VOC / Prefix YGZ","Anthem Empire Mediblue Freedom (PPO)","Anthem Dual Advantage (HMO D-SNP)","NV Anthem Medicare Advantage (HMO)","NV Anthem I Carelon Chronic Care (HMO-POS C-SNP)","KY Anthem Medicare Advantage HMO POS"],
+    availableProducts:"signia", signiaPricing:{1:499,2:699,3:999,5:1399,7:1799} },
+  { id:"anthem_jrg_jri", carrier:"Anthem",
+    planNames:["Prefix JRG / JRI"],
+    availableProducts:"thSelect", thSelectPricing:{Standard:499,Advanced:699,Premium:999} },
+  { id:"anthem_sheet_metal_33", carrier:"Anthem",
+    planNames:["Sheet Metal Workers' Union Local 33 Cleveland District via OH PPO/EPO Blue Access Local/Natl"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:499,Premium:799} },
+  { id:"anthem_xmm", carrier:"Anthem",
+    planNames:["Prefix XMM"],
+    availableProducts:"signia", signiaPricing:{2:699,3:999,5:1399,7:1799} },
+  { id:"anthem_mediblue_access_eau", carrier:"Anthem",
+    planNames:["Mediblue Access PPO","Preferred Provider Option","Prefix EAU"],
+    availableProducts:"signia", signiaPricing:{1:1095,2:1400,3:1700,5:2095,7:2600} },
+  { id:"anthem_plumbers_525", carrier:"Anthem",
+    planNames:["Plumbers & Pipefitters Union Local No. 525"],
+    availableProducts:"signia", signiaPricing:{3:1195,5:1495,7:1895} },
+  // ── BCBS ─────────────────────────────────────────────────────────────────────
+  { id:"bcbs_montana_ma_ppo", carrier:"BCBS",
+    planNames:["BCBS Montana Medicare Advantage PPO"],
+    availableProducts:"signia", signiaPricing:{3:1495,5:1895,7:2195} },
+  { id:"bcbs_arkansas_choice", carrier:"BCBS",
+    planNames:["Arkansas Choice","Prefix PBHAB","BCBS Arkansas Medicare Advantage HMO"],
+    availableProducts:"signia", signiaPricing:{3:445,5:745,7:1145} },
+  { id:"bcbs_arkansas_medipak", carrier:"BCBS",
+    planNames:["Arkansas Medipak","Prefix PBHF","Prefix XCM"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:699,Premium:999} },
+  { id:"bcbs_ar_saver_choice", carrier:"BCBS",
+    planNames:["AR Blue Medicare Saver Choice PPO","Prefix MCMAB","Medicare Advantage Optimum (PPO) MT"],
+    availableProducts:"signia", signiaPricing:{1:695,2:895,3:1250,5:1595,7:2050} },
+  { id:"bcbs_ar_blueadvantage_premier", carrier:"BCBS",
+    planNames:["AR BlueMedicare Advantage Premier Choice","AR BlueMedicare Advantage Premier HMO","AR BlueMedicare Advantage Classic Plus","AR BlueMedicare Advantage Classic"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:699,Premium:999} },
+  { id:"bcbs_xmc_xmx_idaho_snp", carrier:"BCBS",
+    planNames:["Prefix XMC, XMX","True Blue Special Needs Plan (Idaho)"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:699,Premium:999} },
+  { id:"bcbs_idaho_xmm_xma", carrier:"BCBS Idaho",
+    planNames:["Prefix XMM, XMA (Idaho)"],
+    availableProducts:"signia", signiaPricing:{1:695,2:895,3:1250,5:1595,7:2050} },
+  { id:"bcbs_idaho_x2b", carrier:"BCBS",
+    planNames:["Prefix X2B (Idaho)"],
+    availableProducts:"signia", noPatientCost:true, signiaPricing:{1:0},
+    coveredNote:"Signia Level 1 only — no cost to patient" },
+  { id:"bcbs_michigan_xyl", carrier:"BCBS",
+    planNames:["BCBS of Michigan Prefix XYL"],
+    availableProducts:"thSelect", thSelectPricing:{Standard:499,Advanced:699,Premium:999} },
+  { id:"bcbs_tn_blue_advantage_garnet", carrier:"BCBS",
+    planNames:["TN Blue Advantage Garnet"],
+    availableProducts:"thSelect", thSelectPricing:{Standard:499,Advanced:699,Premium:999} },
+  { id:"bcbs_blue_care_plus_tn", carrier:"BCBS",
+    planNames:["Blue Care Plus TN"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:499,Premium:799} },
+  { id:"bcbs_montana", carrier:"BCBS",
+    planNames:["Montana BCBS"],
+    availableProducts:"signia", signiaPricing:{3:1499,5:1899,7:2199} },
+  { id:"bcbs_idaho_medicaid_plus", carrier:"BCBS of Idaho",
+    planNames:["Idaho Medicaid Plus"],
+    availableProducts:"thSelect", thSelectPricing:{Standard:399,Advanced:599,Premium:899} },
+  // ── CARESOURCE ──────────────────────────────────────────────────────────────
+  { id:"caresource_ohio_dual_advantage", carrier:"CareSource Ohio",
+    planNames:["Dual Advantage Medicare/Medicaid"],
+    availableProducts:"thSelect", noPatientCost:true, thSelectPricing:{Advanced:0},
+    coveredNote:"TH Private Label Advanced only — no cost to patient" },
+  { id:"caresource_ohio_marketplace_bronze", carrier:"CareSource Ohio",
+    planNames:["Marketplace Bronze First"],
+    availableProducts:"choiceSignia", signiaPricing:{3:1250,5:1595,7:2050},
+    notes:"Full Choice catalog available at standard Choice prices" },
+  // ── CENTRAL MIDWEST ─────────────────────────────────────────────────────────
+  { id:"central_midwest_carpenters", carrier:"Central Midwest",
+    planNames:["Central Midwest Carpenters Welfare Fund"],
+    availableProducts:"choiceSignia", signiaPricing:{1:695,2:895,3:1250,5:1595,7:2050},
+    notes:"Full Choice catalog available at standard Choice prices" },
+  // ── CIGNA ───────────────────────────────────────────────────────────────────
+  { id:"cigna_true_choice_ma", carrier:"Cigna",
+    planNames:["True Choice Medicare PPO MNPS","Cigna Med Adv Health Spring Tru Choice PPO","Cigna HealthSpring Preferred (HMO)","Cigna HealthSpring Premier (HMO-POS)"],
+    availableProducts:"thSelect", noPatientCost:true, thSelectPricing:{Advanced:0},
+    coveredNote:"Select options Advanced only — no cost to patient" },
+  // ── CLEVELAND BAKERS & TEAMSTERS ─────────────────────────────────────────────
+  { id:"cleveland_bakers_teamsters", carrier:"Cleveland Bakers & Teamsters",
+    planNames:["Health and Welfare Fund"],
+    availableProducts:"choiceSignia", signiaPricing:{1:695,2:895,3:1250,5:1595,7:2050},
+    notes:"Full Choice catalog available at standard Choice prices" },
+  // ── DEVOTED HEALTH ──────────────────────────────────────────────────────────
+  { id:"devoted_prime_premium_ohio", carrier:"Devoted Health",
+    planNames:["Prime Ohio HMO","Premium Ohio HMO"],
+    availableProducts:"signiaMixed", signiaPricing:{2:999,3:1399,5:1599},
+    rextonStandardOnly:true, notes:"Standard/Select tier via Rexton only. Level 7 not available." },
+  { id:"devoted_choice_core_ohio_tn", carrier:"Devoted Health",
+    planNames:["Choice Extra Ohio PPO","Core TN HMO","Choice Ohio PPO","Core OH HMO"],
+    availableProducts:"signia", signiaPricing:{2:699,3:999,5:1399,7:1799} },
+  { id:"devoted_ohio_giveback_hmo", carrier:"Devoted Health",
+    planNames:["Ohio Giveback HMO"],
+    availableProducts:"signia", noPatientCost:true, signiaPricing:{1:0,2:0,3:0,5:0,7:0},
+    coveredNote:"No cost to patient" },
+  { id:"devoted_ohio_giveback_zipbased", carrier:"Devoted Health",
+    planNames:["Ohio Giveback HMO (zip-based)","Dual Plus OH"],
+    availableProducts:"signia", signiaPricing:{2:899,3:1199,5:1299,7:1499} },
+  // ── DMBA ────────────────────────────────────────────────────────────────────
+  { id:"dmba_deseret", carrier:"DMBA",
+    planNames:["Deseret Secure","Deseret Alliance"],
+    availableProducts:"signia", signiaPricing:{2:899,3:1199,5:1299,7:1499} },
+  // ── EMI ─────────────────────────────────────────────────────────────────────
+  { id:"emi_educators_mutual", carrier:"EMI Educators Mutual",
+    planNames:["All Plans"],
+    availableProducts:"signia", signiaPricing:{2:745,3:1025,5:1500,7:1800} },
+  // ── GEHA ────────────────────────────────────────────────────────────────────
+  { id:"geha_uhc_choice_plus", carrier:"GEHA",
+    planNames:["UHC Choice Plus Plan"],
+    availableProducts:"signia", signiaPricing:{1:399,2:745,3:1025,5:1500,7:1800} },
+  // ── HIGHMARK ────────────────────────────────────────────────────────────────
+  { id:"highmark_t3b", carrier:"Highmark",
+    planNames:["Prefix T3B"],
+    availableProducts:"signia", signiaPricing:{2:1049,3:1349,5:1699,7:2099} },
+  { id:"highmark_hrt", carrier:"Highmark",
+    planNames:["Prefix HRT"],
+    availableProducts:"signia", signiaPricing:{1:599,2:899,3:1099,5:1499,7:1899} },
+  { id:"highmark_hrf", carrier:"Highmark",
+    planNames:["Prefix HRF"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:199,Premium:499},
+    notes:"⚠️ Asterisk on source doc — verify pricing with TruHearing before counseling" },
+  { id:"highmark_c4k", carrier:"Highmark",
+    planNames:["Prefix C4K"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:399,Premium:699} },
+  { id:"highmark_zwd", carrier:"Highmark",
+    planNames:["Prefix ZWD"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:599,Premium:899} },
+  // ── HUMANA ──────────────────────────────────────────────────────────────────
+  { id:"humana_medicare_advantage", carrier:"Humana",
+    planNames:["Medicare Advantage"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:0,Premium:299},
+    coveredNote:"Advanced at zero copay" },
+  { id:"humana_diabetes_heart_csnp", carrier:"Humana",
+    planNames:["Humana Choice Diabetes and Heart (PPO C-SNP)"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:399,Premium:699} },
+  { id:"humana_usaa_giveback_group", carrier:"Humana",
+    planNames:["USAA Honor Giveback PPO","Humana Essentials Plus Giveback (PPO)","Humana Honor PPO","Humana Choice Giveback (PPO)","Humana Cleveland Clinic Preferred (HMO-POS)","Full Access PPO","Total Complete HMO"],
+    availableProducts:"signia", signiaPricing:{1:695,2:895,3:1250,5:1595,7:2050} },
+  { id:"humana_usaa_giveback_hmo", carrier:"Humana",
+    planNames:["USAA Honor Giveback (HMO)"],
+    availableProducts:"signia", signiaPricing:{3:1250,5:1595,7:2050} },
+  { id:"humana_choice_ppo", carrier:"Humana",
+    planNames:["Choice PPO"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:99,Premium:399} },
+  { id:"humana_value_plus_dual_select", carrier:"Humana",
+    planNames:["Value Plus PPO","Dual Select HMO","Dual Select PPO","Gold Plus HMO (based on zip code)"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:599,Premium:899} },
+  { id:"humana_gold_plus_csnp", carrier:"Humana",
+    planNames:["Gold Plus HMO (zip-based)","Gold Plus Diabetes and Heart (HMO CSNP)","Value Choice PPO"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:499,Premium:799} },
+  { id:"humana_gold_plus_giveback", carrier:"Humana",
+    planNames:["Gold Plus Giveback HMO"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:699,Premium:799} },
+  { id:"humana_medicare_ohio_carp", carrier:"Humana Medicare",
+    planNames:["Employer PPO Ohio CARP Health Plan"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:699,Premium:999} },
+  { id:"humana_medicare_nw_laborers", carrier:"Humana Medicare",
+    planNames:["Humana Medicare Employer PPO University of Oklahoma","Humana NW Laborers Employee Plan","Humana Medicare Employer PPO International Associates"],
+    availableProducts:"signiaMixed", signiaPricing:{2:1325,3:1575,5:1925},
+    notes:"Level 7 not available on this plan" },
+  { id:"humana_medicare_board_of_pensions", carrier:"Humana Medicare",
+    planNames:["Humana Medicare Employer PPO Board of Pensions"],
+    availableProducts:"signia", signiaPricing:{2:970,3:1270,5:1570,7:1970},
+    rextonStandardOnly:true, notes:"Standard/Select tier available via Rexton only" },
+  // ── LINECO ──────────────────────────────────────────────────────────────────
+  { id:"lineco", carrier:"Lineco",
+    planNames:["Lineco"],
+    availableProducts:"signiaMixed", signiaPricing:{2:975,3:1275,5:1575},
+    rextonStandardOnly:true, notes:"Level 7 not available. Standard/Select via Rexton only" },
+  // ── MEDICAL MUTUAL ──────────────────────────────────────────────────────────
+  { id:"medical_mutual_ma", carrier:"Medical Mutual",
+    planNames:["Medicare Advantage Plans"],
+    availableProducts:"signia", signiaPricing:{3:1645,5:1950,7:2350} },
+  // ── MODA ────────────────────────────────────────────────────────────────────
+  { id:"moda_medicare_supplement", carrier:"Moda",
+    planNames:["Medicare Supplement"],
+    availableProducts:"signia", signiaPricing:{1:695,2:895,3:1250,5:1595,7:2050} },
+  { id:"moda_health_central_ppo", carrier:"Moda",
+    planNames:["Moda Health Central PPO"],
+    availableProducts:"thSelect", thSelectPricing:{Standard:299,Advanced:599,Premium:899} },
+  // ── PACIFIC SOURCE ───────────────────────────────────────────────────────────
+  { id:"pacific_source_ma", carrier:"Pacific Source",
+    planNames:["Medicare Advantage"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:699,Premium:999} },
+  // ── PROMINENCE ───────────────────────────────────────────────────────────────
+  { id:"prominence_plus_hmo", carrier:"Prominence",
+    planNames:["Prominence Plus HMO"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:399,Premium:699} },
+  { id:"prominence_plans", carrier:"Prominence",
+    planNames:["Prominence Plans"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:299,Premium:599},
+    notes:"Copays may vary by plan — verify before counseling" },
+  // ── PROVIDENCE ───────────────────────────────────────────────────────────────
+  { id:"providence_choice_ma", carrier:"Providence",
+    planNames:["Choice Plan","Medicare Advantage"],
+    availableProducts:"thSelect", noPatientCost:true, thSelectPricing:{Advanced:0},
+    coveredNote:"Advanced — zero copay", notes:"Some zip codes may have zero copay for additional tiers — verify" },
+  { id:"providence_medicare_flex", carrier:"Providence",
+    planNames:["Medicare Flex","Providence Medicare Align HMO"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:699,Premium:999},
+    notes:"Some zip codes may have zero copay — verify" },
+  // ── REGENCE ──────────────────────────────────────────────────────────────────
+  { id:"regence_supplement_bridge_n", carrier:"Regence",
+    planNames:["Medicare Supplement Bridge Plan N","Prefix ZVU","Prefix ZVY and XNH","UAW"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:499,Premium:799} },
+  { id:"regence_ma_ppo", carrier:"Regence",
+    planNames:["Medicare Advantage PPO","Prefix ZVX, ZVW, ZVH, ZVU, ZHO","Medicare Supplement Bridge Plan G (Prefix YVO)"],
+    availableProducts:"signia", signiaPricing:{2:699,3:999,5:1399,7:1799} },
+  // ── SAINT ALPHONSUS ──────────────────────────────────────────────────────────
+  { id:"saint_alphonsus_hmo_ma", carrier:"Saint Alphonsus HMO",
+    planNames:["Medicare Advantage"],
+    availableProducts:"signia", signiaPricing:{3:1250,5:1595,7:2050} },
+  // ── SCAN ─────────────────────────────────────────────────────────────────────
+  { id:"scan_prefix_group", carrier:"SCAN",
+    planNames:["Prefix 40028942101","Prefix 40045778801","Prefix 40010939801"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:99,Premium:399} },
+  { id:"scan_classic_venture", carrier:"SCAN",
+    planNames:["SCAN Classic HMO","SCAN Venture HMO"],
+    availableProducts:"signia", signiaPricing:{3:1495,5:1895,7:2195} },
+  // ── SELECT HEALTH ────────────────────────────────────────────────────────────
+  { id:"select_health_choice_all", carrier:"Select Health Choice",
+    planNames:["All Plans"],
+    availableProducts:"signia", signiaPricing:{1:600,2:850,3:1100,5:1350,7:1500} },
+  { id:"select_health_advantage_all", carrier:"Select Health Advantage",
+    planNames:["All Plans"],
+    availableProducts:"thSelect", thSelectPricing:{Standard:499,Advanced:699,Premium:999} },
+  { id:"select_health_medicare", carrier:"Select Health",
+    planNames:["Medicare + Kroger HMO","Medicare Choice (PPO)","Medicare Essential (HMO)","Medicare Classic (HMO)","Medicare"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:399,Premium:699} },
+  // ── SUMMIT HEALTH / SUREBRIDGE / UAW / UCLA ──────────────────────────────────
+  { id:"summit_health_all", carrier:"Summit Health",
+    planNames:["All Plans"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:599,Premium:899} },
+  { id:"surebridge_dental_wise_plus", carrier:"Surebridge",
+    planNames:["Dental Wise Plus"],
+    availableProducts:"signia", signiaPricing:{2:1325,3:1575,5:1925,7:2325} },
+  { id:"ucla_health_ma_prestige", carrier:"UCLA Health",
+    planNames:["MA Prestige Plan"],
+    availableProducts:"signia", signiaPricing:{1:600,2:850,3:1100,5:1350,7:1500} },
+  { id:"primetime_health_ma_hmo", carrier:"Primetime Health",
+    planNames:["Medicare Advantage HMO"],
+    availableProducts:"thSelect", thSelectPricing:{Standard:599,Advanced:799,Premium:999} },
+  // ── VSP / UMR / WELLCARE ─────────────────────────────────────────────────────
+  { id:"vsp", carrier:"Vision Service Plan (VSP)",
+    planNames:["VSP"],
+    availableProducts:"signia", signiaPricing:{1:700,2:975,3:1250,5:1450,7:1800} },
+  { id:"umr_teachers_health_trust", carrier:"UMR",
+    planNames:["Teachers Health Trust"],
+    availableProducts:"thSelect", thSelectPricing:{Standard:499,Advanced:699,Premium:999} },
+  { id:"wellcare_all", carrier:"Wellcare / Wellcare HealthNet / HealthNet",
+    planNames:["All Plans"],
+    availableProducts:"choiceSignia", signiaPricing:{1:1250,2:1350,3:1595,5:1950,7:2325},
+    notes:"Full Choice catalog available. Signia prices are plan-specific." },
+  { id:"wellcare_dual_select_snp", carrier:"Wellcare",
+    planNames:["Wellcare Dual Select HMO D SNP"],
+    availableProducts:"signia", signiaPricing:{1:650,2:750,3:995,5:1350,7:1725} },
+  { id:"wellpoint_amerigroup_all", carrier:"Wellpoint (also known as Amerigroup)",
+    planNames:["All Plans"],
+    availableProducts:"thSelect", thSelectPricing:{Advanced:699,Premium:999} },
 ];
+
+// ── PLAN CATALOG HELPERS ──────────────────────────────────────────────────────
+
+/** Map Signia tech-level label (e.g. "7IX", "3AX") → tier number for pricing lookup */
+function signiaLevelToTier(techLevel) {
+  const m = String(techLevel || "").match(/^(\d+)/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+/** Get patient price from a third-party plan for a selected manufacturer + tech level.
+ *  Returns: number (price per aid), 0 (no cost), "N/A" (not on plan), or null (plan doesn't apply). */
+function getPlanPriceForTech(plan, manufacturer, techLevel) {
+  if (!plan || !techLevel) return null;
+  if (manufacturer === "Signia" || manufacturer === "Rexton") {
+    if (!plan.signiaPricing) return null;
+    const tier = signiaLevelToTier(techLevel);
+    if (tier === null) return null;
+    const price = plan.signiaPricing[tier];
+    return price === undefined ? "N/A" : price;
+  }
+  if (manufacturer === "TruHearing") {
+    if (!plan.thSelectPricing) return null;
+    const price = plan.thSelectPricing[techLevel];
+    return price === undefined ? "N/A" : price;
+  }
+  if (plan.availableProducts === "choiceFull" || plan.availableProducts === "choiceSignia") return null;
+  return null;
+}
+
+/** Get the set of manufacturer names allowed by a plan, or null if unrestricted */
+function getPlanAllowedMfrs(plan) {
+  if (!plan) return null;
+  switch (plan.availableProducts) {
+    case "signia":      return ["Signia"];
+    case "signiaMixed": return ["Signia"];
+    case "thSelect":    return ["TruHearing"];
+    case "choiceFull":  return null;
+    case "choiceSignia":return null;
+    default:            return null;
+  }
+}
+
+/** Human-readable product type label */
+function getProductTypeLabel(ap) {
+  return { signia:"Signia devices only", signiaMixed:"Signia devices only (some levels restricted)",
+    thSelect:"TruHearing Select (private label) only", choiceFull:"Full TruHearing Choice catalog",
+    choiceSignia:"Full Choice catalog — Signia at plan-specific pricing" }[ap] || ap;
+}
+
+/** Resolve the active THIRD_PARTY plan from form state */
+function resolveActivePlan(form) {
+  if (!form.thirdPartyPlanId) return null;
+  return THIRD_PARTY_PLANS.find(p => p.id === form.thirdPartyPlanId) || null;
+}
 
 
 const BODY_STYLES = [
@@ -783,7 +1089,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
   useEffect(() => {
-    loadAllPatients().then(p => { setPatients(p); setLoading(false); });
+    loadAllPatients(clinicId).then(p => { setPatients(p); setLoading(false); });
     (async () => {
       try {
         if (clinicId) {
@@ -800,7 +1106,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
   const refreshPatients = async () => {
-    const p = await loadAllPatients();
+    const p = await loadAllPatients(clinicId);
     setPatients(p);
   };
 
@@ -1369,8 +1675,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
   };
 
 
-  const carriersForType = [...new Set(DEMO_PLANS.map(p => p.carrier))];
-  const plansForCarrier = DEMO_PLANS.filter(p => p.carrier === form.carrier);
+  const carriersForType = [...new Set(THIRD_PARTY_PLANS.map(p => p.carrier))];
+  const plansForCarrier = THIRD_PARTY_PLANS.filter(p => p.carrier === form.carrier);
 
 
   // Catalog-driven cascade derived values (side-aware)
@@ -1440,35 +1746,41 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   onChange={e=>upd("_planSearch",e.target.value)}
                   style={{width:"100%",marginBottom:10,fontSize:13}}
                 />
-                <div style={{maxHeight:220,overflowY:"auto",display:"flex",flexDirection:"column",gap:6,paddingRight:4}}>
-                  {DEMO_PLANS
+                <div style={{maxHeight:260,overflowY:"auto",display:"flex",flexDirection:"column",gap:6,paddingRight:4}}>
+                  {THIRD_PARTY_PLANS
                     .filter(p=>{
                       const q=(form._planSearch||"").toLowerCase();
-                      return !q||p.carrier.toLowerCase().includes(q)||p.planGroup.toLowerCase().includes(q)||p.tpa.toLowerCase().includes(q);
+                      return !q||p.carrier.toLowerCase().includes(q)||p.planNames.some(n=>n.toLowerCase().includes(q));
                     })
-                    .sort((a,b)=>a.planGroup.localeCompare(b.planGroup))
+                    .sort((a,b)=>a.carrier.localeCompare(b.carrier)||a.planNames[0].localeCompare(b.planNames[0]))
                     .map(plan=>(
-                      <div key={plan.planGroup}
-                        className={`plan-row ${form.planGroup===plan.planGroup?"active":""}`}
+                      <div key={plan.id}
+                        className={`plan-row ${form.thirdPartyPlanId===plan.id?"active":""}`}
                         onClick={()=>{
-                          upd("planGroup",plan.planGroup);
+                          upd("thirdPartyPlanId",plan.id);
                           upd("carrier",plan.carrier);
-                          upd("tpa",plan.tpa);
+                          upd("planGroup",plan.planNames[0]);
+                          upd("tpa","TruHearing");
                           upd("tier","");
                           upd("tierPrice",null);
                         }}>
-                        <div className="plan-row-name">{plan.planGroup}</div>
-                        <div className="plan-row-tpa">{plan.carrier} · via {plan.tpa}</div>
+                        <div className="plan-row-name">{plan.planNames[0]}{plan.planNames.length>1?` (+${plan.planNames.length-1} plans)`:""}</div>
+                        <div className="plan-row-tpa">{plan.carrier} · via TruHearing · {getProductTypeLabel(plan.availableProducts)}</div>
                       </div>
                     ))
                   }
                 </div>
                 {form.planGroup && (
-                  <div style={{marginTop:12,paddingTop:12,borderTop:"1px solid #e5e7eb",display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{marginTop:12,paddingTop:12,borderTop:"1px solid #e5e7eb",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                     <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>TPA</span>
                     <span style={{fontSize:13,fontWeight:600,color:"#374151",background:"#f3f4f6",borderRadius:6,padding:"3px 10px"}}>{form.tpa}</span>
+                    {form.thirdPartyPlanId && (
+                      <span style={{fontSize:11,fontWeight:600,color:"#4f46e5",background:"#eef2ff",borderRadius:6,padding:"3px 10px"}}>
+                        {getProductTypeLabel(THIRD_PARTY_PLANS.find(p=>p.id===form.thirdPartyPlanId)?.availableProducts||"")}
+                      </span>
+                    )}
                     <button style={{marginLeft:"auto",fontSize:11,color:"#9ca3af",background:"none",border:"none",cursor:"pointer",padding:0}}
-                      onClick={()=>{upd("planGroup","");upd("carrier","");upd("tpa","");upd("tier","");upd("tierPrice",null);}}>
+                      onClick={()=>{upd("planGroup","");upd("carrier","");upd("tpa","");upd("tier","");upd("tierPrice",null);upd("thirdPartyPlanId","");}}>
                       ✕ Clear
                     </button>
                   </div>
