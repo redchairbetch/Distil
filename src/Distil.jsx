@@ -1,19 +1,35 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import {
-  loadAllPatients,
-  savePatient,
-  loadPunch,
-  savePunch,
-  loadClinicSettings,
-  saveClinicSettings,
-  loadProductCatalog,
-  saveProductCatalog,
-  loadPendingIntakes,
-  subscribeToIntakes,
-  acceptIntake as dbAcceptIntake,
-  dismissIntake,
-  signOut,
-} from "./db.js";
+import { useState, useEffect, useMemo } from "react";
+
+
+// ── SHARED STORAGE HELPERS ────────────────────────────────────────────────────
+const storage = window.storage;
+async function savePatient(patient) {
+  await storage.set(`patient:${patient.id}`, JSON.stringify(patient));
+  await storage.set("patient_list_updated", Date.now().toString());
+}
+async function loadAllPatients() {
+  try {
+    const keys = await storage.list("patient:");
+    const patients = await Promise.all(
+      (keys.keys || []).map(async k => {
+        const r = await storage.get(k);
+        return r ? JSON.parse(r.value) : null;
+      })
+    );
+    return patients.filter(Boolean).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+  } catch { return []; }
+}
+async function loadPunch(patientId) {
+  try {
+    const r = await storage.get(`punch:${patientId}`);
+    return r?.value ? JSON.parse(r.value) : { cleanings: 0, appointments: 0, log: [] };
+  } catch { return { cleanings: 0, appointments: 0, log: [] }; }
+}
+async function savePunch(patientId, data) {
+  try { await storage.set(`punch:${patientId}`, JSON.stringify(data)); } catch {}
+  // Also write to legacy key so patient app picks it up
+  try { await storage.set("punch_card_used", JSON.stringify({ cleanings: data.cleanings, appointments: data.appointments })); } catch {}
+}
 
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
@@ -25,330 +41,24 @@ const DEFAULT_CLINIC = {
 };
 
 
-const DEMO_PLANS = []; // Legacy placeholder — real plans live in THIRD_PARTY_PLANS
-
-
-// ── THIRD-PARTY EXCLUSIVE PLANS (TruHearing) ─────────────────────────────────
-// Source: TruHearing Third Party Exclusive Plans screenshots, reviewed 2026
-// availableProducts: "signia" | "thSelect" | "signiaMixed" | "choiceFull" | "choiceSignia"
-// signiaPricing keys: Signia level number (1/2/3/5/7) → patient price per aid
-// thSelectPricing keys: "Standard" | "Advanced" | "Premium" → patient price per aid
-const THIRD_PARTY_PLANS = [
-  // ── ANTHEM ──────────────────────────────────────────────────────────────────
-  { id:"anthem_signia_standard", carrier:"Anthem",
-    planNames:["Medicare Preferred PPO","Medicare Supplement","Prefix MBL","Prefix VOD / Prefix YFZ","Prefix L7Q","Prefix VOC / Prefix YGZ","Anthem Empire Mediblue Freedom (PPO)","Anthem Dual Advantage (HMO D-SNP)","NV Anthem Medicare Advantage (HMO)","NV Anthem I Carelon Chronic Care (HMO-POS C-SNP)","KY Anthem Medicare Advantage HMO POS"],
-    availableProducts:"signia", signiaPricing:{1:499,2:699,3:999,5:1399,7:1799} },
-  { id:"anthem_jrg_jri", carrier:"Anthem",
-    planNames:["Prefix JRG / JRI"],
-    availableProducts:"thSelect", thSelectPricing:{Standard:499,Advanced:699,Premium:999} },
-  { id:"anthem_sheet_metal_33", carrier:"Anthem",
-    planNames:["Sheet Metal Workers' Union Local 33 Cleveland District via OH PPO/EPO Blue Access Local/Natl"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:499,Premium:799} },
-  { id:"anthem_xmm", carrier:"Anthem",
-    planNames:["Prefix XMM"],
-    availableProducts:"signia", signiaPricing:{2:699,3:999,5:1399,7:1799} },
-  { id:"anthem_mediblue_access_eau", carrier:"Anthem",
-    planNames:["Mediblue Access PPO","Preferred Provider Option","Prefix EAU"],
-    availableProducts:"signia", signiaPricing:{1:1095,2:1400,3:1700,5:2095,7:2600} },
-  { id:"anthem_plumbers_525", carrier:"Anthem",
-    planNames:["Plumbers & Pipefitters Union Local No. 525"],
-    availableProducts:"signia", signiaPricing:{3:1195,5:1495,7:1895} },
-  // ── BCBS ─────────────────────────────────────────────────────────────────────
-  { id:"bcbs_montana_ma_ppo", carrier:"BCBS",
-    planNames:["BCBS Montana Medicare Advantage PPO"],
-    availableProducts:"signia", signiaPricing:{3:1495,5:1895,7:2195} },
-  { id:"bcbs_arkansas_choice", carrier:"BCBS",
-    planNames:["Arkansas Choice","Prefix PBHAB","BCBS Arkansas Medicare Advantage HMO"],
-    availableProducts:"signia", signiaPricing:{3:445,5:745,7:1145} },
-  { id:"bcbs_arkansas_medipak", carrier:"BCBS",
-    planNames:["Arkansas Medipak","Prefix PBHF","Prefix XCM"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:699,Premium:999} },
-  { id:"bcbs_ar_saver_choice", carrier:"BCBS",
-    planNames:["AR Blue Medicare Saver Choice PPO","Prefix MCMAB","Medicare Advantage Optimum (PPO) MT"],
-    availableProducts:"signia", signiaPricing:{1:695,2:895,3:1250,5:1595,7:2050} },
-  { id:"bcbs_ar_blueadvantage_premier", carrier:"BCBS",
-    planNames:["AR BlueMedicare Advantage Premier Choice","AR BlueMedicare Advantage Premier HMO","AR BlueMedicare Advantage Classic Plus","AR BlueMedicare Advantage Classic"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:699,Premium:999} },
-  { id:"bcbs_xmc_xmx_idaho_snp", carrier:"BCBS",
-    planNames:["Prefix XMC, XMX","True Blue Special Needs Plan (Idaho)"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:699,Premium:999} },
-  { id:"bcbs_idaho_xmm_xma", carrier:"BCBS Idaho",
-    planNames:["Prefix XMM, XMA (Idaho)"],
-    availableProducts:"signia", signiaPricing:{1:695,2:895,3:1250,5:1595,7:2050} },
-  { id:"bcbs_idaho_x2b", carrier:"BCBS",
-    planNames:["Prefix X2B (Idaho)"],
-    availableProducts:"signia", noPatientCost:true, signiaPricing:{1:0},
-    coveredNote:"Signia Level 1 only — no cost to patient" },
-  { id:"bcbs_michigan_xyl", carrier:"BCBS",
-    planNames:["BCBS of Michigan Prefix XYL"],
-    availableProducts:"thSelect", thSelectPricing:{Standard:499,Advanced:699,Premium:999} },
-  { id:"bcbs_tn_blue_advantage_garnet", carrier:"BCBS",
-    planNames:["TN Blue Advantage Garnet"],
-    availableProducts:"thSelect", thSelectPricing:{Standard:499,Advanced:699,Premium:999} },
-  { id:"bcbs_blue_care_plus_tn", carrier:"BCBS",
-    planNames:["Blue Care Plus TN"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:499,Premium:799} },
-  { id:"bcbs_montana", carrier:"BCBS",
-    planNames:["Montana BCBS"],
-    availableProducts:"signia", signiaPricing:{3:1499,5:1899,7:2199} },
-  { id:"bcbs_idaho_medicaid_plus", carrier:"BCBS of Idaho",
-    planNames:["Idaho Medicaid Plus"],
-    availableProducts:"thSelect", thSelectPricing:{Standard:399,Advanced:599,Premium:899} },
-  // ── CARESOURCE ──────────────────────────────────────────────────────────────
-  { id:"caresource_ohio_dual_advantage", carrier:"CareSource Ohio",
-    planNames:["Dual Advantage Medicare/Medicaid"],
-    availableProducts:"thSelect", noPatientCost:true, thSelectPricing:{Advanced:0},
-    coveredNote:"TH Private Label Advanced only — no cost to patient" },
-  { id:"caresource_ohio_marketplace_bronze", carrier:"CareSource Ohio",
-    planNames:["Marketplace Bronze First"],
-    availableProducts:"choiceSignia", signiaPricing:{3:1250,5:1595,7:2050},
-    notes:"Full Choice catalog available at standard Choice prices" },
-  // ── CENTRAL MIDWEST ─────────────────────────────────────────────────────────
-  { id:"central_midwest_carpenters", carrier:"Central Midwest",
-    planNames:["Central Midwest Carpenters Welfare Fund"],
-    availableProducts:"choiceSignia", signiaPricing:{1:695,2:895,3:1250,5:1595,7:2050},
-    notes:"Full Choice catalog available at standard Choice prices" },
-  // ── CIGNA ───────────────────────────────────────────────────────────────────
-  { id:"cigna_true_choice_ma", carrier:"Cigna",
-    planNames:["True Choice Medicare PPO MNPS","Cigna Med Adv Health Spring Tru Choice PPO","Cigna HealthSpring Preferred (HMO)","Cigna HealthSpring Premier (HMO-POS)"],
-    availableProducts:"thSelect", noPatientCost:true, thSelectPricing:{Advanced:0},
-    coveredNote:"Select options Advanced only — no cost to patient" },
-  // ── CLEVELAND BAKERS & TEAMSTERS ─────────────────────────────────────────────
-  { id:"cleveland_bakers_teamsters", carrier:"Cleveland Bakers & Teamsters",
-    planNames:["Health and Welfare Fund"],
-    availableProducts:"choiceSignia", signiaPricing:{1:695,2:895,3:1250,5:1595,7:2050},
-    notes:"Full Choice catalog available at standard Choice prices" },
-  // ── DEVOTED HEALTH ──────────────────────────────────────────────────────────
-  { id:"devoted_prime_premium_ohio", carrier:"Devoted Health",
-    planNames:["Prime Ohio HMO","Premium Ohio HMO"],
-    availableProducts:"signiaMixed", signiaPricing:{2:999,3:1399,5:1599},
-    rextonStandardOnly:true, notes:"Standard/Select tier via Rexton only. Level 7 not available." },
-  { id:"devoted_choice_core_ohio_tn", carrier:"Devoted Health",
-    planNames:["Choice Extra Ohio PPO","Core TN HMO","Choice Ohio PPO","Core OH HMO"],
-    availableProducts:"signia", signiaPricing:{2:699,3:999,5:1399,7:1799} },
-  { id:"devoted_ohio_giveback_hmo", carrier:"Devoted Health",
-    planNames:["Ohio Giveback HMO"],
-    availableProducts:"signia", noPatientCost:true, signiaPricing:{1:0,2:0,3:0,5:0,7:0},
-    coveredNote:"No cost to patient" },
-  { id:"devoted_ohio_giveback_zipbased", carrier:"Devoted Health",
-    planNames:["Ohio Giveback HMO (zip-based)","Dual Plus OH"],
-    availableProducts:"signia", signiaPricing:{2:899,3:1199,5:1299,7:1499} },
-  // ── DMBA ────────────────────────────────────────────────────────────────────
-  { id:"dmba_deseret", carrier:"DMBA",
-    planNames:["Deseret Secure","Deseret Alliance"],
-    availableProducts:"signia", signiaPricing:{2:899,3:1199,5:1299,7:1499} },
-  // ── EMI ─────────────────────────────────────────────────────────────────────
-  { id:"emi_educators_mutual", carrier:"EMI Educators Mutual",
-    planNames:["All Plans"],
-    availableProducts:"signia", signiaPricing:{2:745,3:1025,5:1500,7:1800} },
-  // ── GEHA ────────────────────────────────────────────────────────────────────
-  { id:"geha_uhc_choice_plus", carrier:"GEHA",
-    planNames:["UHC Choice Plus Plan"],
-    availableProducts:"signia", signiaPricing:{1:399,2:745,3:1025,5:1500,7:1800} },
-  // ── HIGHMARK ────────────────────────────────────────────────────────────────
-  { id:"highmark_t3b", carrier:"Highmark",
-    planNames:["Prefix T3B"],
-    availableProducts:"signia", signiaPricing:{2:1049,3:1349,5:1699,7:2099} },
-  { id:"highmark_hrt", carrier:"Highmark",
-    planNames:["Prefix HRT"],
-    availableProducts:"signia", signiaPricing:{1:599,2:899,3:1099,5:1499,7:1899} },
-  { id:"highmark_hrf", carrier:"Highmark",
-    planNames:["Prefix HRF"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:199,Premium:499},
-    notes:"⚠️ Asterisk on source doc — verify pricing with TruHearing before counseling" },
-  { id:"highmark_c4k", carrier:"Highmark",
-    planNames:["Prefix C4K"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:399,Premium:699} },
-  { id:"highmark_zwd", carrier:"Highmark",
-    planNames:["Prefix ZWD"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:599,Premium:899} },
-  // ── HUMANA ──────────────────────────────────────────────────────────────────
-  { id:"humana_medicare_advantage", carrier:"Humana",
-    planNames:["Medicare Advantage"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:0,Premium:299},
-    coveredNote:"Advanced at zero copay" },
-  { id:"humana_diabetes_heart_csnp", carrier:"Humana",
-    planNames:["Humana Choice Diabetes and Heart (PPO C-SNP)"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:399,Premium:699} },
-  { id:"humana_usaa_giveback_group", carrier:"Humana",
-    planNames:["USAA Honor Giveback PPO","Humana Essentials Plus Giveback (PPO)","Humana Honor PPO","Humana Choice Giveback (PPO)","Humana Cleveland Clinic Preferred (HMO-POS)","Full Access PPO","Total Complete HMO"],
-    availableProducts:"signia", signiaPricing:{1:695,2:895,3:1250,5:1595,7:2050} },
-  { id:"humana_usaa_giveback_hmo", carrier:"Humana",
-    planNames:["USAA Honor Giveback (HMO)"],
-    availableProducts:"signia", signiaPricing:{3:1250,5:1595,7:2050} },
-  { id:"humana_choice_ppo", carrier:"Humana",
-    planNames:["Choice PPO"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:99,Premium:399} },
-  { id:"humana_value_plus_dual_select", carrier:"Humana",
-    planNames:["Value Plus PPO","Dual Select HMO","Dual Select PPO","Gold Plus HMO (based on zip code)"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:599,Premium:899} },
-  { id:"humana_gold_plus_csnp", carrier:"Humana",
-    planNames:["Gold Plus HMO (zip-based)","Gold Plus Diabetes and Heart (HMO CSNP)","Value Choice PPO"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:499,Premium:799} },
-  { id:"humana_gold_plus_giveback", carrier:"Humana",
-    planNames:["Gold Plus Giveback HMO"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:699,Premium:799} },
-  { id:"humana_medicare_ohio_carp", carrier:"Humana Medicare",
-    planNames:["Employer PPO Ohio CARP Health Plan"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:699,Premium:999} },
-  { id:"humana_medicare_nw_laborers", carrier:"Humana Medicare",
-    planNames:["Humana Medicare Employer PPO University of Oklahoma","Humana NW Laborers Employee Plan","Humana Medicare Employer PPO International Associates"],
-    availableProducts:"signiaMixed", signiaPricing:{2:1325,3:1575,5:1925},
-    notes:"Level 7 not available on this plan" },
-  { id:"humana_medicare_board_of_pensions", carrier:"Humana Medicare",
-    planNames:["Humana Medicare Employer PPO Board of Pensions"],
-    availableProducts:"signia", signiaPricing:{2:970,3:1270,5:1570,7:1970},
-    rextonStandardOnly:true, notes:"Standard/Select tier available via Rexton only" },
-  // ── LINECO ──────────────────────────────────────────────────────────────────
-  { id:"lineco", carrier:"Lineco",
-    planNames:["Lineco"],
-    availableProducts:"signiaMixed", signiaPricing:{2:975,3:1275,5:1575},
-    rextonStandardOnly:true, notes:"Level 7 not available. Standard/Select via Rexton only" },
-  // ── MEDICAL MUTUAL ──────────────────────────────────────────────────────────
-  { id:"medical_mutual_ma", carrier:"Medical Mutual",
-    planNames:["Medicare Advantage Plans"],
-    availableProducts:"signia", signiaPricing:{3:1645,5:1950,7:2350} },
-  // ── MODA ────────────────────────────────────────────────────────────────────
-  { id:"moda_medicare_supplement", carrier:"Moda",
-    planNames:["Medicare Supplement"],
-    availableProducts:"signia", signiaPricing:{1:695,2:895,3:1250,5:1595,7:2050} },
-  { id:"moda_health_central_ppo", carrier:"Moda",
-    planNames:["Moda Health Central PPO"],
-    availableProducts:"thSelect", thSelectPricing:{Standard:299,Advanced:599,Premium:899} },
-  // ── PACIFIC SOURCE ───────────────────────────────────────────────────────────
-  { id:"pacific_source_ma", carrier:"Pacific Source",
-    planNames:["Medicare Advantage"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:699,Premium:999} },
-  // ── PROMINENCE ───────────────────────────────────────────────────────────────
-  { id:"prominence_plus_hmo", carrier:"Prominence",
-    planNames:["Prominence Plus HMO"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:399,Premium:699} },
-  { id:"prominence_plans", carrier:"Prominence",
-    planNames:["Prominence Plans"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:299,Premium:599},
-    notes:"Copays may vary by plan — verify before counseling" },
-  // ── PROVIDENCE ───────────────────────────────────────────────────────────────
-  { id:"providence_choice_ma", carrier:"Providence",
-    planNames:["Choice Plan","Medicare Advantage"],
-    availableProducts:"thSelect", noPatientCost:true, thSelectPricing:{Advanced:0},
-    coveredNote:"Advanced — zero copay", notes:"Some zip codes may have zero copay for additional tiers — verify" },
-  { id:"providence_medicare_flex", carrier:"Providence",
-    planNames:["Medicare Flex","Providence Medicare Align HMO"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:699,Premium:999},
-    notes:"Some zip codes may have zero copay — verify" },
-  // ── REGENCE ──────────────────────────────────────────────────────────────────
-  { id:"regence_supplement_bridge_n", carrier:"Regence",
-    planNames:["Medicare Supplement Bridge Plan N","Prefix ZVU","Prefix ZVY and XNH","UAW"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:499,Premium:799} },
-  { id:"regence_ma_ppo", carrier:"Regence",
-    planNames:["Medicare Advantage PPO","Prefix ZVX, ZVW, ZVH, ZVU, ZHO","Medicare Supplement Bridge Plan G (Prefix YVO)"],
-    availableProducts:"signia", signiaPricing:{2:699,3:999,5:1399,7:1799} },
-  // ── SAINT ALPHONSUS ──────────────────────────────────────────────────────────
-  { id:"saint_alphonsus_hmo_ma", carrier:"Saint Alphonsus HMO",
-    planNames:["Medicare Advantage"],
-    availableProducts:"signia", signiaPricing:{3:1250,5:1595,7:2050} },
-  // ── SCAN ─────────────────────────────────────────────────────────────────────
-  { id:"scan_prefix_group", carrier:"SCAN",
-    planNames:["Prefix 40028942101","Prefix 40045778801","Prefix 40010939801"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:99,Premium:399} },
-  { id:"scan_classic_venture", carrier:"SCAN",
-    planNames:["SCAN Classic HMO","SCAN Venture HMO"],
-    availableProducts:"signia", signiaPricing:{3:1495,5:1895,7:2195} },
-  // ── SELECT HEALTH ────────────────────────────────────────────────────────────
-  { id:"select_health_choice_all", carrier:"Select Health Choice",
-    planNames:["All Plans"],
-    availableProducts:"signia", signiaPricing:{1:600,2:850,3:1100,5:1350,7:1500} },
-  { id:"select_health_advantage_all", carrier:"Select Health Advantage",
-    planNames:["All Plans"],
-    availableProducts:"thSelect", thSelectPricing:{Standard:499,Advanced:699,Premium:999} },
-  { id:"select_health_medicare", carrier:"Select Health",
-    planNames:["Medicare + Kroger HMO","Medicare Choice (PPO)","Medicare Essential (HMO)","Medicare Classic (HMO)","Medicare"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:399,Premium:699} },
-  // ── SUMMIT HEALTH / SUREBRIDGE / UAW / UCLA ──────────────────────────────────
-  { id:"summit_health_all", carrier:"Summit Health",
-    planNames:["All Plans"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:599,Premium:899} },
-  { id:"surebridge_dental_wise_plus", carrier:"Surebridge",
-    planNames:["Dental Wise Plus"],
-    availableProducts:"signia", signiaPricing:{2:1325,3:1575,5:1925,7:2325} },
-  { id:"ucla_health_ma_prestige", carrier:"UCLA Health",
-    planNames:["MA Prestige Plan"],
-    availableProducts:"signia", signiaPricing:{1:600,2:850,3:1100,5:1350,7:1500} },
-  { id:"primetime_health_ma_hmo", carrier:"Primetime Health",
-    planNames:["Medicare Advantage HMO"],
-    availableProducts:"thSelect", thSelectPricing:{Standard:599,Advanced:799,Premium:999} },
-  // ── VSP / UMR / WELLCARE ─────────────────────────────────────────────────────
-  { id:"vsp", carrier:"Vision Service Plan (VSP)",
-    planNames:["VSP"],
-    availableProducts:"signia", signiaPricing:{1:700,2:975,3:1250,5:1450,7:1800} },
-  { id:"umr_teachers_health_trust", carrier:"UMR",
-    planNames:["Teachers Health Trust"],
-    availableProducts:"thSelect", thSelectPricing:{Standard:499,Advanced:699,Premium:999} },
-  { id:"wellcare_all", carrier:"Wellcare / Wellcare HealthNet / HealthNet",
-    planNames:["All Plans"],
-    availableProducts:"choiceSignia", signiaPricing:{1:1250,2:1350,3:1595,5:1950,7:2325},
-    notes:"Full Choice catalog available. Signia prices are plan-specific." },
-  { id:"wellcare_dual_select_snp", carrier:"Wellcare",
-    planNames:["Wellcare Dual Select HMO D SNP"],
-    availableProducts:"signia", signiaPricing:{1:650,2:750,3:995,5:1350,7:1725} },
-  { id:"wellpoint_amerigroup_all", carrier:"Wellpoint (also known as Amerigroup)",
-    planNames:["All Plans"],
-    availableProducts:"thSelect", thSelectPricing:{Advanced:699,Premium:999} },
+const DEMO_PLANS = [
+  { carrier: "Humana", planGroup: "Humana TruHearing Standard", tpa: "TruHearing",
+    tiers: [{label:"Standard",price:699},{label:"Advanced",price:999},{label:"Premium",price:1399}] },
+  { carrier: "Humana", planGroup: "Humana TruHearing Advanced", tpa: "TruHearing",
+    tiers: [{label:"Standard",price:599},{label:"Advanced",price:899},{label:"Premium",price:1299}] },
+  { carrier: "Aetna", planGroup: "Aetna TruHearing", tpa: "TruHearing",
+    tiers: [{label:"Standard",price:799},{label:"Advanced",price:1099},{label:"Premium",price:1499}] },
+  { carrier: "UnitedHealthcare", planGroup: "UHC Hearing – Choice Plus", tpa: "United Healthcare Hearing",
+    tiers: [{label:"Level 1",price:0},{label:"Level 2",price:299},{label:"Level 3",price:699},{label:"Level 4",price:999}] },
+  { carrier: "UnitedHealthcare", planGroup: "UHC Hearing – Navigate Plus", tpa: "United Healthcare Hearing",
+    tiers: [{label:"Level 1",price:0},{label:"Level 2",price:399},{label:"Level 3",price:799}] },
+  { carrier: "BCBS", planGroup: "BCBS Nations Hearing", tpa: "Nations Hearing",
+    tiers: [{label:"Standard",price:499},{label:"Advanced",price:899},{label:"Premium",price:1299}] },
+  { carrier: "Cigna", planGroup: "Cigna TruHearing", tpa: "TruHearing",
+    tiers: [{label:"Standard",price:749},{label:"Advanced",price:1049},{label:"Premium",price:1449}] },
+  { carrier: "Medicare Advantage", planGroup: "Medicare Advantage – TruHearing", tpa: "TruHearing",
+    tiers: [{label:"Standard",price:299},{label:"Advanced",price:699},{label:"Premium",price:1099}] },
 ];
-
-// ── PLAN CATALOG HELPERS ──────────────────────────────────────────────────────
-
-/** Map Signia tech-level label (e.g. "7IX", "3AX") → tier number for pricing lookup */
-function signiaLevelToTier(techLevel) {
-  const m = String(techLevel || "").match(/^(\d+)/);
-  return m ? parseInt(m[1], 10) : null;
-}
-
-/** Get patient price from a third-party plan for a selected manufacturer + tech level.
- *  Returns: number (price per aid), 0 (no cost), "N/A" (not on plan), or null (plan doesn't apply). */
-function getPlanPriceForTech(plan, manufacturer, techLevel) {
-  if (!plan || !techLevel) return null;
-  if (manufacturer === "Signia" || manufacturer === "Rexton") {
-    if (!plan.signiaPricing) return null;
-    const tier = signiaLevelToTier(techLevel);
-    if (tier === null) return null;
-    const price = plan.signiaPricing[tier];
-    return price === undefined ? "N/A" : price;
-  }
-  if (manufacturer === "TruHearing") {
-    if (!plan.thSelectPricing) return null;
-    const price = plan.thSelectPricing[techLevel];
-    return price === undefined ? "N/A" : price;
-  }
-  if (plan.availableProducts === "choiceFull" || plan.availableProducts === "choiceSignia") return null;
-  return null;
-}
-
-/** Get the set of manufacturer names allowed by a plan, or null if unrestricted */
-function getPlanAllowedMfrs(plan) {
-  if (!plan) return null;
-  switch (plan.availableProducts) {
-    case "signia":      return ["Signia"];
-    case "signiaMixed": return ["Signia"];
-    case "thSelect":    return ["TruHearing"];
-    case "choiceFull":  return null;
-    case "choiceSignia":return null;
-    default:            return null;
-  }
-}
-
-/** Human-readable product type label */
-function getProductTypeLabel(ap) {
-  return { signia:"Signia devices only", signiaMixed:"Signia devices only (some levels restricted)",
-    thSelect:"TruHearing Select (private label) only", choiceFull:"Full TruHearing Choice catalog",
-    choiceSignia:"Full Choice catalog — Signia at plan-specific pricing" }[ap] || ap;
-}
-
-/** Resolve the active THIRD_PARTY plan from form state */
-function resolveActivePlan(form) {
-  if (!form.thirdPartyPlanId) return null;
-  return THIRD_PARTY_PLANS.find(p => p.id === form.thirdPartyPlanId) || null;
-}
 
 
 const BODY_STYLES = [
@@ -1024,7 +734,7 @@ function generateCounseling(aud){
 const STEPS = ["Patient","Testing","Results","Treatment Options","Coverage","Schedule","Review"];
 
 
-export default function ProviderCRM({ staffId, clinicId }) {
+export default function ProviderCRM() {
   const [clinic, setClinic] = useState(DEFAULT_CLINIC);
   const [clinicDraft, setClinicDraft] = useState(DEFAULT_CLINIC);
   const [clinicSaved, setClinicSaved] = useState(false);
@@ -1037,10 +747,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [punchData, setPunchData] = useState({ cleanings: 0, appointments: 0, log: [] });
   const [punchConfirm, setPunchConfirm] = useState(null);
   const [punchSuccess, setPunchSuccess] = useState(null);
-  const [pendingIntakes, setPendingIntakes] = useState([]);
-  const [intakeToast, setIntakeToast] = useState(null); // { name, intakeId }
-  const [showIntakeQueue, setShowIntakeQueue] = useState(false);
-  const seenIntakeIds = useRef(new Set());
 
 
   // Product catalog state
@@ -1054,7 +760,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const saveCatalog = async (next) => {
     setCatalog(next);
-    try { await saveProductCatalog(next); } catch {}
+    try { await storage.set("product_catalog", JSON.stringify(next)); } catch {}
   };
 
 
@@ -1066,7 +772,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   // New patient form state
   const [form, setForm] = useState({
-    name:"", dob:"", phone:"", email:"",
+    firstName:"", lastName:"", dob:"", phone:"", email:"",
     payType:"insurance",
     carrier:"", planGroup:"", tpa:"", tier:"", tierPrice:null,
     left: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:""},
@@ -1089,57 +795,26 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
   useEffect(() => {
-    loadAllPatients(clinicId).then(p => { setPatients(p); setLoading(false); });
+    loadAllPatients().then(p => { setPatients(p); setLoading(false); });
     (async () => {
       try {
-        if (clinicId) {
-          const saved = await loadClinicSettings(clinicId);
-          if (saved) { setClinic(saved); setClinicDraft(saved); }
-        }
+        const saved = await storage.get("clinic_settings");
+        if (saved?.value) { const c = JSON.parse(saved.value); setClinic(c); setClinicDraft(c); }
+        else { await storage.set("clinic_settings", JSON.stringify(DEFAULT_CLINIC)); }
       } catch {}
       try {
-        const cat = await loadProductCatalog();
-        if (cat?.length) setCatalog(cat);
+        const cat = await storage.get("product_catalog");
+        if (cat?.value) setCatalog(JSON.parse(cat.value));
+        else await storage.set("product_catalog", JSON.stringify(CATALOG_DEFAULT));
       } catch {}
     })();
-  }, [clinicId]);
+  }, []);
 
 
   const refreshPatients = async () => {
-    const p = await loadAllPatients(clinicId);
+    const p = await loadAllPatients();
     setPatients(p);
   };
-
-  // ── Intake Queue (Supabase Realtime) ─────────────────────────────────────
-  const fireIntakeToast = useCallback((intake) => {
-    const id = intake._meta?.intakeId;
-    if (!id || seenIntakeIds.current.has(id)) return;
-    seenIntakeIds.current.add(id);
-    const name = `${intake.answers?.firstName || ""} ${intake.answers?.lastName || ""}`.trim() || "New Patient";
-    setIntakeToast({ name, intakeId: id });
-    let flashing = true;
-    const orig = document.title;
-    const flashInterval = setInterval(() => {
-      document.title = flashing ? `● New Intake — Distil` : orig;
-      flashing = !flashing;
-    }, 800);
-    setTimeout(() => { clearInterval(flashInterval); document.title = orig; }, 12000);
-  }, []);
-
-  useEffect(() => {
-    // Load any pending intakes that arrived before this session
-    loadPendingIntakes().then(pending => {
-      setPendingIntakes(pending);
-      pending.forEach(fireIntakeToast);
-    });
-    // Subscribe to new intakes in realtime
-    if (!clinicId) return;
-    const unsubscribe = subscribeToIntakes(clinicId, (intake) => {
-      setPendingIntakes(prev => [...prev, intake]);
-      fireIntakeToast(intake);
-    });
-    return unsubscribe;
-  }, [clinicId, fireIntakeToast]);
 
 
   const buildSideRecord = (s) => {
@@ -1170,7 +845,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
       id: genId(),
       location: clinic.name,
       createdAt: new Date().toISOString(),
-      name: form.name,
+      name: [form.firstName, form.lastName].filter(Boolean).join(" "),
       dob: form.dob,
       phone: form.phone,
       email: form.email,
@@ -1196,7 +871,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
       appointments: form.appointments,
       notes: form.notes,
     };
-    await savePatient(patient, staffId, clinicId);
+    await savePatient(patient);
+    await storage.set("active_patient_id", patient.id);
     setSaved(true);
     await refreshPatients();
     setSelectedPatient(patient);
@@ -1206,35 +882,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
   const startNew = () => {
-    setForm({ name:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:""},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:""},audiology:{rightT:{},leftT:{},unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,sinBin:null},carePlan:"",fittingDate:new Date().toISOString().split("T")[0],appointments:[],notes:"" });
+    setForm({ firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:""},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:""},audiology:{rightT:{},leftT:{},unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,sinBin:null},carePlan:"",fittingDate:new Date().toISOString().split("T")[0],appointments:[],notes:"" });
     setActiveSide("left");
-    setStep(0); setSaved(false); setView("new");
-  };
-
-  const acceptIntake = async (intake) => {
-    const a = intake.answers || {};
-    const fullName = [a.firstName, a.mi, a.lastName].filter(Boolean).join(" ");
-    setForm(f => ({
-      ...f,
-      name: fullName,
-      dob: a.dob || "",
-      phone: a.mobilePhone || a.homePhone || "",
-      email: a.email || "",
-      notes: [
-        a.visitReason ? `Reason for visit: ${a.visitReason}` : "",
-        a.referral ? `Referred by: ${a.referral}` : "",
-        a.med_pain ? "Reports ear pain/discomfort." : "",
-        a.med_ring ? "Reports tinnitus." : "",
-        a.med_dizzy ? "Reports dizziness/vertigo." : "",
-        a.hear_prevented ? `Barrier to care: ${a.hear_prevented}` : "",
-        a.hear_other ? `Other hearing notes: ${a.hear_other}` : "",
-        intake._meta?.intakeId ? `Intake ID: ${intake._meta.intakeId}` : "",
-      ].filter(Boolean).join("\n"),
-    }));
-    // Mark intake as accepted in Supabase
-    try { await dbAcceptIntake(intake._meta.intakeId); } catch {}
-    setPendingIntakes(prev => prev.filter(i => i._meta?.intakeId !== intake._meta?.intakeId));
-    setShowIntakeQueue(false);
     setStep(0); setSaved(false); setView("new");
   };
 
@@ -1505,79 +1154,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const renderDashboard = () => (
     <>
-      {/* ── Intake Toast ── */}
-      {intakeToast && (
-        <div onClick={() => { setShowIntakeQueue(true); setIntakeToast(null); }}
-          style={{ position:"fixed", top:20, right:20, zIndex:9999, background:"#0a1628", border:"2px solid #4ade80", borderRadius:14, padding:"16px 20px", maxWidth:320, boxShadow:"0 8px 32px rgba(0,0,0,0.4)", cursor:"pointer", animation:"slideIn 0.3s ease" }}>
-          <style>{`@keyframes slideIn{from{transform:translateY(-20px);opacity:0}to{transform:translateY(0);opacity:1}}`}</style>
-          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}>
-            <span style={{ fontSize:18 }}>🔔</span>
-            <span style={{ fontSize:12, fontWeight:700, color:"#4ade80", textTransform:"uppercase", letterSpacing:"0.08em" }}>New Intake Ready</span>
-          </div>
-          <div style={{ fontSize:16, fontWeight:700, color:"#fff", marginBottom:4 }}>{intakeToast.name}</div>
-          <div style={{ fontSize:12, color:"rgba(255,255,255,0.5)" }}>Click to open intake queue →</div>
-          <button onClick={e => { e.stopPropagation(); setIntakeToast(null); }}
-            style={{ position:"absolute", top:10, right:12, background:"none", border:"none", color:"rgba(255,255,255,0.4)", fontSize:16, cursor:"pointer", lineHeight:1 }}>✕</button>
-        </div>
-      )}
-
-      {/* ── Intake Queue Modal ── */}
-      {showIntakeQueue && (
-        <div style={{ position:"fixed", inset:0, zIndex:9998, background:"rgba(0,0,0,0.55)", display:"flex", alignItems:"center", justifyContent:"center" }}
-          onClick={() => setShowIntakeQueue(false)}>
-          <div style={{ background:"#fff", borderRadius:18, padding:"28px 32px", maxWidth:560, width:"90%", boxShadow:"0 12px 48px rgba(0,0,0,0.25)" }}
-            onClick={e => e.stopPropagation()}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-              <div>
-                <div style={{ fontSize:11, fontWeight:700, color:"#4ade80", textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:4 }}>Intake Queue</div>
-                <div style={{ fontSize:22, fontWeight:800, color:"#0a1628" }}>{pendingIntakes.length} Pending {pendingIntakes.length === 1 ? "Intake" : "Intakes"}</div>
-              </div>
-              <button onClick={() => setShowIntakeQueue(false)} style={{ background:"#f3f4f6", border:"none", borderRadius:8, width:32, height:32, fontSize:16, cursor:"pointer", color:"#6b7280" }}>✕</button>
-            </div>
-            {pendingIntakes.length === 0 ? (
-              <div style={{ textAlign:"center", padding:"32px 0", color:"#9ca3af", fontSize:15 }}>No pending intakes.</div>
-            ) : (
-              <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
-                {pendingIntakes.map(intake => {
-                  const a = intake.answers || {};
-                  const name = [a.firstName, a.lastName].filter(Boolean).join(" ") || "Unknown";
-                  const time = intake._meta?.submittedAt ? new Date(intake._meta.submittedAt).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}) : "";
-                  const date = intake._meta?.submittedAt ? new Date(intake._meta.submittedAt).toLocaleDateString() : "";
-                  return (
-                    <div key={intake._meta?.intakeId} style={{ border:"2px solid #e5e7eb", borderRadius:12, padding:"14px 18px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 }}>
-                      <div>
-                        <div style={{ fontWeight:700, fontSize:16, color:"#0a1628", marginBottom:2 }}>{name}</div>
-                        <div style={{ fontSize:12, color:"#9ca3af" }}>{a.dob || ""} · {a.mobilePhone || a.email || ""}</div>
-                        <div style={{ fontSize:11, color:"#9ca3af", marginTop:2 }}>Submitted {date} at {time} · {intake._meta?.intakeId}</div>
-                      </div>
-                      <button onClick={() => acceptIntake(intake)}
-                        style={{ padding:"10px 20px", background:"#0a1628", color:"#fff", border:"none", borderRadius:10, fontWeight:700, fontSize:14, cursor:"pointer", whiteSpace:"nowrap" }}>
-                        Accept →
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       <div className="topbar">
         <div>
           <div className="topbar-title">Patient Dashboard</div>
           <div className="topbar-sub">{clinic.name} · {patients.length} active patients</div>
         </div>
-        <div style={{ display:"flex", gap:10, alignItems:"center" }}>
-          {pendingIntakes.length > 0 && (
-            <button onClick={() => setShowIntakeQueue(true)}
-              style={{ display:"flex", alignItems:"center", gap:8, padding:"9px 16px", background:"#fef3c7", border:"2px solid #f59e0b", borderRadius:10, fontWeight:700, fontSize:14, color:"#92400e", cursor:"pointer" }}>
-              <span style={{ background:"#f59e0b", color:"#fff", borderRadius:"50%", width:20, height:20, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800 }}>{pendingIntakes.length}</span>
-              Intake Queue
-            </button>
-          )}
-          <button className="btn-primary green" onClick={startNew}>＋ New Patient</button>
-        </div>
+        <button className="btn-primary green" onClick={startNew}>＋ New Patient</button>
       </div>
       <div className="content">
         <div className="stats-grid">
@@ -1675,8 +1257,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
   };
 
 
-  const carriersForType = [...new Set(THIRD_PARTY_PLANS.map(p => p.carrier))];
-  const plansForCarrier = THIRD_PARTY_PLANS.filter(p => p.carrier === form.carrier);
+  const carriersForType = [...new Set(DEMO_PLANS.map(p => p.carrier))];
+  const plansForCarrier = DEMO_PLANS.filter(p => p.carrier === form.carrier);
 
 
   // Catalog-driven cascade derived values (side-aware)
@@ -1706,7 +1288,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
   const canProceed = [
-    form.name && form.dob && form.phone,
+    form.firstName && form.lastName && form.dob && form.phone,
     true, // Testing — always skippable
     true, // Results — always skippable
     (isSideConfigured("left") || isSideConfigured("right")) && (form.payType !== "insurance" || form.carePlan),
@@ -1721,9 +1303,17 @@ export default function ProviderCRM({ staffId, clinicId }) {
       <div className="card">
         <div className="card-title">Patient Information</div>
         <div className="field-grid">
-          <div className="field full"><label>Full Name *</label><input value={form.name} onChange={e=>upd("name",e.target.value)} placeholder="First Last" /></div>
+          <div className="field"><label>First Name *</label><input value={form.firstName} onChange={e=>upd("firstName",e.target.value)} placeholder="Jane" /></div>
+          <div className="field"><label>Last Name *</label><input value={form.lastName} onChange={e=>upd("lastName",e.target.value)} placeholder="Smith" /></div>
           <div className="field"><label>Date of Birth *</label><input type="date" value={form.dob} onChange={e=>upd("dob",e.target.value)} /></div>
-          <div className="field"><label>Phone *</label><input value={form.phone} onChange={e=>upd("phone",e.target.value)} placeholder="(555) 555-5555" /></div>
+          <div className="field"><label>Phone *</label><input value={form.phone} onChange={e=>{
+            const digits = e.target.value.replace(/\D/g,"").slice(0,10);
+            let fmt = digits;
+            if (digits.length >= 7) fmt = `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+            else if (digits.length >= 4) fmt = `(${digits.slice(0,3)}) ${digits.slice(3)}`;
+            else if (digits.length > 0) fmt = `(${digits}`;
+            upd("phone", fmt);
+          }} placeholder="(555) 555-5555" /></div>
           <div className="field full"><label>Email</label><input value={form.email} onChange={e=>upd("email",e.target.value)} placeholder="patient@email.com" /></div>
           <div className="field full"><label>Payment Type</label>
             <div className="radio-group">
@@ -1746,41 +1336,35 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   onChange={e=>upd("_planSearch",e.target.value)}
                   style={{width:"100%",marginBottom:10,fontSize:13}}
                 />
-                <div style={{maxHeight:260,overflowY:"auto",display:"flex",flexDirection:"column",gap:6,paddingRight:4}}>
-                  {THIRD_PARTY_PLANS
+                <div style={{maxHeight:220,overflowY:"auto",display:"flex",flexDirection:"column",gap:6,paddingRight:4}}>
+                  {DEMO_PLANS
                     .filter(p=>{
                       const q=(form._planSearch||"").toLowerCase();
-                      return !q||p.carrier.toLowerCase().includes(q)||p.planNames.some(n=>n.toLowerCase().includes(q));
+                      return !q||p.carrier.toLowerCase().includes(q)||p.planGroup.toLowerCase().includes(q)||p.tpa.toLowerCase().includes(q);
                     })
-                    .sort((a,b)=>a.carrier.localeCompare(b.carrier)||a.planNames[0].localeCompare(b.planNames[0]))
+                    .sort((a,b)=>a.planGroup.localeCompare(b.planGroup))
                     .map(plan=>(
-                      <div key={plan.id}
-                        className={`plan-row ${form.thirdPartyPlanId===plan.id?"active":""}`}
+                      <div key={plan.planGroup}
+                        className={`plan-row ${form.planGroup===plan.planGroup?"active":""}`}
                         onClick={()=>{
-                          upd("thirdPartyPlanId",plan.id);
+                          upd("planGroup",plan.planGroup);
                           upd("carrier",plan.carrier);
-                          upd("planGroup",plan.planNames[0]);
-                          upd("tpa","TruHearing");
+                          upd("tpa",plan.tpa);
                           upd("tier","");
                           upd("tierPrice",null);
                         }}>
-                        <div className="plan-row-name">{plan.planNames[0]}{plan.planNames.length>1?` (+${plan.planNames.length-1} plans)`:""}</div>
-                        <div className="plan-row-tpa">{plan.carrier} · via TruHearing · {getProductTypeLabel(plan.availableProducts)}</div>
+                        <div className="plan-row-name">{plan.planGroup}</div>
+                        <div className="plan-row-tpa">{plan.carrier} · via {plan.tpa}</div>
                       </div>
                     ))
                   }
                 </div>
                 {form.planGroup && (
-                  <div style={{marginTop:12,paddingTop:12,borderTop:"1px solid #e5e7eb",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                  <div style={{marginTop:12,paddingTop:12,borderTop:"1px solid #e5e7eb",display:"flex",alignItems:"center",gap:10}}>
                     <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>TPA</span>
                     <span style={{fontSize:13,fontWeight:600,color:"#374151",background:"#f3f4f6",borderRadius:6,padding:"3px 10px"}}>{form.tpa}</span>
-                    {form.thirdPartyPlanId && (
-                      <span style={{fontSize:11,fontWeight:600,color:"#4f46e5",background:"#eef2ff",borderRadius:6,padding:"3px 10px"}}>
-                        {getProductTypeLabel(THIRD_PARTY_PLANS.find(p=>p.id===form.thirdPartyPlanId)?.availableProducts||"")}
-                      </span>
-                    )}
                     <button style={{marginLeft:"auto",fontSize:11,color:"#9ca3af",background:"none",border:"none",cursor:"pointer",padding:0}}
-                      onClick={()=>{upd("planGroup","");upd("carrier","");upd("tpa","");upd("tier","");upd("tierPrice",null);upd("thirdPartyPlanId","");}}>
+                      onClick={()=>{upd("planGroup","");upd("carrier","");upd("tpa","");upd("tier","");upd("tierPrice",null);}}>
                       ✕ Clear
                     </button>
                   </div>
@@ -2441,7 +2025,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           <div className="card-title">Review & Create Profile</div>
           <div className="review-section">
             <div className="review-label">Patient</div>
-            {[[form.name,"Name"],[form.dob,"Date of Birth"],[form.phone,"Phone"],[form.email||"—","Email"]].map(([v,k])=>(
+            {[[[form.firstName,form.lastName].filter(Boolean).join(" "),"Name"],[form.dob,"Date of Birth"],[form.phone,"Phone"],[form.email||"—","Email"]].map(([v,k])=>(
               <div className="review-row" key={k}><span className="review-key">{k}</span><span className="review-val">{v}</span></div>
             ))}
           </div>
@@ -2522,7 +2106,11 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const handleClinicSave = async () => {
     setClinic(clinicDraft);
-    try { await saveClinicSettings(clinicId, clinicDraft); } catch {}
+    try {
+      await storage.set("clinic_settings", JSON.stringify(clinicDraft));
+      // Push clinic name to shared key so patient app reads it
+      await storage.set("clinic_name", clinicDraft.name);
+    } catch {}
     setClinicSaved(true);
     setTimeout(() => setClinicSaved(false), 3000);
   };
@@ -3180,12 +2768,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   else setView(id);
                 }}>
                 <span className="nav-icon">{icon}</span>{label}
-                {id === "dashboard" && pendingIntakes.length > 0 && (
-                  <span onClick={e => { e.stopPropagation(); setShowIntakeQueue(true); }}
-                    style={{ marginLeft:"auto", background:"#f59e0b", color:"#fff", borderRadius:"50%", width:20, height:20, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800, flexShrink:0 }}>
-                    {pendingIntakes.length}
-                  </span>
-                )}
               </div>
             ))}
           </div>
