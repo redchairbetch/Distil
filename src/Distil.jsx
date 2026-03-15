@@ -1,35 +1,21 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 
 
-// ── SHARED STORAGE HELPERS ────────────────────────────────────────────────────
-const storage = window.storage;
-async function savePatient(patient) {
-  await storage.set(`patient:${patient.id}`, JSON.stringify(patient));
-  await storage.set("patient_list_updated", Date.now().toString());
-}
-async function loadAllPatients() {
-  try {
-    const keys = await storage.list("patient:");
-    const patients = await Promise.all(
-      (keys.keys || []).map(async k => {
-        const r = await storage.get(k);
-        return r ? JSON.parse(r.value) : null;
-      })
-    );
-    return patients.filter(Boolean).sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
-  } catch { return []; }
-}
-async function loadPunch(patientId) {
-  try {
-    const r = await storage.get(`punch:${patientId}`);
-    return r?.value ? JSON.parse(r.value) : { cleanings: 0, appointments: 0, log: [] };
-  } catch { return { cleanings: 0, appointments: 0, log: [] }; }
-}
-async function savePunch(patientId, data) {
-  try { await storage.set(`punch:${patientId}`, JSON.stringify(data)); } catch {}
-  // Also write to legacy key so patient app picks it up
-  try { await storage.set("punch_card_used", JSON.stringify({ cleanings: data.cleanings, appointments: data.appointments })); } catch {}
-}
+import {
+  loadAllPatients,
+  savePatient,
+  loadPunch,
+  savePunch,
+  loadClinicSettings,
+  saveClinicSettings,
+  loadProductCatalog,
+  saveProductCatalog,
+  loadPendingIntakes,
+  subscribeToIntakes,
+  acceptIntake as dbAcceptIntake,
+  dismissIntake,
+  signOut,
+} from "./db.js";
 
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
@@ -734,7 +720,7 @@ function generateCounseling(aud){
 const STEPS = ["Patient","Testing","Results","Treatment Options","Coverage","Schedule","Review"];
 
 
-export default function ProviderCRM() {
+export default function ProviderCRM({ staffId, clinicId }) {
   const [clinic, setClinic] = useState(DEFAULT_CLINIC);
   const [clinicDraft, setClinicDraft] = useState(DEFAULT_CLINIC);
   const [clinicSaved, setClinicSaved] = useState(false);
@@ -748,6 +734,12 @@ export default function ProviderCRM() {
   const [punchConfirm, setPunchConfirm] = useState(null);
   const [punchSuccess, setPunchSuccess] = useState(null);
 
+  // ── Intake queue state ────────────────────────────────────────────────
+  const [pendingIntakes,  setPendingIntakes]  = useState([]);
+  const [intakeToast,     setIntakeToast]     = useState(null);
+  const [showIntakeQueue, setShowIntakeQueue] = useState(false);
+  const seenIntakeIds = useRef(new Set());
+
 
   // Product catalog state
   const [catalog, setCatalog] = useState(CATALOG_DEFAULT);
@@ -760,7 +752,7 @@ export default function ProviderCRM() {
 
   const saveCatalog = async (next) => {
     setCatalog(next);
-    try { await storage.set("product_catalog", JSON.stringify(next)); } catch {}
+    try { await saveProductCatalog(next); } catch {}
   };
 
 
@@ -798,23 +790,52 @@ export default function ProviderCRM() {
     loadAllPatients().then(p => { setPatients(p); setLoading(false); });
     (async () => {
       try {
-        const saved = await storage.get("clinic_settings");
-        if (saved?.value) { const c = JSON.parse(saved.value); setClinic(c); setClinicDraft(c); }
-        else { await storage.set("clinic_settings", JSON.stringify(DEFAULT_CLINIC)); }
+        if (clinicId) {
+          const saved = await loadClinicSettings(clinicId);
+          if (saved) { setClinic(saved); setClinicDraft(saved); }
+        }
       } catch {}
       try {
-        const cat = await storage.get("product_catalog");
-        if (cat?.value) setCatalog(JSON.parse(cat.value));
-        else await storage.set("product_catalog", JSON.stringify(CATALOG_DEFAULT));
+        const cat = await loadProductCatalog();
+        if (cat?.length) setCatalog(cat);
       } catch {}
     })();
-  }, []);
+  }, [clinicId]);
 
 
   const refreshPatients = async () => {
     const p = await loadAllPatients();
     setPatients(p);
   };
+
+  // ── Intake toast + Supabase Realtime subscription ─────────────────────
+  const fireIntakeToast = useCallback((intake) => {
+    const id = intake._meta?.intakeId;
+    if (!id || seenIntakeIds.current.has(id)) return;
+    seenIntakeIds.current.add(id);
+    const name = `${intake.answers?.firstName || ""} ${intake.answers?.lastName || ""}`.trim() || "New Patient";
+    setIntakeToast({ name, intakeId: id });
+    let flashing = true;
+    const orig = document.title;
+    const flashInterval = setInterval(() => {
+      document.title = flashing ? `● New Intake — Distil` : orig;
+      flashing = !flashing;
+    }, 800);
+    setTimeout(() => { clearInterval(flashInterval); document.title = orig; }, 12000);
+  }, []);
+
+  useEffect(() => {
+    loadPendingIntakes().then(pending => {
+      setPendingIntakes(pending);
+      pending.forEach(fireIntakeToast);
+    });
+    if (!clinicId) return;
+    const unsubscribe = subscribeToIntakes(clinicId, (intake) => {
+      setPendingIntakes(prev => [...prev, intake]);
+      fireIntakeToast(intake);
+    });
+    return unsubscribe;
+  }, [clinicId, fireIntakeToast]);
 
 
   const buildSideRecord = (s) => {
@@ -871,8 +892,7 @@ export default function ProviderCRM() {
       appointments: form.appointments,
       notes: form.notes,
     };
-    await savePatient(patient);
-    await storage.set("active_patient_id", patient.id);
+    await savePatient(patient, staffId, clinicId);
     setSaved(true);
     await refreshPatients();
     setSelectedPatient(patient);
@@ -885,6 +905,39 @@ export default function ProviderCRM() {
     setForm({ firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:""},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:""},audiology:{rightT:{},leftT:{},unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,sinBin:null},carePlan:"",fittingDate:new Date().toISOString().split("T")[0],appointments:[],notes:"" });
     setActiveSide("left");
     setStep(0); setSaved(false); setView("new");
+  };
+
+
+  // ── Intake queue handlers ────────────────────────────────────────────
+  const handleAcceptIntake = (intake) => {
+    const a = intake.answers || {};
+    const phone = a.phone || "";
+    const digits = phone.replace(/\D/g,"").slice(0,10);
+    let fmt = digits;
+    if (digits.length >= 7) fmt = `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+    else if (digits.length >= 4) fmt = `(${digits.slice(0,3)}) ${digits.slice(3)}`;
+    else if (digits.length > 0) fmt = `(${digits}`;
+    setForm(f => ({
+      ...f,
+      firstName:  a.firstName  || "",
+      lastName:   a.lastName   || "",
+      dob:        a.dob        || "",
+      phone:      fmt,
+      email:      a.email      || "",
+      payType:    a.payType    || "insurance",
+      carrier:    a.carrier    || "",
+      notes: [f.notes, intake._meta?.intakeId ? `Intake ID: ${intake._meta.intakeId}` : ""].filter(Boolean).join("
+"),
+    }));
+    try { dbAcceptIntake(intake._meta.intakeId); } catch {}
+    setPendingIntakes(prev => prev.filter(i => i._meta?.intakeId !== intake._meta?.intakeId));
+    setShowIntakeQueue(false);
+    setStep(0); setSaved(false); setView("new");
+  };
+
+  const handleDismissIntake = async (intakeId) => {
+    try { await dismissIntake(intakeId); } catch {}
+    setPendingIntakes(prev => prev.filter(i => i._meta?.intakeId !== intakeId));
   };
 
 
@@ -1141,6 +1194,36 @@ export default function ProviderCRM() {
     .side-action-btn:hover { border-color: #9ca3af; background: #f9fafb; }
     .side-action-btn.cros { border-color: #a5b4fc; color: #4f46e5; background: #eef2ff; }
     .side-action-btn.cros:hover { background: #e0e7ff; }
+    /* INTAKE TOAST */
+    .intake-toast { position: fixed; bottom: 28px; right: 28px; z-index: 9000; background: #0a1628; color: white; border-radius: 14px; padding: 16px 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.28); display: flex; align-items: center; gap: 14px; min-width: 300px; animation: slideUp 0.3s ease; }
+    @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .intake-toast-dot { width: 10px; height: 10px; border-radius: 50%; background: #4ade80; flex-shrink: 0; box-shadow: 0 0 0 3px rgba(74,222,128,0.25); animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100% { box-shadow: 0 0 0 3px rgba(74,222,128,0.25); } 50% { box-shadow: 0 0 0 7px rgba(74,222,128,0.1); } }
+    .intake-toast-body { flex: 1; }
+    .intake-toast-title { font-size: 13px; font-weight: 700; }
+    .intake-toast-sub { font-size: 11px; opacity: 0.55; margin-top: 2px; }
+    .intake-toast-btn { background: #4ade80; color: #0a1628; border: none; border-radius: 8px; padding: 7px 14px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: 'Sora',sans-serif; flex-shrink: 0; }
+    .intake-toast-btn:hover { background: #22c55e; }
+    .intake-toast-dismiss { background: none; border: none; color: rgba(255,255,255,0.35); font-size: 18px; cursor: pointer; padding: 0 0 0 6px; line-height: 1; }
+    .intake-toast-dismiss:hover { color: white; }
+    /* INTAKE QUEUE MODAL */
+    .intake-badge { position: absolute; top: -5px; right: -5px; background: #ef4444; color: white; border-radius: 50%; width: 18px; height: 18px; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+    .queue-modal-overlay { position: fixed; inset: 0; z-index: 8000; background: rgba(0,0,0,0.5); display: flex; align-items: flex-start; justify-content: flex-end; padding: 20px; }
+    .queue-modal { background: white; border-radius: 16px; width: 480px; max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
+    .queue-modal-header { padding: 20px 24px 16px; border-bottom: 1px solid #f3f4f6; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: white; border-radius: 16px 16px 0 0; }
+    .queue-modal-title { font-size: 16px; font-weight: 700; color: #0a1628; }
+    .queue-modal-close { background: none; border: none; font-size: 22px; color: #9ca3af; cursor: pointer; line-height: 1; }
+    .queue-card { margin: 12px 16px; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; }
+    .queue-card-name { font-size: 15px; font-weight: 700; color: #0a1628; }
+    .queue-card-meta { font-size: 11px; color: #9ca3af; margin-top: 3px; }
+    .queue-card-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 10px 0; }
+    .queue-card-field { font-size: 12px; color: #374151; }
+    .queue-card-field span { color: #9ca3af; display: block; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; }
+    .queue-card-actions { display: flex; gap: 8px; margin-top: 12px; }
+    .queue-accept { flex: 1; background: #16a34a; color: white; border: none; border-radius: 8px; padding: 9px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: 'Sora',sans-serif; }
+    .queue-accept:hover { background: #15803d; }
+    .queue-dismiss { background: white; border: 1px solid #e5e7eb; color: #9ca3af; border-radius: 8px; padding: 9px 14px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'Sora',sans-serif; }
+    .queue-dismiss:hover { border-color: #9ca3af; color: #374151; }
   `;
 
 
@@ -2106,11 +2189,7 @@ export default function ProviderCRM() {
 
   const handleClinicSave = async () => {
     setClinic(clinicDraft);
-    try {
-      await storage.set("clinic_settings", JSON.stringify(clinicDraft));
-      // Push clinic name to shared key so patient app reads it
-      await storage.set("clinic_name", clinicDraft.name);
-    } catch {}
+    try { await saveClinicSettings(clinicId, clinicDraft); } catch {}
     setClinicSaved(true);
     setTimeout(() => setClinicSaved(false), 3000);
   };
@@ -2749,6 +2828,86 @@ export default function ProviderCRM() {
   return (
     <>
       <style>{styles}</style>
+
+      {/* ── Intake toast notification ── */}
+      {intakeToast && (
+        <div className="intake-toast">
+          <div className="intake-toast-dot" />
+          <div className="intake-toast-body">
+            <div className="intake-toast-title">New intake — {intakeToast.name}</div>
+            <div className="intake-toast-sub">Completed kiosk check-in · waiting in queue</div>
+          </div>
+          <button className="intake-toast-btn" onClick={() => { setShowIntakeQueue(true); setIntakeToast(null); }}>
+            View
+          </button>
+          <button className="intake-toast-dismiss" onClick={() => setIntakeToast(null)}>×</button>
+        </div>
+      )}
+
+      {/* ── Intake queue modal ── */}
+      {showIntakeQueue && (
+        <div className="queue-modal-overlay" onClick={() => setShowIntakeQueue(false)}>
+          <div className="queue-modal" onClick={e => e.stopPropagation()}>
+            <div className="queue-modal-header">
+              <div className="queue-modal-title">
+                Intake Queue
+                {pendingIntakes.length > 0 && (
+                  <span style={{marginLeft:8,background:"#ef4444",color:"white",borderRadius:20,
+                    padding:"2px 8px",fontSize:11,fontWeight:700}}>
+                    {pendingIntakes.length}
+                  </span>
+                )}
+              </div>
+              <button className="queue-modal-close" onClick={() => setShowIntakeQueue(false)}>×</button>
+            </div>
+            {pendingIntakes.length === 0 ? (
+              <div style={{padding:"40px 24px",textAlign:"center",color:"#9ca3af"}}>
+                <div style={{fontSize:32,marginBottom:12}}>✓</div>
+                <div style={{fontSize:14,fontWeight:600,color:"#374151"}}>Queue is clear</div>
+                <div style={{fontSize:12,marginTop:4}}>No pending intakes right now</div>
+              </div>
+            ) : (
+              pendingIntakes.map(intake => {
+                const a = intake.answers || {};
+                const submitted = intake._meta?.submittedAt
+                  ? new Date(intake._meta.submittedAt).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})
+                  : "—";
+                return (
+                  <div className="queue-card" key={intake._meta?.intakeId}>
+                    <div className="queue-card-name">
+                      {[a.firstName, a.lastName].filter(Boolean).join(" ") || "Unknown"}
+                    </div>
+                    <div className="queue-card-meta">Submitted {submitted}</div>
+                    <div className="queue-card-fields">
+                      <div className="queue-card-field"><span>DOB</span>{a.dob || "—"}</div>
+                      <div className="queue-card-field"><span>Phone</span>{a.phone || "—"}</div>
+                      <div className="queue-card-field"><span>Coverage</span>{a.payType === "insurance" ? (a.carrier || "Insurance") : "Private Pay"}</div>
+                      <div className="queue-card-field"><span>Email</span>{a.email || "—"}</div>
+                    </div>
+                    {a.chiefComplaint && (
+                      <div style={{fontSize:12,color:"#374151",background:"white",borderRadius:8,
+                        padding:"8px 10px",border:"1px solid #f3f4f6",marginBottom:8}}>
+                        <span style={{fontSize:10,fontWeight:700,color:"#9ca3af",display:"block",
+                          textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Chief Complaint</span>
+                        {a.chiefComplaint}
+                      </div>
+                    )}
+                    <div className="queue-card-actions">
+                      <button className="queue-accept" onClick={() => handleAcceptIntake(intake)}>
+                        ✓ Accept &amp; Start Intake
+                      </button>
+                      <button className="queue-dismiss" onClick={() => handleDismissIntake(intake._meta?.intakeId)}>
+                        Dismiss
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="app">
         <div className="sidebar">
           <div className="sidebar-logo">
@@ -2770,6 +2929,22 @@ export default function ProviderCRM() {
                 <span className="nav-icon">{icon}</span>{label}
               </div>
             ))}
+          </div>
+          {/* Intake queue button */}
+          <div style={{padding:"12px 14px",borderTop:"1px solid rgba(255,255,255,0.07)"}}>
+            <button onClick={() => setShowIntakeQueue(true)} style={{
+              width:"100%", background:"rgba(74,222,128,0.1)", border:"1px solid rgba(74,222,128,0.25)",
+              borderRadius:8, padding:"10px 14px", cursor:"pointer", display:"flex",
+              alignItems:"center", justifyContent:"space-between", fontFamily:"'Sora',sans-serif",
+            }}>
+              <span style={{fontSize:12,fontWeight:700,color:"#4ade80"}}>📋 Intake Queue</span>
+              {pendingIntakes.length > 0 && (
+                <span style={{background:"#ef4444",color:"white",borderRadius:20,
+                  padding:"2px 8px",fontSize:11,fontWeight:700}}>
+                  {pendingIntakes.length}
+                </span>
+              )}
+            </button>
           </div>
           <div className="sidebar-footer">
             Distil · Hearing Care Platform<br/>HIPAA-compliant · v1.0
