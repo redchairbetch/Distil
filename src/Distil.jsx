@@ -796,7 +796,7 @@ function generateCounseling(aud){
 
 
 // ── WIZARD STEPS ──────────────────────────────────────────────────────────────
-const STEPS = ["Patient","Testing","Results","Treatment Options","Coverage","Schedule","Review"];
+const STEPS = ["Patient","Testing","Results","Device Selection","Care Plan","Schedule","Review"];
 
 
 export default function ProviderCRM({ staffId, clinicId }) {
@@ -1490,8 +1490,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
     form.firstName && form.lastName && form.dob && form.phone,
     true, // Testing — always skippable
     true, // Results — always skippable
-    (isSideConfigured("left") || isSideConfigured("right")) && (form.payType !== "insurance" || form.carePlan),
-    form.payType === "private" || (form.carrier && form.planGroup && form.tier),
+    (isSideConfigured("left") || isSideConfigured("right")),
+    form.payType === "private" || !!form.carePlan,
     true,
     true,
   ][step];
@@ -2193,131 +2193,234 @@ export default function ProviderCRM({ staffId, clinicId }) {
           )}
         </div>
 
-
-        {/* ── Care Plan (insurance only) ── */}
-        {form.payType === "insurance" && (
-          <div className="card">
-            <div className="card-title">Care Plan</div>
-            <div className="plan-select-list">
-              {CARE_PLANS.map(cp=>(
-                <div key={cp.id} className={`plan-row ${form.carePlan===cp.id?"active":""}`} onClick={()=>upd("carePlan",cp.id)}>
-                  <div className="plan-row-top">
-                    <div className="plan-row-name">{cp.label}</div>
-                    <div style={{fontWeight:700,color:"#0a1628"}}>{cp.price}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* ── Total Investment Summary ── */}
-            {form.carePlan && form.tierPrice != null && (() => {
-              const leftOk  = isSideConfigured("left");
-              const rightOk = isSideConfigured("right");
-              const aidCount = (leftOk ? 1 : 0) + (rightOk ? 1 : 0);
-              const aidTotal = form.tierPrice * aidCount;
-              const carePlanObj = CARE_PLANS.find(c => c.id === form.carePlan);
-              // TruHearing: yr 1 fully covered → 15 visits × $65 = $975 (yrs 2–4)
-              // UHCH: only first 3 months covered → 2 extra cleanings + 2 extra triage → 19 visits × $65 = $1,235
-              const isTruHearing = form.tpa === "TruHearing";
-              const isUHCH = form.tpa === "United Healthcare Hearing";
-              const isTruHearingTPA = isTruHearing || isUHCH;
-              const cpCost = form.carePlan === "paygo" ? (isTruHearing ? 975 : isUHCH ? 1235 : 0)
-                : form.carePlan === "punch" ? 575
-                : 1250;
-              const grandTotal = aidTotal + cpCost;
-              return (
-                <div style={{marginTop:20,borderTop:"2px solid #e5e7eb",paddingTop:16}}>
-                  <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:12}}>Total Patient Investment</div>
-                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                    <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
-                      <span>Hearing aids ({aidCount} aid{aidCount!==1?"s":""} · {form.tier})</span>
-                      <span style={{fontWeight:600}}>{aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}</span>
-                    </div>
-                    <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
-                      <span>{carePlanObj?.label}</span>
-                      <span style={{fontWeight:600}}>
-                        {form.carePlan === "paygo"
-                          ? (isTruHearing ? "$975 est." : isUHCH ? "$1,235 est." : "$65/visit")
-                          : `$${cpCost.toLocaleString()}`}
-                      </span>
-                    </div>
-                    <div style={{height:1,background:"#e5e7eb",margin:"4px 0"}} />
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
-                      <span style={{fontSize:14,fontWeight:700,color:"#0a1628"}}>Total</span>
-                      <span style={{fontSize:26,fontWeight:800,color:"#0a1628"}}>
-                        {grandTotal===0?"No Charge":`$${grandTotal.toLocaleString()}`}
-                        {form.carePlan==="paygo" && (
-                          <span style={{fontSize:11,fontWeight:400,color:"#9ca3af",marginLeft:6}}>
-                            {isTruHearing ? "est. · yr 1 covered, 15 visits yrs 2–4" : isUHCH ? "est. · first 3 mo. covered, 19 visits remaining" : "+ $65/visit"}
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                    {aidCount===1 && (
-                      <div style={{fontSize:11,color:"#9ca3af",textAlign:"right"}}>One ear configured — configure second ear to update total</div>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        )}
       </>
     );
-    if (step === 4) return (
-      <div className="card">
-        <div className="card-title">{form.payType === "private" ? "Private Pay – Standard of Care" : "Insurance Plan Selection"}</div>
-        {form.payType === "private" ? (
-          <div style={{color:"#374151",fontSize:14,lineHeight:1.7}}>
-            <div style={{background:"linear-gradient(135deg,#0a1628,#1a3050)",color:"white",borderRadius:12,padding:"20px 24px",marginBottom:16}}>
-              <div style={{fontSize:22,fontWeight:700,marginBottom:4}}>Standard of Care Package</div>
-              <div style={{fontSize:32,fontWeight:700,color:"#4ade80"}}>$5,500</div>
-              <div style={{fontSize:12,opacity:0.6,marginTop:4}}>Total investment · All-inclusive</div>
+    if (step === 4) return (() => {
+      const leftOk  = isSideConfigured("left");
+      const rightOk = isSideConfigured("right");
+      const aidCount = (leftOk ? 1 : 0) + (rightOk ? 1 : 0);
+      const aidTotal = form.tierPrice != null ? form.tierPrice * aidCount : null;
+      const isTruHearing = form.tpa === "TruHearing";
+      const isUHCH = form.tpa === "United Healthcare Hearing";
+      const isTruHearingTPA = isTruHearing || isUHCH;
+
+      const cpCostFor = (id) =>
+        id === "paygo"    ? (isTruHearing ? 975 : isUHCH ? 1235 : 0)
+        : id === "punch"  ? 575
+        : 1250;
+
+      const DeviceSummary = () => {
+        if (!leftOk && !rightOk) return null;
+        const renderSide = (side, label) => {
+          const d = form[side];
+          if (!isSideConfigured(side)) return null;
+          const fam = catalog.find(e => e.id === d.familyId);
+          const name = d.manufacturer === "TruHearing"
+            ? `TruHearing Select · ${d.techLevel}`
+            : `${fam?.family || ""} · ${d.techLevel}`;
+          return (
+            <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151",padding:"6px 0",borderBottom:"1px solid #f3f4f6"}}>
+              <span>{label} · {name}</span>
+              {form.tierPrice != null && (
+                <span style={{fontWeight:600}}>{form.tierPrice===0?"No Charge":`$${form.tierPrice.toLocaleString()}`}</span>
+              )}
             </div>
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {["Two top-tier hearing aids (any manufacturer)","Custom earmolds if needed","Unlimited office visits for life of aids","4-year comprehensive warranty","One-time replacement per device ($275 deductible)"].map(i=>(
-                <div key={i} style={{display:"flex",gap:10,fontSize:13,color:"#374151"}}><span style={{color:"#16a34a"}}>✓</span>{i}</div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="field-grid" style={{marginBottom:16}}>
-              <div className="field"><label>Insurance Carrier</label>
-                <select value={form.carrier} onChange={e=>{upd("carrier",e.target.value);upd("planGroup","");upd("tier","");upd("tierPrice",null);}}>
-                  <option value="">Select carrier…</option>
-                  {carriersForType.map(c=><option key={c}>{c}</option>)}
-                </select>
-              </div>
-            </div>
-            {form.carrier && (
-              <div className="plan-select-list">
-                {plansForCarrier.map(plan => (
-                  <div key={plan.planGroup} className={`plan-row ${form.planGroup===plan.planGroup?"active":""}`} onClick={()=>{upd("planGroup",plan.planGroup);upd("tpa",plan.tpa);upd("tier","");upd("tierPrice",null);}}>
-                    <div className="plan-row-top">
-                      <div>
-                        <div className="plan-row-name">{plan.planGroup}</div>
-                        <div className="plan-row-tpa">via {plan.tpa}</div>
-                      </div>
-                    </div>
-                    {form.planGroup===plan.planGroup && (
-                      <div className="tier-pills">
-                        {plan.tiers.map(t=>(
-                          <div key={t.label} className={`tier-pill ${form.tier===t.label?"active":""}`}
-                            onClick={e=>{e.stopPropagation();upd("tier",t.label);upd("tierPrice",t.price);}}>
-                            {t.label} · {t.price===0?"No Charge":`$${t.price.toLocaleString()}`}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
+          );
+        };
+        return (
+          <div style={{background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:10,padding:"14px 16px",marginBottom:20}}>
+            <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:10}}>Selected Devices</div>
+            {renderSide("left","👂 Left")}
+            {renderSide("right","Right 👂")}
+            {aidTotal != null && (
+              <div style={{display:"flex",justifyContent:"space-between",marginTop:10,paddingTop:8,borderTop:"2px solid #e5e7eb"}}>
+                <span style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>Device Total ({aidCount} aid{aidCount!==1?"s":""})</span>
+                <span style={{fontSize:16,fontWeight:800,color:"#0a1628"}}>{aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}</span>
               </div>
             )}
-          </>
-        )}
-      </div>
-    );
+          </div>
+        );
+      };
+
+      // Comparison table data
+      const PLAN_COMPARE = [
+        {
+          category: "Cost",
+          paygo:    isTruHearing ? "$975 est." : isUHCH ? "$1,235 est." : "$65 / visit",
+          punch:    "$575",
+          complete: "$1,250",
+        },
+        {
+          category: "Office Visits",
+          paygo:    "Billed per visit · $65 each",
+          punch:    "28 prepaid · unlimited types",
+          complete: "Unlimited · 4-year period",
+        },
+        {
+          category: "Cleanings",
+          paygo:    isTruHearingTPA ? "Yr 1 covered by plan" : "$65 each",
+          punch:    "12 included",
+          complete: "Unlimited",
+        },
+        {
+          category: "Adjustments & Triage",
+          paygo:    isTruHearingTPA ? "Yr 1 covered by plan" : "$65 each",
+          punch:    "16 included",
+          complete: "Unlimited",
+        },
+        {
+          category: "Warranty",
+          paygo:    "3 years standard",
+          punch:    "3 years standard",
+          complete: "4 years extended",
+        },
+        {
+          category: "Loss & Damage",
+          paygo:    "Not included",
+          punch:    "Not included",
+          complete: "1 replacement / device ($275 deductible)",
+        },
+      ];
+
+      const planCols = [
+        {id:"paygo",   label:"Pay-As-You-Go",         color:"#6b7280", bg:"#f9fafb"},
+        {id:"punch",   label:"Treatment Punch Card",   color:"#0c4a6e", bg:"#e0f2fe"},
+        {id:"complete",label:"Complete Care+",         color:"#15803d", bg:"#dcfce7"},
+      ];
+
+      if (form.payType === "private") return (
+        <div className="card">
+          <div className="card-title">Private Pay – Standard of Care</div>
+          <div style={{background:"linear-gradient(135deg,#0a1628,#1a3050)",color:"white",borderRadius:12,padding:"20px 24px",marginBottom:16}}>
+            <div style={{fontSize:22,fontWeight:700,marginBottom:4}}>Standard of Care Package</div>
+            <div style={{fontSize:32,fontWeight:700,color:"#4ade80"}}>$5,500</div>
+            <div style={{fontSize:12,opacity:0.6,marginTop:4}}>Total investment · All-inclusive</div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {["Two top-tier hearing aids (any manufacturer)","Custom earmolds if needed","Unlimited office visits for life of aids","4-year comprehensive warranty","One-time replacement per device ($275 deductible)"].map(i=>(
+              <div key={i} style={{display:"flex",gap:10,fontSize:13,color:"#374151"}}><span style={{color:"#16a34a"}}>✓</span>{i}</div>
+            ))}
+          </div>
+        </div>
+      );
+
+      const selectedPlan = CARE_PLANS.find(c => c.id === form.carePlan);
+      const grandTotal = aidTotal != null && form.carePlan
+        ? aidTotal + cpCostFor(form.carePlan)
+        : null;
+
+      return (
+        <>
+          {/* Device summary */}
+          <DeviceSummary />
+
+          {/* Plan cards */}
+          <div className="card">
+            <div className="card-title">Choose a Care Plan</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:24}}>
+              {planCols.map(col => {
+                const cp = CARE_PLANS.find(c => c.id === col.id);
+                const cpCost = cpCostFor(col.id);
+                const isSelected = form.carePlan === col.id;
+                return (
+                  <div key={col.id}
+                    onClick={()=>upd("carePlan", col.id)}
+                    style={{
+                      border: isSelected ? `2px solid ${col.color}` : "2px solid #e5e7eb",
+                      borderRadius:12, padding:"16px 14px", cursor:"pointer",
+                      background: isSelected ? col.bg : "white",
+                      transition:"all 0.15s",
+                    }}>
+                    <div style={{fontSize:12,fontWeight:700,color:col.color,marginBottom:6,lineHeight:1.3}}>{cp.label}</div>
+                    <div style={{fontSize:22,fontWeight:800,color:"#0a1628",lineHeight:1}}>
+                      {col.id === "paygo"
+                        ? (isTruHearing ? "$975" : isUHCH ? "$1,235" : "$65")
+                        : `$${cpCost.toLocaleString()}`}
+                    </div>
+                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>
+                      {col.id === "paygo"
+                        ? (isTruHearingTPA ? "est. over 4 yrs" : "per visit")
+                        : "one-time"}
+                    </div>
+                    {isSelected && <div style={{marginTop:8,fontSize:11,fontWeight:700,color:col.color}}>✓ Selected</div>}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Comparison table */}
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead>
+                  <tr style={{background:"#f9fafb"}}>
+                    <th style={{padding:"10px 12px",textAlign:"left",fontWeight:700,color:"#6b7280",fontSize:11,letterSpacing:1,textTransform:"uppercase",borderBottom:"2px solid #e5e7eb",width:"28%"}}>Feature</th>
+                    {planCols.map(col=>(
+                      <th key={col.id} style={{padding:"10px 12px",textAlign:"center",fontWeight:700,color:col.color,fontSize:11,letterSpacing:0.5,borderBottom:`2px solid ${form.carePlan===col.id?col.color:"#e5e7eb"}`,background:form.carePlan===col.id?col.bg:"#f9fafb"}}>
+                        {col.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {PLAN_COMPARE.map((row, i) => (
+                    <tr key={row.category} style={{background:i%2===0?"white":"#fafafa"}}>
+                      <td style={{padding:"9px 12px",fontWeight:600,color:"#374151",borderBottom:"1px solid #f3f4f6"}}>{row.category}</td>
+                      {planCols.map(col=>(
+                        <td key={col.id} style={{
+                          padding:"9px 12px",textAlign:"center",color:"#374151",
+                          borderBottom:"1px solid #f3f4f6",lineHeight:1.4,
+                          background:form.carePlan===col.id?col.bg:undefined,
+                          fontWeight:form.carePlan===col.id?600:400,
+                        }}>
+                          {row[col.id]}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Total investment */}
+            {grandTotal != null && (
+              <div style={{marginTop:20,borderTop:"2px solid #e5e7eb",paddingTop:16}}>
+                <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:12}}>Total Patient Investment</div>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
+                    <span>Hearing aids ({aidCount} aid{aidCount!==1?"s":""} · {form.tier})</span>
+                    <span style={{fontWeight:600}}>{aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}</span>
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
+                    <span>{selectedPlan?.label}</span>
+                    <span style={{fontWeight:600}}>
+                      {form.carePlan==="paygo"
+                        ? (isTruHearing?"$975 est.":isUHCH?"$1,235 est.":"$65/visit")
+                        : `$${cpCostFor(form.carePlan).toLocaleString()}`}
+                    </span>
+                  </div>
+                  <div style={{height:1,background:"#e5e7eb",margin:"4px 0"}} />
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+                    <span style={{fontSize:14,fontWeight:700,color:"#0a1628"}}>Total</span>
+                    <span style={{fontSize:26,fontWeight:800,color:"#0a1628"}}>
+                      {grandTotal===0?"No Charge":`$${grandTotal.toLocaleString()}`}
+                      {form.carePlan==="paygo" && (
+                        <span style={{fontSize:11,fontWeight:400,color:"#9ca3af",marginLeft:6}}>
+                          {isTruHearing?"est. · yr 1 covered, 15 visits yrs 2–4":isUHCH?"est. · first 3 mo. covered, 19 visits remaining":"+ $65/visit"}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  {aidCount===1 && (
+                    <div style={{fontSize:11,color:"#9ca3af",textAlign:"right"}}>One ear configured — configure second ear to update total</div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      );
+    })());
+    if (step === 5) return (
     if (step === 5) return (
       <div className="card">
         <div className="card-title">Schedule Appointments</div>
