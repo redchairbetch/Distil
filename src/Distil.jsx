@@ -917,8 +917,26 @@ export default function ProviderCRM({ staffId, clinicId }) {
   }, [clinicId, fireIntakeToast]);
 
 
+  // Clear non-TruHearing device selections when a private-label plan is chosen
+  useEffect(() => {
+    if (!isPrivateLabel) return;
+    const emptySide = {style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:""};
+    setForm(f => ({
+      ...f,
+      left:  (f.left.manufacturer && f.left.manufacturer !== "TruHearing")  ? {...emptySide} : f.left,
+      right: (f.right.manufacturer && f.right.manufacturer !== "TruHearing") ? {...emptySide} : f.right,
+    }));
+  }, [isPrivateLabel]); // eslint-disable-line react-hooks/exhaustive-deps
+
+
   const buildSideRecord = (s) => {
-    if (!s.familyId || !s.techLevel) return null;
+    if (!s.familyId && s.manufacturer !== "TruHearing") return null;
+    if (s.manufacturer === "TruHearing" && !s.techLevel) return null;
+    if (s.manufacturer === "TruHearing") return {
+      manufacturer: "TruHearing", generation: "Select", family: "TruHearing Select",
+      variant: "", techLevel: s.techLevel, style: "ric",
+      color: "", battery: "", receiverLength: "", receiverPower: "", receiver: "", dome: "",
+    };
     const fam = catalog.find(e => e.id === s.familyId);
     const pwrLabel = (RECEIVER_POWERS[s.manufacturer]||[]).find(p=>p.id===s.receiverPower)?.label || s.receiverPower;
     const isEarmold = (RECEIVER_POWERS[s.manufacturer]||[]).find(p=>p.id===s.receiverPower)?.earmold;
@@ -1421,6 +1439,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const carriersForType = [...new Set(INSURANCE_PLANS.map(p => p.carrier))];
   const plansForCarrier = INSURANCE_PLANS.filter(p => p.carrier === form.carrier);
 
+  // Private-label (TruHearing Select) plan detection
+  const isPrivateLabelPlan = (plan) =>
+    plan?.tiers?.length > 0 && plan.tiers.every(t => ["Standard","Advanced","Premium"].includes(t.label));
+  const selectedInsurancePlan = INSURANCE_PLANS.find(p => p.carrier === form.carrier && p.planGroup === form.planGroup);
+  const isPrivateLabel = form.payType === "insurance" && isPrivateLabelPlan(selectedInsurancePlan);
+  const privateLabelTiers = isPrivateLabel ? (selectedInsurancePlan?.tiers || []) : [];
+
 
   // Catalog-driven cascade derived values (side-aware)
   const sd = form[activeSide]; // active side data shorthand
@@ -1442,6 +1467,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const isSideConfigured = (s) => {
     const d = form[s];
+    if (d.manufacturer === "TruHearing") return !!(d.techLevel); // private label: tech level alone is sufficient
     const fam = catalog.find(e => e.id === d.familyId);
     const vReq = (fam?.variants?.length || 0) > 1;
     return !!(d.familyId && d.techLevel && (!vReq || d.variant));
@@ -1833,7 +1859,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
               const sideData = form[side];
               const fam = catalog.find(e => e.id === sideData.familyId);
               const subLabel = configured
-                ? `${fam?.family || ""} · ${sideData.techLevel}`
+                ? (sideData.manufacturer === "TruHearing"
+                    ? `TruHearing Select · ${sideData.techLevel}`
+                    : `${fam?.family || ""} · ${sideData.techLevel}`)
                 : "Not configured";
               return (
                 <button key={side} className={`side-tab ${activeSide===side?"active":""} ${configured?"configured":""}`}
@@ -1846,7 +1874,15 @@ export default function ProviderCRM({ staffId, clinicId }) {
           </div>
 
 
-          {/* ── 1. Body Style ── */}
+          {/* ── Private-label plan notice ── */}
+          {isPrivateLabel && (
+            <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#1e40af",fontWeight:600}}>
+              🏷️ This plan uses TruHearing Select devices — device selection is limited to the technology tiers covered by this plan.
+            </div>
+          )}
+
+          {/* ── 1. Body Style (standard plans only) ── */}
+          {!isPrivateLabel && (
           <div className="field" style={{marginBottom:16}}><label>Body Style</label>
             <div className="style-grid">
               {BODY_STYLES.map(s=>(
@@ -1858,7 +1894,11 @@ export default function ProviderCRM({ staffId, clinicId }) {
               ))}
             </div>
           </div>
+          )}
 
+
+          {/* ── 2–6. Standard catalog cascade ── */}
+          {!isPrivateLabel && (<>
 
           {/* ── 2. Manufacturer ── */}
           {sd.style && availMfrs.length > 0 && (
@@ -1946,6 +1986,31 @@ export default function ProviderCRM({ staffId, clinicId }) {
             </div>
           )}
 
+          </>)} {/* end standard cascade */}
+
+          {/* ── Private-label tech picker ── */}
+          {isPrivateLabel && (
+            <div className="field" style={{marginBottom:16}}><label>Technology Level</label>
+              <div className="plan-select-list">
+                {privateLabelTiers.map(t => {
+                  const isActive = sd.manufacturer === "TruHearing" && sd.techLevel === t.label;
+                  return (
+                    <div key={t.label} className={`plan-row ${isActive?"active":""}`}
+                      onClick={()=>setForm(f=>({...f,[activeSide]:{...f[activeSide],manufacturer:"TruHearing",techLevel:t.label,generation:"",familyId:"",variant:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:""}}))}>
+                      <div className="plan-row-top">
+                        <div className="plan-row-name">{t.label}</div>
+                        <div style={{fontWeight:700,color:"#0a1628"}}>{t.price===0?"No Charge":`$${t.price.toLocaleString()} / aid`}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+
+          {/* ── 7–9. Color / Battery / Receiver (standard plans only) ── */}
+          {!isPrivateLabel && (<>
 
           {/* ── 7. Color ── */}
           {sd.techLevel && availColors.length > 0 && (
@@ -2014,6 +2079,31 @@ export default function ProviderCRM({ staffId, clinicId }) {
             </>
           )}
 
+          </>)} {/* end color/battery/receiver standard-only block */}
+
+          {/* ── Per-device pricing callout ── */}
+          {form.tierPrice != null && isSideConfigured(activeSide) && (() => {
+            const leftOk = isSideConfigured("left");
+            const rightOk = isSideConfigured("right");
+            const bothDone = leftOk && rightOk;
+            const total = form.tierPrice * (bothDone ? 2 : 1);
+            return (
+              <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:8,padding:"12px 16px",marginTop:8,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                <div style={{fontSize:13,color:"#166534"}}>
+                  <span style={{fontWeight:700}}>
+                    {form.tier} · ${form.tierPrice.toLocaleString()} / aid
+                  </span>
+                  {bothDone && <span style={{color:"#16a34a",marginLeft:8}}>· Both ears configured</span>}
+                </div>
+                <div style={{fontWeight:800,fontSize:18,color:"#0a1628"}}>
+                  {bothDone
+                    ? <>${total.toLocaleString()} <span style={{fontSize:12,fontWeight:400,color:"#6b7280"}}>total (2 aids)</span></>
+                    : <>${form.tierPrice.toLocaleString()} <span style={{fontSize:12,fontWeight:400,color:"#6b7280"}}>per aid</span></>
+                  }
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ── Side Action Buttons ── */}
           {isSideConfigured(activeSide) && (
@@ -2059,6 +2149,45 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 </div>
               ))}
             </div>
+
+            {/* ── Total Investment Summary ── */}
+            {form.carePlan && form.tierPrice != null && (() => {
+              const leftOk  = isSideConfigured("left");
+              const rightOk = isSideConfigured("right");
+              const aidCount = (leftOk ? 1 : 0) + (rightOk ? 1 : 0);
+              const aidTotal = form.tierPrice * aidCount;
+              const carePlanObj = CARE_PLANS.find(c => c.id === form.carePlan);
+              const cpCost = form.carePlan === "paygo" ? 0
+                : form.carePlan === "punch" ? 575
+                : 1250;
+              const grandTotal = aidTotal + cpCost;
+              return (
+                <div style={{marginTop:20,borderTop:"2px solid #e5e7eb",paddingTop:16}}>
+                  <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:12}}>Total Patient Investment</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
+                      <span>Hearing aids ({aidCount} aid{aidCount!==1?"s":""} · {form.tier})</span>
+                      <span style={{fontWeight:600}}>{aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}</span>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
+                      <span>{carePlanObj?.label}</span>
+                      <span style={{fontWeight:600}}>{cpCost===0?"Pay-as-you-go":`$${cpCost.toLocaleString()}`}</span>
+                    </div>
+                    <div style={{height:1,background:"#e5e7eb",margin:"4px 0"}} />
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+                      <span style={{fontSize:14,fontWeight:700,color:"#0a1628"}}>Total</span>
+                      <span style={{fontSize:26,fontWeight:800,color:"#0a1628"}}>
+                        {grandTotal===0?"No Charge":`$${grandTotal.toLocaleString()}`}
+                        {form.carePlan==="paygo" && <span style={{fontSize:12,fontWeight:400,color:"#9ca3af",marginLeft:6}}>+ $65/visit</span>}
+                      </span>
+                    </div>
+                    {aidCount===1 && (
+                      <div style={{fontSize:11,color:"#9ca3af",textAlign:"right"}}>One ear configured — configure second ear to update total</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
       </>
