@@ -2157,7 +2157,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
               const aidCount = (leftOk ? 1 : 0) + (rightOk ? 1 : 0);
               const aidTotal = form.tierPrice * aidCount;
               const carePlanObj = CARE_PLANS.find(c => c.id === form.carePlan);
-              const cpCost = form.carePlan === "paygo" ? 0
+              // TruHearing: yr 1 fully covered → 15 visits × $65 = $975 (yrs 2–4)
+              // UHCH: only first 3 months covered → 2 extra cleanings + 2 extra triage → 19 visits × $65 = $1,235
+              const isTruHearing = form.tpa === "TruHearing";
+              const isUHCH = form.tpa === "United Healthcare Hearing";
+              const isTruHearingTPA = isTruHearing || isUHCH;
+              const cpCost = form.carePlan === "paygo" ? (isTruHearing ? 975 : isUHCH ? 1235 : 0)
                 : form.carePlan === "punch" ? 575
                 : 1250;
               const grandTotal = aidTotal + cpCost;
@@ -2171,14 +2176,22 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     </div>
                     <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
                       <span>{carePlanObj?.label}</span>
-                      <span style={{fontWeight:600}}>{cpCost===0?"Pay-as-you-go":`$${cpCost.toLocaleString()}`}</span>
+                      <span style={{fontWeight:600}}>
+                        {form.carePlan === "paygo"
+                          ? (isTruHearing ? "$975 est." : isUHCH ? "$1,235 est." : "$65/visit")
+                          : `$${cpCost.toLocaleString()}`}
+                      </span>
                     </div>
                     <div style={{height:1,background:"#e5e7eb",margin:"4px 0"}} />
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
                       <span style={{fontSize:14,fontWeight:700,color:"#0a1628"}}>Total</span>
                       <span style={{fontSize:26,fontWeight:800,color:"#0a1628"}}>
                         {grandTotal===0?"No Charge":`$${grandTotal.toLocaleString()}`}
-                        {form.carePlan==="paygo" && <span style={{fontSize:12,fontWeight:400,color:"#9ca3af",marginLeft:6}}>+ $65/visit</span>}
+                        {form.carePlan==="paygo" && (
+                          <span style={{fontSize:11,fontWeight:400,color:"#9ca3af",marginLeft:6}}>
+                            {isTruHearing ? "est. · yr 1 covered, 15 visits yrs 2–4" : isUHCH ? "est. · first 3 mo. covered, 19 visits remaining" : "+ $65/visit"}
+                          </span>
+                        )}
                       </span>
                     </div>
                     {aidCount===1 && (
