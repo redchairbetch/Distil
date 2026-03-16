@@ -837,7 +837,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const EMPTY_SIDE = () => ({
     style:"", manufacturer:"", generation:"", familyId:"", variant:"",
-    techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:""
+    techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false
   });
 
 
@@ -846,8 +846,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
     firstName:"", lastName:"", dob:"", phone:"", email:"",
     payType:"insurance",
     carrier:"", planGroup:"", tpa:"", tier:"", tierPrice:null,
-    left: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:""},
-    right: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:""},
+    left: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false},
+    right: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false},
     audiology: { rightT:{}, leftT:{}, unaidedR:null, unaidedL:null, aidedR:null, aidedL:null, sinBin:null },
     carePlan:"",
     fittingDate: new Date().toISOString().split("T")[0],
@@ -862,7 +862,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const upd = (k,v) => setForm(f => ({...f,[k]:v}));
   const updSide = (side, k, v) => setForm(f => ({...f, [side]: {...f[side], [k]: v}}));
-  const resetSide = (side, partial={}) => setForm(f => ({...f, [side]: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", ...partial}}));
+  const resetSide = (side, partial={}) => setForm(f => ({...f, [side]: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, ...partial}}));
 
   // Private-label (TruHearing Select) plan detection — must be defined before useEffects that reference it
   const isPrivateLabelPlan = (plan) =>
@@ -927,7 +927,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
   // Clear non-TruHearing device selections when a private-label plan is chosen
   useEffect(() => {
     if (!isPrivateLabel) return;
-    const emptySide = {style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:""};
+    const emptySide = {style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false};
     setForm(f => ({
       ...f,
       left:  (f.left.manufacturer && f.left.manufacturer !== "TruHearing")  ? {...emptySide} : f.left,
@@ -939,11 +939,22 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const buildSideRecord = (s) => {
     if (!s.familyId && s.manufacturer !== "TruHearing") return null;
     if (s.manufacturer === "TruHearing" && !s.techLevel) return null;
-    if (s.manufacturer === "TruHearing") return {
-      manufacturer: "TruHearing", generation: "Select", family: "TruHearing Select",
-      variant: "", techLevel: s.techLevel, style: "ric",
-      color: "", battery: "", receiverLength: "", receiverPower: "", receiver: "", dome: "",
-    };
+    if (s.manufacturer === "TruHearing") {
+      const pwrLabel = (RECEIVER_POWERS["TruHearing"]||[]).find(p=>p.id===s.receiverPower)?.label || s.receiverPower;
+      const isEarmold = (RECEIVER_POWERS["TruHearing"]||[]).find(p=>p.id===s.receiverPower)?.earmold;
+      return {
+        manufacturer: "TruHearing", generation: "IX", family: "TruHearing Select",
+        variant: s.isCROS ? "CROS Transmitter" : (s.variant || ""),
+        techLevel: s.techLevel, style: s.style || "ric",
+        color: "", battery: s.battery || "",
+        receiverLength: s.style === "ric" ? s.receiverLength : "",
+        receiverPower: s.style === "ric" ? s.receiverPower : "",
+        receiver: s.style === "ric" && s.receiverLength && s.receiverPower
+          ? `Length ${s.receiverLength} · ${pwrLabel}` : "",
+        dome: s.style === "ric"
+          ? (isEarmold ? "Custom Earmold" : s.dome) : "",
+      };
+    }
     const fam = catalog.find(e => e.id === s.familyId);
     const pwrLabel = (RECEIVER_POWERS[s.manufacturer]||[]).find(p=>p.id===s.receiverPower)?.label || s.receiverPower;
     const isEarmold = (RECEIVER_POWERS[s.manufacturer]||[]).find(p=>p.id===s.receiverPower)?.earmold;
@@ -963,7 +974,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
     const leftRec = buildSideRecord(form.left);
     const rightRec = buildSideRecord(form.right);
     const primary = leftRec || rightRec;
-    const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros"));
+    const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros"))
+      || form.left.isCROS || form.right.isCROS;
     const fittingType = leftRec && rightRec ? (isCROS ? "CROS/BiCROS" : "Bilateral") : leftRec ? "Monaural Left" : "Monaural Right";
     const years = form.payType === "insurance" && form.carePlan === "complete" ? 4 : 3;
     const patient = {
@@ -1006,7 +1018,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
   const startNew = () => {
-    setForm({ firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:""},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:""},audiology:{rightT:{},leftT:{},unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,sinBin:null},carePlan:"",fittingDate:new Date().toISOString().split("T")[0],appointments:[],notes:"" });
+    setForm({ firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},audiology:{rightT:{},leftT:{},unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,sinBin:null},carePlan:"",fittingDate:new Date().toISOString().split("T")[0],appointments:[],notes:"" });
     setActiveSide("left");
     setStep(0); setSaved(false); setView("new");
   };
@@ -1467,7 +1479,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const isSideConfigured = (s) => {
     const d = form[s];
-    if (d.manufacturer === "TruHearing") return !!(d.techLevel); // private label: tech level alone is sufficient
+    if (d.manufacturer === "TruHearing") return !!(d.style && d.techLevel);
     const fam = catalog.find(e => e.id === d.familyId);
     const vReq = (fam?.variants?.length || 0) > 1;
     return !!(d.familyId && d.techLevel && (!vReq || d.variant));
@@ -1860,7 +1872,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
               const fam = catalog.find(e => e.id === sideData.familyId);
               const subLabel = configured
                 ? (sideData.manufacturer === "TruHearing"
-                    ? `TruHearing Select · ${sideData.techLevel}`
+                    ? `TH Select · ${BODY_STYLES.find(s=>s.id===sideData.style)?.label||sideData.style} · ${sideData.techLevel}`
                     : `${fam?.family || ""} · ${sideData.techLevel}`)
                 : "Not configured";
               return (
@@ -1877,24 +1889,24 @@ export default function ProviderCRM({ staffId, clinicId }) {
           {/* ── Private-label plan notice ── */}
           {isPrivateLabel && (
             <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#1e40af",fontWeight:600}}>
-              🏷️ This plan uses TruHearing Select devices — device selection is limited to the technology tiers covered by this plan.
+              🏷️ This plan uses TruHearing Select devices — select body style, then choose your tech tier and configure fit details.
             </div>
           )}
 
-          {/* ── 1. Body Style (standard plans only) ── */}
-          {!isPrivateLabel && (
+          {/* ── 1. Body Style (all plans) ── */}
           <div className="field" style={{marginBottom:16}}><label>Body Style</label>
             <div className="style-grid">
               {BODY_STYLES.map(s=>(
                 <div key={s.id} className={`style-card ${sd.style===s.id?"active":""}`}
-                  onClick={()=>resetSide(activeSide,{style:s.id})}>
+                  onClick={()=>isPrivateLabel
+                    ? resetSide(activeSide,{style:s.id,manufacturer:"TruHearing",generation:"IX"})
+                    : resetSide(activeSide,{style:s.id})}>
                   <div className="style-id">{s.label}</div>
                   <div className="style-desc">{s.desc}</div>
                 </div>
               ))}
             </div>
           </div>
-          )}
 
 
           {/* ── 2–6. Standard catalog cascade ── */}
@@ -1988,15 +2000,61 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
           </>)} {/* end standard cascade */}
 
-          {/* ── Private-label tech picker ── */}
-          {isPrivateLabel && (
+          {/* ── Private-label: subtype, CROS, tech level ── */}
+          {isPrivateLabel && sd.style && (<>
+
+            {/* RIC subtype */}
+            {sd.style === "ric" && (
+              <div className="field" style={{marginBottom:16}}><label>RIC Type</label>
+                <div className="radio-group" style={{flexWrap:"wrap"}}>
+                  {["Standard (312)","RIC+ (BCT)","Rechargeable Li","SR Rechargeable"].map(v=>(
+                    <div key={v} className={`radio-pill ${sd.variant===v?"active":""}`}
+                      style={{minWidth:140}}
+                      onClick={()=>updSide(activeSide,"variant",v)}>
+                      <div className="radio-pill-label">{v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* BTE subtype */}
+            {sd.style === "bte" && (
+              <div className="field" style={{marginBottom:16}}><label>BTE Type</label>
+                <div className="radio-group">
+                  {["Standard","Power","SP (Super Power)"].map(v=>(
+                    <div key={v} className={`radio-pill ${sd.variant===v?"active":""}`}
+                      onClick={()=>updSide(activeSide,"variant",v)}>
+                      <div className="radio-pill-label">{v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* CROS option — RIC only */}
+            {sd.style === "ric" && (
+              <div className="field" style={{marginBottom:16}}><label>CROS / BiCROS</label>
+                <div className="radio-group">
+                  {[{v:"Standard",label:"Standard"},
+                    {v:"CROS Transmitter",label:"📡 CROS Transmitter"}].map(({v,label})=>(
+                    <div key={v} className={`radio-pill ${(sd.isCROS?"CROS Transmitter":"Standard")===v?"active":""}`}
+                      onClick={()=>setForm(f=>({...f,[activeSide]:{...f[activeSide],isCROS:v==="CROS Transmitter"}}))}>
+                      <div className="radio-pill-label">{label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Technology Level from plan tiers */}
             <div className="field" style={{marginBottom:16}}><label>Technology Level</label>
               <div className="plan-select-list">
                 {privateLabelTiers.map(t => {
                   const isActive = sd.manufacturer === "TruHearing" && sd.techLevel === t.label;
                   return (
                     <div key={t.label} className={`plan-row ${isActive?"active":""}`}
-                      onClick={()=>setForm(f=>({...f,[activeSide]:{...f[activeSide],manufacturer:"TruHearing",techLevel:t.label,generation:"",familyId:"",variant:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:""}}))}>
+                      onClick={()=>setForm(f=>({...f,[activeSide]:{...f[activeSide],manufacturer:"TruHearing",generation:"IX",techLevel:t.label,familyId:"",color:"",battery:""}}))}>
                       <div className="plan-row-top">
                         <div className="plan-row-name">{t.label}</div>
                         <div style={{fontWeight:700,color:"#0a1628"}}>{t.price===0?"No Charge":`$${t.price.toLocaleString()} / aid`}</div>
@@ -2006,10 +2064,11 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 })}
               </div>
             </div>
-          )}
+
+          </>)}
 
 
-          {/* ── 7–9. Color / Battery / Receiver (standard plans only) ── */}
+          {/* ── 7–8. Color / Battery (standard plans only) ── */}
           {!isPrivateLabel && (<>
 
           {/* ── 7. Color ── */}
@@ -2037,8 +2096,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
             </div>
           )}
 
+          </>)} {/* end color/battery standard-only block */}
 
-          {/* ── 9. Receiver + Dome (RIC only) ── */}
+
+          {/* ── 9. Receiver + Dome — RIC, both standard and private-label ── */}
           {sd.style === "ric" && sd.techLevel && availPowers.length > 0 && (
             <>
               <div style={{height:1,background:"#f3f4f6",margin:"4px 0 16px"}} />
@@ -2078,8 +2139,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
               )}
             </>
           )}
-
-          </>)} {/* end color/battery/receiver standard-only block */}
 
           {/* ── Per-device pricing callout ── */}
           {form.tierPrice != null && isSideConfigured(activeSide) && (() => {
@@ -2294,28 +2353,38 @@ export default function ProviderCRM({ staffId, clinicId }) {
       const ReviewSide = ({side, label}) => {
         const d = form[side];
         const fam = catalog.find(e => e.id === d.familyId);
-        if (!d.familyId) return (
+        const isTH = d.manufacturer === "TruHearing";
+        if (!d.familyId && !isTH) return (
+          <div className="review-row"><span className="review-key">{label}</span><span className="review-val" style={{color:"#9ca3af"}}>Not configured</span></div>
+        );
+        if (isTH && !d.techLevel) return (
           <div className="review-row"><span className="review-key">{label}</span><span className="review-val" style={{color:"#9ca3af"}}>Not configured</span></div>
         );
         const pwrLabel = (RECEIVER_POWERS[d.manufacturer]||[]).find(p=>p.id===d.receiverPower)?.label||"—";
         const isEm = (RECEIVER_POWERS[d.manufacturer]||[]).find(p=>p.id===d.receiverPower)?.earmold;
+        const styleLabel = BODY_STYLES.find(s=>s.id===d.style)?.label || d.style || "—";
         return (
           <>
             <div className="review-row" style={{background:"#f8fafc",borderRadius:6,padding:"6px 10px",margin:"4px 0"}}>
               <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>{label}</span>
             </div>
             {[
-              [d.manufacturer,"Manufacturer"],
-              [d.generation,"Platform"],
-              [fam?.family||"","Model Family"],
-              [d.variant||"—","Variant"],
-              [d.techLevel,"Tech Level"],
-              [d.color||"N/A","Color"],
-              [d.battery||"N/A","Battery"],
+              [d.manufacturer, "Manufacturer"],
+              [isTH ? "IX (Select)" : d.generation, "Platform"],
+              [isTH ? "TruHearing Select" : (fam?.family||""), "Model Family"],
+              ...(isTH ? [
+                [styleLabel, "Body Style"],
+                [d.variant||"—", "RIC/BTE Type"],
+                [d.isCROS ? "CROS Transmitter" : "Standard", "CROS"],
+              ] : [
+                [d.variant||"—", "Variant"],
+              ]),
+              [d.techLevel, "Tech Level"],
+              ...(isTH ? [] : [[d.color||"N/A","Color"],[d.battery||"N/A","Battery"]]),
               ...(d.style==="ric" ? [
-                [d.receiverLength||"—","Receiver Length"],
-                [pwrLabel,"Receiver Power"],
-                [isEm?"Custom Earmold":(d.dome||"—"),"Dome / Coupling"],
+                [d.receiverLength||"—", "Receiver Length"],
+                [pwrLabel, "Receiver Power"],
+                [isEm?"Custom Earmold":(d.dome||"—"), "Dome / Coupling"],
               ] : []),
             ].map(([v,k])=>(
               <div className="review-row" key={k}><span className="review-key">{k}</span><span className="review-val">{v}</span></div>
