@@ -2195,7 +2195,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
       </>
     );
-    if (step === 4) return (() => {
+    if (step === 4) {
       const leftOk  = isSideConfigured("left");
       const rightOk = isSideConfigured("right");
       const aidCount = (leftOk ? 1 : 0) + (rightOk ? 1 : 0);
@@ -2419,8 +2419,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           </div>
         </>
       );
-    })());
-    if (step === 5) return (
+    }
     if (step === 5) return (
       <div className="card">
         <div className="card-title">Schedule Appointments</div>
