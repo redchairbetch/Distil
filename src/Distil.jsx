@@ -2219,23 +2219,39 @@ export default function ProviderCRM({ staffId, clinicId }) {
             ? `TruHearing Select · ${d.techLevel}`
             : `${fam?.family || ""} · ${d.techLevel}`;
           return (
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151",padding:"6px 0",borderBottom:"1px solid #f3f4f6"}}>
-              <span>{label} · {name}</span>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #f3f4f6"}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:600,color:"#0a1628"}}>{label}</div>
+                <div style={{fontSize:11,color:"#6b7280",marginTop:1}}>{name}</div>
+              </div>
               {form.tierPrice != null && (
-                <span style={{fontWeight:600}}>{form.tierPrice===0?"No Charge":`$${form.tierPrice.toLocaleString()}`}</span>
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:15,fontWeight:700,color:"#0a1628"}}>
+                    {form.tierPrice===0?"No Charge":`$${form.tierPrice.toLocaleString()}`}
+                  </div>
+                  <div style={{fontSize:10,color:"#9ca3af"}}>per aid</div>
+                </div>
               )}
             </div>
           );
         };
         return (
           <div style={{background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:10,padding:"14px 16px",marginBottom:20}}>
-            <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:10}}>Selected Devices</div>
-            {renderSide("left","👂 Left")}
-            {renderSide("right","Right 👂")}
+            <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:8}}>Selected Devices</div>
+            {renderSide("left","👂 Left Ear")}
+            {renderSide("right","Right Ear 👂")}
             {aidTotal != null && (
-              <div style={{display:"flex",justifyContent:"space-between",marginTop:10,paddingTop:8,borderTop:"2px solid #e5e7eb"}}>
-                <span style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>Device Total ({aidCount} aid{aidCount!==1?"s":""})</span>
-                <span style={{fontSize:16,fontWeight:800,color:"#0a1628"}}>{aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}</span>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,paddingTop:10,borderTop:"2px solid #e5e7eb"}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>Device Total</div>
+                  <div style={{fontSize:11,color:"#6b7280"}}>{aidCount} aid{aidCount!==1?"s":""} · {form.tier} tier</div>
+                </div>
+                <div style={{background:"#0a1628",color:"white",borderRadius:8,padding:"8px 16px",textAlign:"right"}}>
+                  <div style={{fontSize:20,fontWeight:800,lineHeight:1}}>
+                    {aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}
+                  </div>
+                  {aidCount===1 && <div style={{fontSize:10,opacity:0.6,marginTop:2}}>one ear · add second to update</div>}
+                </div>
               </div>
             )}
           </div>
@@ -2276,9 +2292,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
         },
         {
           category: "Loss & Damage",
-          paygo:    "Not included",
-          punch:    "Not included",
-          complete: "1 replacement / device ($275 deductible)",
+          paygo:    "$275 / aid deductible · 3 years",
+          punch:    "$275 / aid deductible · 3 years",
+          complete: "$275 / aid deductible · 4 years",
         },
       ];
 
@@ -2384,8 +2400,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
             {/* Total investment */}
             {grandTotal != null && (
               <div style={{marginTop:20,borderTop:"2px solid #e5e7eb",paddingTop:16}}>
-                <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:12}}>Total Patient Investment</div>
-                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:10}}>Total Patient Investment</div>
+                <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
                   <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
                     <span>Hearing aids ({aidCount} aid{aidCount!==1?"s":""} · {form.tier})</span>
                     <span style={{fontWeight:600}}>{aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}</span>
@@ -2398,21 +2414,25 @@ export default function ProviderCRM({ staffId, clinicId }) {
                         : `$${cpCostFor(form.carePlan).toLocaleString()}`}
                     </span>
                   </div>
-                  <div style={{height:1,background:"#e5e7eb",margin:"4px 0"}} />
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
-                    <span style={{fontSize:14,fontWeight:700,color:"#0a1628"}}>Total</span>
-                    <span style={{fontSize:26,fontWeight:800,color:"#0a1628"}}>
-                      {grandTotal===0?"No Charge":`$${grandTotal.toLocaleString()}`}
-                      {form.carePlan==="paygo" && (
-                        <span style={{fontSize:11,fontWeight:400,color:"#9ca3af",marginLeft:6}}>
-                          {isTruHearing?"est. · yr 1 covered, 15 visits yrs 2–4":isUHCH?"est. · first 3 mo. covered, 19 visits remaining":"+ $65/visit"}
-                        </span>
-                      )}
-                    </span>
+                </div>
+                <div style={{background:"linear-gradient(135deg,#0a1628,#1a3050)",borderRadius:12,padding:"18px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"rgba(255,255,255,0.45)"}}>Total Investment</div>
+                    {aidCount===1 && <div style={{fontSize:10,color:"rgba(255,255,255,0.3)",marginTop:2}}>One ear · configure second to update</div>}
+                    {form.carePlan==="paygo" && (
+                      <div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginTop:2}}>
+                        {isTruHearing?"est. · yr 1 covered, 15 visits yrs 2–4":isUHCH?"est. · first 3 mo. covered, 19 visits remaining":"care plan billed per visit"}
+                      </div>
+                    )}
                   </div>
-                  {aidCount===1 && (
-                    <div style={{fontSize:11,color:"#9ca3af",textAlign:"right"}}>One ear configured — configure second ear to update total</div>
-                  )}
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:32,fontWeight:800,color:"#4ade80",lineHeight:1}}>
+                      {grandTotal===0?"No Charge":`$${grandTotal.toLocaleString()}`}
+                    </div>
+                    {form.carePlan==="paygo" && isTruHearingTPA && (
+                      <div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginTop:3}}>estimated</div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
