@@ -1005,8 +1005,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
       email:      a.email      || "",
       payType:    a.payType    || "insurance",
       carrier:    a.carrier    || "",
-      notes: [f.notes, intake._meta?.intakeId ? `Intake ID: ${intake._meta.intakeId}` : ""].filter(Boolean).join("
-"),
+      notes: [f.notes, intake._meta?.intakeId ? `Intake ID: ${intake._meta.intakeId}` : ""].filter(Boolean).join("\n"),
     }));
     try { dbAcceptIntake(intake._meta.intakeId); } catch {}
     setPendingIntakes(prev => prev.filter(i => i._meta?.intakeId !== intake._meta?.intakeId));
