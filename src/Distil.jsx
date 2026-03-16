@@ -864,6 +864,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const updSide = (side, k, v) => setForm(f => ({...f, [side]: {...f[side], [k]: v}}));
   const resetSide = (side, partial={}) => setForm(f => ({...f, [side]: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", ...partial}}));
 
+  // Private-label (TruHearing Select) plan detection — must be defined before useEffects that reference it
+  const isPrivateLabelPlan = (plan) =>
+    plan?.tiers?.length > 0 && plan.tiers.every(t => ["Standard","Advanced","Premium"].includes(t.label));
+  const selectedInsurancePlan = INSURANCE_PLANS.find(p => p.carrier === form.carrier && p.planGroup === form.planGroup);
+  const isPrivateLabel = form.payType === "insurance" && isPrivateLabelPlan(selectedInsurancePlan);
+  const privateLabelTiers = isPrivateLabel ? (selectedInsurancePlan?.tiers || []) : [];
+
 
   useEffect(() => {
     loadAllPatients().then(p => { setPatients(p); setLoading(false); });
@@ -1438,13 +1445,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const carriersForType = [...new Set(INSURANCE_PLANS.map(p => p.carrier))];
   const plansForCarrier = INSURANCE_PLANS.filter(p => p.carrier === form.carrier);
-
-  // Private-label (TruHearing Select) plan detection
-  const isPrivateLabelPlan = (plan) =>
-    plan?.tiers?.length > 0 && plan.tiers.every(t => ["Standard","Advanced","Premium"].includes(t.label));
-  const selectedInsurancePlan = INSURANCE_PLANS.find(p => p.carrier === form.carrier && p.planGroup === form.planGroup);
-  const isPrivateLabel = form.payType === "insurance" && isPrivateLabelPlan(selectedInsurancePlan);
-  const privateLabelTiers = isPrivateLabel ? (selectedInsurancePlan?.tiers || []) : [];
 
 
   // Catalog-driven cascade derived values (side-aware)
