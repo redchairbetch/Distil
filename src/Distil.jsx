@@ -457,36 +457,101 @@ const CATALOG_DEFAULT = [
 
 
   // ── TRUHEARING (Private-label Signia IX platform) ─────────────────────────
-  // TruHearing 7 = Premium tier (Signia 7IX equivalent)
-  // TruHearing 5 = Standard tier (Signia 5IX equivalent)
-  // TruHearing 3 = Essential tier (Signia 3IX equivalent)
-  // Model naming: "TruHearing [number] Li-Ion" (rechargeable) or "TruHearing [number]" (312)
-  // Tech level labels use TruHearing's own tier names per their portal
-  { id:"th-ric-liion", manufacturer:"TruHearing", generation:"IX",
-    family:"TruHearing RIC Li-Ion", styles:["ric"],
-    variants:["Standard","CROS"],
-    techLevels:["Premium","Standard","Essential"],
-    colors:["Black","Graphite","Dark Champagne","Silver","Pearl White","Fine Gold","Deep Brown","Sandy Brown","Rose Gold","Beige"],
-    battery:["Rechargeable"], active:true,
-    notes:"Private-label Signia IX RIC rechargeable. Ordered through TruHearing portal. Premium=$999, Standard=$699, Essential=$499 per aid (provider pricing)." },
+  // ── TRUHEARING SELECT (Private-label WSAudiology products) ─────────────────
+  // Plan tier → product (one-to-one): "Premium"→TH7 Premium (48ch·IX), "Advanced"→TH6 Advanced (32ch·AX), "Standard"→TH5 (X)
+  // TH5 BTE is always available regardless of plan tier — the plan price covers whatever the clinician fits.
+  // rechargeable:true entries carry a $50/aid Li-Ion upcharge added directly to the plan tier price.
 
+  // ── TH7 Premium · Signia IX · 48ch ── planTierKey:"Premium" ──────────────
+  { id:"th7-prem-ric-li", manufacturer:"TruHearing", generation:"IX",
+    thSeries:"TH7", planTierKey:"Premium",
+    family:"TH7 Premium — RIC Rechargeable", styles:["ric"],
+    variants:["Standard","CROS"], techLevels:["Premium"],
+    rechargeable:true, liUpcharge:50,
+    battery:["Rechargeable (Li-Ion)"], active:true,
+    notes:"48ch · IX platform · +$50/aid unless plan covers Li-Ion upcharge." },
 
-  { id:"th-ric-312", manufacturer:"TruHearing", generation:"IX",
-    family:"TruHearing RIC 312", styles:["ric"],
-    variants:["Standard","CROS"],
-    techLevels:["Premium","Standard","Essential"],
-    colors:["Black","Graphite","Dark Champagne","Silver","Pearl White","Fine Gold","Deep Brown","Sandy Brown","Rose Gold","Beige"],
+  { id:"th7-prem-sr-li", manufacturer:"TruHearing", generation:"IX",
+    thSeries:"TH7", planTierKey:"Premium",
+    family:"TH7 Premium — SR Rechargeable (Super Power RIC)", styles:["ric"],
+    variants:["Standard"], techLevels:["Premium"],
+    rechargeable:true, liUpcharge:50,
+    battery:["Rechargeable (Li-Ion)"], active:true,
+    notes:"48ch · IX · Super-power RIC · +$50/aid. For severe-profound loss." },
+
+  { id:"th7-prem-if-li", manufacturer:"TruHearing", generation:"IX",
+    thSeries:"TH7", planTierKey:"Premium",
+    family:"TH7 Premium — Instant Fit Rechargeable", styles:["ite"],
+    variants:["Standard"], techLevels:["Premium"],
+    rechargeable:true, liUpcharge:50,
+    battery:["Rechargeable (Li-Ion)"], active:true,
+    notes:"48ch · IX · IF Li-Ion custom · +$50/aid." },
+
+  { id:"th7-prem-custom", manufacturer:"TruHearing", generation:"IX",
+    thSeries:"TH7", planTierKey:"Premium",
+    family:"TH7 Premium — Custom (IIC / CIC / ITC)", styles:["ite","itc","cic","iic"],
+    variants:["IIC","CIC","ITC / HS / FS"], techLevels:["Premium"],
+    rechargeable:false, liUpcharge:0,
+    battery:["Size 10","Size 312"], active:true,
+    notes:"48ch · IX · Non-wireless custom. No Li-Ion upcharge." },
+
+  // ── TH6 Advanced · Signia AX · 32ch ── planTierKey:"Advanced" ────────────
+  { id:"th6-adv-ric-312", manufacturer:"TruHearing", generation:"AX",
+    thSeries:"TH6", planTierKey:"Advanced",
+    family:"TH6 Advanced — RIC 312", styles:["ric"],
+    variants:["Standard","CROS"], techLevels:["Advanced"],
+    rechargeable:false, liUpcharge:0,
     battery:["Size 312"], active:true,
-    notes:"Private-label Signia IX RIC with 312 battery. Same platform as Li-Ion variant." },
+    notes:"32ch · AX platform · Non-rechargeable RIC. No Li-Ion upcharge." },
 
+  { id:"th6-adv-ric-li", manufacturer:"TruHearing", generation:"AX",
+    thSeries:"TH6", planTierKey:"Advanced",
+    family:"TH6 Advanced — RIC Rechargeable", styles:["ric"],
+    variants:["Standard","CROS"], techLevels:["Advanced"],
+    rechargeable:true, liUpcharge:50,
+    battery:["Rechargeable (Li-Ion)"], active:true,
+    notes:"32ch · AX platform · +$50/aid unless plan covers Li-Ion." },
 
-  { id:"th-custom", manufacturer:"TruHearing", generation:"IX",
-    family:"TruHearing Custom", styles:["ite","itc","cic"],
-    variants:["ITE","ITC","CIC"],
-    techLevels:["Premium","Standard","Essential"],
-    colors:["Beige","Sandy Brown","Dark Brown","Deep Brown","Black"],
-    battery:["Size 13","Size 312","Size 10"], active:true,
-    notes:"Private-label Signia IX custom products ordered through TruHearing portal." },
+  { id:"th6-adv-sr-li", manufacturer:"TruHearing", generation:"AX",
+    thSeries:"TH6", planTierKey:"Advanced",
+    family:"TH6 Advanced — SR Rechargeable (Super Power RIC)", styles:["ric"],
+    variants:["Standard"], techLevels:["Advanced"],
+    rechargeable:true, liUpcharge:50,
+    battery:["Rechargeable (Li-Ion)"], active:true,
+    notes:"32ch · AX · Super-power RIC · +$50/aid. Severe-profound loss." },
+
+  { id:"th6-adv-custom-li", manufacturer:"TruHearing", generation:"AX",
+    thSeries:"TH6", planTierKey:"Advanced",
+    family:"TH6 Advanced — Custom Rechargeable (ITC)", styles:["ite","itc"],
+    variants:["ITC / HS / FS"], techLevels:["Advanced"],
+    rechargeable:true, liUpcharge:50,
+    battery:["Rechargeable (Li-Ion)"], active:true,
+    notes:"32ch · AX · ITC Li-Ion custom · +$50/aid." },
+
+  // ── TH5 · Signia X ── planTierKey:"Standard"; BTE always available ────────
+  { id:"th5-if", manufacturer:"TruHearing", generation:"X",
+    thSeries:"TH5", planTierKey:"Standard",
+    family:"TH5 Premium — Instant Fit", styles:["ite"],
+    variants:["Standard"], techLevels:["Standard"],
+    rechargeable:false, liUpcharge:0,
+    battery:["Size 10"], active:true,
+    notes:"48ch · X platform · Non-wireless IF custom. No Li-Ion upcharge." },
+
+  { id:"th5-bte-adv-li", manufacturer:"TruHearing", generation:"X",
+    thSeries:"TH5", planTierKey:"Standard",
+    family:"TH5 Advanced — BTE Rechargeable (32ch)", styles:["bte"],
+    variants:["Standard BTE (Thin-tube)","Standard BTE (Earhook)","Power BTE (Thin-tube)","Power BTE (Earhook)","SP BTE"],
+    techLevels:["Standard"], rechargeable:true, liUpcharge:50,
+    battery:["Rechargeable (Li-Ion)"], active:true,
+    notes:"32ch · X platform · BTE Li-Ion · +$50/aid. Always available regardless of plan tier." },
+
+  { id:"th5-bte-prem-li", manufacturer:"TruHearing", generation:"X",
+    thSeries:"TH5", planTierKey:"Standard",
+    family:"TH5 Premium — BTE Rechargeable (48ch)", styles:["bte"],
+    variants:["Standard BTE (Thin-tube)","Standard BTE (Earhook)","Power BTE (Thin-tube)","Power BTE (Earhook)","SP BTE"],
+    techLevels:["Standard"], rechargeable:true, liUpcharge:50,
+    battery:["Rechargeable (Li-Ion)"], active:true,
+    notes:"48ch · X platform · BTE Li-Ion · +$50/aid. Always available regardless of plan tier." },
 ];
 const RECEIVER_LENGTHS = ["0","1","2","3","4"];
 
@@ -939,12 +1004,18 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const buildSideRecord = (s) => {
     if (!s.familyId && s.manufacturer !== "TruHearing") return null;
-    if (s.manufacturer === "TruHearing" && !s.techLevel) return null;
+    if (s.manufacturer === "TruHearing" && (!s.techLevel || !s.familyId)) return null;
     if (s.manufacturer === "TruHearing") {
+      const thFam = catalog.find(e => e.id === s.familyId);
       const pwrLabel = (RECEIVER_POWERS["TruHearing"]||[]).find(p=>p.id===s.receiverPower)?.label || s.receiverPower;
       const isEarmold = (RECEIVER_POWERS["TruHearing"]||[]).find(p=>p.id===s.receiverPower)?.earmold;
       return {
-        manufacturer: "TruHearing", generation: "IX", family: "TruHearing Select",
+        manufacturer: "TruHearing",
+        generation: thFam?.generation || "IX",
+        family: thFam?.family || "TruHearing Select",
+        thSeries: thFam?.thSeries || "",
+        rechargeable: thFam?.rechargeable || false,
+        liUpcharge: thFam?.liUpcharge || 0,
         variant: s.isCROS ? "CROS Transmitter" : (s.variant || ""),
         techLevel: s.techLevel, style: s.style || "ric",
         color: "", battery: s.battery || "",
@@ -1549,10 +1620,24 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const hasCROSVariant = selectedFamily?.variants?.some(v => v.toLowerCase().includes("cros")) || false;
   const otherSide = activeSide === "left" ? "right" : "left";
 
+  // ── TruHearing Select derived values (private-label path) ─────────────────
+  // thAvailForStyle: catalog entries valid for the current style + plan tier.
+  // BTE is always TH5 regardless of plan tier. All other styles filter by planTierKey.
+  const thAvailForStyle = isPrivateLabel && sd.style
+    ? activeCatalog.filter(e =>
+        e.manufacturer === "TruHearing" &&
+        e.styles.includes(sd.style) &&
+        (sd.style === "bte" ? e.thSeries === "TH5" : e.planTierKey === sd.techLevel)
+      )
+    : [];
+  const selectedTHFamily = catalog.find(e => e.id === sd.familyId);
+  const thTierPrice = privateLabelTiers.find(t => t.label === sd.techLevel)?.price ?? 0;
+  const thEffectivePrice = selectedTHFamily?.rechargeable ? thTierPrice + 50 : thTierPrice;
+
 
   const isSideConfigured = (s) => {
     const d = form[s];
-    if (d.manufacturer === "TruHearing") return !!(d.style && d.techLevel);
+    if (d.manufacturer === "TruHearing") return !!(d.style && d.techLevel && d.familyId);
     const fam = catalog.find(e => e.id === d.familyId);
     const vReq = (fam?.variants?.length || 0) > 1;
     return !!(d.familyId && d.techLevel && (!vReq || d.variant));
@@ -1945,7 +2030,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
               const fam = catalog.find(e => e.id === sideData.familyId);
               const subLabel = configured
                 ? (sideData.manufacturer === "TruHearing"
-                    ? `TH Select · ${BODY_STYLES.find(s=>s.id===sideData.style)?.label||sideData.style} · ${sideData.techLevel}`
+                    ? `${fam?.thSeries||"TH"} · ${BODY_STYLES.find(s=>s.id===sideData.style)?.label||sideData.style} · ${sideData.techLevel}${fam?.rechargeable?" ♻":""}`
                     : `${fam?.family || ""} · ${sideData.techLevel}`)
                 : "Not configured";
               return (
@@ -1972,7 +2057,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
               {BODY_STYLES.map(s=>(
                 <div key={s.id} className={`style-card ${sd.style===s.id?"active":""}`}
                   onClick={()=>isPrivateLabel
-                    ? resetSide(activeSide,{style:s.id,manufacturer:"TruHearing",generation:"IX"})
+                    ? resetSide(activeSide,{style:s.id,manufacturer:"TruHearing"})
                     : resetSide(activeSide,{style:s.id})}>
                   <div className="style-id">{s.label}</div>
                   <div className="style-desc">{s.desc}</div>
@@ -2073,70 +2158,106 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
           </>)} {/* end standard cascade */}
 
-          {/* ── Private-label: subtype, CROS, tech level ── */}
+          {/* ── Private-label: tier → product → variant → CROS ── */}
           {isPrivateLabel && sd.style && (<>
 
-            {/* RIC subtype */}
-            {sd.style === "ric" && (
-              <div className="field" style={{marginBottom:16}}><label>RIC Type</label>
-                <div className="radio-group" style={{flexWrap:"wrap"}}>
-                  {["Standard (312)","RIC+ (BCT)","Rechargeable Li","SR Rechargeable"].map(v=>(
-                    <div key={v} className={`radio-pill ${sd.variant===v?"active":""}`}
-                      style={{minWidth:140}}
-                      onClick={()=>updSide(activeSide,"variant",v)}>
-                      <div className="radio-pill-label">{v}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* BTE subtype */}
-            {sd.style === "bte" && (
-              <div className="field" style={{marginBottom:16}}><label>BTE Type</label>
-                <div className="radio-group">
-                  {["Standard","Power","SP (Super Power)"].map(v=>(
-                    <div key={v} className={`radio-pill ${sd.variant===v?"active":""}`}
-                      onClick={()=>updSide(activeSide,"variant",v)}>
-                      <div className="radio-pill-label">{v}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* CROS option — RIC only */}
-            {sd.style === "ric" && (
-              <div className="field" style={{marginBottom:16}}><label>CROS / BiCROS</label>
-                <div className="radio-group">
-                  {[{v:"Standard",label:"Standard"},
-                    {v:"CROS Transmitter",label:"📡 CROS Transmitter"}].map(({v,label})=>(
-                    <div key={v} className={`radio-pill ${(sd.isCROS?"CROS Transmitter":"Standard")===v?"active":""}`}
-                      onClick={()=>setForm(f=>({...f,[activeSide]:{...f[activeSide],isCROS:v==="CROS Transmitter"}}))}>
-                      <div className="radio-pill-label">{label}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Technology Level from plan tiers */}
-            <div className="field" style={{marginBottom:16}}><label>Technology Level</label>
+            {/* Step A: Plan Tier Selection */}
+            <div className="field" style={{marginBottom:16}}><label>Technology Tier</label>
               <div className="plan-select-list">
                 {privateLabelTiers.map(t => {
-                  const isActive = sd.manufacturer === "TruHearing" && sd.techLevel === t.label;
+                  const seriesDesc = sd.style === "bte"
+                    ? "TH5 · Signia X (BTE — always available)"
+                    : t.label === "Premium"  ? "TH7 Premium · 48ch · Signia IX"
+                    : t.label === "Advanced" ? "TH6 Advanced · 32ch · Signia AX"
+                    :                          "TH5 · Signia X";
+                  const isActive = sd.techLevel === t.label;
                   return (
                     <div key={t.label} className={`plan-row ${isActive?"active":""}`}
-                      onClick={()=>setForm(f=>({...f,[activeSide]:{...f[activeSide],manufacturer:"TruHearing",generation:"IX",techLevel:t.label,familyId:"",color:"",battery:""}}))}>
+                      onClick={()=>setForm(f=>({...f,[activeSide]:{...f[activeSide],
+                        manufacturer:"TruHearing", techLevel:t.label,
+                        familyId:"", generation:"", variant:"", battery:"", isCROS:false}}))}>
                       <div className="plan-row-top">
-                        <div className="plan-row-name">{t.label}</div>
-                        <div style={{fontWeight:700,color:"#0a1628"}}>{t.price===0?"No Charge":`$${t.price.toLocaleString()} / aid`}</div>
+                        <div>
+                          <div className="plan-row-name">{t.label}</div>
+                          <div className="plan-row-tpa">{seriesDesc}</div>
+                        </div>
+                        <div style={{fontWeight:700,color:"#0a1628"}}>
+                          {t.price===0 ? "No Charge" : `$${t.price.toLocaleString()} / aid`}
+                        </div>
                       </div>
                     </div>
                   );
                 })}
               </div>
             </div>
+
+            {/* Step B: Product / Power Source — filtered to tier + style */}
+            {sd.techLevel && thAvailForStyle.length > 0 && (
+              <div className="field" style={{marginBottom:16}}>
+                <label>{thAvailForStyle.length > 1 ? "Product / Power Source" : "Product"}</label>
+                <div className="radio-group" style={{flexWrap:"wrap",gap:8}}>
+                  {thAvailForStyle.map(p => (
+                    <div key={p.id}
+                      className={`radio-pill ${sd.familyId===p.id?"active":""}`}
+                      style={{minWidth:200,flexDirection:"column",alignItems:"flex-start"}}
+                      onClick={()=>setForm(f=>({...f,[activeSide]:{...f[activeSide],
+                        familyId:p.id, generation:p.generation,
+                        variant:p.variants.length===1?p.variants[0]:"",
+                        battery:p.battery[0]||"", isCROS:false}}))}>
+                      <div className="radio-pill-label">
+                        {p.rechargeable ? "♻ Rechargeable (Li-Ion)" : `🔋 ${p.battery[0]||"Battery"}`}
+                      </div>
+                      <div className="radio-pill-sub" style={{fontSize:10,marginTop:2,opacity:0.85}}>
+                        {p.family}{p.rechargeable ? " · +$50/aid" : ""}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Step C: Li-Ion upcharge notice */}
+            {selectedTHFamily?.rechargeable && sd.techLevel && (
+              <div style={{background:"#fef3c7",border:"1px solid #fde68a",borderRadius:8,
+                  padding:"10px 14px",marginBottom:16,fontSize:13,color:"#92400e",fontWeight:600}}>
+                ♻ Rechargeable Li-Ion —{" "}
+                {thTierPrice === 0
+                  ? <>No-charge plan + $50/aid upcharge = <strong>$50 / aid</strong></>
+                  : <>${thTierPrice.toLocaleString()} plan price + $50/aid upcharge = <strong>${thEffectivePrice.toLocaleString()} / aid</strong></>
+                }
+              </div>
+            )}
+
+            {/* Step D: BTE type / Custom style variant picker */}
+            {sd.familyId && selectedTHFamily && (sd.style === "bte" || sd.style !== "ric") &&
+              selectedTHFamily.variants.length > 1 && (
+              <div className="field" style={{marginBottom:16}}>
+                <label>{sd.style === "bte" ? "BTE Type" : "Custom Style"}</label>
+                <div className="radio-group" style={{flexWrap:"wrap"}}>
+                  {selectedTHFamily.variants.map(v=>(
+                    <div key={v} className={`radio-pill ${sd.variant===v?"active":""}`}
+                      onClick={()=>updSide(activeSide,"variant",v)}>
+                      <div className="radio-pill-label">{v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Step E: CROS toggle — RIC only, when product has CROS variant */}
+            {sd.familyId && selectedTHFamily && sd.style === "ric" &&
+              selectedTHFamily.variants.includes("CROS") && (
+              <div className="field" style={{marginBottom:16}}><label>CROS / BiCROS</label>
+                <div className="radio-group">
+                  {[{v:false,label:"Standard"},{v:true,label:"📡 CROS Transmitter"}].map(({v,label})=>(
+                    <div key={String(v)} className={`radio-pill ${sd.isCROS===v?"active":""}`}
+                      onClick={()=>setForm(f=>({...f,[activeSide]:{...f[activeSide],isCROS:v}}))}>
+                      <div className="radio-pill-label">{label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
           </>)}
 
@@ -2552,12 +2673,19 @@ export default function ProviderCRM({ staffId, clinicId }) {
         if (!d.familyId && !isTH) return (
           <div className="review-row"><span className="review-key">{label}</span><span className="review-val" style={{color:"#9ca3af"}}>Not configured</span></div>
         );
-        if (isTH && !d.techLevel) return (
+        if (isTH && (!d.techLevel || !d.familyId)) return (
           <div className="review-row"><span className="review-key">{label}</span><span className="review-val" style={{color:"#9ca3af"}}>Not configured</span></div>
         );
         const pwrLabel = (RECEIVER_POWERS[d.manufacturer]||[]).find(p=>p.id===d.receiverPower)?.label||"—";
         const isEm = (RECEIVER_POWERS[d.manufacturer]||[]).find(p=>p.id===d.receiverPower)?.earmold;
         const styleLabel = BODY_STYLES.find(s=>s.id===d.style)?.label || d.style || "—";
+        const thGen = fam?.generation || d.generation || "—";
+        const thSeries = fam?.thSeries || "";
+        const isLi = fam?.rechargeable || false;
+        const liUpcharge = fam?.liUpcharge || 0;
+        const planTierPrice = INSURANCE_PLANS.find(p=>p.carrier===form.carrier&&p.planGroup===form.planGroup)
+          ?.tiers?.find(t=>t.label===d.techLevel)?.price ?? null;
+        const effectivePrice = isLi && planTierPrice !== null ? planTierPrice + liUpcharge : planTierPrice;
         return (
           <>
             <div className="review-row" style={{background:"#f8fafc",borderRadius:6,padding:"6px 10px",margin:"4px 0"}}>
@@ -2565,17 +2693,20 @@ export default function ProviderCRM({ staffId, clinicId }) {
             </div>
             {[
               [d.manufacturer, "Manufacturer"],
-              [isTH ? "IX (Select)" : d.generation, "Platform"],
-              [isTH ? "TruHearing Select" : (fam?.family||""), "Model Family"],
+              [isTH ? `${thGen} · TruHearing Select` : d.generation, "Platform"],
+              [isTH ? (fam?.family || "TruHearing Select") : (fam?.family||""), "Model Family"],
               ...(isTH ? [
+                [thSeries ? `${thSeries} · ${d.techLevel}` : d.techLevel, "Series / Tier"],
                 [styleLabel, "Body Style"],
-                [d.variant||"—", "RIC/BTE Type"],
+                ...(d.variant ? [[d.variant, "Variant / Style"]] : []),
                 [d.isCROS ? "CROS Transmitter" : "Standard", "CROS"],
+                [isLi ? "Rechargeable (Li-Ion) ♻" : (d.battery||"—"), "Battery"],
               ] : [
                 [d.variant||"—", "Variant"],
+                [d.color||"N/A", "Color"],
+                [d.battery||"N/A", "Battery"],
               ]),
-              [d.techLevel, "Tech Level"],
-              ...(isTH ? [] : [[d.color||"N/A","Color"],[d.battery||"N/A","Battery"]]),
+              ...(isTH ? [] : [[d.techLevel, "Tech Level"]]),
               ...(d.style==="ric" ? [
                 [d.receiverLength||"—", "Receiver Length"],
                 [pwrLabel, "Receiver Power"],
@@ -2584,6 +2715,24 @@ export default function ProviderCRM({ staffId, clinicId }) {
             ].map(([v,k])=>(
               <div className="review-row" key={k}><span className="review-key">{k}</span><span className="review-val">{v}</span></div>
             ))}
+            {isTH && effectivePrice !== null && (
+              <div className="review-row" style={{background: isLi?"#fef9c3":"#f0fdf4",borderRadius:6,padding:"6px 10px",marginTop:4}}>
+                <span className="review-key">Patient Cost</span>
+                <span className="review-val" style={{fontWeight:700,color: isLi?"#92400e":"#15803d"}}>
+                  {effectivePrice === 0 ? "No Charge" : `$${effectivePrice.toLocaleString()} / aid`}
+                  {isLi && planTierPrice !== null && planTierPrice > 0 && (
+                    <span style={{fontWeight:400,fontSize:11,color:"#78350f",marginLeft:6}}>
+                      (${planTierPrice.toLocaleString()} plan + $50 Li-Ion)
+                    </span>
+                  )}
+                  {isLi && planTierPrice === 0 && (
+                    <span style={{fontWeight:400,fontSize:11,color:"#78350f",marginLeft:6}}>
+                      (No-charge plan + $50 Li-Ion upcharge)
+                    </span>
+                  )}
+                </span>
+              </div>
+            )}
           </>
         );
       };
