@@ -27,23 +27,102 @@ const DEFAULT_CLINIC = {
 };
 
 
-const DEMO_PLANS = [
-  { carrier: "Humana", planGroup: "Humana TruHearing Standard", tpa: "TruHearing",
-    tiers: [{label:"Standard",price:699},{label:"Advanced",price:999},{label:"Premium",price:1399}] },
-  { carrier: "Humana", planGroup: "Humana TruHearing Advanced", tpa: "TruHearing",
-    tiers: [{label:"Standard",price:599},{label:"Advanced",price:899},{label:"Premium",price:1299}] },
-  { carrier: "Aetna", planGroup: "Aetna TruHearing", tpa: "TruHearing",
-    tiers: [{label:"Standard",price:799},{label:"Advanced",price:1099},{label:"Premium",price:1499}] },
-  { carrier: "UnitedHealthcare", planGroup: "UHC Hearing – Choice Plus", tpa: "United Healthcare Hearing",
-    tiers: [{label:"Level 1",price:0},{label:"Level 2",price:299},{label:"Level 3",price:699},{label:"Level 4",price:999}] },
-  { carrier: "UnitedHealthcare", planGroup: "UHC Hearing – Navigate Plus", tpa: "United Healthcare Hearing",
-    tiers: [{label:"Level 1",price:0},{label:"Level 2",price:399},{label:"Level 3",price:799}] },
-  { carrier: "BCBS", planGroup: "BCBS Nations Hearing", tpa: "Nations Hearing",
-    tiers: [{label:"Standard",price:499},{label:"Advanced",price:899},{label:"Premium",price:1299}] },
-  { carrier: "Cigna", planGroup: "Cigna TruHearing", tpa: "TruHearing",
-    tiers: [{label:"Standard",price:749},{label:"Advanced",price:1049},{label:"Premium",price:1449}] },
-  { carrier: "Medicare Advantage", planGroup: "Medicare Advantage – TruHearing", tpa: "TruHearing",
-    tiers: [{label:"Standard",price:299},{label:"Advanced",price:699},{label:"Premium",price:1099}] },
+const INSURANCE_PLANS = [
+  { carrier:"Anthem", planGroup:"Medicare Preferred PPO; Medicare Supplement; Prefix MBL; Prefix VOD/YFZ; Prefix L7Q; Prefix VOC/YGZ; Anthem Empire Mediblue Freedom (PPO); Anthem Dual Advantage (HMO D-SNP); NV Anthem Medicare Advantage (HMO); NV Anthem I Carelon Chronic Care (HMO-POS C-SNP); KY Anthem Medicare Advantage HMO POS", tpa:"TruHearing", tiers:[{label:"Level 1",price:499}, {label:"Level 2",price:699}, {label:"Level 3",price:999}, {label:"Level 5",price:1399}, {label:"Level 7",price:1799}] },
+  { carrier:"Anthem", planGroup:"Prefix JRG / JRI", tpa:"TruHearing", notes:"Select (TH Private Label)", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Anthem", planGroup:"Sheet Metal Workers' Union Local 33 Cleveland District via OH PPO/EPO Blue Access Local/Natl", tpa:"TruHearing", notes:"Select (TH Private Label)", tiers:[{label:"Advanced",price:499}, {label:"Premium",price:799}] },
+  { carrier:"Anthem", planGroup:"Prefix XMM", tpa:"TruHearing", tiers:[{label:"Level 2",price:699}, {label:"Level 3",price:999}, {label:"Level 5",price:1399}, {label:"Level 7",price:1799}] },
+  { carrier:"Anthem", planGroup:"Mediblue Access PPO; Preferred Provider Option; Prefix EAU", tpa:"TruHearing", tiers:[{label:"Level 1",price:1095}, {label:"Level 2",price:1400}, {label:"Level 3",price:1700}, {label:"Level 5",price:2095}, {label:"Level 7",price:2600}] },
+  { carrier:"Anthem", planGroup:"Plumbers & Pipefitters Union Local No. 525", tpa:"TruHearing", tiers:[{label:"Level 3",price:1195}, {label:"Level 5",price:1495}, {label:"Level 7",price:1895}] },
+  { carrier:"BCBS", planGroup:"BCBS Montana Medicare Advantage PPO", tpa:"TruHearing", tiers:[{label:"Level 3",price:1495}, {label:"Level 5",price:1895}, {label:"Level 7",price:2195}] },
+  { carrier:"BCBS", planGroup:"Arkansas Choice; Prefix PBHAB; BCBS Arkansas Medicare Advantage HMO", tpa:"TruHearing", tiers:[{label:"Level 3",price:445}, {label:"Level 5",price:745}, {label:"Level 7",price:1145}] },
+  { carrier:"BCBS", planGroup:"Arkansas Medipak; Prefix PBHF; Prefix XCM", tpa:"TruHearing", notes:"Select option only", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"BCBS", planGroup:"AR Blue Medicare Saver Choice PPO; Prefix MCMAB; Medicare Advantage Optimum (PPO) MT", tpa:"TruHearing", tiers:[{label:"Level 1",price:695}, {label:"Level 2",price:895}, {label:"Level 3",price:1250}, {label:"Level 5",price:1595}, {label:"Level 7",price:2050}] },
+  { carrier:"BCBS", planGroup:"AR BlueMedicare Advantage Premier Choice; AR BlueMedicare Advantage Premier HMO; AR BlueMedicare Advantage Classic Plus; AR Blue Medicare Advantage Classic", tpa:"TruHearing", notes:"Select (TH Private Label)", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"BCBS", planGroup:"Prefix XMC, XMX; True Blue Special Needs Plan (Idaho)", tpa:"TruHearing", notes:"Select (TH Private Label)", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"BCBS", planGroup:"TN Blue Advantage Garnet", tpa:"TruHearing", notes:"Select (TH Private Label)", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"BCBS", planGroup:"Blue Care Plus TN", tpa:"TruHearing", notes:"Select option only", tiers:[{label:"Advanced",price:499}, {label:"Premium",price:799}] },
+  { carrier:"BCBS", planGroup:"Montana BCBS", tpa:"TruHearing", notes:"3IX / 5IX / 7IX pricing", tiers:[{label:"Level 3",price:1499}, {label:"Level 5",price:1899}, {label:"Level 7",price:2199}] },
+  { carrier:"BCBS", planGroup:"BCBS of Michigan Prefix XYL", tpa:"TruHearing", notes:"Select (TH Private Label)", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"BCBS Idaho", planGroup:"Prefix XMM, XMA (Idaho)", tpa:"TruHearing", tiers:[{label:"Level 1",price:695}, {label:"Level 2",price:895}, {label:"Level 3",price:1250}, {label:"Level 5",price:1595}, {label:"Level 7",price:2050}] },
+  { carrier:"BCBS", planGroup:"Prefix X2B (Idaho)", tpa:"TruHearing", notes:"Signia Level 1 only – No Cost to Patient", tiers:[{label:"Level 1",price:0}] },
+  { carrier:"BCBS of Idaho", planGroup:"Idaho Medicaid Plus", tpa:"TruHearing", notes:"Select (TH Private Label)", tiers:[{label:"Standard",price:399}, {label:"Advanced",price:599}, {label:"Premium",price:899}] },
+  { carrier:"CareSource Ohio", planGroup:"Dual Advantage Medicare/Medicaid", tpa:"TruHearing", notes:"No Cost to Patient; TH Private Label Advanced tech only", tiers:[{label:"Advanced",price:0}] },
+  { carrier:"CareSource Ohio", planGroup:"Marketplace Bronze First", tpa:"TruHearing", notes:"Choice Options", tiers:[{label:"Level 3",price:1250}, {label:"Level 5",price:1595}, {label:"Level 7",price:2050}] },
+  { carrier:"Central Midwest", planGroup:"Central Midwest Carpenters Welfare Fund", tpa:"TruHearing", notes:"Choice Options", tiers:[{label:"Level 1",price:695}, {label:"Level 2",price:895}, {label:"Level 3",price:1250}, {label:"Level 5",price:1595}, {label:"Level 7",price:2050}] },
+  { carrier:"CIGNA", planGroup:"True Choice Medicare PPO MNPS; Cigna Med Adv Health Spring Tru Choice PPO; Cigna HealthSpring Preferred (HMO); Cigna HealthSpring Premier (HMO-POS)", tpa:"TruHearing", notes:"No Cost to Patient; Select options Advanced only", tiers:[{label:"Advanced",price:0}] },
+  { carrier:"Cleveland Bakers & Teamsters", planGroup:"Health and Welfare Fund", tpa:"TruHearing", notes:"Choice Options", tiers:[{label:"Level 1",price:695}, {label:"Level 2",price:895}, {label:"Level 3",price:1250}, {label:"Level 5",price:1595}, {label:"Level 7",price:2050}] },
+  { carrier:"Devoted Health", planGroup:"Prime Ohio HMO; Premium Ohio HMO", tpa:"TruHearing", notes:"Standard/Select: Beltone Rexton only; Level 7 Not Available", tiers:[{label:"Level 2",price:999}, {label:"Level 3",price:1399}, {label:"Level 5",price:1599}] },
+  { carrier:"Devoted Health", planGroup:"Choice Extra Ohio PPO; Core TN HMO; Choice Ohio PPO; Core OH HMO", tpa:"TruHearing", tiers:[{label:"Level 2",price:699}, {label:"Level 3",price:999}, {label:"Level 5",price:1399}, {label:"Level 7",price:1799}] },
+  { carrier:"Devoted Health", planGroup:"Ohio Giveback HMO", tpa:"TruHearing", notes:"No Cost to Patient", tiers:[{label:"Advanced",price:0}] },
+  { carrier:"Devoted Health", planGroup:"Ohio Giveback HMO (based on zip code); Dual Plus OH", tpa:"TruHearing", tiers:[{label:"Level 2",price:899}, {label:"Level 3",price:1199}, {label:"Level 5",price:1299}, {label:"Level 7",price:1499}] },
+  { carrier:"DMBA", planGroup:"Deseret Secure; Deseret Alliance", tpa:"TruHearing", tiers:[{label:"Level 2",price:899}, {label:"Level 3",price:1199}, {label:"Level 5",price:1299}, {label:"Level 7",price:1499}] },
+  { carrier:"EMI Educators Mutual Association", planGroup:"All Plans", tpa:"TruHearing", tiers:[{label:"Level 2",price:745}, {label:"Level 3",price:1025}, {label:"Level 5",price:1500}, {label:"Level 7",price:1800}] },
+  { carrier:"GEHA", planGroup:"UHC Choice Plus Plan", tpa:"TruHearing", tiers:[{label:"Level 1",price:399}, {label:"Level 2",price:745}, {label:"Level 3",price:1025}, {label:"Level 5",price:1500}, {label:"Level 7",price:1800}] },
+  { carrier:"Highmark", planGroup:"Prefix T3B", tpa:"TruHearing", tiers:[{label:"Level 2",price:1049}, {label:"Level 3",price:1349}, {label:"Level 5",price:1699}, {label:"Level 7",price:2099}] },
+  { carrier:"Highmark", planGroup:"Prefix HRT", tpa:"TruHearing", tiers:[{label:"Level 1",price:599}, {label:"Level 2",price:899}, {label:"Level 3",price:1099}, {label:"Level 5",price:1499}, {label:"Level 7",price:1899}] },
+  { carrier:"Highmark", planGroup:"Prefix HRF", tpa:"TruHearing", tiers:[{label:"Advanced",price:199}, {label:"Premium",price:499}] },
+  { carrier:"Highmark", planGroup:"Prefix C4K", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
+  { carrier:"Highmark", planGroup:"Prefix ZWD", tpa:"TruHearing", tiers:[{label:"Advanced",price:599}, {label:"Premium",price:899}] },
+  { carrier:"Humana", planGroup:"Medicare Advantage", tpa:"TruHearing", notes:"Advanced at Zero Copay", tiers:[{label:"Advanced",price:0}, {label:"Premium",price:299}] },
+  { carrier:"Humana", planGroup:"Humana Choice Diabetes and Heart (PPO C-SNP)", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
+  { carrier:"Humana", planGroup:"USAA Honor Giveback PPO; Humana Essentials Plus Giveback (PPO); Humana Honor PPO; Humana Choice Giveback (PPO); Humana Cleveland Clinic Preferred (HMO-POS); Full Access PPO; Total Complete HMO", tpa:"TruHearing", tiers:[{label:"Level 1",price:695}, {label:"Level 2",price:895}, {label:"Level 3",price:1250}, {label:"Level 5",price:1595}, {label:"Level 7",price:2050}] },
+  { carrier:"Humana", planGroup:"USAA Honor Giveback (HMO)", tpa:"TruHearing", tiers:[{label:"Level 3",price:1250}, {label:"Level 5",price:1595}, {label:"Level 7",price:2050}] },
+  { carrier:"Humana", planGroup:"Choice PPO", tpa:"TruHearing", notes:"Select option only", tiers:[{label:"Advanced",price:99}, {label:"Premium",price:399}] },
+  { carrier:"Humana", planGroup:"Value Plus PPO; Dual Select HMO; Dual Select PPO; Gold Plus HMO (based on zip code)", tpa:"TruHearing", notes:"Select option only; *Copay may vary depending on zip code", tiers:[{label:"Advanced",price:599}, {label:"Premium",price:899}] },
+  { carrier:"Humana", planGroup:"Gold Plus HMO (based on zip code); Gold Plus Diabetes and Heart (HMO CSNP); Value Choice PPO", tpa:"TruHearing", notes:"Select option only", tiers:[{label:"Advanced",price:499}, {label:"Premium",price:799}] },
+  { carrier:"Humana", planGroup:"Gold Plus Giveback HMO", tpa:"TruHearing", notes:"Select options only", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:799}] },
+  { carrier:"Humana Medicare", planGroup:"Employer PPO Ohio CARP. Health Plan", tpa:"TruHearing", notes:"Select option only", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Humana Medicare", planGroup:"Humana Medicare Employer PPO University of Oklahoma; Humana NW Laborers Employee Plan; Humana Medicare Employer PPO International Associates", tpa:"TruHearing", notes:"Level 7 Not Available", tiers:[{label:"Level 2",price:1325}, {label:"Level 3",price:1575}, {label:"Level 5",price:1925}] },
+  { carrier:"Humana Medicare", planGroup:"Humana Medicare Employer PPO Board of Pensions", tpa:"TruHearing", notes:"Standard/Select: Beltone Rexton only", tiers:[{label:"Level 2",price:970}, {label:"Level 3",price:1270}, {label:"Level 5",price:1570}, {label:"Level 7",price:1970}] },
+  { carrier:"Lineco", planGroup:"Lineco", tpa:"TruHearing", notes:"Standard/Select: Beltone Rexton only; Level 7 Not Available", tiers:[{label:"Level 2",price:975}, {label:"Level 3",price:1275}, {label:"Level 5",price:1575}] },
+  { carrier:"Medical Mutual", planGroup:"Medicare Advantage Plans", tpa:"TruHearing", tiers:[{label:"Level 3",price:1645}, {label:"Level 5",price:1950}, {label:"Level 7",price:2350}] },
+  { carrier:"Moda", planGroup:"Medicare Supplement", tpa:"TruHearing", tiers:[{label:"Level 1",price:695}, {label:"Level 2",price:895}, {label:"Level 3",price:1250}, {label:"Level 5",price:1595}, {label:"Level 7",price:2050}] },
+  { carrier:"Moda", planGroup:"Moda Health Central PPO", tpa:"TruHearing", notes:"Select (TH Private Label)", tiers:[{label:"Standard",price:299}, {label:"Advanced",price:599}, {label:"Premium",price:899}] },
+  { carrier:"Pacific Source", planGroup:"Medicare Advantage", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Primetime Health", planGroup:"Medicare Advantage HMO", tpa:"TruHearing", tiers:[{label:"Standard",price:599}, {label:"Advanced",price:799}, {label:"Premium",price:999}] },
+  { carrier:"Prominence", planGroup:"Prominence Plus HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
+  { carrier:"Prominence", planGroup:"Prominence Plans", tpa:"TruHearing", notes:"*Copays may vary based on patient", tiers:[{label:"Advanced",price:299}, {label:"Premium",price:599}] },
+  { carrier:"Providence", planGroup:"Choice Plan; Medicare Advantage", tpa:"TruHearing", notes:"Advanced – Zero Copay; some zipcodes under Gold Plus may have a zero copay", tiers:[{label:"Advanced",price:0}] },
+  { carrier:"Providence", planGroup:"Medicare Flex; Providence Medicare Align HMO", tpa:"TruHearing", notes:"Some zipcodes under Gold Plus may have a zero copay", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Regence", planGroup:"Medicare Supplement Bridge Plan N; Prefix ZVU; Prefix ZVY and XNH; UAW", tpa:"TruHearing", tiers:[{label:"Advanced",price:499}, {label:"Premium",price:799}] },
+  { carrier:"Regence", planGroup:"Medicare Advantage PPO; Prefix ZVX, ZVW, ZVH, ZVU, ZHO; Medicare Supplement Bridge Plan G (Prefix YVO)", tpa:"TruHearing", tiers:[{label:"Level 2",price:699}, {label:"Level 3",price:999}, {label:"Level 5",price:1399}, {label:"Level 7",price:1799}] },
+  { carrier:"Saint Alphonsus HMO", planGroup:"Medicare Advantage", tpa:"TruHearing", tiers:[{label:"Level 3",price:1250}, {label:"Level 5",price:1595}, {label:"Level 7",price:2050}] },
+  { carrier:"SCAN", planGroup:"Prefix 40028942101; Prefix 40045778801; Prefix 40010939801", tpa:"TruHearing", tiers:[{label:"Advanced",price:99}, {label:"Premium",price:399}] },
+  { carrier:"SCAN", planGroup:"SCAN Classic HMO; SCAN Venture HMO", tpa:"TruHearing", tiers:[{label:"Level 3",price:1495}, {label:"Level 5",price:1895}, {label:"Level 7",price:2195}] },
+  { carrier:"Select Health Choice", planGroup:"All Plans", tpa:"TruHearing", tiers:[{label:"Level 1",price:600}, {label:"Level 2",price:850}, {label:"Level 3",price:1100}, {label:"Level 5",price:1350}, {label:"Level 7",price:1500}] },
+  { carrier:"Select Health Advantage", planGroup:"All Plans", tpa:"TruHearing", notes:"*Copays may vary based on patient", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Select Health", planGroup:"Medicare + Kroger HMO; Medicare Choice (PPO); Medicare Essential (HMO); Medicare Classic (HMO); Medicare", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
+  { carrier:"Summit Health", planGroup:"All Plans", tpa:"TruHearing", tiers:[{label:"Advanced",price:599}, {label:"Premium",price:899}] },
+  { carrier:"Surebridge", planGroup:"Dental Wise Plus", tpa:"TruHearing", tiers:[{label:"Level 2",price:1325}, {label:"Level 3",price:1575}, {label:"Level 5",price:1925}, {label:"Level 7",price:2325}] },
+  { carrier:"UAW", planGroup:"UAW Retiree; UAW Trust", tpa:"TruHearing", tiers:[{label:"Level 2",price:475}, {label:"Level 3",price:775}, {label:"Level 5",price:1075}, {label:"Level 7",price:1475}] },
+  { carrier:"UCLA Health", planGroup:"MA Prestige Plan", tpa:"TruHearing", tiers:[{label:"Level 1",price:600}, {label:"Level 2",price:850}, {label:"Level 3",price:1100}, {label:"Level 5",price:1350}, {label:"Level 7",price:1500}] },
+  { carrier:"UMR", planGroup:"Teachers Health Trust", tpa:"TruHearing", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Vision Service Plan (VSP)", planGroup:"Vision Service Plan (VSP)", tpa:"TruHearing", tiers:[{label:"Level 1",price:700}, {label:"Level 2",price:975}, {label:"Level 3",price:1250}, {label:"Level 5",price:1450}, {label:"Level 7",price:1800}] },
+  { carrier:"Wellcare / Wellcare Healthnet / Healthnet", planGroup:"All Plans", tpa:"TruHearing", notes:"Choice plan", tiers:[{label:"Level 1",price:1250}, {label:"Level 2",price:1350}, {label:"Level 3",price:1595}, {label:"Level 5",price:1950}, {label:"Level 7",price:2325}] },
+  { carrier:"Wellcare", planGroup:"Wellcare Dual Select HMO D SNP", tpa:"TruHearing", tiers:[{label:"Level 1",price:650}, {label:"Level 2",price:750}, {label:"Level 3",price:995}, {label:"Level 5",price:1350}, {label:"Level 7",price:1725}] },
+  { carrier:"Wellpoint (also known as Amerigroup)", planGroup:"All Plans", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"AARP Medicare", planGroup:"AARP Medicare Advantage Choice Plan / AARP Medicare Advantage Choice Plan 1 / AARP Medicare Advantage Choice Plan 2 / AARP Medicare Advantage Choice Plan 3", tpa:"United Healthcare Hearing", notes:"UHCH Branded Relate Product $399", tiers:[{label:"Level 2",price:800}, {label:"Level 3",price:800}, {label:"Level 5",price:1225}] },
+  { carrier:"AARP Medicare", planGroup:"AARP Medicare Advantage Plan 1", tpa:"United Healthcare Hearing", tiers:[{label:"Level 3",price:1399}, {label:"Level 7",price:1899}] },
+  { carrier:"AARP Medicare Advantage", planGroup:"AARP Medicare Advantage Choice PPO / AARP Medicare Advantage PPO / AARP Medicare Advantage HMO POS / AARP Medicare Advantage Essentials HMO POS / AARP Medicare Advantage Extras HMO POS / Patriot / AARP Medicare Advantage Giveback from UHC UT PPO / AARP Medicare Adv. Extra Value HMO POS / AARP Medicare Advantage Plan 2", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:599}, {label:"Level 3",price:829}, {label:"Level 5",price:1249}] },
+  { carrier:"AARP Medicare Advantage", planGroup:"Medicare Supplement Plan C / Medicare Supplement Plan G / Medicare Supplement Plan L / Medicare Supplement Plan N", tpa:"United Healthcare Hearing", tiers:[{label:"Level 3",price:1299}, {label:"Level 7",price:1649}] },
+  { carrier:"AARP United Healthcare", planGroup:"Medicare Supplement", tpa:"United Healthcare Hearing", notes:"UHCH Branded Relate Product $399 or $699", tiers:[{label:"Level 3",price:1349}, {label:"Level 5",price:1749}, {label:"Level 7",price:2199}] },
+  { carrier:"AARP United Healthcare", planGroup:"AARP Medicare Advantage Walgreens (HMO POS)", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:599}, {label:"Level 3",price:829}, {label:"Level 5",price:1249}] },
+  { carrier:"AARP United Healthcare", planGroup:"AARP Medicare Advantage UHC OH (HMO POS) / Medicare Advantage from CA - 004P (HMO) / AARP Medicare Extra Value / AARP Medicare Adv Essential", tpa:"United Healthcare Hearing", notes:"UHCH Branded Relate Product $399", tiers:[{label:"Level 2",price:599}, {label:"Level 3",price:829}, {label:"Level 5",price:1249}] },
+  { carrier:"Anthem Blue Cross", planGroup:"Los Angeles County Fire Fighters Local 1014 Health & Welfare Plan", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:1149}, {label:"Level 3",price:1449}, {label:"Level 5",price:1949}, {label:"Level 7",price:2299}] },
+  { carrier:"Blue Shield California", planGroup:"Prefix XEE / XEM", tpa:"United Healthcare Hearing", notes:"Level designations use IX suffix", tiers:[{label:"Level 3",price:1499}, {label:"Level 5",price:1899}, {label:"Level 7",price:2199}] },
+  { carrier:"CIGNA Union", planGroup:"Ironworkers Intermountain H&W", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:1049}, {label:"Level 3",price:1349}, {label:"Level 5",price:1699}, {label:"Level 7",price:2099}] },
+  { carrier:"United Healthcare", planGroup:"United Health Chronic Complete Assure / United Healthcare Dual Complete Choice DSNP / United Health Dual Complete Choice / UHC Dual Complete Full Plan G / Washington Dual Complete Plan G / UHC Nursing Home Plan / UHC Dual Complete OH / UHC Care Advantage UT / WA PPO I SNP", tpa:"United Healthcare Hearing", tiers:[{label:"Level 3",price:1249}, {label:"Level 5",price:1799}, {label:"Level 7",price:2249}] },
+  { carrier:"United Healthcare", planGroup:"UHC Dual Complete HMO POS / UHC Dual Complete Choice Select PPO D SNP / UHC Complete Care AR-0005 PPO C SNP / UHC Complete Care AR-V001 PPO D SNP / UHC Complete Care HMO / UHC Dual Complete OH-V001 (HMO POS D-SNP) / UHC Dual Complete WA (PPO DSNP)", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:599}, {label:"Level 3",price:829}, {label:"Level 5",price:1249}] },
+  { carrier:"United Healthcare", planGroup:"UHC Dual Complete PPO / UHC Dual Complete Choice PPO / UHC Dual Complete HMO (D-SNP) / UHC Dual Complete OH Plan OH DSNP / UHC Dual Complete OH-S2 (HMO-POS D SNP) / UHC Dual Complete OH-S3 (HMO-POS D-SNP) / UHC Dual Complete WA (HMO POS D SNP) / UHC Dual Complete Choice - SH PPO D SNP / UHC Assisted Living Plan PPO / UHC Care Advantage PPO / UHC Dual Complete AR-S2 (PPO D-SNP) / UHC Dual Complete ID-Y1 (HMO-POS D-SNP) / UHC Dual Complete WA S1 PPO", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:1099}, {label:"Level 3",price:1249}, {label:"Level 5",price:1599}, {label:"Level 7",price:2199}] },
+  { carrier:"United Healthcare", planGroup:"UHC Medicare Direct", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:999}, {label:"Level 3",price:1249}, {label:"Level 5",price:1799}, {label:"Level 7",price:2249}] },
+  { carrier:"United Healthcare", planGroup:"UHC The Villages Medicare Advantage / UHC Rocky Mountain Medicare Advantage", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:599}, {label:"Level 3",price:829}, {label:"Level 5",price:1249}] },
+  { carrier:"United Healthcare", planGroup:"UHC Complete Care Support OR-1 A PPO C SNP / UHC Complete Care Support ID-1A (PPO C-SNP) / United Health Chronic Complete Assure / UHC Dual Complete WY-S001 (PPO D-SNP)", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:1099}, {label:"Level 3",price:1249}, {label:"Level 5",price:1599}, {label:"Level 7",price:2199}] },
+  { carrier:"United Healthcare", planGroup:"UHC Signature HMO", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:1199}, {label:"Level 3",price:1499}, {label:"Level 5",price:1899}, {label:"Level 7",price:2199}] },
+  { carrier:"United Healthcare", planGroup:"UHC Choice Plus", tpa:"United Healthcare Hearing", tiers:[{label:"Level 3",price:1399}, {label:"Level 7",price:1999}] },
+  { carrier:"United Healthcare", planGroup:"UHC AT&T Group Medicare Adv. PPO *Plus / UHC AT&T Group Medicare Adv. PPO / UHC Group Medicare Adv PEBB Complete PPO / UHC GEHA Group Medicare Advantage / United Healthcare Group Medicare Advantage PPO / UHC Group Medicare Advantage (PPO) APWU Health Plan / UHC Lumen Retiree Medicare Advantage (PPO) / UHC Group Medicare Adv PPO UAW Retiree", tpa:"United Healthcare Hearing", tiers:[{label:"Level 3",price:1399}, {label:"Level 7",price:1899}] },
+  { carrier:"WM Medicare", planGroup:"White Motor Retiree Trust", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:1149}, {label:"Level 3",price:1449}, {label:"Level 5",price:1899}, {label:"Level 7",price:2299}] },
+  { carrier:"Surest via UHC Choice+", planGroup:"Surest via UHC Choice+", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:1199}, {label:"Level 3",price:1499}, {label:"Level 5",price:1899}, {label:"Level 7",price:2199}] },
 ];
 
 
@@ -717,7 +796,7 @@ function generateCounseling(aud){
 
 
 // ── WIZARD STEPS ──────────────────────────────────────────────────────────────
-const STEPS = ["Patient","Testing","Results","Treatment Options","Coverage","Schedule","Review"];
+const STEPS = ["Patient","Testing","Results","Device Selection","Care Plan","Schedule","Review"];
 
 
 export default function ProviderCRM({ staffId, clinicId }) {
@@ -730,6 +809,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState(null);
   const [punchData, setPunchData] = useState({ cleanings: 0, appointments: 0, log: [] });
   const [punchConfirm, setPunchConfirm] = useState(null);
   const [punchSuccess, setPunchSuccess] = useState(null);
@@ -758,7 +838,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const EMPTY_SIDE = () => ({
     style:"", manufacturer:"", generation:"", familyId:"", variant:"",
-    techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:""
+    techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false
   });
 
 
@@ -767,8 +847,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
     firstName:"", lastName:"", dob:"", phone:"", email:"",
     payType:"insurance",
     carrier:"", planGroup:"", tpa:"", tier:"", tierPrice:null,
-    left: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:""},
-    right: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:""},
+    left: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false},
+    right: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false},
     audiology: { rightT:{}, leftT:{}, unaidedR:null, unaidedL:null, aidedR:null, aidedL:null, sinBin:null },
     carePlan:"",
     fittingDate: new Date().toISOString().split("T")[0],
@@ -783,7 +863,14 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const upd = (k,v) => setForm(f => ({...f,[k]:v}));
   const updSide = (side, k, v) => setForm(f => ({...f, [side]: {...f[side], [k]: v}}));
-  const resetSide = (side, partial={}) => setForm(f => ({...f, [side]: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", ...partial}}));
+  const resetSide = (side, partial={}) => setForm(f => ({...f, [side]: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, ...partial}}));
+
+  // Private-label (TruHearing Select) plan detection — must be defined before useEffects that reference it
+  const isPrivateLabelPlan = (plan) =>
+    plan?.tiers?.length > 0 && plan.tiers.every(t => ["Standard","Advanced","Premium"].includes(t.label));
+  const selectedInsurancePlan = INSURANCE_PLANS.find(p => p.carrier === form.carrier && p.planGroup === form.planGroup);
+  const isPrivateLabel = form.payType === "insurance" && isPrivateLabelPlan(selectedInsurancePlan);
+  const privateLabelTiers = isPrivateLabel ? (selectedInsurancePlan?.tiers || []) : [];
 
 
   useEffect(() => {
@@ -838,8 +925,37 @@ export default function ProviderCRM({ staffId, clinicId }) {
   }, [clinicId, fireIntakeToast]);
 
 
+  // Clear non-TruHearing device selections when a private-label plan is chosen
+  useEffect(() => {
+    if (!isPrivateLabel) return;
+    const emptySide = {style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false};
+    setForm(f => ({
+      ...f,
+      left:  (f.left.manufacturer && f.left.manufacturer !== "TruHearing")  ? {...emptySide} : f.left,
+      right: (f.right.manufacturer && f.right.manufacturer !== "TruHearing") ? {...emptySide} : f.right,
+    }));
+  }, [isPrivateLabel]); // eslint-disable-line react-hooks/exhaustive-deps
+
+
   const buildSideRecord = (s) => {
-    if (!s.familyId || !s.techLevel) return null;
+    if (!s.familyId && s.manufacturer !== "TruHearing") return null;
+    if (s.manufacturer === "TruHearing" && !s.techLevel) return null;
+    if (s.manufacturer === "TruHearing") {
+      const pwrLabel = (RECEIVER_POWERS["TruHearing"]||[]).find(p=>p.id===s.receiverPower)?.label || s.receiverPower;
+      const isEarmold = (RECEIVER_POWERS["TruHearing"]||[]).find(p=>p.id===s.receiverPower)?.earmold;
+      return {
+        manufacturer: "TruHearing", generation: "IX", family: "TruHearing Select",
+        variant: s.isCROS ? "CROS Transmitter" : (s.variant || ""),
+        techLevel: s.techLevel, style: s.style || "ric",
+        color: "", battery: s.battery || "",
+        receiverLength: s.style === "ric" ? s.receiverLength : "",
+        receiverPower: s.style === "ric" ? s.receiverPower : "",
+        receiver: s.style === "ric" && s.receiverLength && s.receiverPower
+          ? `Length ${s.receiverLength} · ${pwrLabel}` : "",
+        dome: s.style === "ric"
+          ? (isEarmold ? "Custom Earmold" : s.dome) : "",
+      };
+    }
     const fam = catalog.find(e => e.id === s.familyId);
     const pwrLabel = (RECEIVER_POWERS[s.manufacturer]||[]).find(p=>p.id===s.receiverPower)?.label || s.receiverPower;
     const isEarmold = (RECEIVER_POWERS[s.manufacturer]||[]).find(p=>p.id===s.receiverPower)?.earmold;
@@ -856,10 +972,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
   const handleSave = async () => {
+    setSaveError(null);
     const leftRec = buildSideRecord(form.left);
     const rightRec = buildSideRecord(form.right);
     const primary = leftRec || rightRec;
-    const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros"));
+    const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros"))
+      || form.left.isCROS || form.right.isCROS;
     const fittingType = leftRec && rightRec ? (isCROS ? "CROS/BiCROS" : "Bilateral") : leftRec ? "Monaural Left" : "Monaural Right";
     const years = form.payType === "insurance" && form.carePlan === "complete" ? 4 : 3;
     const patient = {
@@ -892,17 +1010,22 @@ export default function ProviderCRM({ staffId, clinicId }) {
       appointments: form.appointments,
       notes: form.notes,
     };
-    await savePatient(patient, staffId, clinicId);
-    setSaved(true);
-    await refreshPatients();
-    setSelectedPatient(patient);
-    setPunchData({ cleanings: 0, appointments: 0, log: [] });
-    setView("patient");
+    try {
+      await savePatient(patient, staffId, clinicId);
+      setSaved(true);
+      await refreshPatients();
+      setSelectedPatient(patient);
+      setPunchData({ cleanings: 0, appointments: 0, log: [] });
+      setView("patient");
+    } catch (err) {
+      console.error("savePatient error:", err);
+      setSaveError(err?.message || err?.toString() || "Unknown error — check console");
+    }
   };
 
 
   const startNew = () => {
-    setForm({ firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:""},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:""},audiology:{rightT:{},leftT:{},unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,sinBin:null},carePlan:"",fittingDate:new Date().toISOString().split("T")[0],appointments:[],notes:"" });
+    setForm({ firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},audiology:{rightT:{},leftT:{},unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,sinBin:null},carePlan:"",fittingDate:new Date().toISOString().split("T")[0],appointments:[],notes:"" });
     setActiveSide("left");
     setStep(0); setSaved(false); setView("new");
   };
@@ -926,8 +1049,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
       email:      a.email      || "",
       payType:    a.payType    || "insurance",
       carrier:    a.carrier    || "",
-      notes: [f.notes, intake._meta?.intakeId ? `Intake ID: ${intake._meta.intakeId}` : ""].filter(Boolean).join("
-"),
+      notes: [f.notes, intake._meta?.intakeId ? `Intake ID: ${intake._meta.intakeId}` : ""].filter(Boolean).join("\n"),
     }));
     try { dbAcceptIntake(intake._meta.intakeId); } catch {}
     setPendingIntakes(prev => prev.filter(i => i._meta?.intakeId !== intake._meta?.intakeId));
@@ -940,6 +1062,64 @@ export default function ProviderCRM({ staffId, clinicId }) {
     setPendingIntakes(prev => prev.filter(i => i._meta?.intakeId !== intakeId));
   };
 
+
+  const [seeding, setSeeding] = useState(false);
+  const [seedError, setSeedError] = useState(null);
+  const handleSeedPatients = async () => {
+    setSeeding(true); setSeedError(null);
+    const seeds = [
+      {
+        id: genId(), location: clinic.name, createdAt: new Date().toISOString(),
+        name: "Margaret Thornton", dob: "1948-03-12", phone: "(435) 555-0191", email: "margaret.thornton@email.com",
+        payType: "insurance",
+        insurance: { carrier: "Humana", planGroup: "Medicare Advantage", tpa: "TruHearing", tier: "Advanced", tierPrice: 0 },
+        devices: {
+          left: { manufacturer:"Signia", generation:"IX", family:"Pure Charge&Go IX", variant:"Standard", techLevel:"7", style:"ric", color:"Silver", battery:"Rechargeable", receiverLength:"2", receiverPower:"M", receiver:"Length 2 · Medium (M)", dome:"7mm Open" },
+          right: { manufacturer:"Signia", generation:"IX", family:"Pure Charge&Go IX", variant:"Standard", techLevel:"7", style:"ric", color:"Silver", battery:"Rechargeable", receiverLength:"2", receiverPower:"M", receiver:"Length 2 · Medium (M)", dome:"7mm Open" },
+          fittingType:"Bilateral", manufacturer:"Signia", family:"Pure Charge&Go IX", techLevel:"7", style:"ric", color:"Silver", battery:"Rechargeable",
+          fittingDate: "2025-01-15", warrantyExpiry: warrantyDate("2025-01-15", 4), serialLeft: genId(), serialRight: genId(),
+        },
+        audiology: { rightT:{500:35,1000:40,2000:50,4000:65,8000:70}, leftT:{500:30,1000:40,2000:45,4000:60,8000:65}, unaidedR:72, unaidedL:78, aidedR:92, aidedL:94, sinBin:7 },
+        carePlan: "complete", appointments: [{ date:"2025-01-29", type:"2-Week Follow-Up" },{ date:"2025-02-12", type:"4-Week Follow-Up" }], notes: "Patient reports excellent satisfaction. Prefers telephone streaming.",
+      },
+      {
+        id: genId(), location: clinic.name, createdAt: new Date().toISOString(),
+        name: "Robert Hatch", dob: "1955-07-22", phone: "(435) 555-0347", email: "",
+        payType: "insurance",
+        insurance: { carrier: "DMBA", planGroup: "Deseret Secure; Deseret Alliance", tpa: "TruHearing", tier: "Level 3", tierPrice: 1199 },
+        devices: {
+          left: { manufacturer:"Signia", generation:"IX", family:"Pure Charge&Go IX", variant:"Standard", techLevel:"5", style:"ric", color:"Graphite", battery:"Rechargeable", receiverLength:"2", receiverPower:"P", receiver:"Length 2 · Power (P)", dome:"Closed Sleeve M" },
+          right: { manufacturer:"Signia", generation:"IX", family:"Pure Charge&Go IX", variant:"Standard", techLevel:"5", style:"ric", color:"Graphite", battery:"Rechargeable", receiverLength:"3", receiverPower:"P", receiver:"Length 3 · Power (P)", dome:"Closed Sleeve M" },
+          fittingType:"Bilateral", manufacturer:"Signia", family:"Pure Charge&Go IX", techLevel:"5", style:"ric", color:"Graphite", battery:"Rechargeable",
+          fittingDate: "2025-03-03", warrantyExpiry: warrantyDate("2025-03-03", 3), serialLeft: genId(), serialRight: genId(),
+        },
+        audiology: { rightT:{500:45,1000:55,2000:65,4000:75,8000:80}, leftT:{500:50,1000:60,2000:70,4000:80,8000:85}, unaidedR:58, unaidedL:52, aidedR:84, aidedL:80, sinBin:12 },
+        carePlan: "punch", appointments: [], notes: "Moderate-to-severe bilateral. Needs follow-up on left dome fit.",
+      },
+      {
+        id: genId(), location: clinic.name, createdAt: new Date().toISOString(),
+        name: "Linda Espinoza", dob: "1962-11-05", phone: "(435) 555-0528", email: "linda.espinoza@gmail.com",
+        payType: "private",
+        insurance: null,
+        devices: {
+          left: { manufacturer:"Phonak", generation:"Infinio", family:"Audéo Infinio", variant:"Standard", techLevel:"90", style:"ric", color:"Champagne", battery:"Rechargeable", receiverLength:"1", receiverPower:"S", receiver:"Length 1 · Standard (S)", dome:"Open Dome M" },
+          right: { manufacturer:"Phonak", generation:"Infinio", family:"Audéo Infinio", variant:"Standard", techLevel:"90", style:"ric", color:"Champagne", battery:"Rechargeable", receiverLength:"1", receiverPower:"S", receiver:"Length 1 · Standard (S)", dome:"Open Dome M" },
+          fittingType:"Bilateral", manufacturer:"Phonak", family:"Audéo Infinio", techLevel:"90", style:"ric", color:"Champagne", battery:"Rechargeable",
+          fittingDate: "2024-11-20", warrantyExpiry: warrantyDate("2024-11-20", 4), serialLeft: genId(), serialRight: genId(),
+        },
+        audiology: { rightT:{500:20,1000:25,2000:35,4000:55,8000:65}, leftT:{500:20,1000:25,2000:30,4000:50,8000:60}, unaidedR:88, unaidedL:90, aidedR:98, aidedL:98, sinBin:4 },
+        carePlan: null, appointments: [{ date:"2025-12-01", type:"Annual Exam" }], notes: "Private pay. High-functioning loss, excellent word recognition. Very tech-savvy.",
+      },
+    ];
+    let errors = [];
+    for (const p of seeds) {
+      try { await savePatient(p, staffId, clinicId); }
+      catch (e) { errors.push(`${p.name}: ${e?.message||e}`); }
+    }
+    if (errors.length) { setSeedError(errors.join(" | ")); }
+    else { await refreshPatients(); }
+    setSeeding(false);
+  };
 
   const statsData = useMemo(() => ({
     total: patients.length,
@@ -1241,8 +1421,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
         <div>
           <div className="topbar-title">Patient Dashboard</div>
           <div className="topbar-sub">{clinic.name} · {patients.length} active patients</div>
+          {seedError && <div style={{fontSize:11,color:"#dc2626",marginTop:4}}>Seed error: {seedError}</div>}
         </div>
-        <button className="btn-primary green" onClick={startNew}>＋ New Patient</button>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          {patients.length === 0 && (
+            <button className="btn-ghost" style={{fontSize:12}} onClick={handleSeedPatients} disabled={seeding}>
+              {seeding ? "Seeding…" : "🌱 Add Test Patients"}
+            </button>
+          )}
+          <button className="btn-primary green" onClick={startNew}>＋ New Patient</button>
+        </div>
       </div>
       <div className="content">
         <div className="stats-grid">
@@ -1340,8 +1528,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
   };
 
 
-  const carriersForType = [...new Set(DEMO_PLANS.map(p => p.carrier))];
-  const plansForCarrier = DEMO_PLANS.filter(p => p.carrier === form.carrier);
+  const carriersForType = [...new Set(INSURANCE_PLANS.map(p => p.carrier))];
+  const plansForCarrier = INSURANCE_PLANS.filter(p => p.carrier === form.carrier);
 
 
   // Catalog-driven cascade derived values (side-aware)
@@ -1364,6 +1552,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const isSideConfigured = (s) => {
     const d = form[s];
+    if (d.manufacturer === "TruHearing") return !!(d.style && d.techLevel);
     const fam = catalog.find(e => e.id === d.familyId);
     const vReq = (fam?.variants?.length || 0) > 1;
     return !!(d.familyId && d.techLevel && (!vReq || d.variant));
@@ -1374,8 +1563,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
     form.firstName && form.lastName && form.dob && form.phone,
     true, // Testing — always skippable
     true, // Results — always skippable
-    (isSideConfigured("left") || isSideConfigured("right")) && (form.payType !== "insurance" || form.carePlan),
-    form.payType === "private" || (form.carrier && form.planGroup && form.tier),
+    (isSideConfigured("left") || isSideConfigured("right")),
+    form.payType === "private" || !!form.carePlan,
     true,
     true,
   ][step];
@@ -1420,7 +1609,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   style={{width:"100%",marginBottom:10,fontSize:13}}
                 />
                 <div style={{maxHeight:220,overflowY:"auto",display:"flex",flexDirection:"column",gap:6,paddingRight:4}}>
-                  {DEMO_PLANS
+                  {INSURANCE_PLANS
                     .filter(p=>{
                       const q=(form._planSearch||"").toLowerCase();
                       return !q||p.carrier.toLowerCase().includes(q)||p.planGroup.toLowerCase().includes(q)||p.tpa.toLowerCase().includes(q);
@@ -1755,7 +1944,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
               const sideData = form[side];
               const fam = catalog.find(e => e.id === sideData.familyId);
               const subLabel = configured
-                ? `${fam?.family || ""} · ${sideData.techLevel}`
+                ? (sideData.manufacturer === "TruHearing"
+                    ? `TH Select · ${BODY_STYLES.find(s=>s.id===sideData.style)?.label||sideData.style} · ${sideData.techLevel}`
+                    : `${fam?.family || ""} · ${sideData.techLevel}`)
                 : "Not configured";
               return (
                 <button key={side} className={`side-tab ${activeSide===side?"active":""} ${configured?"configured":""}`}
@@ -1768,12 +1959,21 @@ export default function ProviderCRM({ staffId, clinicId }) {
           </div>
 
 
-          {/* ── 1. Body Style ── */}
+          {/* ── Private-label plan notice ── */}
+          {isPrivateLabel && (
+            <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#1e40af",fontWeight:600}}>
+              🏷️ This plan uses TruHearing Select devices — select body style, then choose your tech tier and configure fit details.
+            </div>
+          )}
+
+          {/* ── 1. Body Style (all plans) ── */}
           <div className="field" style={{marginBottom:16}}><label>Body Style</label>
             <div className="style-grid">
               {BODY_STYLES.map(s=>(
                 <div key={s.id} className={`style-card ${sd.style===s.id?"active":""}`}
-                  onClick={()=>resetSide(activeSide,{style:s.id})}>
+                  onClick={()=>isPrivateLabel
+                    ? resetSide(activeSide,{style:s.id,manufacturer:"TruHearing",generation:"IX"})
+                    : resetSide(activeSide,{style:s.id})}>
                   <div className="style-id">{s.label}</div>
                   <div className="style-desc">{s.desc}</div>
                 </div>
@@ -1781,6 +1981,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
             </div>
           </div>
 
+
+          {/* ── 2–6. Standard catalog cascade ── */}
+          {!isPrivateLabel && (<>
 
           {/* ── 2. Manufacturer ── */}
           {sd.style && availMfrs.length > 0 && (
@@ -1868,6 +2071,78 @@ export default function ProviderCRM({ staffId, clinicId }) {
             </div>
           )}
 
+          </>)} {/* end standard cascade */}
+
+          {/* ── Private-label: subtype, CROS, tech level ── */}
+          {isPrivateLabel && sd.style && (<>
+
+            {/* RIC subtype */}
+            {sd.style === "ric" && (
+              <div className="field" style={{marginBottom:16}}><label>RIC Type</label>
+                <div className="radio-group" style={{flexWrap:"wrap"}}>
+                  {["Standard (312)","RIC+ (BCT)","Rechargeable Li","SR Rechargeable"].map(v=>(
+                    <div key={v} className={`radio-pill ${sd.variant===v?"active":""}`}
+                      style={{minWidth:140}}
+                      onClick={()=>updSide(activeSide,"variant",v)}>
+                      <div className="radio-pill-label">{v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* BTE subtype */}
+            {sd.style === "bte" && (
+              <div className="field" style={{marginBottom:16}}><label>BTE Type</label>
+                <div className="radio-group">
+                  {["Standard","Power","SP (Super Power)"].map(v=>(
+                    <div key={v} className={`radio-pill ${sd.variant===v?"active":""}`}
+                      onClick={()=>updSide(activeSide,"variant",v)}>
+                      <div className="radio-pill-label">{v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* CROS option — RIC only */}
+            {sd.style === "ric" && (
+              <div className="field" style={{marginBottom:16}}><label>CROS / BiCROS</label>
+                <div className="radio-group">
+                  {[{v:"Standard",label:"Standard"},
+                    {v:"CROS Transmitter",label:"📡 CROS Transmitter"}].map(({v,label})=>(
+                    <div key={v} className={`radio-pill ${(sd.isCROS?"CROS Transmitter":"Standard")===v?"active":""}`}
+                      onClick={()=>setForm(f=>({...f,[activeSide]:{...f[activeSide],isCROS:v==="CROS Transmitter"}}))}>
+                      <div className="radio-pill-label">{label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Technology Level from plan tiers */}
+            <div className="field" style={{marginBottom:16}}><label>Technology Level</label>
+              <div className="plan-select-list">
+                {privateLabelTiers.map(t => {
+                  const isActive = sd.manufacturer === "TruHearing" && sd.techLevel === t.label;
+                  return (
+                    <div key={t.label} className={`plan-row ${isActive?"active":""}`}
+                      onClick={()=>setForm(f=>({...f,[activeSide]:{...f[activeSide],manufacturer:"TruHearing",generation:"IX",techLevel:t.label,familyId:"",color:"",battery:""}}))}>
+                      <div className="plan-row-top">
+                        <div className="plan-row-name">{t.label}</div>
+                        <div style={{fontWeight:700,color:"#0a1628"}}>{t.price===0?"No Charge":`$${t.price.toLocaleString()} / aid`}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+          </>)}
+
+
+          {/* ── 7–8. Color / Battery (standard plans only) ── */}
+          {!isPrivateLabel && (<>
 
           {/* ── 7. Color ── */}
           {sd.techLevel && availColors.length > 0 && (
@@ -1894,8 +2169,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
             </div>
           )}
 
+          </>)} {/* end color/battery standard-only block */}
 
-          {/* ── 9. Receiver + Dome (RIC only) ── */}
+
+          {/* ── 9. Receiver + Dome — RIC, both standard and private-label ── */}
           {sd.style === "ric" && sd.techLevel && availPowers.length > 0 && (
             <>
               <div style={{height:1,background:"#f3f4f6",margin:"4px 0 16px"}} />
@@ -1936,6 +2213,29 @@ export default function ProviderCRM({ staffId, clinicId }) {
             </>
           )}
 
+          {/* ── Per-device pricing callout ── */}
+          {form.tierPrice != null && isSideConfigured(activeSide) && (() => {
+            const leftOk = isSideConfigured("left");
+            const rightOk = isSideConfigured("right");
+            const bothDone = leftOk && rightOk;
+            const total = form.tierPrice * (bothDone ? 2 : 1);
+            return (
+              <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:8,padding:"12px 16px",marginTop:8,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                <div style={{fontSize:13,color:"#166534"}}>
+                  <span style={{fontWeight:700}}>
+                    {form.tier} · ${form.tierPrice.toLocaleString()} / aid
+                  </span>
+                  {bothDone && <span style={{color:"#16a34a",marginLeft:8}}>· Both ears configured</span>}
+                </div>
+                <div style={{fontWeight:800,fontSize:18,color:"#0a1628"}}>
+                  {bothDone
+                    ? <>${total.toLocaleString()} <span style={{fontSize:12,fontWeight:400,color:"#6b7280"}}>total (2 aids)</span></>
+                    : <>${form.tierPrice.toLocaleString()} <span style={{fontSize:12,fontWeight:400,color:"#6b7280"}}>per aid</span></>
+                  }
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ── Side Action Buttons ── */}
           {isSideConfigured(activeSide) && (
@@ -1966,79 +2266,253 @@ export default function ProviderCRM({ staffId, clinicId }) {
           )}
         </div>
 
-
-        {/* ── Care Plan (insurance only) ── */}
-        {form.payType === "insurance" && (
-          <div className="card">
-            <div className="card-title">Care Plan</div>
-            <div className="plan-select-list">
-              {CARE_PLANS.map(cp=>(
-                <div key={cp.id} className={`plan-row ${form.carePlan===cp.id?"active":""}`} onClick={()=>upd("carePlan",cp.id)}>
-                  <div className="plan-row-top">
-                    <div className="plan-row-name">{cp.label}</div>
-                    <div style={{fontWeight:700,color:"#0a1628"}}>{cp.price}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </>
     );
-    if (step === 4) return (
-      <div className="card">
-        <div className="card-title">{form.payType === "private" ? "Private Pay – Standard of Care" : "Insurance Plan Selection"}</div>
-        {form.payType === "private" ? (
-          <div style={{color:"#374151",fontSize:14,lineHeight:1.7}}>
-            <div style={{background:"linear-gradient(135deg,#0a1628,#1a3050)",color:"white",borderRadius:12,padding:"20px 24px",marginBottom:16}}>
-              <div style={{fontSize:22,fontWeight:700,marginBottom:4}}>Standard of Care Package</div>
-              <div style={{fontSize:32,fontWeight:700,color:"#4ade80"}}>$5,500</div>
-              <div style={{fontSize:12,opacity:0.6,marginTop:4}}>Total investment · All-inclusive</div>
-            </div>
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {["Two top-tier hearing aids (any manufacturer)","Custom earmolds if needed","Unlimited office visits for life of aids","4-year comprehensive warranty","One-time replacement per device ($275 deductible)"].map(i=>(
-                <div key={i} style={{display:"flex",gap:10,fontSize:13,color:"#374151"}}><span style={{color:"#16a34a"}}>✓</span>{i}</div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="field-grid" style={{marginBottom:16}}>
-              <div className="field"><label>Insurance Carrier</label>
-                <select value={form.carrier} onChange={e=>{upd("carrier",e.target.value);upd("planGroup","");upd("tier","");upd("tierPrice",null);}}>
-                  <option value="">Select carrier…</option>
-                  {carriersForType.map(c=><option key={c}>{c}</option>)}
-                </select>
+    if (step === 4) {
+      const leftOk  = isSideConfigured("left");
+      const rightOk = isSideConfigured("right");
+      const aidCount = (leftOk ? 1 : 0) + (rightOk ? 1 : 0);
+      const aidTotal = form.tierPrice != null ? form.tierPrice * aidCount : null;
+      const isTruHearing = form.tpa === "TruHearing";
+      const isUHCH = form.tpa === "United Healthcare Hearing";
+      const isTruHearingTPA = isTruHearing || isUHCH;
+
+      const cpCostFor = (id) =>
+        id === "paygo"    ? (isTruHearing ? 975 : isUHCH ? 1235 : 0)
+        : id === "punch"  ? 575
+        : 1250;
+
+      const DeviceSummary = () => {
+        if (!leftOk && !rightOk) return null;
+        const renderSide = (side, label) => {
+          const d = form[side];
+          if (!isSideConfigured(side)) return null;
+          const fam = catalog.find(e => e.id === d.familyId);
+          const name = d.manufacturer === "TruHearing"
+            ? `TruHearing Select · ${d.techLevel}`
+            : `${fam?.family || ""} · ${d.techLevel}`;
+          return (
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #f3f4f6"}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:600,color:"#0a1628"}}>{label}</div>
+                <div style={{fontSize:11,color:"#6b7280",marginTop:1}}>{name}</div>
               </div>
+              {form.tierPrice != null && (
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:15,fontWeight:700,color:"#0a1628"}}>
+                    {form.tierPrice===0?"No Charge":`$${form.tierPrice.toLocaleString()}`}
+                  </div>
+                  <div style={{fontSize:10,color:"#9ca3af"}}>per aid</div>
+                </div>
+              )}
             </div>
-            {form.carrier && (
-              <div className="plan-select-list">
-                {plansForCarrier.map(plan => (
-                  <div key={plan.planGroup} className={`plan-row ${form.planGroup===plan.planGroup?"active":""}`} onClick={()=>{upd("planGroup",plan.planGroup);upd("tpa",plan.tpa);upd("tier","");upd("tierPrice",null);}}>
-                    <div className="plan-row-top">
-                      <div>
-                        <div className="plan-row-name">{plan.planGroup}</div>
-                        <div className="plan-row-tpa">via {plan.tpa}</div>
-                      </div>
+          );
+        };
+        return (
+          <div style={{background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:10,padding:"14px 16px",marginBottom:20}}>
+            <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:8}}>Selected Devices</div>
+            {renderSide("left","👂 Left Ear")}
+            {renderSide("right","Right Ear 👂")}
+            {aidTotal != null && (
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,paddingTop:10,borderTop:"2px solid #e5e7eb"}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>Device Total</div>
+                  <div style={{fontSize:11,color:"#6b7280"}}>{aidCount} aid{aidCount!==1?"s":""} · {form.tier} tier</div>
+                </div>
+                <div style={{background:"#0a1628",color:"white",borderRadius:8,padding:"8px 16px",textAlign:"right"}}>
+                  <div style={{fontSize:20,fontWeight:800,lineHeight:1}}>
+                    {aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}
+                  </div>
+                  {aidCount===1 && <div style={{fontSize:10,opacity:0.6,marginTop:2}}>one ear · add second to update</div>}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      // Comparison table data
+      const PLAN_COMPARE = [
+        {
+          category: "Cost",
+          paygo:    isTruHearing ? "$975 est." : isUHCH ? "$1,235 est." : "$65 / visit",
+          punch:    "$575",
+          complete: "$1,250",
+        },
+        {
+          category: "Office Visits",
+          paygo:    "Billed per visit · $65 each",
+          punch:    "28 prepaid · unlimited types",
+          complete: "Unlimited · 4-year period",
+        },
+        {
+          category: "Cleanings",
+          paygo:    isTruHearingTPA ? "Yr 1 covered by plan" : "$65 each",
+          punch:    "12 included",
+          complete: "Unlimited",
+        },
+        {
+          category: "Adjustments & Triage",
+          paygo:    isTruHearingTPA ? "Yr 1 covered by plan" : "$65 each",
+          punch:    "16 included",
+          complete: "Unlimited",
+        },
+        {
+          category: "Warranty",
+          paygo:    "3 years standard",
+          punch:    "3 years standard",
+          complete: "4 years extended",
+        },
+        {
+          category: "Loss & Damage",
+          paygo:    "$275 / aid deductible · 3 years",
+          punch:    "$275 / aid deductible · 3 years",
+          complete: "$275 / aid deductible · 4 years",
+        },
+      ];
+
+      const planCols = [
+        {id:"paygo",   label:"Pay-As-You-Go",         color:"#6b7280", bg:"#f9fafb"},
+        {id:"punch",   label:"Treatment Punch Card",   color:"#0c4a6e", bg:"#e0f2fe"},
+        {id:"complete",label:"Complete Care+",         color:"#15803d", bg:"#dcfce7"},
+      ];
+
+      if (form.payType === "private") return (
+        <div className="card">
+          <div className="card-title">Private Pay – Standard of Care</div>
+          <div style={{background:"linear-gradient(135deg,#0a1628,#1a3050)",color:"white",borderRadius:12,padding:"20px 24px",marginBottom:16}}>
+            <div style={{fontSize:22,fontWeight:700,marginBottom:4}}>Standard of Care Package</div>
+            <div style={{fontSize:32,fontWeight:700,color:"#4ade80"}}>$5,500</div>
+            <div style={{fontSize:12,opacity:0.6,marginTop:4}}>Total investment · All-inclusive</div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:8}}>
+            {["Two top-tier hearing aids (any manufacturer)","Custom earmolds if needed","Unlimited office visits for life of aids","4-year comprehensive warranty","One-time replacement per device ($275 deductible)"].map(i=>(
+              <div key={i} style={{display:"flex",gap:10,fontSize:13,color:"#374151"}}><span style={{color:"#16a34a"}}>✓</span>{i}</div>
+            ))}
+          </div>
+        </div>
+      );
+
+      const selectedPlan = CARE_PLANS.find(c => c.id === form.carePlan);
+      const grandTotal = aidTotal != null && form.carePlan
+        ? aidTotal + cpCostFor(form.carePlan)
+        : null;
+
+      return (
+        <>
+          {/* Device summary */}
+          <DeviceSummary />
+
+          {/* Plan cards */}
+          <div className="card">
+            <div className="card-title">Choose a Care Plan</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:24}}>
+              {planCols.map(col => {
+                const cp = CARE_PLANS.find(c => c.id === col.id);
+                const cpCost = cpCostFor(col.id);
+                const isSelected = form.carePlan === col.id;
+                return (
+                  <div key={col.id}
+                    onClick={()=>upd("carePlan", col.id)}
+                    style={{
+                      border: isSelected ? `2px solid ${col.color}` : "2px solid #e5e7eb",
+                      borderRadius:12, padding:"16px 14px", cursor:"pointer",
+                      background: isSelected ? col.bg : "white",
+                      transition:"all 0.15s",
+                    }}>
+                    <div style={{fontSize:12,fontWeight:700,color:col.color,marginBottom:6,lineHeight:1.3}}>{cp.label}</div>
+                    <div style={{fontSize:22,fontWeight:800,color:"#0a1628",lineHeight:1}}>
+                      {col.id === "paygo"
+                        ? (isTruHearing ? "$975" : isUHCH ? "$1,235" : "$65")
+                        : `$${cpCost.toLocaleString()}`}
                     </div>
-                    {form.planGroup===plan.planGroup && (
-                      <div className="tier-pills">
-                        {plan.tiers.map(t=>(
-                          <div key={t.label} className={`tier-pill ${form.tier===t.label?"active":""}`}
-                            onClick={e=>{e.stopPropagation();upd("tier",t.label);upd("tierPrice",t.price);}}>
-                            {t.label} · {t.price===0?"No Charge":`$${t.price.toLocaleString()}`}
-                          </div>
-                        ))}
+                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>
+                      {col.id === "paygo"
+                        ? (isTruHearingTPA ? "est. over 4 yrs" : "per visit")
+                        : "one-time"}
+                    </div>
+                    {isSelected && <div style={{marginTop:8,fontSize:11,fontWeight:700,color:col.color}}>✓ Selected</div>}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Comparison table */}
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead>
+                  <tr style={{background:"#f9fafb"}}>
+                    <th style={{padding:"10px 12px",textAlign:"left",fontWeight:700,color:"#6b7280",fontSize:11,letterSpacing:1,textTransform:"uppercase",borderBottom:"2px solid #e5e7eb",width:"28%"}}>Feature</th>
+                    {planCols.map(col=>(
+                      <th key={col.id} style={{padding:"10px 12px",textAlign:"center",fontWeight:700,color:col.color,fontSize:11,letterSpacing:0.5,borderBottom:`2px solid ${form.carePlan===col.id?col.color:"#e5e7eb"}`,background:form.carePlan===col.id?col.bg:"#f9fafb"}}>
+                        {col.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {PLAN_COMPARE.map((row, i) => (
+                    <tr key={row.category} style={{background:i%2===0?"white":"#fafafa"}}>
+                      <td style={{padding:"9px 12px",fontWeight:600,color:"#374151",borderBottom:"1px solid #f3f4f6"}}>{row.category}</td>
+                      {planCols.map(col=>(
+                        <td key={col.id} style={{
+                          padding:"9px 12px",textAlign:"center",color:"#374151",
+                          borderBottom:"1px solid #f3f4f6",lineHeight:1.4,
+                          background:form.carePlan===col.id?col.bg:undefined,
+                          fontWeight:form.carePlan===col.id?600:400,
+                        }}>
+                          {row[col.id]}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Total investment */}
+            {grandTotal != null && (
+              <div style={{marginTop:20,borderTop:"2px solid #e5e7eb",paddingTop:16}}>
+                <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:10}}>Total Patient Investment</div>
+                <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
+                    <span>Hearing aids ({aidCount} aid{aidCount!==1?"s":""} · {form.tier})</span>
+                    <span style={{fontWeight:600}}>{aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}</span>
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
+                    <span>{selectedPlan?.label}</span>
+                    <span style={{fontWeight:600}}>
+                      {form.carePlan==="paygo"
+                        ? (isTruHearing?"$975 est.":isUHCH?"$1,235 est.":"$65/visit")
+                        : `$${cpCostFor(form.carePlan).toLocaleString()}`}
+                    </span>
+                  </div>
+                </div>
+                <div style={{background:"linear-gradient(135deg,#0a1628,#1a3050)",borderRadius:12,padding:"18px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"rgba(255,255,255,0.45)"}}>Total Investment</div>
+                    {aidCount===1 && <div style={{fontSize:10,color:"rgba(255,255,255,0.3)",marginTop:2}}>One ear · configure second to update</div>}
+                    {form.carePlan==="paygo" && (
+                      <div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginTop:2}}>
+                        {isTruHearing?"est. · yr 1 covered, 15 visits yrs 2–4":isUHCH?"est. · first 3 mo. covered, 19 visits remaining":"care plan billed per visit"}
                       </div>
                     )}
                   </div>
-                ))}
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:32,fontWeight:800,color:"#4ade80",lineHeight:1}}>
+                      {grandTotal===0?"No Charge":`$${grandTotal.toLocaleString()}`}
+                    </div>
+                    {form.carePlan==="paygo" && isTruHearingTPA && (
+                      <div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginTop:3}}>estimated</div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
-          </>
-        )}
-      </div>
-    );
+          </div>
+        </>
+      );
+    }
     if (step === 5) return (
       <div className="card">
         <div className="card-title">Schedule Appointments</div>
@@ -2074,28 +2548,38 @@ export default function ProviderCRM({ staffId, clinicId }) {
       const ReviewSide = ({side, label}) => {
         const d = form[side];
         const fam = catalog.find(e => e.id === d.familyId);
-        if (!d.familyId) return (
+        const isTH = d.manufacturer === "TruHearing";
+        if (!d.familyId && !isTH) return (
+          <div className="review-row"><span className="review-key">{label}</span><span className="review-val" style={{color:"#9ca3af"}}>Not configured</span></div>
+        );
+        if (isTH && !d.techLevel) return (
           <div className="review-row"><span className="review-key">{label}</span><span className="review-val" style={{color:"#9ca3af"}}>Not configured</span></div>
         );
         const pwrLabel = (RECEIVER_POWERS[d.manufacturer]||[]).find(p=>p.id===d.receiverPower)?.label||"—";
         const isEm = (RECEIVER_POWERS[d.manufacturer]||[]).find(p=>p.id===d.receiverPower)?.earmold;
+        const styleLabel = BODY_STYLES.find(s=>s.id===d.style)?.label || d.style || "—";
         return (
           <>
             <div className="review-row" style={{background:"#f8fafc",borderRadius:6,padding:"6px 10px",margin:"4px 0"}}>
               <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>{label}</span>
             </div>
             {[
-              [d.manufacturer,"Manufacturer"],
-              [d.generation,"Platform"],
-              [fam?.family||"","Model Family"],
-              [d.variant||"—","Variant"],
-              [d.techLevel,"Tech Level"],
-              [d.color||"N/A","Color"],
-              [d.battery||"N/A","Battery"],
+              [d.manufacturer, "Manufacturer"],
+              [isTH ? "IX (Select)" : d.generation, "Platform"],
+              [isTH ? "TruHearing Select" : (fam?.family||""), "Model Family"],
+              ...(isTH ? [
+                [styleLabel, "Body Style"],
+                [d.variant||"—", "RIC/BTE Type"],
+                [d.isCROS ? "CROS Transmitter" : "Standard", "CROS"],
+              ] : [
+                [d.variant||"—", "Variant"],
+              ]),
+              [d.techLevel, "Tech Level"],
+              ...(isTH ? [] : [[d.color||"N/A","Color"],[d.battery||"N/A","Battery"]]),
               ...(d.style==="ric" ? [
-                [d.receiverLength||"—","Receiver Length"],
-                [pwrLabel,"Receiver Power"],
-                [isEm?"Custom Earmold":(d.dome||"—"),"Dome / Coupling"],
+                [d.receiverLength||"—", "Receiver Length"],
+                [pwrLabel, "Receiver Power"],
+                [isEm?"Custom Earmold":(d.dome||"—"), "Dome / Coupling"],
               ] : []),
             ].map(([v,k])=>(
               <div className="review-row" key={k}><span className="review-key">{k}</span><span className="review-val">{v}</span></div>
@@ -2977,6 +3461,14 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     ))}
                   </div>
                   {renderStep()}
+                  {saveError && (
+                    <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"12px 16px",marginBottom:8,fontSize:13,color:"#dc2626"}}>
+                      <strong>Save failed:</strong> {saveError}
+                      <div style={{fontSize:11,color:"#9ca3af",marginTop:4}}>
+                        staffId: {staffId||"(none)"} · clinicId: {clinicId||"(none)"}
+                      </div>
+                    </div>
+                  )}
                   <div className="wizard-nav">
                     <button className="btn-ghost" onClick={()=>step===0?setView("dashboard"):setStep(s=>s-1)}>
                       {step===0?"Cancel":"← Back"}
