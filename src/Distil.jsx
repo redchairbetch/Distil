@@ -590,7 +590,7 @@ const CARE_PLANS = [
 const VISIT_TYPES = ["New Fitting","2-Week Follow-Up","4-Week Follow-Up","Quarterly Clean & Check","Annual Exam","Triage / Adjustment","Repair Appointment","Other"];
 
 
-function genId() { return Math.random().toString(36).slice(2,9).toUpperCase(); }
+function genId() { return crypto.randomUUID(); }
 function fmtDate(d) { return new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); }
 function warrantyDate(fittingDate, years=3) {
   const d = new Date(fittingDate);
@@ -2760,7 +2760,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
         <div className="topbar">
           <div>
             <div className="topbar-title">{p.name}</div>
-            <div className="topbar-sub">Patient ID: {p.id} · {p.location} · Added {fmtDate(p.createdAt)}</div>
+            <div className="topbar-sub">Patient ID: {p.id.slice(0,8).toUpperCase()} · {p.location} · Added {fmtDate(p.createdAt)}</div>
           </div>
           <div style={{display:"flex",gap:10}}>
             <button className="btn-ghost" onClick={()=>setView("dashboard")}>← Back</button>
@@ -2777,7 +2777,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 ))}
               </div>
             </div>
-            <div className="qr-id">{p.id}</div>
+            <div className="qr-id">{p.id.slice(0,8).toUpperCase()}</div>
             <div className="qr-inst">Patient ID · Used to sync with app</div>
           </div>
 
