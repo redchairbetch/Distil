@@ -1551,7 +1551,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   const days = daysUntil(p.devices?.warrantyExpiry||"");
                   const total = p.carePlan === "complete" ? 4 * 365 : 3 * 365;
                   const pct = Math.max(0, Math.min(100, (days / total) * 100));
-                  const fillClass = days < 30 ? "exp" : days < 90 ? "warn" : "";
+                  const fillClass = days < 90 ? "exp" : days < 360 ? "warn" : "";
                   return (
                     <tr key={p.id} onClick={() => { setSelectedPatient(p); setView("patient"); }}>
                       <td>
@@ -1571,7 +1571,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                         <span className={`badge ${p.carePlan}`}>{CARE_PLANS.find(c=>c.id===p.carePlan)?.label||p.carePlan}</span>
                       </td>
                       <td>
-                        <div style={{fontSize:12,color: days<30?"#ef4444":days<90?"#f59e0b":"#16a34a",fontWeight:600}}>
+                        <div style={{fontSize:12,color: days<90?"#ef4444":days<360?"#f59e0b":"#16a34a",fontWeight:600}}>
                           {days < 0 ? "Expired" : `${days}d left`}
                         </div>
                         <div className="warranty-bar"><div className={`warranty-fill ${fillClass}`} style={{width:`${pct}%`}} /></div>
@@ -2977,7 +2977,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
               })}
               <div style={{borderTop:"1px solid #f3f4f6",paddingTop:12,display:"grid",gridTemplateColumns:"1fr 1fr"}}>
                 {[["Serial (L)",p.devices?.serialLeft],["Serial (R)",p.devices?.serialRight],["Fitting Date",fmtDate(p.devices?.fittingDate||p.createdAt)],["Warranty Expires",fmtDate(p.devices?.warrantyExpiry)],["Warranty Status",days<0?"Expired":`${days} days remaining`]].map(([k,v])=>(
-                  <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val" style={k==="Warranty Status"?{color:days<0?"#ef4444":days<90?"#f59e0b":"#16a34a"}:{}}>{v||"—"}</span></div>
+                  <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val" style={k==="Warranty Status"?{color:days<0?"#ef4444":days<90?"#ef4444":days<360?"#f59e0b":"#16a34a"}:{}}>{v||"—"}</span></div>
                 ))}
               </div>
             </div>
