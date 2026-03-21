@@ -6,6 +6,7 @@
 // ============================================================
 
 import { supabase } from './supabase.js'
+import { CONTENT_LIBRARY, CAMPAIGN_TIMELINE } from './nurture_seed_data.js'
 
 
 // ============================================================
@@ -92,6 +93,7 @@ function assemblePatient(row) {
     dob:       row.dob || '',
     phone:     row.phone || '',
     email:     row.email || '',
+    address:   row.address || '',
     payType:   row.pay_type,
     notes:     row.notes || '',
 
@@ -200,6 +202,7 @@ export async function savePatient(patient, staffId, clinicId) {
       dob:       patient.dob       || null,
       phone:     patient.phone     || null,
       email:     patient.email     || null,
+      address:   patient.address   || null,
       pay_type:  patient.payType,
       notes:     patient.notes     || null,
     })
@@ -489,28 +492,6 @@ export async function saveProductCatalog(catalogItems) {
 
 
 // ============================================================
-// INSURANCE PLANS
-// ============================================================
-
-export async function loadInsurancePlans() {
-  const { data, error } = await supabase
-    .from('third_party_plans')
-    .select('*')
-    .eq('active', true)
-    .order('carrier')
-  if (error) { console.error('loadInsurancePlans:', error); return [] }
-
-  return data.map(row => ({
-    carrier:   row.carrier,
-    planGroup: row.plan_group,
-    tpa:       row.tpa       || '',
-    notes:     row.notes     || '',
-    tiers:     row.tiers     || [],   // jsonb: [{label, price}, ...]
-  }))
-}
-
-
-// ============================================================
 // INTAKE QUEUE
 // Replaces window.storage polling with Supabase realtime.
 // ============================================================
@@ -618,17 +599,22 @@ export async function loadCampaignContent(clinicId) {
 
 export async function saveCampaignContent(item) {
   const row = {
-    clinic_id:     item.clinic_id,
-    content_type:  item.content_type,
-    title:         item.title,
-    body:          item.body        || null,
-    url:           item.url         || null,
-    thumbnail_url: item.thumbnail_url || null,
-    category:      item.category    || 'general',
-    tags:          item.tags        || [],
-    active:        item.active      ?? true,
-    created_by:    item.created_by  || null,
-    updated_at:    new Date().toISOString(),
+    clinic_id:       item.clinic_id,
+    content_type:    item.content_type,
+    title:           item.title,
+    body:            item.body          || null,
+    url:             item.url           || null,
+    thumbnail_url:   item.thumbnail_url || null,
+    category:        item.category      || 'general',
+    tags:            item.tags          || [],
+    source_url:      item.source_url    || null,
+    source_name:     item.source_name   || null,
+    tone:            item.tone          || null,
+    lifecycle_phase: item.lifecycle_phase || null,
+    suggested_month: item.suggested_month || null,
+    active:          item.active        ?? true,
+    created_by:      item.created_by    || null,
+    updated_at:      new Date().toISOString(),
   }
   if (item.id) {
     const { data, error } = await supabase
@@ -675,7 +661,6 @@ export async function loadCampaignTemplates(clinicId) {
     .eq('clinic_id', clinicId)
     .order('created_at', { ascending: false })
   if (error) { console.error('loadCampaignTemplates:', error); return [] }
-  // Sort steps by step_order within each template
   return data.map(t => ({
     ...t,
     campaign_steps: (t.campaign_steps || []).sort((a, b) => a.step_order - b.step_order),
@@ -712,7 +697,6 @@ export async function saveCampaignTemplate(template) {
 }
 
 export async function saveCampaignSteps(templateId, steps) {
-  // Replace all steps: delete existing, insert new
   const { error: delError } = await supabase
     .from('campaign_steps')
     .delete()
@@ -737,7 +721,6 @@ export async function saveCampaignSteps(templateId, steps) {
 // ============================================================
 
 export async function enrollPatientInCampaign(patientId, templateId, triggerDate, staffId) {
-  // 1. Create enrollment
   const { data: enrollment, error: enrollError } = await supabase
     .from('patient_campaigns')
     .insert({
@@ -750,7 +733,6 @@ export async function enrollPatientInCampaign(patientId, templateId, triggerDate
     .single()
   if (enrollError) throw enrollError
 
-  // 2. Load template steps
   const { data: steps, error: stepsError } = await supabase
     .from('campaign_steps')
     .select('*')
@@ -758,7 +740,6 @@ export async function enrollPatientInCampaign(patientId, templateId, triggerDate
     .order('step_order')
   if (stepsError) { console.error('load steps for enrollment:', stepsError); return enrollment }
 
-  // 3. Pre-generate delivery rows with concrete scheduled dates
   if (steps.length) {
     const trigger = new Date(triggerDate)
     const deliveryRows = steps.map(step => {
@@ -905,7 +886,6 @@ export async function loadDonationStatus(patientId) {
 }
 
 export async function updateDonationIntent(patientId, fittingId, intentStatus) {
-  // Upsert — create if not exists, update if it does
   const { data: existing } = await supabase
     .from('lima_charlie_donations')
     .select('id')
@@ -942,7 +922,6 @@ export async function updateDonationIntent(patientId, fittingId, intentStatus) {
 }
 
 export async function loadDonationCandidates() {
-  // Load all patients with device fittings, plus any existing donation records
   const { data, error } = await supabase
     .from('patients')
     .select(`
@@ -952,7 +931,6 @@ export async function loadDonationCandidates() {
     `)
   if (error) { console.error('loadDonationCandidates:', error); return [] }
 
-  // Filter to patients with warranty data and compute days remaining
   const now = new Date()
   return data
     .filter(p => p.device_fittings?.[0]?.warranty_expiry)
@@ -1043,7 +1021,14 @@ export async function matchDonation(donationId, recipientId) {
 // ============================================================
 
 export async function loadPatientFeed(patientId) {
-  const { data, error } = await supabase
+  const { data: campaigns } = await supabase
+    .from('patient_campaigns')
+    .select('id')
+    .eq('patient_id', patientId)
+  if (!campaigns?.length) return []
+
+  const campaignIds = campaigns.map(c => c.id)
+  const { data: deliveries, error } = await supabase
     .from('campaign_deliveries')
     .select(`
       id, scheduled_date, delivered_at, status, engagement,
@@ -1052,63 +1037,17 @@ export async function loadPatientFeed(patientId) {
         campaign_content(id, content_type, title, body, url, thumbnail_url, category)
       )
     `)
+    .in('patient_campaign_id', campaignIds)
     .eq('status', 'delivered')
-    .eq('patient_campaigns.patient_id', patientId)
     .order('delivered_at', { ascending: false })
-
-  // Fallback: query via patient_campaigns join if the direct filter doesn't work
-  if (error) {
-    const { data: campaigns } = await supabase
-      .from('patient_campaigns')
-      .select('id')
-      .eq('patient_id', patientId)
-    if (!campaigns?.length) return []
-
-    const campaignIds = campaigns.map(c => c.id)
-    const { data: deliveries, error: dErr } = await supabase
-      .from('campaign_deliveries')
-      .select(`
-        id, scheduled_date, delivered_at, status, engagement,
-        campaign_steps(
-          delay_days, delivery_channel,
-          campaign_content(id, content_type, title, body, url, thumbnail_url, category)
-        )
-      `)
-      .in('patient_campaign_id', campaignIds)
-      .eq('status', 'delivered')
-      .order('delivered_at', { ascending: false })
-    if (dErr) { console.error('loadPatientFeed:', dErr); return [] }
-    return deliveries || []
-  }
-  return data || []
+  if (error) { console.error('loadPatientFeed:', error); return [] }
+  return deliveries || []
 }
 
 
 // ============================================================
-// SEED: Default Campaign Template
+// SEED: Default Campaign from Content Calendar Spreadsheet
 // ============================================================
-
-const DEFAULT_CAMPAIGN_STEPS = [
-  { day: 1,    channel: "push",   type: "push",    cat: "welcome",      title: "Welcome to better hearing!", body: "Congratulations on your new hearing aids! We're excited to be part of your hearing journey." },
-  { day: 3,    channel: "in_app", type: "video",   cat: "welcome",      title: "Getting Started with Your Devices", body: "Watch this short guide to get the most out of your first few days with hearing aids." },
-  { day: 7,    channel: "in_app", type: "article", cat: "education",    title: "Your First Week: What to Expect", body: "The adjustment period is normal. Here's what's happening and why your brain needs time to readjust to sounds." },
-  { day: 14,   channel: "push",   type: "push",    cat: "maintenance",  title: "How are your new hearing aids treating you?", body: "Checking in! If you're experiencing any issues, don't hesitate to reach out." },
-  { day: 30,   channel: "in_app", type: "article", cat: "education",    title: "The Adjustment Period: Tips for Success", body: "One month in — here are tips to make sure you're getting the most benefit from your devices." },
-  { day: 45,   channel: "push",   type: "push",    cat: "maintenance",  title: "Are you wearing them enough?", body: "Consistent wear is key to your brain adapting. Aim for all waking hours!" },
-  { day: 90,   channel: "push",   type: "push",    cat: "maintenance",  title: "Time for your first quarterly cleaning!", body: "Professional cleanings keep your devices performing at their best. Call us to schedule!" },
-  { day: 180,  channel: "push",   type: "push",    cat: "maintenance",  title: "6-month check-in: Schedule your cleaning", body: "Your hearing aids work hard every day. Time for a professional tune-up!" },
-  { day: 270,  channel: "push",   type: "push",    cat: "maintenance",  title: "9-month milestone! Clean & check time", body: "Almost a year! Let's make sure everything is performing perfectly." },
-  { day: 365,  channel: "email",  type: "email",   cat: "education",    title: "Happy 1-Year Anniversary with Better Hearing", body: "It's been a whole year since you started your hearing journey. Time for an annual hearing retest!" },
-  { day: 540,  channel: "in_app", type: "article", cat: "education",    title: "Device Care Deep Dive", body: "Advanced tips for keeping your hearing aids in top shape — moisture, wax guards, and storage." },
-  { day: 730,  channel: "in_app", type: "article", cat: "lima_charlie", title: "Lima Charlie: Hear the Mission", body: "Learn about our program that gives your hearing aids a second life — helping veterans hear again." },
-  { day: 820,  channel: "in_app", type: "video",   cat: "lima_charlie", title: "Meet a Veteran Who Heard Again", body: "Watch the story of a veteran whose life changed when a patient like you donated their devices." },
-  { day: 910,  channel: "in_app", type: "article", cat: "lima_charlie", title: "How the Donation Program Works", body: "It's simple: donate your devices before warranty ends, and we'll recondition them for a veteran in need." },
-  { day: 1000, channel: "push",   type: "push",    cat: "lima_charlie", title: "Your devices could change a veteran's life", body: "When you're ready to upgrade, your current hearing aids can serve someone who served us all." },
-  { day: 1095, channel: "in_app", type: "article", cat: "upgrade",     title: "New Technology Preview", body: "Hearing technology has advanced since your fitting. See what's new and what it means for you." },
-  { day: 1185, channel: "push",   type: "push",    cat: "upgrade",     title: "Ready to upgrade? Here's what's new", body: "Your devices have served you well. Let's talk about what the latest technology can offer." },
-  { day: 1275, channel: "email",  type: "email",   cat: "upgrade",     title: "Upgrade Offer + Lima Charlie Donation", body: "Upgrade to the latest hearing technology and give your current devices to a veteran through Lima Charlie." },
-  { day: 1370, channel: "push",   type: "push",    cat: "upgrade",     title: "Your warranty is ending soon", body: "Let's schedule a time to discuss your options — upgrade path, Lima Charlie donation, or extended care." },
-]
 
 export async function seedDefaultCampaign(clinicId, staffId) {
   // Check if already seeded
@@ -1120,33 +1059,38 @@ export async function seedDefaultCampaign(clinicId, staffId) {
     .maybeSingle()
   if (existing) return existing
 
-  // 1. Create content items
-  const contentIds = {}
-  for (const step of DEFAULT_CAMPAIGN_STEPS) {
+  // 1. Insert all 115 content items
+  const contentByN = {}
+  for (const item of CONTENT_LIBRARY) {
     const { data, error } = await supabase
       .from('campaign_content')
       .insert({
-        clinic_id:    clinicId,
-        content_type: step.type,
-        title:        step.title,
-        body:         step.body,
-        category:     step.cat,
-        active:       true,
-        created_by:   staffId,
+        clinic_id:       clinicId,
+        content_type:    item.type,
+        title:           item.title,
+        body:            item.body || null,
+        category:        item.cat,
+        source_url:      item.url || null,
+        source_name:     item.src || null,
+        tone:            item.tone || null,
+        lifecycle_phase: item.phase || null,
+        suggested_month: item.month || null,
+        active:          true,
+        created_by:      staffId,
       })
       .select()
       .single()
-    if (error) { console.error('seed content:', error); continue }
-    contentIds[step.day] = data.id
+    if (error) { console.error('seed content item ' + item.n + ':', error); continue }
+    contentByN[item.n] = data.id
   }
 
-  // 2. Create template
+  // 2. Create the campaign template
   const { data: template, error: tErr } = await supabase
     .from('campaign_templates')
     .insert({
       clinic_id:    clinicId,
       name:         'Standard Hearing Care Journey',
-      description:  'Full lifecycle nurture campaign: welcome → education → maintenance → Lima Charlie → upgrade',
+      description:  '60-month lifecycle: onboarding, education, maintenance, Lima Charlie donation program, and upgrade path',
       trigger_type: 'fitting_date',
       active:       true,
       created_by:   staffId,
@@ -1155,18 +1099,64 @@ export async function seedDefaultCampaign(clinicId, staffId) {
     .single()
   if (tErr) { console.error('seed template:', tErr); return null }
 
-  // 3. Create steps
-  const stepRows = DEFAULT_CAMPAIGN_STEPS
-    .filter(s => contentIds[s.day])
-    .map((s, i) => ({
-      template_id:      template.id,
-      content_id:       contentIds[s.day],
-      step_order:       i + 1,
-      delay_days:       s.day,
-      delivery_channel: s.channel,
-    }))
-  const { error: sErr } = await supabase.from('campaign_steps').insert(stepRows)
-  if (sErr) console.error('seed steps:', sErr)
+  // 3. Build campaign steps from the 60-month timeline
+  // Match timeline entries to content items by title substring
+  const contentList = Object.entries(contentByN).map(([n, id]) => ({
+    n: parseInt(n),
+    id,
+    title: CONTENT_LIBRARY.find(c => c.n === parseInt(n))?.title || '',
+  }))
+
+  const findContentId = (sendTitle) => {
+    if (!sendTitle) return null
+    const clean = sendTitle.replace(/\s*\(.*?\)\s*$/, '').trim().toLowerCase()
+    const match = contentList.find(c => c.title.toLowerCase().includes(clean) || clean.includes(c.title.toLowerCase()))
+    return match?.id || null
+  }
+
+  const channelFromType = (type) => {
+    const map = { push: 'push', article: 'in_app', email: 'email', sms: 'sms', video: 'in_app' }
+    return map[type] || 'in_app'
+  }
+
+  const stepRows = []
+  let stepOrder = 0
+  for (const t of CAMPAIGN_TIMELINE) {
+    const delayDays = t.month * 30
+
+    // Primary send
+    const priContentId = findContentId(t.pri)
+    if (priContentId) {
+      stepOrder++
+      stepRows.push({
+        template_id:      template.id,
+        content_id:       priContentId,
+        step_order:       stepOrder,
+        delay_days:       delayDays,
+        delivery_channel: channelFromType(t.priType),
+      })
+    }
+
+    // Secondary send (offset by 3 days)
+    if (t.sec) {
+      const secContentId = findContentId(t.sec)
+      if (secContentId) {
+        stepOrder++
+        stepRows.push({
+          template_id:      template.id,
+          content_id:       secContentId,
+          step_order:       stepOrder,
+          delay_days:       delayDays + 3,
+          delivery_channel: channelFromType(t.secType),
+        })
+      }
+    }
+  }
+
+  if (stepRows.length) {
+    const { error: sErr } = await supabase.from('campaign_steps').insert(stepRows)
+    if (sErr) console.error('seed steps:', sErr)
+  }
 
   return template
 }
@@ -1177,7 +1167,6 @@ export async function seedDefaultCampaign(clinicId, staffId) {
 // ============================================================
 
 export async function backfillCampaignEnrollment(clinicId, staffId) {
-  // Find the default template
   const { data: template } = await supabase
     .from('campaign_templates')
     .select('id')
@@ -1187,13 +1176,11 @@ export async function backfillCampaignEnrollment(clinicId, staffId) {
     .maybeSingle()
   if (!template) return { enrolled: 0, skipped: 0, error: 'No default template found. Seed it first.' }
 
-  // Load all patients with fittings
   const { data: patients } = await supabase
     .from('patients')
     .select('id, device_fittings(fitting_date)')
     .eq('clinic_id', clinicId)
 
-  // Check which patients are already enrolled
   const { data: existingEnrollments } = await supabase
     .from('patient_campaigns')
     .select('patient_id')
@@ -1211,7 +1198,6 @@ export async function backfillCampaignEnrollment(clinicId, staffId) {
     try {
       const enrollment = await enrollPatientInCampaign(p.id, template.id, fitting.fitting_date, staffId)
 
-      // Mark past deliveries as skipped
       const today = new Date().toISOString().split('T')[0]
       await supabase
         .from('campaign_deliveries')
@@ -1221,7 +1207,7 @@ export async function backfillCampaignEnrollment(clinicId, staffId) {
 
       enrolled++
     } catch (e) {
-      console.error(`backfill patient ${p.id}:`, e)
+      console.error('backfill patient ' + p.id + ':', e)
       skipped++
     }
   }

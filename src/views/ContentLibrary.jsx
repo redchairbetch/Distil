@@ -2,15 +2,23 @@ import { useState, useEffect } from "react";
 import { loadCampaignContent, saveCampaignContent, deleteCampaignContent } from "../db.js";
 
 const CONTENT_TYPES = ["video", "article", "push", "email", "sms"];
-const CATEGORIES = ["welcome", "education", "maintenance", "lima_charlie", "upgrade", "general"];
+const CATEGORIES = ["welcome", "education", "maintenance", "lima_charlie", "upgrade", "humor", "lifestyle", "seasonal", "research", "news", "emotional", "tech", "video", "general"];
 const TYPE_ICONS = { video: "🎬", article: "📄", push: "🔔", email: "📧", sms: "💬" };
 const CAT_COLORS = {
-  welcome: { bg: "#dcfce7", color: "#16a34a" },
-  education: { bg: "#dbeafe", color: "#1d4ed8" },
-  maintenance: { bg: "#fef3c7", color: "#92400e" },
+  welcome:      { bg: "#dcfce7", color: "#16a34a" },
+  education:    { bg: "#dbeafe", color: "#1d4ed8" },
+  maintenance:  { bg: "#fef3c7", color: "#92400e" },
   lima_charlie: { bg: "#e0e7ff", color: "#4338ca" },
-  upgrade: { bg: "#fce7f3", color: "#be185d" },
-  general: { bg: "#f3f4f6", color: "#6b7280" },
+  upgrade:      { bg: "#fce7f3", color: "#be185d" },
+  humor:        { bg: "#fef9c3", color: "#a16207" },
+  lifestyle:    { bg: "#d1fae5", color: "#047857" },
+  seasonal:     { bg: "#ffedd5", color: "#c2410c" },
+  research:     { bg: "#ede9fe", color: "#6d28d9" },
+  news:         { bg: "#cffafe", color: "#0e7490" },
+  emotional:    { bg: "#fce4ec", color: "#c62828" },
+  tech:         { bg: "#e3f2fd", color: "#1565c0" },
+  video:        { bg: "#f3e8ff", color: "#7c3aed" },
+  general:      { bg: "#f3f4f6", color: "#6b7280" },
 };
 
 const EMPTY_DRAFT = {

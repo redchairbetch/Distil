@@ -903,8 +903,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [catSearch, setCatSearch] = useState("");
   const [catNewEntry, setCatNewEntry] = useState(false);
 
-  // Insurance plans state (initialized to hardcoded constant; replaced on mount from Supabase)
-  const [insurancePlans, setInsurancePlans] = useState(INSURANCE_PLANS);
 
 
   const saveCatalog = async (next) => {
@@ -921,7 +919,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   // New patient form state
   const [form, setForm] = useState({
-    firstName:"", lastName:"", dob:"", phone:"", email:"",
+    firstName:"", lastName:"", dob:"", phone:"", email:"", address:"",
     payType:"insurance",
     carrier:"", planGroup:"", tpa:"", tier:"", tierPrice:null,
     left: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false},
@@ -937,6 +935,41 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [activeSide, setActiveSide] = useState("left");
   const [audEar, setAudEar] = useState("right");
 
+  // Address autocomplete state
+  const [addressSuggestions, setAddressSuggestions] = useState([]);
+  const [addressOpen, setAddressOpen] = useState(false);
+  const addressTimer = useRef(null);
+  const addressRef = useRef(null);
+
+  const searchAddress = (query) => {
+    clearTimeout(addressTimer.current);
+    upd("address", query);
+    if (query.length < 4) { setAddressSuggestions([]); setAddressOpen(false); return; }
+    addressTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&countrycodes=us&limit=5`,
+          { headers: { "Accept-Language": "en" } }
+        );
+        const data = await res.json();
+        setAddressSuggestions(data);
+        setAddressOpen(data.length > 0);
+      } catch (e) { console.error("Address search:", e); }
+    }, 300);
+  };
+
+  const selectAddress = (item) => {
+    upd("address", item.display_name);
+    setAddressOpen(false);
+    setAddressSuggestions([]);
+  };
+
+  useEffect(() => {
+    const close = (e) => { if (addressRef.current && !addressRef.current.contains(e.target)) setAddressOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+
 
   const upd = (k,v) => setForm(f => ({...f,[k]:v}));
   const updSide = (side, k, v) => setForm(f => ({...f, [side]: {...f[side], [k]: v}}));
@@ -945,7 +978,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
   // Private-label (TruHearing Select) plan detection — must be defined before useEffects that reference it
   const isPrivateLabelPlan = (plan) =>
     plan?.tiers?.length > 0 && plan.tiers.every(t => ["Standard","Advanced","Premium"].includes(t.label));
-  const selectedInsurancePlan = insurancePlans.find(p => p.carrier === form.carrier && p.planGroup === form.planGroup);
+  const selectedInsurancePlan = INSURANCE_PLANS.find(p => p.carrier === form.carrier && p.planGroup === form.planGroup);
   const isPrivateLabel = form.payType === "insurance" && isPrivateLabelPlan(selectedInsurancePlan);
   const privateLabelTiers = isPrivateLabel ? (selectedInsurancePlan?.tiers || []) : [];
 
@@ -962,10 +995,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
       try {
         const cat = await loadProductCatalog();
         if (cat?.length) setCatalog(cat);
-      } catch {}
-      try {
-        const plans = await loadInsurancePlans();
-        if (plans?.length) setInsurancePlans(plans);
       } catch {}
     })();
   }, [clinicId]);
@@ -1075,6 +1104,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
       dob: form.dob,
       phone: form.phone,
       email: form.email,
+      address: form.address,
       payType: form.payType,
       insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
       devices: {
@@ -1567,7 +1597,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   const days = daysUntil(p.devices?.warrantyExpiry||"");
                   const total = p.carePlan === "complete" ? 4 * 365 : 3 * 365;
                   const pct = Math.max(0, Math.min(100, (days / total) * 100));
-                  const fillClass = days < 30 ? "exp" : days < 90 ? "warn" : "";
+                  const fillClass = days < 90 ? "exp" : days < 360 ? "warn" : "";
                   return (
                     <tr key={p.id} onClick={() => { setSelectedPatient(p); setView("patient"); }}>
                       <td>
@@ -1587,7 +1617,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                         <span className={`badge ${p.carePlan}`}>{CARE_PLANS.find(c=>c.id===p.carePlan)?.label||p.carePlan}</span>
                       </td>
                       <td>
-                        <div style={{fontSize:12,color: days<30?"#ef4444":days<90?"#f59e0b":"#16a34a",fontWeight:600}}>
+                        <div style={{fontSize:12,color: days<90?"#ef4444":days<360?"#f59e0b":"#16a34a",fontWeight:600}}>
                           {days < 0 ? "Expired" : `${days}d left`}
                         </div>
                         <div className="warranty-bar"><div className={`warranty-fill ${fillClass}`} style={{width:`${pct}%`}} /></div>
@@ -1615,8 +1645,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
   };
 
 
-  const carriersForType = [...new Set(insurancePlans.map(p => p.carrier))];
-  const plansForCarrier = insurancePlans.filter(p => p.carrier === form.carrier);
+  const carriersForType = [...new Set(INSURANCE_PLANS.map(p => p.carrier))];
+  const plansForCarrier = INSURANCE_PLANS.filter(p => p.carrier === form.carrier);
 
 
   // Catalog-driven cascade derived values (side-aware)
@@ -1688,6 +1718,20 @@ export default function ProviderCRM({ staffId, clinicId }) {
             upd("phone", fmt);
           }} placeholder="(555) 555-5555" /></div>
           <div className="field full"><label>Email</label><input value={form.email} onChange={e=>upd("email",e.target.value)} placeholder="patient@email.com" /></div>
+          <div className="field full" ref={addressRef} style={{position:"relative"}}>
+            <label>Address</label>
+            <input value={form.address} onChange={e=>searchAddress(e.target.value)} onFocus={()=>{ if (addressSuggestions.length) setAddressOpen(true); }} placeholder="Start typing an address..." autoComplete="off" />
+            {addressOpen && addressSuggestions.length > 0 && (
+              <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:50,background:"white",border:"1px solid #e5e7eb",borderRadius:8,marginTop:4,boxShadow:"0 4px 12px rgba(0,0,0,0.1)",maxHeight:220,overflowY:"auto"}}>
+                {addressSuggestions.map((s,i)=>(
+                  <div key={i} onClick={()=>selectAddress(s)} style={{padding:"10px 14px",fontSize:13,cursor:"pointer",borderBottom:i<addressSuggestions.length-1?"1px solid #f3f4f6":"none",color:"#0a1628",lineHeight:1.4}}
+                    onMouseOver={e=>e.currentTarget.style.background="#f9fafb"} onMouseOut={e=>e.currentTarget.style.background="white"}>
+                    {s.display_name}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="field full"><label>Payment Type</label>
             <div className="radio-group">
               {["insurance","private"].map(t => (
@@ -1710,7 +1754,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   style={{width:"100%",marginBottom:10,fontSize:13}}
                 />
                 <div style={{maxHeight:220,overflowY:"auto",display:"flex",flexDirection:"column",gap:6,paddingRight:4}}>
-                  {insurancePlans
+                  {INSURANCE_PLANS
                     .filter(p=>{
                       const q=(form._planSearch||"").toLowerCase();
                       return !q||p.carrier.toLowerCase().includes(q)||p.planGroup.toLowerCase().includes(q)||p.tpa.toLowerCase().includes(q);
@@ -2699,7 +2743,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
         const thSeries = fam?.thSeries || "";
         const isLi = fam?.rechargeable || false;
         const liUpcharge = fam?.liUpcharge || 0;
-        const planTierPrice = insurancePlans.find(p=>p.carrier===form.carrier&&p.planGroup===form.planGroup)
+        const planTierPrice = INSURANCE_PLANS.find(p=>p.carrier===form.carrier&&p.planGroup===form.planGroup)
           ?.tiers?.find(t=>t.label===d.techLevel)?.price ?? null;
         const effectivePrice = isLi && planTierPrice !== null ? planTierPrice + liUpcharge : planTierPrice;
         return (
@@ -3025,7 +3069,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           <div className="detail-grid">
             <div className="detail-card">
               <div className="detail-card-title">Contact Information</div>
-              {[["Name",p.name],["Date of Birth",p.dob?fmtDate(p.dob):"—"],["Phone",p.phone||"—"],["Email",p.email||"—"]].map(([k,v])=>(
+              {[["Name",p.name],["Date of Birth",p.dob?fmtDate(p.dob):"—"],["Phone",p.phone||"—"],["Email",p.email||"—"],["Address",p.address||"—"]].map(([k,v])=>(
                 <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v}</span></div>
               ))}
             </div>
@@ -3068,7 +3112,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
               })}
               <div style={{borderTop:"1px solid #f3f4f6",paddingTop:12,display:"grid",gridTemplateColumns:"1fr 1fr"}}>
                 {[["Serial (L)",p.devices?.serialLeft],["Serial (R)",p.devices?.serialRight],["Fitting Date",fmtDate(p.devices?.fittingDate||p.createdAt)],["Warranty Expires",fmtDate(p.devices?.warrantyExpiry)],["Warranty Status",days<0?"Expired":`${days} days remaining`]].map(([k,v])=>(
-                  <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val" style={k==="Warranty Status"?{color:days<0?"#ef4444":days<90?"#f59e0b":"#16a34a"}:{}}>{v||"—"}</span></div>
+                  <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val" style={k==="Warranty Status"?{color:days<0?"#ef4444":days<90?"#ef4444":days<360?"#f59e0b":"#16a34a"}:{}}>{v||"—"}</span></div>
                 ))}
               </div>
             </div>
