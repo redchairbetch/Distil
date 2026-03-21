@@ -15,7 +15,15 @@ import {
   acceptIntake as dbAcceptIntake,
   dismissIntake,
   signOut,
+  enrollPatientInCampaign,
+  loadPatientCampaigns,
+  seedDefaultCampaign,
+  backfillCampaignEnrollment,
 } from "./db.js";
+
+import ContentLibrary from "./views/ContentLibrary.jsx";
+import CampaignManager from "./views/CampaignManager.jsx";
+import LimaCharlie from "./views/LimaCharlie.jsx";
 
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
@@ -2879,6 +2887,23 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
           <div className="settings-section">
+            <div className="settings-title">Campaign Administration</div>
+            <div style={{fontSize:12,color:"#9ca3af",marginBottom:12}}>Set up the default nurture campaign and backfill existing patients.</div>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+              <button className="btn-primary" onClick={async ()=>{
+                const result = await seedDefaultCampaign(clinicId, staffId);
+                if (result) alert("Default campaign seeded! Check the Campaigns view.");
+                else alert("Campaign already exists or error occurred.");
+              }}>Seed Default Campaign</button>
+              <button className="btn-ghost" onClick={async ()=>{
+                const result = await backfillCampaignEnrollment(clinicId, staffId);
+                alert(`Backfill complete: ${result.enrolled} enrolled, ${result.skipped} skipped.${result.error ? ' ' + result.error : ''}`);
+              }}>Backfill Existing Patients</button>
+            </div>
+          </div>
+
+
+          <div className="settings-section">
             <div className="settings-title">About Distil</div>
             {[["Version","1.0 Prototype"],["Patient App","Aided"],["Noah Integration","Coming soon — Noah ES API"],["HIPAA","Data stored locally in this session"]].map(([k,v])=>(
               <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #f3f4f6",fontSize:13}}>
@@ -2897,6 +2922,64 @@ export default function ProviderCRM({ staffId, clinicId }) {
     </>
   );
 
+
+  // ── PATIENT CAMPAIGN CARD (embedded in patient detail) ────────────────────
+  function PatientCampaignCard({ patient, staffId: sid }) {
+    const [campaigns, setCampaigns] = useState([]);
+    const [loaded, setLoaded] = useState(false);
+    useEffect(() => {
+      if (patient?.id) loadPatientCampaigns(patient.id).then(c => { setCampaigns(c); setLoaded(true); });
+    }, [patient?.id]);
+    if (!loaded) return null;
+    const CAT_COLORS = { welcome:"#16a34a", education:"#1d4ed8", maintenance:"#92400e", lima_charlie:"#4338ca", upgrade:"#be185d", general:"#6b7280" };
+    return (
+      <div className="detail-card full">
+        <div className="detail-card-title">Campaign Journey</div>
+        {campaigns.length === 0 ? (
+          <div style={{color:"#9ca3af",fontSize:13,padding:"12px 0"}}>No active campaigns. Patient will be auto-enrolled when saved with device data.</div>
+        ) : campaigns.map(c => {
+          const deliveries = c.campaign_deliveries || [];
+          const delivered = deliveries.filter(d => d.status === "delivered").length;
+          const total = deliveries.length;
+          const pct = total ? (delivered / total) * 100 : 0;
+          const next = deliveries.filter(d => d.status === "pending").sort((a,b) => a.scheduled_date.localeCompare(b.scheduled_date))[0];
+          return (
+            <div key={c.id} style={{marginBottom:16,padding:14,background:"#f9fafb",borderRadius:10,border:"1px solid #e5e7eb"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div style={{fontWeight:600,fontSize:13,color:"#0a1628"}}>{c.campaign_templates?.name || "Campaign"}</div>
+                <span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:12,
+                  background:c.status==="active"?"#dcfce7":c.status==="paused"?"#fef3c7":"#f3f4f6",
+                  color:c.status==="active"?"#16a34a":c.status==="paused"?"#92400e":"#6b7280"}}>{c.status}</span>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                <div style={{flex:1,height:4,background:"#e5e7eb",borderRadius:2,overflow:"hidden"}}>
+                  <div style={{width:`${pct}%`,height:"100%",background:"#16a34a",borderRadius:2}} />
+                </div>
+                <span style={{fontSize:11,color:"#9ca3af",whiteSpace:"nowrap"}}>{delivered}/{total} delivered</span>
+              </div>
+              {next && (
+                <div style={{fontSize:11,color:"#6b7280"}}>
+                  Next: <strong>{next.campaign_steps?.campaign_content?.title || "—"}</strong> on {fmtDate(next.scheduled_date)}
+                </div>
+              )}
+              {/* Recent timeline */}
+              <div style={{marginTop:10,display:"flex",flexWrap:"wrap",gap:4}}>
+                {deliveries.slice(0, 12).map((d, i) => {
+                  const cat = d.campaign_steps?.campaign_content?.category || "general";
+                  return (
+                    <div key={i} title={`${d.campaign_steps?.campaign_content?.title || ""} (${d.status})`} style={{
+                      width:8,height:8,borderRadius:"50%",
+                      background: d.status==="delivered" ? (CAT_COLORS[cat] || "#6b7280") : d.status==="pending" ? "#e5e7eb" : "#fecaca",
+                    }} />
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   // ── PATIENT DETAIL ────────────────────────────────────────────────────────
   const renderPatientDetail = () => {
@@ -3088,6 +3171,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
               </div>
             )}
 
+
+            {/* CAMPAIGN JOURNEY CARD */}
+            <PatientCampaignCard patient={p} staffId={staffId} />
 
             {/* PUNCH CARD PANEL — only for punch plan patients */}
             {p.carePlan === "punch" && (() => {
@@ -3553,7 +3639,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div style={{fontSize:12,color:"rgba(255,255,255,0.7)",fontWeight:500,lineHeight:1.3}}>{clinic.address}</div>
           </div>
           <div className="sidebar-nav">
-            {[["🏠","Dashboard","dashboard"],["👥","Patients","patients"],["📅","Schedule","schedule"],["📊","Reports","reports"],["📋","Product Catalog","catalog"],["⚙️","Settings","settings"]].map(([icon,label,id])=>(
+            {[["🏠","Dashboard","dashboard"],["👥","Patients","patients"],["📅","Schedule","schedule"],["📊","Reports","reports"],["📬","Campaigns","campaigns"],["📚","Content Library","content"],["🎖️","Lima Charlie","lima-charlie"],["📋","Product Catalog","catalog"],["⚙️","Settings","settings"]].map(([icon,label,id])=>(
               <div key={id} className={`nav-item ${view===id||(id==="dashboard"&&view==="new")||(id==="patients"&&(view==="dashboard"||view==="patient"))?"active":""}`}
                 onClick={()=>{
                   if(id==="dashboard"||id==="patients") setView("dashboard");
@@ -3590,6 +3676,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
           {view === "patient" && renderPatientDetail()}
           {view === "settings" && renderSettings()}
           {view === "catalog" && renderCatalog()}
+          {view === "campaigns" && <CampaignManager clinicId={clinicId} staffId={staffId} patients={patients} />}
+          {view === "content" && <ContentLibrary clinicId={clinicId} staffId={staffId} />}
+          {view === "lima-charlie" && <LimaCharlie clinicId={clinicId} staffId={staffId} />}
           {view === "new" && (
             <>
               <div className="topbar">
