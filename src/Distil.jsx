@@ -19,6 +19,7 @@ import {
   loadPatientCampaigns,
   seedDefaultCampaign,
   backfillCampaignEnrollment,
+  loadInsurancePlans,
 } from "./db.js";
 
 import ContentLibrary from "./views/ContentLibrary.jsx";
@@ -2952,6 +2953,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
               }}>Backfill Existing Patients</button>
             </div>
           </div>
+
 
           <div className="settings-section">
             <div className="settings-title">About Distil</div>
