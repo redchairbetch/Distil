@@ -19,6 +19,7 @@ import {
   loadPatientCampaigns,
   seedDefaultCampaign,
   backfillCampaignEnrollment,
+  loadInsurancePlans,
 } from "./db.js";
 
 import ContentLibrary from "./views/ContentLibrary.jsx";
@@ -902,6 +903,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [catSearch, setCatSearch] = useState("");
   const [catNewEntry, setCatNewEntry] = useState(false);
 
+  // Insurance plans state (initialized to hardcoded constant; replaced on mount from Supabase)
+  const [insurancePlans, setInsurancePlans] = useState(INSURANCE_PLANS);
+
 
   const saveCatalog = async (next) => {
     setCatalog(next);
@@ -941,7 +945,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
   // Private-label (TruHearing Select) plan detection — must be defined before useEffects that reference it
   const isPrivateLabelPlan = (plan) =>
     plan?.tiers?.length > 0 && plan.tiers.every(t => ["Standard","Advanced","Premium"].includes(t.label));
-  const selectedInsurancePlan = INSURANCE_PLANS.find(p => p.carrier === form.carrier && p.planGroup === form.planGroup);
+  const selectedInsurancePlan = insurancePlans.find(p => p.carrier === form.carrier && p.planGroup === form.planGroup);
   const isPrivateLabel = form.payType === "insurance" && isPrivateLabelPlan(selectedInsurancePlan);
   const privateLabelTiers = isPrivateLabel ? (selectedInsurancePlan?.tiers || []) : [];
 
@@ -958,6 +962,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
       try {
         const cat = await loadProductCatalog();
         if (cat?.length) setCatalog(cat);
+      } catch {}
+      try {
+        const plans = await loadInsurancePlans();
+        if (plans?.length) setInsurancePlans(plans);
       } catch {}
     })();
   }, [clinicId]);
@@ -1559,7 +1567,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   const days = daysUntil(p.devices?.warrantyExpiry||"");
                   const total = p.carePlan === "complete" ? 4 * 365 : 3 * 365;
                   const pct = Math.max(0, Math.min(100, (days / total) * 100));
-                  const fillClass = days < 90 ? "exp" : days < 360 ? "warn" : "";
+                  const fillClass = days < 30 ? "exp" : days < 90 ? "warn" : "";
                   return (
                     <tr key={p.id} onClick={() => { setSelectedPatient(p); setView("patient"); }}>
                       <td>
@@ -1579,7 +1587,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                         <span className={`badge ${p.carePlan}`}>{CARE_PLANS.find(c=>c.id===p.carePlan)?.label||p.carePlan}</span>
                       </td>
                       <td>
-                        <div style={{fontSize:12,color: days<90?"#ef4444":days<360?"#f59e0b":"#16a34a",fontWeight:600}}>
+                        <div style={{fontSize:12,color: days<30?"#ef4444":days<90?"#f59e0b":"#16a34a",fontWeight:600}}>
                           {days < 0 ? "Expired" : `${days}d left`}
                         </div>
                         <div className="warranty-bar"><div className={`warranty-fill ${fillClass}`} style={{width:`${pct}%`}} /></div>
@@ -1607,8 +1615,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
   };
 
 
-  const carriersForType = [...new Set(INSURANCE_PLANS.map(p => p.carrier))];
-  const plansForCarrier = INSURANCE_PLANS.filter(p => p.carrier === form.carrier);
+  const carriersForType = [...new Set(insurancePlans.map(p => p.carrier))];
+  const plansForCarrier = insurancePlans.filter(p => p.carrier === form.carrier);
 
 
   // Catalog-driven cascade derived values (side-aware)
@@ -1702,7 +1710,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   style={{width:"100%",marginBottom:10,fontSize:13}}
                 />
                 <div style={{maxHeight:220,overflowY:"auto",display:"flex",flexDirection:"column",gap:6,paddingRight:4}}>
-                  {INSURANCE_PLANS
+                  {insurancePlans
                     .filter(p=>{
                       const q=(form._planSearch||"").toLowerCase();
                       return !q||p.carrier.toLowerCase().includes(q)||p.planGroup.toLowerCase().includes(q)||p.tpa.toLowerCase().includes(q);
@@ -2691,7 +2699,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
         const thSeries = fam?.thSeries || "";
         const isLi = fam?.rechargeable || false;
         const liUpcharge = fam?.liUpcharge || 0;
-        const planTierPrice = INSURANCE_PLANS.find(p=>p.carrier===form.carrier&&p.planGroup===form.planGroup)
+        const planTierPrice = insurancePlans.find(p=>p.carrier===form.carrier&&p.planGroup===form.planGroup)
           ?.tiers?.find(t=>t.label===d.techLevel)?.price ?? null;
         const effectivePrice = isLi && planTierPrice !== null ? planTierPrice + liUpcharge : planTierPrice;
         return (
@@ -3060,7 +3068,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
               })}
               <div style={{borderTop:"1px solid #f3f4f6",paddingTop:12,display:"grid",gridTemplateColumns:"1fr 1fr"}}>
                 {[["Serial (L)",p.devices?.serialLeft],["Serial (R)",p.devices?.serialRight],["Fitting Date",fmtDate(p.devices?.fittingDate||p.createdAt)],["Warranty Expires",fmtDate(p.devices?.warrantyExpiry)],["Warranty Status",days<0?"Expired":`${days} days remaining`]].map(([k,v])=>(
-                  <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val" style={k==="Warranty Status"?{color:days<0?"#ef4444":days<90?"#ef4444":days<360?"#f59e0b":"#16a34a"}:{}}>{v||"—"}</span></div>
+                  <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val" style={k==="Warranty Status"?{color:days<0?"#ef4444":days<90?"#f59e0b":"#16a34a"}:{}}>{v||"—"}</span></div>
                 ))}
               </div>
             </div>

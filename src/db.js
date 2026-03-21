@@ -489,6 +489,28 @@ export async function saveProductCatalog(catalogItems) {
 
 
 // ============================================================
+// INSURANCE PLANS
+// ============================================================
+
+export async function loadInsurancePlans() {
+  const { data, error } = await supabase
+    .from('third_party_plans')
+    .select('*')
+    .eq('active', true)
+    .order('carrier')
+  if (error) { console.error('loadInsurancePlans:', error); return [] }
+
+  return data.map(row => ({
+    carrier:   row.carrier,
+    planGroup: row.plan_group,
+    tpa:       row.tpa       || '',
+    notes:     row.notes     || '',
+    tiers:     row.tiers     || [],   // jsonb: [{label, price}, ...]
+  }))
+}
+
+
+// ============================================================
 // INTAKE QUEUE
 // Replaces window.storage polling with Supabase realtime.
 // ============================================================
