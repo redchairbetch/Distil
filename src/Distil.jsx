@@ -20,6 +20,8 @@ import {
   seedDefaultCampaign,
   backfillCampaignEnrollment,
   loadInsurancePlans,
+  updatePatientContact,
+  updateInsuranceCoverage,
 } from "./db.js";
 
 import ContentLibrary from "./views/ContentLibrary.jsx";
@@ -888,6 +890,17 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [punchConfirm, setPunchConfirm] = useState(null);
   const [punchSuccess, setPunchSuccess] = useState(null);
 
+  // ── Patient detail inline edit state ─────────────────────────────────────
+  const [editSection,    setEditSection]    = useState(null);
+  const [editDraft,      setEditDraft]      = useState(null);
+  const [editSaving,     setEditSaving]     = useState(false);
+  const [editError,      setEditError]      = useState(null);
+  const [editSuccess,    setEditSuccess]    = useState(null);
+  const [editPlanSearch, setEditPlanSearch] = useState("");
+
+  // Insurance plans state (initialized to hardcoded constant; replaced on mount from Supabase)
+  const [insurancePlans, setInsurancePlans] = useState(INSURANCE_PLANS);
+
   // ── Intake queue state ────────────────────────────────────────────────
   const [pendingIntakes,  setPendingIntakes]  = useState([]);
   const [intakeToast,     setIntakeToast]     = useState(null);
@@ -996,6 +1009,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
         const cat = await loadProductCatalog();
         if (cat?.length) setCatalog(cat);
       } catch {}
+      try {
+        const plans = await loadInsurancePlans();
+        if (plans?.length) setInsurancePlans(plans);
+      } catch {}
     })();
   }, [clinicId]);
 
@@ -1003,6 +1020,105 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const refreshPatients = async () => {
     const p = await loadAllPatients();
     setPatients(p);
+  };
+
+  // ── Patient detail edit handlers ──────────────────────────────────────────
+
+  const cancelEdit = () => {
+    setEditSection(null);
+    setEditDraft(null);
+    setEditError(null);
+    setEditSuccess(null);
+  };
+
+  // Reset edit state when navigating away from patient
+  useEffect(() => {
+    if (view !== "patient") {
+      setEditSection(null);
+      setEditDraft(null);
+    }
+  }, [view]);
+
+  const startEditContact = () => {
+    const p = selectedPatient;
+    const parts = (p.name || "").trim().split(/\s+/);
+    const lastName  = parts.length > 1 ? parts.pop() : "";
+    const firstName = parts.join(" ");
+    setEditDraft({ firstName, lastName, phone: p.phone || "", email: p.email || "", dob: p.dob || "", payType: p.payType || "insurance" });
+    setEditSection("contact");
+    setEditError(null);
+    setEditSuccess(null);
+  };
+
+  const saveEditContact = async () => {
+    setEditSaving(true); setEditError(null);
+    try {
+      await updatePatientContact(selectedPatient.id, {
+        first_name: editDraft.firstName,
+        last_name:  editDraft.lastName,
+        phone:      editDraft.phone  || null,
+        email:      editDraft.email  || null,
+        dob:        editDraft.dob    || null,
+        pay_type:   editDraft.payType,
+      });
+      const newName = [editDraft.firstName, editDraft.lastName].filter(Boolean).join(" ");
+      setSelectedPatient(p => ({ ...p, name: newName, phone: editDraft.phone, email: editDraft.email, dob: editDraft.dob, payType: editDraft.payType }));
+      setPatients(prev => prev.map(pt => pt.id === selectedPatient.id ? { ...pt, name: newName, phone: editDraft.phone, email: editDraft.email } : pt));
+      setEditSuccess("Saved");
+      setTimeout(() => { setEditSection(null); setEditSuccess(null); }, 1400);
+    } catch (err) {
+      setEditError(err?.message || "Save failed");
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const startEditCoverage = () => {
+    const p = selectedPatient;
+    setEditDraft({
+      carrier:        p.insurance?.carrier    || "",
+      planGroup:      p.insurance?.planGroup  || "",
+      tpa:            p.insurance?.tpa        || "",
+      tier:           p.insurance?.tier       || "",
+      tierPrice:      p.insurance?.tierPrice  ?? null,
+      carePlanType:   p.carePlan              || "",
+      warrantyExpiry: p.devices?.warrantyExpiry || "",
+    });
+    setEditPlanSearch("");
+    setEditSection("coverage");
+    setEditError(null);
+    setEditSuccess(null);
+  };
+
+  const saveEditCoverage = async () => {
+    setEditSaving(true); setEditError(null);
+    try {
+      await updateInsuranceCoverage(
+        selectedPatient.id,
+        {
+          carrier:            editDraft.carrier        || null,
+          plan_group:         editDraft.planGroup      || null,
+          tpa:                editDraft.tpa            || null,
+          tier:               editDraft.tier           || null,
+          tier_price_per_aid: editDraft.tierPrice != null ? Math.round(editDraft.tierPrice * 100) : null,
+          care_plan_type:     editDraft.carePlanType   || null,
+          warranty_expiry:    editDraft.warrantyExpiry || null,
+        },
+        selectedPatient._ids?.coverageId || null
+      );
+      setSelectedPatient(p => ({
+        ...p,
+        carePlan: editDraft.carePlanType,
+        insurance: { ...p.insurance, carrier: editDraft.carrier, planGroup: editDraft.planGroup, tpa: editDraft.tpa, tier: editDraft.tier, tierPrice: editDraft.tierPrice },
+        devices: p.devices ? { ...p.devices, warrantyExpiry: editDraft.warrantyExpiry } : p.devices,
+      }));
+      setEditSuccess("Saved");
+      setTimeout(() => { setEditSection(null); setEditSuccess(null); }, 1400);
+    } catch (err) {
+      setEditError(err?.message || "Save failed");
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   // ── Intake toast + Supabase Realtime subscription ─────────────────────
@@ -3067,22 +3183,116 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
           <div className="detail-grid">
+            {/* ── CONTACT INFORMATION ─────────────────────────────────────── */}
             <div className="detail-card">
-              <div className="detail-card-title">Contact Information</div>
-              {[["Name",p.name],["Date of Birth",p.dob?fmtDate(p.dob):"—"],["Phone",p.phone||"—"],["Email",p.email||"—"],["Address",p.address||"—"]].map(([k,v])=>(
-                <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v}</span></div>
-              ))}
-            </div>
-            <div className="detail-card">
-              <div className="detail-card-title">Coverage</div>
-              {p.payType==="insurance" ? [
-                ["Carrier",p.insurance?.carrier],["Plan",p.insurance?.planGroup],["TPA",p.insurance?.tpa],["Tier",p.insurance?.tier],["Copay",`$${p.insurance?.tierPrice?.toLocaleString()}/aid`]
-              ].map(([k,v])=>(
-                <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v||"—"}</span></div>
-              )) : (
-                <div className="detail-row"><span className="detail-key">Type</span><span className="detail-val">Private Pay – $5,500</span></div>
+              <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
+                <div className="detail-card-title" style={{marginBottom:0}}>Contact Information</div>
+                {editSection !== "contact" && (
+                  <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={startEditContact}>Edit</button>
+                )}
+              </div>
+              {editSection === "contact" ? (
+                <div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>First Name</label><input value={editDraft.firstName} onChange={e=>setEditDraft(d=>({...d,firstName:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Last Name</label><input value={editDraft.lastName} onChange={e=>setEditDraft(d=>({...d,lastName:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Date of Birth</label><input type="date" value={editDraft.dob} onChange={e=>setEditDraft(d=>({...d,dob:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Phone</label><input value={editDraft.phone} onChange={e=>setEditDraft(d=>({...d,phone:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Email</label><input value={editDraft.email} onChange={e=>setEditDraft(d=>({...d,email:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                  </div>
+                  <div style={{display:"flex",gap:8,alignItems:"center",marginTop:10}}>
+                    <button onClick={saveEditContact} disabled={editSaving} style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 18px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:editSaving?"wait":"pointer",opacity:editSaving?0.7:1}}>{editSaving?"Saving...":"Save Changes"}</button>
+                    <button onClick={cancelEdit} style={{background:"none",border:"1px solid #e5e7eb",borderRadius:8,padding:"8px 14px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
+                    {editError && <span style={{fontSize:12,color:"#ef4444"}}>{editError}</span>}
+                    {editSuccess && <span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>{editSuccess}</span>}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  {[["Name",p.name],["Date of Birth",p.dob?fmtDate(p.dob):"—"],["Phone",p.phone||"—"],["Email",p.email||"—"]].map(([k,v])=>(
+                    <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v}</span></div>
+                  ))}
+                  {p.payType && <div className="detail-row"><span className="detail-key">Pay Type</span><span className="detail-val">{p.payType==="insurance"?"Insurance":"Private Pay"}</span></div>}
+                </div>
               )}
-              {p.payType === "insurance" && <div className="detail-row"><span className="detail-key">Care Plan</span><span className="detail-val">{CARE_PLANS.find(c=>c.id===p.carePlan)?.label||"—"}</span></div>}
+            </div>
+            {/* ── COVERAGE ────────────────────────────────────────────────── */}
+            <div className="detail-card">
+              <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
+                <div className="detail-card-title" style={{marginBottom:0}}>Coverage</div>
+                {editSection !== "coverage" && (
+                  <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={startEditCoverage}>Edit</button>
+                )}
+              </div>
+              {editSection === "coverage" ? (
+                <div>
+                  {/* Insurance plan search */}
+                  <div style={{background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:12,padding:"14px 16px",marginBottom:12}}>
+                    <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:10}}>Insurance Plan Search</div>
+                    <input
+                      placeholder="Search carrier or plan name..."
+                      value={editPlanSearch}
+                      onChange={e=>setEditPlanSearch(e.target.value)}
+                      style={{width:"100%",marginBottom:8,padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}}
+                    />
+                    <div style={{maxHeight:180,overflowY:"auto",display:"flex",flexDirection:"column",gap:5,paddingRight:2}}>
+                      {insurancePlans
+                        .filter(plan=>{const q=(editPlanSearch||"").toLowerCase();return !q||plan.carrier.toLowerCase().includes(q)||plan.planGroup.toLowerCase().includes(q)||(plan.tpa||"").toLowerCase().includes(q);})
+                        .sort((a,b)=>a.planGroup.localeCompare(b.planGroup))
+                        .slice(0,30)
+                        .map(plan=>(
+                          <div key={plan.planGroup}
+                            className={`plan-row ${editDraft.planGroup===plan.planGroup?"active":""}`}
+                            onClick={()=>setEditDraft(d=>({...d,carrier:plan.carrier,planGroup:plan.planGroup,tpa:plan.tpa||"",tier:"",tierPrice:null}))}>
+                            <div className="plan-row-name">{plan.planGroup}</div>
+                            <div className="plan-row-tpa">{plan.carrier} · via {plan.tpa}</div>
+                          </div>
+                        ))}
+                    </div>
+                    {editDraft.planGroup && (
+                      <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid #e5e7eb",display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>TPA</span>
+                        <span style={{fontSize:13,fontWeight:600,color:"#374151",background:"#f3f4f6",borderRadius:6,padding:"3px 10px"}}>{editDraft.tpa}</span>
+                        <button style={{marginLeft:"auto",fontSize:11,color:"#9ca3af",background:"none",border:"none",cursor:"pointer",padding:0}}
+                          onClick={()=>setEditDraft(d=>({...d,carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null}))}>Clear</button>
+                      </div>
+                    )}
+                  </div>
+                  {/* Individual field overrides */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Carrier</label><input value={editDraft.carrier} onChange={e=>setEditDraft(d=>({...d,carrier:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>TPA</label><input value={editDraft.tpa} onChange={e=>setEditDraft(d=>({...d,tpa:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Tier</label><input value={editDraft.tier} onChange={e=>setEditDraft(d=>({...d,tier:e.target.value}))} placeholder="e.g. Level 3" style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Copay ($/aid)</label><input type="number" value={editDraft.tierPrice??""} onChange={e=>setEditDraft(d=>({...d,tierPrice:e.target.value?Number(e.target.value):null}))} placeholder="e.g. 999" style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Warranty Expiry</label><input type="date" value={editDraft.warrantyExpiry} onChange={e=>setEditDraft(d=>({...d,warrantyExpiry:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div>
+                      <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Care Plan</label>
+                      <select value={editDraft.carePlanType} onChange={e=>setEditDraft(d=>({...d,carePlanType:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",background:"white",boxSizing:"border-box"}}>
+                        <option value="">-- None --</option>
+                        {CARE_PLANS.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:8,alignItems:"center",marginTop:10}}>
+                    <button onClick={saveEditCoverage} disabled={editSaving} style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 18px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:editSaving?"wait":"pointer",opacity:editSaving?0.7:1}}>{editSaving?"Saving...":"Save Changes"}</button>
+                    <button onClick={cancelEdit} style={{background:"none",border:"1px solid #e5e7eb",borderRadius:8,padding:"8px 14px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
+                    {editError && <span style={{fontSize:12,color:"#ef4444"}}>{editError}</span>}
+                    {editSuccess && <span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>{editSuccess}</span>}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  {p.payType==="insurance" ? [
+                    ["Carrier",p.insurance?.carrier],["Plan",p.insurance?.planGroup],["TPA",p.insurance?.tpa],["Tier",p.insurance?.tier],["Copay",p.insurance?.tierPrice!=null?`$${p.insurance.tierPrice.toLocaleString()}/aid`:null]
+                  ].map(([k,v])=>(
+                    <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v||"—"}</span></div>
+                  )) : (
+                    <div className="detail-row"><span className="detail-key">Type</span><span className="detail-val">Private Pay -- $5,500</span></div>
+                  )}
+                  {p.payType === "insurance" && <div className="detail-row"><span className="detail-key">Care Plan</span><span className="detail-val">{CARE_PLANS.find(c=>c.id===p.carePlan)?.label||"—"}</span></div>}
+                  {p.devices?.warrantyExpiry && <div className="detail-row"><span className="detail-key">Warranty Expiry</span><span className="detail-val">{fmtDate(p.devices.warrantyExpiry)}</span></div>}
+                </div>
+              )}
             </div>
             <div className="detail-card full">
               <div className="detail-card-title">Device Specifications</div>

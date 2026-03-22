@@ -583,6 +583,43 @@ function normalizeIntake(row) {
 
 
 // ============================================================
+// PATIENT INLINE EDIT
+// ============================================================
+
+export async function loadInsurancePlans() {
+  const { data, error } = await supabase
+    .from('insurance_plans')
+    .select('*')
+    .order('carrier')
+  if (error) { console.error('loadInsurancePlans:', error); return [] }
+  return data
+}
+
+export async function updatePatientContact(patientId, fields) {
+  const { error } = await supabase
+    .from('patients')
+    .update(fields)
+    .eq('id', patientId)
+  if (error) throw error
+}
+
+export async function updateInsuranceCoverage(patientId, fields, coverageId) {
+  if (coverageId) {
+    const { error } = await supabase
+      .from('insurance_coverage')
+      .update(fields)
+      .eq('id', coverageId)
+    if (error) throw error
+  } else {
+    const { error } = await supabase
+      .from('insurance_coverage')
+      .insert({ patient_id: patientId, ...fields })
+    if (error) throw error
+  }
+}
+
+
+// ============================================================
 // CAMPAIGN CONTENT
 // ============================================================
 
