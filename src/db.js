@@ -95,6 +95,14 @@ function assemblePatient(row) {
     payType:   row.pay_type,
     notes:     row.notes || '',
 
+    // Raw DB IDs needed for inline edits — not displayed in UI
+    _ids: {
+      coverageId:  coverage?.id   || null,
+      fittingId:   fitting?.id    || null,
+      leftSideId:  leftSide?.id   || null,
+      rightSideId: rightSide?.id  || null,
+    },
+
     insurance: coverage ? {
       carrier:   coverage.carrier,
       planGroup: coverage.plan_group,
@@ -580,4 +588,94 @@ function normalizeIntake(row) {
       acceptedAt:  row.accepted_at || null,
     },
   }
+}
+
+
+// ============================================================
+// PATIENT DETAIL EDITS
+// All updates go through Supabase and will trigger HIPAA audit_log triggers.
+// ============================================================
+
+// Update core patient contact fields
+export async function updatePatientContact(patientId, fields) {
+  const { error } = await supabase
+    .from('patients')
+    .update(fields)
+    .eq('id', patientId)
+  if (error) throw error
+}
+
+// Update (or insert) insurance coverage for a patient
+export async function updateInsuranceCoverage(patientId, fields, coverageId) {
+  if (coverageId) {
+    const { error } = await supabase
+      .from('insurance_coverage')
+      .update(fields)
+      .eq('id', coverageId)
+    if (error) throw error
+  } else {
+    const { error } = await supabase
+      .from('insurance_coverage')
+      .insert({ patient_id: patientId, ...fields })
+    if (error) throw error
+  }
+}
+
+// Update a device fitting row
+export async function updateDeviceFitting(fittingId, fields) {
+  const { error } = await supabase
+    .from('device_fittings')
+    .update(fields)
+    .eq('id', fittingId)
+  if (error) throw error
+}
+
+// Update a single device side (left or right)
+export async function updateDeviceSide(sideId, fields) {
+  const { error } = await supabase
+    .from('device_sides')
+    .update(fields)
+    .eq('id', sideId)
+  if (error) throw error
+}
+
+
+// ============================================================
+// PATIENT CAMPAIGNS (Enrollment & Tracking)
+// ============================================================
+
+// Load all campaign enrollments for a patient, with deliveries and step metadata
+export async function loadPatientCampaigns(patientId) {
+  const { data, error } = await supabase
+    .from('patient_campaigns')
+    .select(`
+      *,
+      campaign_templates(id, name, trigger_type),
+      campaign_deliveries(
+        *,
+        campaign_steps(step_order, delay_days, delivery_channel)
+      )
+    `)
+    .eq('patient_id', patientId)
+    .order('enrolled_at', { ascending: false })
+  if (error) { console.error('loadPatientCampaigns:', error); return [] }
+  return data
+}
+
+// Update campaign status or trigger_date
+export async function updatePatientCampaign(campaignId, fields) {
+  const { error } = await supabase
+    .from('patient_campaigns')
+    .update(fields)
+    .eq('id', campaignId)
+  if (error) throw error
+}
+
+// Update the scheduled_date of a single campaign delivery
+export async function updateDeliveryDate(deliveryId, scheduledDate) {
+  const { error } = await supabase
+    .from('campaign_deliveries')
+    .update({ scheduled_date: scheduledDate })
+    .eq('id', deliveryId)
+  if (error) throw error
 }
