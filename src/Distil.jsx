@@ -22,6 +22,10 @@ import {
   loadInsurancePlans,
   updatePatientContact,
   updateInsuranceCoverage,
+  updateDeviceFitting,
+  updateDeviceSide,
+  updatePatientCampaign,
+  updateDeliveryDate,
 } from "./db.js";
 
 import ContentLibrary from "./views/ContentLibrary.jsx";
@@ -875,6 +879,17 @@ function generateCounseling(aud){
 const STEPS = ["Patient","Testing","Results","Device Selection","Care Plan","Schedule","Review"];
 
 
+// ── ROLE CHECK UTILITY ─────────────────────────────────────────────────────────
+// Role categories: 'care_coordinator' | 'provider' | 'admin'
+// TODO: Wire up real restrictions — replace body with:
+//   return Array.isArray(allowedRoles) && allowedRoles.includes(staffRole)
+// Currently returns true for all roles so all staff can do everything.
+// eslint-disable-next-line no-unused-vars
+function checkRole(_staffRole, _allowedRoles) {
+  return true; // TODO: enforce when roles are configured
+}
+
+
 export default function ProviderCRM({ staffId, clinicId }) {
   const [clinic, setClinic] = useState(DEFAULT_CLINIC);
   const [clinicDraft, setClinicDraft] = useState(DEFAULT_CLINIC);
@@ -891,15 +906,14 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [punchSuccess, setPunchSuccess] = useState(null);
 
   // ── Patient detail inline edit state ─────────────────────────────────────
+  // editSection: 'contact' | 'coverage' | 'devices' | 'campaign' | null
   const [editSection,    setEditSection]    = useState(null);
   const [editDraft,      setEditDraft]      = useState(null);
   const [editSaving,     setEditSaving]     = useState(false);
   const [editError,      setEditError]      = useState(null);
   const [editSuccess,    setEditSuccess]    = useState(null);
+  const [patientCampaigns, setPatientCampaigns] = useState([]);
   const [editPlanSearch, setEditPlanSearch] = useState("");
-
-  // Insurance plans state (initialized to hardcoded constant; replaced on mount from Supabase)
-  const [insurancePlans, setInsurancePlans] = useState(INSURANCE_PLANS);
 
   // ── Intake queue state ────────────────────────────────────────────────
   const [pendingIntakes,  setPendingIntakes]  = useState([]);
@@ -1022,6 +1036,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     setPatients(p);
   };
 
+
   // ── Patient detail edit handlers ──────────────────────────────────────────
 
   const cancelEdit = () => {
@@ -1031,20 +1046,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
     setEditSuccess(null);
   };
 
-  // Reset edit state when navigating away from patient
-  useEffect(() => {
-    if (view !== "patient") {
-      setEditSection(null);
-      setEditDraft(null);
-    }
-  }, [view]);
-
   const startEditContact = () => {
     const p = selectedPatient;
     const parts = (p.name || "").trim().split(/\s+/);
     const lastName  = parts.length > 1 ? parts.pop() : "";
     const firstName = parts.join(" ");
-    setEditDraft({ firstName, lastName, phone: p.phone || "", email: p.email || "", dob: p.dob || "", payType: p.payType || "insurance" });
+    setEditDraft({ firstName, lastName, phone: p.phone || "", email: p.email || "", dob: p.dob || "", payType: p.payType || "insurance", notes: p.notes || "" });
     setEditSection("contact");
     setEditError(null);
     setEditSuccess(null);
@@ -1060,9 +1067,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
         email:      editDraft.email  || null,
         dob:        editDraft.dob    || null,
         pay_type:   editDraft.payType,
+        notes:      editDraft.notes  || null,
       });
       const newName = [editDraft.firstName, editDraft.lastName].filter(Boolean).join(" ");
-      setSelectedPatient(p => ({ ...p, name: newName, phone: editDraft.phone, email: editDraft.email, dob: editDraft.dob, payType: editDraft.payType }));
+      setSelectedPatient(p => ({ ...p, name: newName, phone: editDraft.phone, email: editDraft.email, dob: editDraft.dob, payType: editDraft.payType, notes: editDraft.notes }));
       setPatients(prev => prev.map(pt => pt.id === selectedPatient.id ? { ...pt, name: newName, phone: editDraft.phone, email: editDraft.email } : pt));
       setEditSuccess("Saved");
       setTimeout(() => { setEditSection(null); setEditSuccess(null); }, 1400);
@@ -1111,7 +1119,90 @@ export default function ProviderCRM({ staffId, clinicId }) {
         carePlan: editDraft.carePlanType,
         insurance: { ...p.insurance, carrier: editDraft.carrier, planGroup: editDraft.planGroup, tpa: editDraft.tpa, tier: editDraft.tier, tierPrice: editDraft.tierPrice },
         devices: p.devices ? { ...p.devices, warrantyExpiry: editDraft.warrantyExpiry } : p.devices,
+        _ids: { ...p._ids, coverageId: p._ids?.coverageId || "pending" },
       }));
+      setEditSuccess("Saved");
+      setTimeout(() => { setEditSection(null); setEditSuccess(null); }, 1400);
+    } catch (err) {
+      setEditError(err?.message || "Save failed");
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const startEditDevices = () => {
+    const d = selectedPatient.devices || {};
+    setEditDraft({
+      serialLeft:     d.serialLeft     || "",
+      serialRight:    d.serialRight    || "",
+      warrantyExpiry: d.warrantyExpiry || "",
+      fittingType:    d.fittingType    || "Bilateral",
+      left:  { ...(d.left  || {}) },
+      right: { ...(d.right || {}) },
+    });
+    setEditSection("devices");
+    setEditError(null);
+    setEditSuccess(null);
+  };
+
+  const saveEditDevices = async () => {
+    setEditSaving(true); setEditError(null);
+    try {
+      const { fittingId, leftSideId, rightSideId } = selectedPatient._ids || {};
+      if (fittingId) {
+        await updateDeviceFitting(fittingId, {
+          serial_left:     editDraft.serialLeft     || null,
+          serial_right:    editDraft.serialRight    || null,
+          warranty_expiry: editDraft.warrantyExpiry || null,
+          fitting_type:    editDraft.fittingType    || null,
+        });
+      }
+      const buildSideFields = (s) => ({
+        manufacturer:    s.manufacturer    || null,
+        family:          s.family          || null,
+        generation:      s.generation      || null,
+        variant:         s.variant         || null,
+        tech_level:      s.techLevel       || null,
+        style:           s.style           || null,
+        color:           s.color           || null,
+        battery:         s.battery         || null,
+        receiver_length: s.receiverLength  || null,
+        receiver_power:  s.receiverPower   || null,
+        dome:            s.dome            || null,
+      });
+      if (leftSideId  && editDraft.left)  await updateDeviceSide(leftSideId,  buildSideFields(editDraft.left));
+      if (rightSideId && editDraft.right) await updateDeviceSide(rightSideId, buildSideFields(editDraft.right));
+      setSelectedPatient(p => ({
+        ...p,
+        devices: { ...p.devices, serialLeft: editDraft.serialLeft, serialRight: editDraft.serialRight, warrantyExpiry: editDraft.warrantyExpiry, fittingType: editDraft.fittingType, left: editDraft.left || p.devices?.left, right: editDraft.right || p.devices?.right },
+      }));
+      setEditSuccess("Saved");
+      setTimeout(() => { setEditSection(null); setEditSuccess(null); }, 1400);
+    } catch (err) {
+      setEditError(err?.message || "Save failed");
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const startEditCampaign = (campaign) => {
+    const deliveries = (campaign.campaign_deliveries || [])
+      .sort((a, b) => (a.campaign_steps?.step_order ?? 0) - (b.campaign_steps?.step_order ?? 0))
+      .map(d => ({ id: d.id, stepOrder: d.campaign_steps?.step_order ?? 0, delayDays: d.campaign_steps?.delay_days ?? 0, channel: d.campaign_steps?.delivery_channel || "", status: d.status, scheduledDate: d.scheduled_date || "" }));
+    setEditDraft({ campaignId: campaign.id, status: campaign.status, triggerDate: campaign.trigger_date || "", deliveries });
+    setEditSection("campaign");
+    setEditError(null);
+    setEditSuccess(null);
+  };
+
+  const saveEditCampaign = async () => {
+    setEditSaving(true); setEditError(null);
+    try {
+      await updatePatientCampaign(editDraft.campaignId, { status: editDraft.status, trigger_date: editDraft.triggerDate || null });
+      for (const d of (editDraft.deliveries || [])) {
+        if (d.scheduledDate) await updateDeliveryDate(d.id, d.scheduledDate);
+      }
+      setPatientCampaigns(prev => prev.map(c => c.id === editDraft.campaignId ? { ...c, status: editDraft.status, trigger_date: editDraft.triggerDate } : c));
       setEditSuccess("Saved");
       setTimeout(() => { setEditSection(null); setEditSuccess(null); }, 1400);
     } catch (err) {
@@ -1150,6 +1241,19 @@ export default function ProviderCRM({ staffId, clinicId }) {
     return unsubscribe;
   }, [clinicId, fireIntakeToast]);
 
+
+  // Load campaigns whenever the patient detail view is opened
+  useEffect(() => {
+    if (view === "patient" && selectedPatient?.id) {
+      setPatientCampaigns([]);
+      loadPatientCampaigns(selectedPatient.id).then(setPatientCampaigns).catch(() => {});
+    }
+    // Reset edit state when navigating away from patient
+    if (view !== "patient") {
+      setEditSection(null);
+      setEditDraft(null);
+    }
+  }, [view, selectedPatient?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Clear non-TruHearing device selections when a private-label plan is chosen
   useEffect(() => {
@@ -3187,7 +3291,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div className="detail-card">
               <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
                 <div className="detail-card-title" style={{marginBottom:0}}>Contact Information</div>
-                {editSection !== "contact" && (
+                {/* TODO: restrict to care_coordinator, provider, admin once checkRole is enforced */}
+                {editSection !== "contact" && checkRole(null, ["care_coordinator","provider","admin"]) && (
                   <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={startEditContact}>Edit</button>
                 )}
               </div>
@@ -3200,11 +3305,25 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Phone</label><input value={editDraft.phone} onChange={e=>setEditDraft(d=>({...d,phone:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
                     <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Email</label><input value={editDraft.email} onChange={e=>setEditDraft(d=>({...d,email:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
                   </div>
+                  <div style={{marginBottom:10}}>
+                    <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:6}}>Pay Type</label>
+                    <div style={{display:"flex",gap:8}}>
+                      {[["insurance","Insurance"],["private","Private Pay"]].map(([val,label])=>(
+                        <div key={val} onClick={()=>setEditDraft(d=>({...d,payType:val}))} style={{flex:1,border:`2px solid ${editDraft.payType===val?"#0a1628":"#e5e7eb"}`,borderRadius:10,padding:"10px",cursor:"pointer",textAlign:"center",background:editDraft.payType===val?"#f8fafc":"white",transition:"all 0.15s"}}>
+                          <div style={{fontSize:13,fontWeight:600,color:"#0a1628"}}>{label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{marginBottom:4}}>
+                    <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Notes</label>
+                    <textarea value={editDraft.notes} onChange={e=>setEditDraft(d=>({...d,notes:e.target.value}))} rows={3} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",resize:"vertical",boxSizing:"border-box"}} />
+                  </div>
                   <div style={{display:"flex",gap:8,alignItems:"center",marginTop:10}}>
-                    <button onClick={saveEditContact} disabled={editSaving} style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 18px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:editSaving?"wait":"pointer",opacity:editSaving?0.7:1}}>{editSaving?"Saving...":"Save Changes"}</button>
+                    <button onClick={saveEditContact} disabled={editSaving} style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 18px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:editSaving?"wait":"pointer",opacity:editSaving?0.7:1}}>{editSaving?"Saving…":"Save Changes"}</button>
                     <button onClick={cancelEdit} style={{background:"none",border:"1px solid #e5e7eb",borderRadius:8,padding:"8px 14px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
                     {editError && <span style={{fontSize:12,color:"#ef4444"}}>{editError}</span>}
-                    {editSuccess && <span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>{editSuccess}</span>}
+                    {editSuccess && <span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>✓ {editSuccess}</span>}
                   </div>
                 </div>
               ) : (
@@ -3213,24 +3332,27 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v}</span></div>
                   ))}
                   {p.payType && <div className="detail-row"><span className="detail-key">Pay Type</span><span className="detail-val">{p.payType==="insurance"?"Insurance":"Private Pay"}</span></div>}
+                  {p.notes && <div className="detail-row"><span className="detail-key">Notes</span><span className="detail-val" style={{whiteSpace:"pre-wrap"}}>{p.notes}</span></div>}
                 </div>
               )}
             </div>
+
             {/* ── COVERAGE ────────────────────────────────────────────────── */}
             <div className="detail-card">
               <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
                 <div className="detail-card-title" style={{marginBottom:0}}>Coverage</div>
-                {editSection !== "coverage" && (
+                {/* TODO: restrict to care_coordinator, provider, admin once checkRole is enforced */}
+                {editSection !== "coverage" && checkRole(null, ["care_coordinator","provider","admin"]) && (
                   <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={startEditCoverage}>Edit</button>
                 )}
               </div>
               {editSection === "coverage" ? (
                 <div>
-                  {/* Insurance plan search */}
+                  {/* Insurance plan search — reuses same component pattern as Step 0 of new patient form */}
                   <div style={{background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:12,padding:"14px 16px",marginBottom:12}}>
                     <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:10}}>Insurance Plan Search</div>
                     <input
-                      placeholder="Search carrier or plan name..."
+                      placeholder="Search carrier or plan name…"
                       value={editPlanSearch}
                       onChange={e=>setEditPlanSearch(e.target.value)}
                       style={{width:"100%",marginBottom:8,padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}}
@@ -3254,7 +3376,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                         <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>TPA</span>
                         <span style={{fontSize:13,fontWeight:600,color:"#374151",background:"#f3f4f6",borderRadius:6,padding:"3px 10px"}}>{editDraft.tpa}</span>
                         <button style={{marginLeft:"auto",fontSize:11,color:"#9ca3af",background:"none",border:"none",cursor:"pointer",padding:0}}
-                          onClick={()=>setEditDraft(d=>({...d,carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null}))}>Clear</button>
+                          onClick={()=>setEditDraft(d=>({...d,carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null}))}>✕ Clear</button>
                       </div>
                     )}
                   </div>
@@ -3268,16 +3390,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     <div>
                       <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Care Plan</label>
                       <select value={editDraft.carePlanType} onChange={e=>setEditDraft(d=>({...d,carePlanType:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",background:"white",boxSizing:"border-box"}}>
-                        <option value="">-- None --</option>
+                        <option value="">— None —</option>
                         {CARE_PLANS.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
                       </select>
                     </div>
                   </div>
                   <div style={{display:"flex",gap:8,alignItems:"center",marginTop:10}}>
-                    <button onClick={saveEditCoverage} disabled={editSaving} style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 18px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:editSaving?"wait":"pointer",opacity:editSaving?0.7:1}}>{editSaving?"Saving...":"Save Changes"}</button>
+                    <button onClick={saveEditCoverage} disabled={editSaving} style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 18px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:editSaving?"wait":"pointer",opacity:editSaving?0.7:1}}>{editSaving?"Saving…":"Save Changes"}</button>
                     <button onClick={cancelEdit} style={{background:"none",border:"1px solid #e5e7eb",borderRadius:8,padding:"8px 14px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
                     {editError && <span style={{fontSize:12,color:"#ef4444"}}>{editError}</span>}
-                    {editSuccess && <span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>{editSuccess}</span>}
+                    {editSuccess && <span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>✓ {editSuccess}</span>}
                   </div>
                 </div>
               ) : (
@@ -3287,44 +3409,96 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   ].map(([k,v])=>(
                     <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v||"—"}</span></div>
                   )) : (
-                    <div className="detail-row"><span className="detail-key">Type</span><span className="detail-val">Private Pay -- $5,500</span></div>
+                    <div className="detail-row"><span className="detail-key">Type</span><span className="detail-val">Private Pay – $5,500</span></div>
                   )}
                   {p.payType === "insurance" && <div className="detail-row"><span className="detail-key">Care Plan</span><span className="detail-val">{CARE_PLANS.find(c=>c.id===p.carePlan)?.label||"—"}</span></div>}
                   {p.devices?.warrantyExpiry && <div className="detail-row"><span className="detail-key">Warranty Expiry</span><span className="detail-val">{fmtDate(p.devices.warrantyExpiry)}</span></div>}
                 </div>
               )}
             </div>
+
+            {/* ── DEVICE SPECIFICATIONS ────────────────────────────────────── */}
             <div className="detail-card full">
-              <div className="detail-card-title">Device Specifications</div>
-              <div style={{marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
-                <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>Fitting Type</span>
-                <span style={{fontSize:12,fontWeight:700,color:"#0a1628",background:"#f3f4f6",borderRadius:6,padding:"2px 8px"}}>{p.devices?.fittingType||"Bilateral"}</span>
+              <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
+                <div className="detail-card-title" style={{marginBottom:0}}>Device Specifications</div>
+                {/* TODO: restrict to provider, admin once checkRole is enforced */}
+                {editSection !== "devices" && checkRole(null, ["provider","admin"]) && (
+                  <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={startEditDevices}>Edit</button>
+                )}
               </div>
-              {[p.devices?.left, p.devices?.right].map((side, idx) => {
-                const sideLabel = idx===0 ? "👂 Left Ear" : "Right Ear 👂";
-                if (!side) return (
-                  <div key={idx} style={{color:"#9ca3af",fontSize:13,padding:"8px 0",borderBottom:"1px solid #f3f4f6"}}>{sideLabel} — Not configured</div>
-                );
-                const pwrLabel = (RECEIVER_POWERS[side.manufacturer]||[]).find(pw=>pw.id===side.receiverPower)?.label || side.receiverPower;
-                const isEm = (RECEIVER_POWERS[side.manufacturer]||[]).find(pw=>pw.id===side.receiverPower)?.earmold;
-                return (
-                  <div key={idx} style={{marginBottom:16}}>
-                    <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:6,paddingBottom:4,borderBottom:"1px solid #e5e7eb"}}>{sideLabel}</div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr"}}>
-                      {[["Manufacturer",side.manufacturer],["Platform",side.generation||"—"],["Model Family",side.family||"—"],["Variant",side.variant||"—"],["Tech Level",side.techLevel||"—"],["Body Style",BODY_STYLES.find(s=>s.id===side.style)?.label||side.style],["Color",side.color||"N/A"],["Battery",side.battery||"—"],
-                        ...(side.style==="ric" ? [["Receiver Length",side.receiverLength||"—"],["Receiver Power",pwrLabel||"—"],["Dome / Coupling",isEm?"Custom Earmold":(side.dome||"N/A")]] : []),
-                      ].map(([k,v])=>(
-                        <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v||"—"}</span></div>
-                      ))}
+              {editSection === "devices" ? (
+                <div>
+                  {/* Fitting-level fields */}
+                  <div style={{marginBottom:14}}>
+                    <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:8}}>Fitting Info</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
+                      <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Fitting Type</label>
+                        <select value={editDraft.fittingType} onChange={e=>setEditDraft(d=>({...d,fittingType:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",background:"white",boxSizing:"border-box"}}>
+                          {["Bilateral","Monaural Left","Monaural Right","CROS/BiCROS"].map(t=><option key={t}>{t}</option>)}
+                        </select>
+                      </div>
+                      <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Serial (L)</label><input value={editDraft.serialLeft} onChange={e=>setEditDraft(d=>({...d,serialLeft:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                      <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Serial (R)</label><input value={editDraft.serialRight} onChange={e=>setEditDraft(d=>({...d,serialRight:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                      <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Warranty Expiry</label><input type="date" value={editDraft.warrantyExpiry} onChange={e=>setEditDraft(d=>({...d,warrantyExpiry:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
                     </div>
                   </div>
-                );
-              })}
-              <div style={{borderTop:"1px solid #f3f4f6",paddingTop:12,display:"grid",gridTemplateColumns:"1fr 1fr"}}>
-                {[["Serial (L)",p.devices?.serialLeft],["Serial (R)",p.devices?.serialRight],["Fitting Date",fmtDate(p.devices?.fittingDate||p.createdAt)],["Warranty Expires",fmtDate(p.devices?.warrantyExpiry)],["Warranty Status",days<0?"Expired":`${days} days remaining`]].map(([k,v])=>(
-                  <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val" style={k==="Warranty Status"?{color:days<0?"#ef4444":days<90?"#ef4444":days<360?"#f59e0b":"#16a34a"}:{}}>{v||"—"}</span></div>
-                ))}
-              </div>
+                  {/* Per-side device fields */}
+                  {[["left","👂 Left Ear"],["right","Right Ear 👂"]].map(([side, sideLabel])=>{
+                    const sd = editDraft[side] || {};
+                    const setSD = (k,v) => setEditDraft(d=>({...d,[side]:{...d[side],[k]:v}}));
+                    const hasSide = !!(side==="left" ? selectedPatient._ids?.leftSideId : selectedPatient._ids?.rightSideId);
+                    if (!hasSide && !sd.manufacturer) return null;
+                    return (
+                      <div key={side} style={{marginBottom:14,paddingBottom:14,borderTop:"1px solid #f3f4f6",paddingTop:14}}>
+                        <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:8}}>{sideLabel}</div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
+                          {[["Manufacturer","manufacturer"],["Platform","generation"],["Model Family","family"],["Variant","variant"],["Tech Level","techLevel"],["Style","style"],["Color","color"],["Battery","battery"],["Receiver Length","receiverLength"],["Receiver Power","receiverPower"],["Dome / Coupling","dome"]].map(([label,key])=>(
+                            <div key={key}><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>{label}</label><input value={sd[key]||""} onChange={e=>setSD(key,e.target.value)} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div style={{display:"flex",gap:8,alignItems:"center",marginTop:10}}>
+                    <button onClick={saveEditDevices} disabled={editSaving} style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 18px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:editSaving?"wait":"pointer",opacity:editSaving?0.7:1}}>{editSaving?"Saving…":"Save Changes"}</button>
+                    <button onClick={cancelEdit} style={{background:"none",border:"1px solid #e5e7eb",borderRadius:8,padding:"8px 14px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
+                    {editError && <span style={{fontSize:12,color:"#ef4444"}}>{editError}</span>}
+                    {editSuccess && <span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>✓ {editSuccess}</span>}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div style={{marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>Fitting Type</span>
+                    <span style={{fontSize:12,fontWeight:700,color:"#0a1628",background:"#f3f4f6",borderRadius:6,padding:"2px 8px"}}>{p.devices?.fittingType||"Bilateral"}</span>
+                  </div>
+                  {[p.devices?.left, p.devices?.right].map((side, idx) => {
+                    const sideLabel = idx===0 ? "👂 Left Ear" : "Right Ear 👂";
+                    if (!side) return (
+                      <div key={idx} style={{color:"#9ca3af",fontSize:13,padding:"8px 0",borderBottom:"1px solid #f3f4f6"}}>{sideLabel} — Not configured</div>
+                    );
+                    const pwrLabel = (RECEIVER_POWERS[side.manufacturer]||[]).find(pw=>pw.id===side.receiverPower)?.label || side.receiverPower;
+                    const isEm = (RECEIVER_POWERS[side.manufacturer]||[]).find(pw=>pw.id===side.receiverPower)?.earmold;
+                    return (
+                      <div key={idx} style={{marginBottom:16}}>
+                        <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:6,paddingBottom:4,borderBottom:"1px solid #e5e7eb"}}>{sideLabel}</div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr"}}>
+                          {[["Manufacturer",side.manufacturer],["Platform",side.generation||"—"],["Model Family",side.family||"—"],["Variant",side.variant||"—"],["Tech Level",side.techLevel||"—"],["Body Style",BODY_STYLES.find(s=>s.id===side.style)?.label||side.style],["Color",side.color||"N/A"],["Battery",side.battery||"—"],
+                            ...(side.style==="ric" ? [["Receiver Length",side.receiverLength||"—"],["Receiver Power",pwrLabel||"—"],["Dome / Coupling",isEm?"Custom Earmold":(side.dome||"N/A")]] : []),
+                          ].map(([k,v])=>(
+                            <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v||"—"}</span></div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div style={{borderTop:"1px solid #f3f4f6",paddingTop:12,display:"grid",gridTemplateColumns:"1fr 1fr"}}>
+                    {[["Serial (L)",p.devices?.serialLeft],["Serial (R)",p.devices?.serialRight],["Fitting Date",fmtDate(p.devices?.fittingDate||p.createdAt)],["Warranty Expires",fmtDate(p.devices?.warrantyExpiry)],["Warranty Status",days<0?"Expired":`${days} days remaining`]].map(([k,v])=>(
+                      <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val" style={k==="Warranty Status"?{color:days<0?"#ef4444":days<90?"#f59e0b":"#16a34a"}:{}}>{v||"—"}</span></div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
             {/* ── AUDIOGRAM & EDUCATION PANEL ── */}
             {p.audiology && (getPTA(p.audiology.rightT)!=null || getPTA(p.audiology.leftT)!=null || p.audiology.unaidedR!=null || p.audiology.sinBin!=null) && (() => {
@@ -3434,8 +3608,105 @@ export default function ProviderCRM({ staffId, clinicId }) {
             )}
 
 
-            {/* CAMPAIGN JOURNEY CARD */}
-            <PatientCampaignCard patient={p} staffId={staffId} />
+            {/* ── CAMPAIGN JOURNEY ─────────────────────────────────────────────────── */}
+            {/* TODO: restrict campaign edits to care_coordinator, admin once checkRole is enforced */}
+            {patientCampaigns.length > 0 && patientCampaigns.map(campaign => {
+              const deliveries = (campaign.campaign_deliveries || [])
+                .sort((a,b) => (a.campaign_steps?.step_order ?? 0) - (b.campaign_steps?.step_order ?? 0));
+              const completedCount = deliveries.filter(d => d.status === "sent" || d.status === "delivered").length;
+              const totalCount = deliveries.length;
+              const progressPct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+              const isEditingThis = editSection === "campaign" && editDraft?.campaignId === campaign.id;
+              return (
+                <div key={campaign.id} className="detail-card full">
+                  <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
+                    <div className="detail-card-title" style={{marginBottom:0}}>
+                      Nurture Campaign
+                      <span style={{fontSize:11,fontWeight:400,color:"#9ca3af",marginLeft:8}}>{campaign.campaign_templates?.name || "Campaign"}</span>
+                    </div>
+                    {/* TODO: restrict to care_coordinator, admin when enforcing roles */}
+                    {!isEditingThis && checkRole(null, ["care_coordinator","admin"]) && (
+                      <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={()=>startEditCampaign(campaign)}>Edit</button>
+                    )}
+                  </div>
+
+                  {isEditingThis ? (
+                    <div>
+                      {/* Status control */}
+                      <div style={{marginBottom:14}}>
+                        <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:6}}>Campaign Status</label>
+                        <div style={{display:"flex",gap:8}}>
+                          {[["active","▶ Active"],["paused","⏸ Paused"],["cancelled","✕ Cancelled"]].map(([val,label])=>(
+                            <div key={val} onClick={()=>setEditDraft(d=>({...d,status:val}))} style={{padding:"8px 16px",border:`2px solid ${editDraft.status===val?"#0a1628":"#e5e7eb"}`,borderRadius:10,cursor:"pointer",background:editDraft.status===val?"#f8fafc":"white",transition:"all 0.15s",fontSize:13,fontWeight:600,color:editDraft.status===val?"#0a1628":"#6b7280"}}>
+                              {label}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      {/* Trigger date */}
+                      <div style={{marginBottom:14}}>
+                        <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Trigger Date (campaign start anchor)</label>
+                        <input type="date" value={editDraft.triggerDate} onChange={e=>setEditDraft(d=>({...d,triggerDate:e.target.value}))} style={{padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none"}} />
+                        <div style={{fontSize:11,color:"#9ca3af",marginTop:4}}>Changing this date shifts all pending deliveries forward or backward relative to their original schedule.</div>
+                      </div>
+                      {/* Per-delivery scheduled dates */}
+                      {editDraft.deliveries?.length > 0 && (
+                        <div style={{marginBottom:14}}>
+                          <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:8}}>Delivery Schedule</label>
+                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                            {editDraft.deliveries.map((d,i) => (
+                              <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"#f9fafb",borderRadius:8,border:"1px solid #e5e7eb"}}>
+                                <span style={{fontSize:11,fontWeight:700,color:"#9ca3af",width:20,flexShrink:0}}>#{d.stepOrder}</span>
+                                <span style={{fontSize:12,color:"#374151",flex:1}}>{d.channel || "Message"} · Day {d.delayDays}</span>
+                                <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:600,background:d.status==="sent"||d.status==="delivered"?"#dcfce7":d.status==="pending"?"#fef9c3":"#fee2e2",color:d.status==="sent"||d.status==="delivered"?"#16a34a":d.status==="pending"?"#854d0e":"#dc2626"}}>{d.status}</span>
+                                <input type="date" value={d.scheduledDate} onChange={e=>{const ds=[...editDraft.deliveries];ds[i]={...ds[i],scheduledDate:e.target.value};setEditDraft(dd=>({...dd,deliveries:ds}));}} style={{padding:"5px 8px",border:"1px solid #e5e7eb",borderRadius:6,fontFamily:"'Sora',sans-serif",fontSize:12,outline:"none"}} />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <div style={{display:"flex",gap:8,alignItems:"center",marginTop:10}}>
+                        <button onClick={saveEditCampaign} disabled={editSaving} style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 18px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:editSaving?"wait":"pointer",opacity:editSaving?0.7:1}}>{editSaving?"Saving…":"Save Changes"}</button>
+                        <button onClick={cancelEdit} style={{background:"none",border:"1px solid #e5e7eb",borderRadius:8,padding:"8px 14px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
+                        {editError && <span style={{fontSize:12,color:"#ef4444"}}>{editError}</span>}
+                        {editSuccess && <span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>✓ {editSuccess}</span>}
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      {/* Status + progress bar */}
+                      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+                        <span style={{fontSize:12,fontWeight:700,padding:"3px 12px",borderRadius:20,border:"1px solid",background:campaign.status==="active"?"#dcfce7":campaign.status==="paused"?"#fef9c3":"#f3f4f6",color:campaign.status==="active"?"#16a34a":campaign.status==="paused"?"#854d0e":"#6b7280",borderColor:campaign.status==="active"?"#bbf7d0":campaign.status==="paused"?"#fde68a":"#e5e7eb"}}>
+                          {campaign.status==="active"?"▶ Active":campaign.status==="paused"?"⏸ Paused":"✕ Cancelled"}
+                        </span>
+                        <span style={{fontSize:12,color:"#6b7280"}}>{completedCount} of {totalCount} steps completed</span>
+                        {campaign.trigger_date && <span style={{fontSize:11,color:"#9ca3af",marginLeft:"auto"}}>Started {fmtDate(campaign.trigger_date)}</span>}
+                      </div>
+                      {totalCount > 0 && (
+                        <div style={{background:"#f3f4f6",borderRadius:20,height:6,marginBottom:14,overflow:"hidden"}}>
+                          <div style={{height:"100%",background:"#16a34a",borderRadius:20,width:`${progressPct}%`,transition:"width 0.3s"}} />
+                        </div>
+                      )}
+                      {/* Delivery timeline */}
+                      {deliveries.length > 0 && (
+                        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                          {deliveries.map(d => (
+                            <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"#f9fafb",borderRadius:8,border:"1px solid #e5e7eb"}}>
+                              <div style={{width:20,height:20,borderRadius:"50%",background:d.status==="sent"||d.status==="delivered"?"#16a34a":d.status==="pending"?"#e5e7eb":"#ef4444",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                                {(d.status==="sent"||d.status==="delivered") && <span style={{color:"white",fontSize:10,fontWeight:700}}>✓</span>}
+                              </div>
+                              <span style={{fontSize:12,color:"#374151",flex:1}}>{d.campaign_steps?.delivery_channel || "Message"} · Day {d.campaign_steps?.delay_days ?? "?"}</span>
+                              <span style={{fontSize:11,color:"#9ca3af"}}>{d.scheduled_date ? fmtDate(d.scheduled_date) : "—"}</span>
+                              <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:600,background:d.status==="sent"||d.status==="delivered"?"#dcfce7":d.status==="pending"?"#fef9c3":"#fee2e2",color:d.status==="sent"||d.status==="delivered"?"#16a34a":d.status==="pending"?"#854d0e":"#dc2626"}}>{d.status}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
 
             {/* PUNCH CARD PANEL — only for punch plan patients */}
             {p.carePlan === "punch" && (() => {
