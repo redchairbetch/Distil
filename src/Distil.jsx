@@ -24,7 +24,6 @@ import {
   updateInsuranceCoverage,
   updateDeviceFitting,
   updateDeviceSide,
-  loadPatientCampaigns,
   updatePatientCampaign,
   updateDeliveryDate,
 } from "./db.js";

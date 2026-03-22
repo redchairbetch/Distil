@@ -640,6 +640,106 @@ export async function updateDeviceSide(sideId, fields) {
 
 
 // ============================================================
+// CAMPAIGN CONTENT LIBRARY
+// ============================================================
+
+export async function loadCampaignContent(clinicId) {
+  const { data, error } = await supabase
+    .from('campaign_content')
+    .select('*')
+    .eq('clinic_id', clinicId)
+    .eq('active', true)
+    .order('created_at', { ascending: false })
+  if (error) { console.error('loadCampaignContent:', error); return [] }
+  return data
+}
+
+export async function saveCampaignContent(item) {
+  const row = {
+    clinic_id:       item.clinic_id,
+    content_type:    item.content_type,
+    title:           item.title,
+    body:            item.body          || null,
+    url:             item.url           || null,
+    thumbnail_url:   item.thumbnail_url || null,
+    category:        item.category      || 'general',
+    tags:            item.tags          || [],
+    source_url:      item.source_url    || null,
+    source_name:     item.source_name   || null,
+    tone:            item.tone          || null,
+    lifecycle_phase: item.lifecycle_phase || null,
+    suggested_month: item.suggested_month || null,
+    active:          item.active        ?? true,
+    created_by:      item.created_by    || null,
+    updated_at:      new Date().toISOString(),
+  }
+  if (item.id) {
+    const { data, error } = await supabase.from('campaign_content').update(row).eq('id', item.id).select().single()
+    if (error) throw error
+    return data
+  }
+  const { data, error } = await supabase.from('campaign_content').insert(row).select().single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteCampaignContent(id) {
+  const { error } = await supabase
+    .from('campaign_content')
+    .update({ active: false, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) console.error('deleteCampaignContent:', error)
+}
+
+
+// ============================================================
+// CAMPAIGN TEMPLATES
+// ============================================================
+
+export async function loadCampaignTemplates(clinicId) {
+  const { data, error } = await supabase
+    .from('campaign_templates')
+    .select(`*, campaign_steps(*, campaign_content(id, title, content_type, category))`)
+    .eq('clinic_id', clinicId)
+    .order('created_at', { ascending: false })
+  if (error) { console.error('loadCampaignTemplates:', error); return [] }
+  return data.map(t => ({ ...t, campaign_steps: (t.campaign_steps || []).sort((a, b) => a.step_order - b.step_order) }))
+}
+
+export async function saveCampaignTemplate(template) {
+  const row = {
+    clinic_id:    template.clinic_id,
+    name:         template.name,
+    description:  template.description || null,
+    trigger_type: template.trigger_type,
+    active:       template.active ?? true,
+    created_by:   template.created_by || null,
+    updated_at:   new Date().toISOString(),
+  }
+  if (template.id) {
+    const { data, error } = await supabase.from('campaign_templates').update(row).eq('id', template.id).select().single()
+    if (error) throw error
+    return data
+  }
+  const { data, error } = await supabase.from('campaign_templates').insert(row).select().single()
+  if (error) throw error
+  return data
+}
+
+export async function saveCampaignSteps(templateId, steps) {
+  const { error: delError } = await supabase.from('campaign_steps').delete().eq('template_id', templateId)
+  if (delError) console.error('delete campaign_steps:', delError)
+  if (!steps.length) return
+  const rows = steps.map((s, i) => ({
+    template_id: templateId, content_id: s.content_id,
+    step_order: i + 1, delay_days: s.delay_days, delivery_channel: s.delivery_channel,
+  }))
+  const { error } = await supabase.from('campaign_steps').insert(rows)
+  if (error) console.error('insert campaign_steps:', error)
+}
+
+
+// ============================================================
 // PATIENT CAMPAIGNS (Enrollment & Tracking)
 // ============================================================
 
@@ -720,6 +820,8 @@ export async function updateDeliveryDate(deliveryId, scheduledDate) {
     .update({ scheduled_date: scheduledDate })
     .eq('id', deliveryId)
   if (error) throw error
+}
+
 export async function loadAllActiveCampaigns() {
   const { data, error } = await supabase
     .from('patient_campaigns')
