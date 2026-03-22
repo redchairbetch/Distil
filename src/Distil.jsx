@@ -1023,6 +1023,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
         const cat = await loadProductCatalog();
         if (cat?.length) setCatalog(cat);
       } catch {}
+      try {
+        const plans = await loadInsurancePlans();
+        if (plans?.length) setInsurancePlans(plans);
+      } catch {}
     })();
   }, [clinicId]);
 
