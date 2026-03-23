@@ -229,6 +229,11 @@ export async function savePatient(patient, staffId, clinicId) {
 
   // 2. Insert insurance coverage (if applicable)
   if (patient.insurance && patient.payType === 'insurance') {
+    const planId = await resolveInsurancePlanId(
+      patient.insurance.carrier,
+      patient.insurance.planGroup,
+      patient.insurance.tier
+    )
     const { error } = await supabase.from('insurance_coverage').insert({
       patient_id:         patientRow.id,
       carrier:            patient.insurance.carrier,
@@ -238,6 +243,7 @@ export async function savePatient(patient, staffId, clinicId) {
       tier_price_per_aid: patient.insurance.tierPrice
                             ? Math.round(patient.insurance.tierPrice * 100)
                             : null,
+      insurance_plan_id:  planId,
       care_plan_type:     patient.carePlan          || null,
       warranty_expiry:    patient.devices?.warrantyExpiry || null,
     })
@@ -1267,4 +1273,101 @@ export async function backfillCampaignEnrollment(clinicId, staffId) {
   }
 
   return { enrolled, skipped }
+}
+
+
+// ============================================================
+// INSURANCE PLANS (from Supabase)
+// ============================================================
+
+// Look up the insurance_plans.id for a given carrier + plan_group + tier_label combo
+export async function resolveInsurancePlanId(carrier, planGroup, tierLabel) {
+  if (!carrier || !planGroup || !tierLabel) return null
+  const { data, error } = await supabase
+    .from('insurance_plans')
+    .select('id')
+    .eq('carrier', carrier)
+    .eq('plan_group', planGroup)
+    .eq('tier_label', tierLabel)
+    .maybeSingle()
+  if (error || !data) return null
+  return data.id
+}
+
+export async function loadInsurancePlans() {
+  const { data, error } = await supabase
+    .from('insurance_plans')
+    .select('id, carrier, plan_group, tpa, tier_label, copay_per_aid, retail_anchor_key, notes')
+    .order('carrier')
+    .order('plan_group')
+  if (error) throw error
+  // reshape to match the shape the edit modal expects
+  return (data || []).map(row => ({
+    id:        row.id,
+    carrier:   row.carrier,
+    planGroup: row.plan_group,
+    tpa:       row.tpa || '',
+    tier:      row.tier_label,
+    tierPrice: row.copay_per_aid != null ? row.copay_per_aid / 100 : null,
+    retailAnchorKey: row.retail_anchor_key,
+    notes:     row.notes || '',
+  }))
+}
+
+
+// ============================================================
+// PRICING REVEAL
+// ============================================================
+
+export async function loadRetailAnchors(clinicId) {
+  const { data, error } = await supabase
+    .from('clinic_retail_anchors')
+    .select('id, label, price_per_aid, sort_order')
+    .eq('clinic_id', clinicId)
+    .order('sort_order')
+  if (error) return []
+  return data || []
+}
+
+export async function loadPricingReveal(clinicId, patientId) {
+  const { data, error } = await supabase
+    .from('insurance_coverage')
+    .select(`
+      tier_price_per_aid,
+      tier,
+      insurance_plan_id,
+      insurance_plans (
+        tier_label,
+        retail_anchor_key
+      )
+    `)
+    .eq('patient_id', patientId)
+    .single()
+
+  if (error || !data) return null
+
+  const anchorKey = data.insurance_plans?.retail_anchor_key
+  if (!anchorKey) return null
+
+  const { data: anchor } = await supabase
+    .from('clinic_retail_anchors')
+    .select('label, price_per_aid')
+    .eq('id', anchorKey)
+    .eq('clinic_id', clinicId)
+    .single()
+
+  if (!anchor) return null
+
+  const retailPerAid  = parseFloat(anchor.price_per_aid)
+  const copayPerAid   = data.tier_price_per_aid
+  const savingsPerAid = retailPerAid - copayPerAid
+  const savingsPct    = Math.round((savingsPerAid / retailPerAid) * 100)
+
+  return {
+    tierLabel:    anchor.label,
+    retailPerAid,
+    copayPerAid,
+    savingsPerAid,
+    savingsPct,
+  }
 }
