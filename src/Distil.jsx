@@ -703,12 +703,11 @@ function getSlope(t){
 }
 
 
-function AudigramSVG({rightT={},leftT={},interactive=false,onSet,activeEar="right"}){
+function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={},leftMask={},rightBCMask={},leftBCMask={},interactive=false,onSet,activeEar="right",activeTestType="AC",maskMode=false}){
   const W=600,H=340,ML=52,MT=42,MR=88,MB=24;
   const PW=W-ML-MR, PH=H-MT-MB;
   const fx=i=>ML+i*(PW/(AUDIG_FREQS.length-1));
   const dy=db=>MT+(db-(-10))/130*PH;
-
 
   const handleClick=e=>{
     if(!interactive)return;
@@ -720,14 +719,79 @@ function AudigramSVG({rightT={},leftT={},interactive=false,onSet,activeEar="righ
     const db=Math.round(((svgY-MT)/PH*130+(-10))/5)*5;
     const clamped=Math.max(-10,Math.min(120,db));
     const freq=AUDIG_FREQS[fi];
-    const cur=activeEar==="right"?rightT:leftT;
-    onSet?.(activeEar,freq,cur[freq]===clamped?null:clamped);
+    const curMap=activeTestType==="BC"
+      ?(activeEar==="right"?rightBC:leftBC)
+      :(activeEar==="right"?rightT:leftT);
+    onSet?.(activeEar,freq,curMap[freq]===clamped?null:clamped,activeTestType,maskMode);
   };
-
 
   const pts=thr=>AUDIG_FREQS.map((f,i)=>thr[f]!=null?`${fx(i)},${dy(thr[f])}`:null).filter(Boolean);
   const rPts=pts(rightT), lPts=pts(leftT);
+  const rBCPts=pts(rightBC), lBCPts=pts(leftBC);
 
+  // Symbol renderers
+  const acRightSymbol=(f,i)=>{
+    const cx_=fx(i), cy_=dy(rightT[f]), s=interactive&&activeEar==="right"&&activeTestType==="AC"?7:6;
+    const masked=rightMask[f];
+    if(masked) return(
+      <g key={"r"+f}>
+        <polygon points={`${cx_},${cy_-s} ${cx_+s},${cy_+s} ${cx_-s},${cy_+s}`}
+          fill="white" stroke="#dc2626" strokeWidth="2.5"/>
+      </g>
+    );
+    return <circle key={"r"+f} cx={cx_} cy={cy_} r={s} fill="white" stroke="#dc2626" strokeWidth="2.5"/>;
+  };
+
+  const acLeftSymbol=(f,i)=>{
+    const cx_=fx(i), cy_=dy(leftT[f]), s=interactive&&activeEar==="left"&&activeTestType==="AC"?7:6;
+    const masked=leftMask[f];
+    if(masked) return(
+      <g key={"l"+f}>
+        <rect x={cx_-s} y={cy_-s} width={s*2} height={s*2}
+          fill="white" stroke="#2563eb" strokeWidth="2.5"/>
+      </g>
+    );
+    return(
+      <g key={"l"+f}>
+        <line x1={cx_-s} y1={cy_-s} x2={cx_+s} y2={cy_+s} stroke="#2563eb" strokeWidth="2.5"/>
+        <line x1={cx_+s} y1={cy_-s} x2={cx_-s} y2={cy_+s} stroke="#2563eb" strokeWidth="2.5"/>
+      </g>
+    );
+  };
+
+  const bcRightSymbol=(f,i)=>{
+    const cx_=fx(i), cy_=dy(rightBC[f]), s=6;
+    const masked=rightBCMask[f];
+    if(masked) return(
+      <g key={"rb"+f}>
+        <path d={`M${cx_+s},${cy_-s} L${cx_-s+2},${cy_-s} L${cx_-s+2},${cy_+s} L${cx_+s},${cy_+s}`}
+          fill="none" stroke="#dc2626" strokeWidth="2.5"/>
+      </g>
+    );
+    return(
+      <g key={"rb"+f}>
+        <path d={`M${cx_+3},${cy_-s} L${cx_-s+2},${cy_} L${cx_+3},${cy_+s}`}
+          fill="none" stroke="#dc2626" strokeWidth="2.5"/>
+      </g>
+    );
+  };
+
+  const bcLeftSymbol=(f,i)=>{
+    const cx_=fx(i), cy_=dy(leftBC[f]), s=6;
+    const masked=leftBCMask[f];
+    if(masked) return(
+      <g key={"lb"+f}>
+        <path d={`M${cx_-s},${cy_-s} L${cx_+s-2},${cy_-s} L${cx_+s-2},${cy_+s} L${cx_-s},${cy_+s}`}
+          fill="none" stroke="#2563eb" strokeWidth="2.5"/>
+      </g>
+    );
+    return(
+      <g key={"lb"+f}>
+        <path d={`M${cx_-3},${cy_-s} L${cx_+s-2},${cy_} L${cx_-3},${cy_+s}`}
+          fill="none" stroke="#2563eb" strokeWidth="2.5"/>
+      </g>
+    );
+  };
 
   return(
     <svg width="100%" viewBox={`0 0 ${W} ${H}`}
@@ -753,36 +817,37 @@ function AudigramSVG({rightT={},leftT={},interactive=false,onSet,activeEar="righ
       {[-10,0,10,20,30,40,50,60,70,80,90,100,110,120].map(db=>(
         <g key={db}>
           <line x1={ML} y1={dy(db)} x2={ML+PW} y2={dy(db)}
-            stroke={db===0?"#374151":"#e5e7eb"} strokeWidth={db===0?1.5:1}
-            strokeDasharray={db===0?"":""}/>
+            stroke={db===0?"#374151":"#e5e7eb"} strokeWidth={db===0?1.5:1}/>
           <text x={ML-6} y={dy(db)+4} fontSize="10" fill="#6b7280" textAnchor="end">{db}</text>
         </g>
       ))}
       <text x={ML-38} y={MT+PH/2} fontSize="10" fill="#9ca3af" textAnchor="middle"
         transform={`rotate(-90,${ML-38},${MT+PH/2})`}>Hearing Level (dB HL)</text>
       <text x={ML+PW/2} y={H-2} fontSize="10" fill="#9ca3af" textAnchor="middle">Frequency (Hz)</text>
+      {/* AC polylines */}
       {rPts.length>1&&<polyline points={rPts.join(" ")} fill="none" stroke="#dc2626" strokeWidth="1.5" strokeOpacity="0.7"/>}
       {lPts.length>1&&<polyline points={lPts.join(" ")} fill="none" stroke="#2563eb" strokeWidth="1.5" strokeOpacity="0.7"/>}
-      {AUDIG_FREQS.map((f,i)=>rightT[f]!=null&&(
-        <circle key={"r"+f} cx={fx(i)} cy={dy(rightT[f])} r={interactive&&activeEar==="right"?7:6}
-          fill="white" stroke="#dc2626" strokeWidth="2.5"/>
-      ))}
-      {AUDIG_FREQS.map((f,i)=>leftT[f]!=null&&(
-        <g key={"l"+f}>
-          <line x1={fx(i)-6} y1={dy(leftT[f])-6} x2={fx(i)+6} y2={dy(leftT[f])+6} stroke="#2563eb" strokeWidth="2.5"/>
-          <line x1={fx(i)+6} y1={dy(leftT[f])-6} x2={fx(i)-6} y2={dy(leftT[f])+6} stroke="#2563eb" strokeWidth="2.5"/>
-        </g>
-      ))}
-      <circle cx={ML+8} cy={MT-26} r="5" fill="white" stroke="#dc2626" strokeWidth="2"/>
-      <text x={ML+18} y={MT-22} fontSize="10" fill="#dc2626" fontWeight="600">Right (O)</text>
-      <line x1={ML+78} y1={MT-30} x2={ML+88} y2={MT-20} stroke="#2563eb" strokeWidth="2.5"/>
-      <line x1={ML+88} y1={MT-30} x2={ML+78} y2={MT-20} stroke="#2563eb" strokeWidth="2.5"/>
-      <text x={ML+94} y={MT-22} fontSize="10" fill="#2563eb" fontWeight="600">Left (X)</text>
-      {interactive&&(
-        <text x={ML+PW/2} y={MT-22} fontSize="10" fill="#9ca3af" textAnchor="middle">
-          Click to plot threshold · Click existing point to clear
-        </text>
-      )}
+      {/* BC polylines (dashed) */}
+      {rBCPts.length>1&&<polyline points={rBCPts.join(" ")} fill="none" stroke="#dc2626" strokeWidth="1.5" strokeOpacity="0.5" strokeDasharray="4 3"/>}
+      {lBCPts.length>1&&<polyline points={lBCPts.join(" ")} fill="none" stroke="#2563eb" strokeWidth="1.5" strokeOpacity="0.5" strokeDasharray="4 3"/>}
+      {/* AC symbols */}
+      {AUDIG_FREQS.map((f,i)=>rightT[f]!=null&&acRightSymbol(f,i))}
+      {AUDIG_FREQS.map((f,i)=>leftT[f]!=null&&acLeftSymbol(f,i))}
+      {/* BC symbols */}
+      {AUDIG_FREQS.map((f,i)=>rightBC[f]!=null&&bcRightSymbol(f,i))}
+      {AUDIG_FREQS.map((f,i)=>leftBC[f]!=null&&bcLeftSymbol(f,i))}
+      {/* Legend */}
+      <circle cx={ML+4} cy={MT-26} r="4" fill="white" stroke="#dc2626" strokeWidth="2"/>
+      <text x={ML+12} y={MT-22} fontSize="9" fill="#dc2626" fontWeight="600">R AC</text>
+      <g transform={`translate(${ML+44},${MT-26})`}>
+        <line x1={-4} y1={-4} x2={4} y2={4} stroke="#2563eb" strokeWidth="2"/>
+        <line x1={4} y1={-4} x2={-4} y2={4} stroke="#2563eb" strokeWidth="2"/>
+      </g>
+      <text x={ML+52} y={MT-22} fontSize="9" fill="#2563eb" fontWeight="600">L AC</text>
+      <path d={`M${ML+92},${MT-31} L${ML+84},${MT-26} L${ML+92},${MT-21}`} fill="none" stroke="#dc2626" strokeWidth="2"/>
+      <text x={ML+96} y={MT-22} fontSize="9" fill="#dc2626" fontWeight="600">R BC</text>
+      <path d={`M${ML+128},${MT-31} L${ML+136},${MT-26} L${ML+128},${MT-21}`} fill="none" stroke="#2563eb" strokeWidth="2"/>
+      <text x={ML+140} y={MT-22} fontSize="9" fill="#2563eb" fontWeight="600">L BC</text>
     </svg>
   );
 }
@@ -924,7 +989,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     carrier:"", planGroup:"", tpa:"", tier:"", tierPrice:null,
     left: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false},
     right: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false},
-    audiology: { rightT:{}, leftT:{}, unaidedR:null, unaidedL:null, aidedR:null, aidedL:null, sinBin:null },
+    audiology: { rightT:{}, leftT:{}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:null, unaidedL:null, aidedR:null, aidedL:null, sinBin:null },
     carePlan:"",
     fittingDate: new Date().toISOString().split("T")[0],
     appointments:[],
@@ -934,6 +999,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const [activeSide, setActiveSide] = useState("left");
   const [audEar, setAudEar] = useState("right");
+  const [audTestType, setAudTestType] = useState("AC");
+  const [maskMode, setMaskMode] = useState(false);
 
   // Address autocomplete state
   const [addressSuggestions, setAddressSuggestions] = useState([]);
@@ -1142,7 +1209,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
   const startNew = () => {
-    setForm({ firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},audiology:{rightT:{},leftT:{},unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,sinBin:null},carePlan:"",fittingDate:new Date().toISOString().split("T")[0],appointments:[],notes:"" });
+    setForm({ firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},audiology:{rightT:{},leftT:{},rightBC:{},leftBC:{},rightMask:{},leftMask:{},rightBCMask:{},leftBCMask:{},tinnitusRight:false,tinnitusLeft:false,unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,sinBin:null},carePlan:"",fittingDate:new Date().toISOString().split("T")[0],appointments:[],notes:"" });
     setActiveSide("left");
     setStep(0); setSaved(false); setView("new");
   };
@@ -1196,7 +1263,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           fittingType:"Bilateral", manufacturer:"Signia", family:"Pure Charge&Go IX", techLevel:"7", style:"ric", color:"Silver", battery:"Rechargeable",
           fittingDate: "2025-01-15", warrantyExpiry: warrantyDate("2025-01-15", 4), serialLeft: genId(), serialRight: genId(),
         },
-        audiology: { rightT:{500:35,1000:40,2000:50,4000:65,8000:70}, leftT:{500:30,1000:40,2000:45,4000:60,8000:65}, unaidedR:72, unaidedL:78, aidedR:92, aidedL:94, sinBin:7 },
+        audiology: { rightT:{500:35,1000:40,2000:50,4000:65,8000:70}, leftT:{500:30,1000:40,2000:45,4000:60,8000:65}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:72, unaidedL:78, aidedR:92, aidedL:94, sinBin:7 },
         carePlan: "complete", appointments: [{ date:"2025-01-29", type:"2-Week Follow-Up" },{ date:"2025-02-12", type:"4-Week Follow-Up" }], notes: "Patient reports excellent satisfaction. Prefers telephone streaming.",
       },
       {
@@ -1210,7 +1277,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           fittingType:"Bilateral", manufacturer:"Signia", family:"Pure Charge&Go IX", techLevel:"5", style:"ric", color:"Graphite", battery:"Rechargeable",
           fittingDate: "2025-03-03", warrantyExpiry: warrantyDate("2025-03-03", 3), serialLeft: genId(), serialRight: genId(),
         },
-        audiology: { rightT:{500:45,1000:55,2000:65,4000:75,8000:80}, leftT:{500:50,1000:60,2000:70,4000:80,8000:85}, unaidedR:58, unaidedL:52, aidedR:84, aidedL:80, sinBin:12 },
+        audiology: { rightT:{500:45,1000:55,2000:65,4000:75,8000:80}, leftT:{500:50,1000:60,2000:70,4000:80,8000:85}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:58, unaidedL:52, aidedR:84, aidedL:80, sinBin:12 },
         carePlan: "punch", appointments: [], notes: "Moderate-to-severe bilateral. Needs follow-up on left dome fit.",
       },
       {
@@ -1224,7 +1291,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           fittingType:"Bilateral", manufacturer:"Phonak", family:"Audéo Infinio", techLevel:"90", style:"ric", color:"Champagne", battery:"Rechargeable",
           fittingDate: "2024-11-20", warrantyExpiry: warrantyDate("2024-11-20", 4), serialLeft: genId(), serialRight: genId(),
         },
-        audiology: { rightT:{500:20,1000:25,2000:35,4000:55,8000:65}, leftT:{500:20,1000:25,2000:30,4000:50,8000:60}, unaidedR:88, unaidedL:90, aidedR:98, aidedL:98, sinBin:4 },
+        audiology: { rightT:{500:20,1000:25,2000:35,4000:55,8000:65}, leftT:{500:20,1000:25,2000:30,4000:50,8000:60}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:88, unaidedL:90, aidedR:98, aidedL:98, sinBin:4 },
         carePlan: null, appointments: [{ date:"2025-12-01", type:"Annual Exam" }], notes: "Private pay. High-functioning loss, excellent word recognition. Very tech-savvy.",
       },
     ];
@@ -1794,11 +1861,29 @@ export default function ProviderCRM({ staffId, clinicId }) {
     );
     if (step === 1) {
       const updAud=(k,v)=>upd("audiology",{...form.audiology,[k]:v});
-      const setThreshold=(ear,freq,val)=>{
-        const key=ear==="right"?"rightT":"leftT";
+      const setThreshold=(ear,freq,val,testType="AC",isMasked=false)=>{
+        const key=testType==="BC"
+          ?(ear==="right"?"rightBC":"leftBC")
+          :(ear==="right"?"rightT":"leftT");
+        const maskKey=testType==="BC"
+          ?(ear==="right"?"rightBCMask":"leftBCMask")
+          :(ear==="right"?"rightMask":"leftMask");
         const next={...form.audiology[key]};
-        if(val==null) delete next[freq]; else next[freq]=val;
-        updAud(key,next);
+        const nextMask={...form.audiology[maskKey]};
+        if(val==null){ delete next[freq]; delete nextMask[freq]; }
+        else{ next[freq]=val; if(isMasked) nextMask[freq]=true; else delete nextMask[freq]; }
+        upd("audiology",{...form.audiology,[key]:next,[maskKey]:nextMask});
+      };
+      const copyToOtherEar=()=>{
+        const src=audEar, dst=src==="right"?"left":"right";
+        const patch={};
+        // AC thresholds + masks
+        patch[dst==="right"?"rightT":"leftT"]={...(src==="right"?form.audiology.rightT:form.audiology.leftT)};
+        patch[dst==="right"?"rightMask":"leftMask"]={...(src==="right"?form.audiology.rightMask:form.audiology.leftMask)};
+        // BC thresholds + masks
+        patch[dst==="right"?"rightBC":"leftBC"]={...(src==="right"?form.audiology.rightBC:form.audiology.leftBC)};
+        patch[dst==="right"?"rightBCMask":"leftBCMask"]={...(src==="right"?form.audiology.rightBCMask:form.audiology.leftBCMask)};
+        upd("audiology",{...form.audiology,...patch});
       };
       const rPTA=getPTA(form.audiology.rightT);
       const lPTA=getPTA(form.audiology.leftT);
@@ -1811,40 +1896,85 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div className="card-title">Pure Tone Audiometry</div>
             <div style={{fontSize:12,color:"#6b7280",marginBottom:14,lineHeight:1.6}}>
               Click directly on the audiogram to plot thresholds. Click an existing symbol to clear it.
-              Switch ears using the toggle below. Pure tone average (PTA) calculates automatically from 500, 1000, and 2000 Hz.
+              Switch ears, test type (AC/BC), and masking mode using the controls below.
+              PTA calculates automatically from 500, 1000, and 2000 Hz.
             </div>
-            <div className="side-tabs" style={{marginBottom:14}}>
-              {["right","left"].map(ear=>(
-                <button key={ear} className={`side-tab ${audEar===ear?"active":""}`}
-                  onClick={()=>setAudEar(ear)}>
-                  <div className="side-tab-label">{ear==="right"?"🔴 Right Ear (O)":"Left Ear (X) 🔵"}</div>
-                  <div className="side-tab-sub">
-                    {ear==="right"
-                      ?(rPTA!=null?`PTA: ${rPTA} dB HL`:"No thresholds plotted")
-                      :(lPTA!=null?`PTA: ${lPTA} dB HL`:"No thresholds plotted")}
-                  </div>
-                </button>
-              ))}
+            {/* Ear toggle + Copy button */}
+            <div style={{display:"flex",alignItems:"stretch",gap:8,marginBottom:10}}>
+              <div className="side-tabs" style={{flex:1,marginBottom:0}}>
+                {["right","left"].map(ear=>(
+                  <button key={ear} className={`side-tab ${audEar===ear?"active":""}`}
+                    onClick={()=>setAudEar(ear)}>
+                    <div className="side-tab-label">{ear==="right"?"Right Ear":"Left Ear"}</div>
+                    <div className="side-tab-sub">
+                      {ear==="right"
+                        ?(rPTA!=null?`PTA: ${rPTA} dB HL`:"No thresholds")
+                        :(lPTA!=null?`PTA: ${lPTA} dB HL`:"No thresholds")}
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <button onClick={copyToOtherEar}
+                style={{padding:"6px 14px",borderRadius:8,border:"1px solid #d1d5db",background:"#f9fafb",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4}}
+                title={`Copy all thresholds from ${audEar} ear to ${audEar==="right"?"left":"right"} ear`}>
+                Copy {audEar==="right"?"→ Left":"← Right"}
+              </button>
+            </div>
+            {/* AC/BC toggle + Mask mode + Tinnitus */}
+            <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:12,flexWrap:"wrap"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,color:"#374151"}}>
+                <span>Test:</span>
+                {["AC","BC"].map(t=>(
+                  <button key={t} onClick={()=>setAudTestType(t)}
+                    style={{padding:"4px 12px",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",
+                      border:audTestType===t?"2px solid #6366f1":"1px solid #d1d5db",
+                      background:audTestType===t?"#eef2ff":"#fff",
+                      color:audTestType===t?"#4f46e5":"#6b7280"}}>
+                    {t==="AC"?"Air (AC)":"Bone (BC)"}
+                  </button>
+                ))}
+              </div>
+              <label style={{display:"flex",alignItems:"center",gap:5,fontSize:12,fontWeight:600,color:maskMode?"#7c3aed":"#6b7280",cursor:"pointer"}}>
+                <input type="checkbox" checked={maskMode} onChange={e=>setMaskMode(e.target.checked)}
+                  style={{accentColor:"#7c3aed"}}/>
+                Masked
+              </label>
+              <div style={{borderLeft:"1px solid #e5e7eb",paddingLeft:12,display:"flex",alignItems:"center",gap:12}}>
+                <label style={{display:"flex",alignItems:"center",gap:4,fontSize:12,color:"#dc2626",fontWeight:600,cursor:"pointer"}}>
+                  <input type="checkbox" checked={form.audiology.tinnitusRight}
+                    onChange={e=>updAud("tinnitusRight",e.target.checked)}
+                    style={{accentColor:"#dc2626"}}/>
+                  Tinnitus R
+                </label>
+                <label style={{display:"flex",alignItems:"center",gap:4,fontSize:12,color:"#2563eb",fontWeight:600,cursor:"pointer"}}>
+                  <input type="checkbox" checked={form.audiology.tinnitusLeft}
+                    onChange={e=>updAud("tinnitusLeft",e.target.checked)}
+                    style={{accentColor:"#2563eb"}}/>
+                  Tinnitus L
+                </label>
+              </div>
             </div>
             <div style={{background:"#fafafa",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 8px"}}>
               <AudigramSVG
                 rightT={form.audiology.rightT} leftT={form.audiology.leftT}
-                interactive={true} onSet={setThreshold} activeEar={audEar}/>
+                rightBC={form.audiology.rightBC} leftBC={form.audiology.leftBC}
+                rightMask={form.audiology.rightMask} leftMask={form.audiology.leftMask}
+                rightBCMask={form.audiology.rightBCMask} leftBCMask={form.audiology.leftBCMask}
+                interactive={true} onSet={setThreshold} activeEar={audEar}
+                activeTestType={audTestType} maskMode={maskMode}/>
             </div>
             {(rPTA!=null||lPTA!=null)&&(
               <div style={{display:"flex",gap:12,marginTop:12,flexWrap:"wrap"}}>
                 {rPTA!=null&&(
                   <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"8px 14px",fontSize:12}}>
                     <span style={{color:"#dc2626",fontWeight:700}}>Right PTA: {rPTA} dB HL</span>
-
-
+                    {rDeg&&<span style={{color:"#9ca3af",marginLeft:6}}>({rDeg})</span>}
                   </div>
                 )}
                 {lPTA!=null&&(
                   <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"8px 14px",fontSize:12}}>
                     <span style={{color:"#2563eb",fontWeight:700}}>Left PTA: {lPTA} dB HL</span>
-
-
+                    {lDeg&&<span style={{color:"#9ca3af",marginLeft:6}}>({lDeg})</span>}
                   </div>
                 )}
               </div>
@@ -1972,7 +2102,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div className="card">
               <div className="card-title">Your Audiogram</div>
               <div style={{background:"#fafafa",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 8px",marginBottom:14}}>
-                <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} interactive={false}/>
+                <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false}/>
               </div>
               <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
                 {rPTA!=null&&(
@@ -2008,6 +2138,14 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     <div style={{fontSize:11,fontWeight:600,marginTop:2,
                       color:aud.sinBin<=2?"#16a34a":aud.sinBin<=7?"#ca8a04":aud.sinBin<=15?"#ea580c":"#dc2626"}}>
                       {aud.sinBin<=2?"Near-normal":aud.sinBin<=7?"Mild":aud.sinBin<=15?"Moderate":"Severe"} difficulty in noise
+                    </div>
+                  </div>
+                )}
+                {(aud.tinnitusRight||aud.tinnitusLeft)&&(
+                  <div style={{background:"#fefce8",border:"1px solid #fde68a",borderRadius:8,padding:"10px 16px"}}>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#92400e",marginBottom:2}}>Tinnitus</div>
+                    <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>
+                      {aud.tinnitusRight&&aud.tinnitusLeft?"Bilateral":aud.tinnitusRight?"Right Ear":"Left Ear"}
                     </div>
                   </div>
                 )}
@@ -3128,7 +3266,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   <div className="detail-card full">
                     <div className="detail-card-title">Audiogram</div>
                     <div style={{background:"#fafafa",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 8px",marginBottom:12}}>
-                      <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} interactive={false}/>
+                      <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false}/>
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
                       {rPTA!=null&&(
@@ -3159,6 +3297,14 @@ export default function ProviderCRM({ staffId, clinicId }) {
                           <div style={{fontSize:11,fontWeight:600,marginTop:2,
                             color:aud.sinBin<=2?"#16a34a":aud.sinBin<=7?"#ca8a04":aud.sinBin<=15?"#ea580c":"#dc2626"}}>
                             {aud.sinBin<=2?"Near-normal":aud.sinBin<=7?"Mild":aud.sinBin<=15?"Moderate":"Severe"} difficulty in noise
+                          </div>
+                        </div>
+                      )}
+                      {(aud.tinnitusRight||aud.tinnitusLeft)&&(
+                        <div style={{background:"#fefce8",border:"1px solid #fde68a",borderRadius:8,padding:"10px 14px"}}>
+                          <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#92400e",marginBottom:3}}>Tinnitus</div>
+                          <div style={{fontSize:12,color:"#0a1628",fontWeight:600}}>
+                            {aud.tinnitusRight&&aud.tinnitusLeft?"Bilateral":aud.tinnitusRight?"Right":"Left"}
                           </div>
                         </div>
                       )}

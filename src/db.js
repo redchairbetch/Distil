@@ -73,13 +73,19 @@ function assemblePatient(row) {
   const thresholds = audiogram?.audiogram_thresholds || []
   const appts = row.appointments || []
 
-  // Rebuild threshold maps { frequency: threshold_db }
-  const rightT = {}
-  const leftT  = {}
+  // Rebuild threshold maps { frequency: threshold_db } and mask maps { frequency: true }
+  const rightT = {}, leftT = {}, rightBC = {}, leftBC = {}
+  const rightMask = {}, leftMask = {}, rightBCMask = {}, leftBCMask = {}
   thresholds.forEach(t => {
-    if (t.test_type === 'AC') {
-      if (t.ear === 'right') rightT[t.frequency] = t.threshold_db
-      if (t.ear === 'left')  leftT[t.frequency]  = t.threshold_db
+    const isAC = t.test_type === 'AC'
+    const isBC = t.test_type === 'BC'
+    if (isAC) {
+      if (t.ear === 'right') { rightT[t.frequency] = t.threshold_db; if (t.is_masked) rightMask[t.frequency] = true }
+      if (t.ear === 'left')  { leftT[t.frequency]  = t.threshold_db; if (t.is_masked) leftMask[t.frequency] = true }
+    }
+    if (isBC) {
+      if (t.ear === 'right') { rightBC[t.frequency] = t.threshold_db; if (t.is_masked) rightBCMask[t.frequency] = true }
+      if (t.ear === 'left')  { leftBC[t.frequency]  = t.threshold_db; if (t.is_masked) leftBCMask[t.frequency] = true }
     }
   })
 
@@ -124,8 +130,10 @@ function assemblePatient(row) {
     } : null,
 
     audiology: {
-      rightT,
-      leftT,
+      rightT, leftT, rightBC, leftBC,
+      rightMask, leftMask, rightBCMask, leftBCMask,
+      tinnitusRight: audiogram?.tinnitus_right ?? false,
+      tinnitusLeft:  audiogram?.tinnitus_left  ?? false,
       unaidedR: audiogram?.unaided_wrs_right ?? null,
       unaidedL: audiogram?.unaided_wrs_left  ?? null,
       aidedR:   audiogram?.aided_wrs_right   ?? null,
@@ -270,7 +278,10 @@ export async function savePatient(patient, staffId, clinicId) {
     const a = patient.audiology
     const hasAudioData = Object.keys(a.rightT || {}).length > 0 ||
                          Object.keys(a.leftT  || {}).length > 0 ||
-                         a.unaidedR != null || a.unaidedL != null
+                         Object.keys(a.rightBC || {}).length > 0 ||
+                         Object.keys(a.leftBC  || {}).length > 0 ||
+                         a.unaidedR != null || a.unaidedL != null ||
+                         a.tinnitusRight || a.tinnitusLeft
 
     if (hasAudioData) {
       const { data: audioRow, error: audioError } = await supabase
@@ -284,6 +295,8 @@ export async function savePatient(patient, staffId, clinicId) {
           aided_wrs_right:   a.aidedR   ?? null,
           aided_wrs_left:    a.aidedL   ?? null,
           sin_score:         a.sinBin   ?? null,
+          tinnitus_right:    a.tinnitusRight ?? false,
+          tinnitus_left:     a.tinnitusLeft  ?? false,
         })
         .select()
         .single()
@@ -291,26 +304,24 @@ export async function savePatient(patient, staffId, clinicId) {
       if (audioError) {
         console.error('audiograms insert:', audioError)
       } else {
-        // Build threshold rows from frequency maps
+        // Build threshold rows from frequency maps (AC + BC, with masking)
         const thresholdRows = []
-        Object.entries(a.rightT || {}).forEach(([freq, db]) => {
-          thresholdRows.push({
-            audiogram_id:  audioRow.id,
-            ear:           'right',
-            frequency:     parseInt(freq),
-            threshold_db:  db,
-            test_type:     'AC',
+        const addRows = (map, ear, testType, maskMap) => {
+          Object.entries(map || {}).forEach(([freq, db]) => {
+            thresholdRows.push({
+              audiogram_id:  audioRow.id,
+              ear,
+              frequency:     parseInt(freq),
+              threshold_db:  db,
+              test_type:     testType,
+              is_masked:     !!(maskMap && maskMap[freq]),
+            })
           })
-        })
-        Object.entries(a.leftT || {}).forEach(([freq, db]) => {
-          thresholdRows.push({
-            audiogram_id:  audioRow.id,
-            ear:           'left',
-            frequency:     parseInt(freq),
-            threshold_db:  db,
-            test_type:     'AC',
-          })
-        })
+        }
+        addRows(a.rightT,  'right', 'AC', a.rightMask)
+        addRows(a.leftT,   'left',  'AC', a.leftMask)
+        addRows(a.rightBC, 'right', 'BC', a.rightBCMask)
+        addRows(a.leftBC,  'left',  'BC', a.leftBCMask)
         if (thresholdRows.length) {
           const { error } = await supabase.from('audiogram_thresholds').insert(thresholdRows)
           if (error) console.error('audiogram_thresholds insert:', error)
