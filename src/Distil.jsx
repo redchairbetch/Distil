@@ -15,8 +15,22 @@ import {
   acceptIntake as dbAcceptIntake,
   dismissIntake,
   signOut,
+  enrollPatientInCampaign,
+  loadPatientCampaigns,
+  seedDefaultCampaign,
+  backfillCampaignEnrollment,
   loadInsurancePlans,
+  updatePatientContact,
+  updateInsuranceCoverage,
+  updateDeviceFitting,
+  updateDeviceSide,
+  updatePatientCampaign,
+  updateDeliveryDate,
 } from "./db.js";
+
+import ContentLibrary from "./views/ContentLibrary.jsx";
+import CampaignManager from "./views/CampaignManager.jsx";
+import LimaCharlie from "./views/LimaCharlie.jsx";
 
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
@@ -695,12 +709,11 @@ function getSlope(t){
 }
 
 
-function AudigramSVG({rightT={},leftT={},interactive=false,onSet,activeEar="right"}){
+function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={},leftMask={},rightBCMask={},leftBCMask={},interactive=false,onSet,activeEar="right",activeTestType="AC",maskMode=false}){
   const W=600,H=340,ML=52,MT=42,MR=88,MB=24;
   const PW=W-ML-MR, PH=H-MT-MB;
   const fx=i=>ML+i*(PW/(AUDIG_FREQS.length-1));
   const dy=db=>MT+(db-(-10))/130*PH;
-
 
   const handleClick=e=>{
     if(!interactive)return;
@@ -712,14 +725,79 @@ function AudigramSVG({rightT={},leftT={},interactive=false,onSet,activeEar="righ
     const db=Math.round(((svgY-MT)/PH*130+(-10))/5)*5;
     const clamped=Math.max(-10,Math.min(120,db));
     const freq=AUDIG_FREQS[fi];
-    const cur=activeEar==="right"?rightT:leftT;
-    onSet?.(activeEar,freq,cur[freq]===clamped?null:clamped);
+    const curMap=activeTestType==="BC"
+      ?(activeEar==="right"?rightBC:leftBC)
+      :(activeEar==="right"?rightT:leftT);
+    onSet?.(activeEar,freq,curMap[freq]===clamped?null:clamped,activeTestType,maskMode);
   };
-
 
   const pts=thr=>AUDIG_FREQS.map((f,i)=>thr[f]!=null?`${fx(i)},${dy(thr[f])}`:null).filter(Boolean);
   const rPts=pts(rightT), lPts=pts(leftT);
+  const rBCPts=pts(rightBC), lBCPts=pts(leftBC);
 
+  // Symbol renderers
+  const acRightSymbol=(f,i)=>{
+    const cx_=fx(i), cy_=dy(rightT[f]), s=interactive&&activeEar==="right"&&activeTestType==="AC"?7:6;
+    const masked=rightMask[f];
+    if(masked) return(
+      <g key={"r"+f}>
+        <polygon points={`${cx_},${cy_-s} ${cx_+s},${cy_+s} ${cx_-s},${cy_+s}`}
+          fill="white" stroke="#dc2626" strokeWidth="2.5"/>
+      </g>
+    );
+    return <circle key={"r"+f} cx={cx_} cy={cy_} r={s} fill="white" stroke="#dc2626" strokeWidth="2.5"/>;
+  };
+
+  const acLeftSymbol=(f,i)=>{
+    const cx_=fx(i), cy_=dy(leftT[f]), s=interactive&&activeEar==="left"&&activeTestType==="AC"?7:6;
+    const masked=leftMask[f];
+    if(masked) return(
+      <g key={"l"+f}>
+        <rect x={cx_-s} y={cy_-s} width={s*2} height={s*2}
+          fill="white" stroke="#2563eb" strokeWidth="2.5"/>
+      </g>
+    );
+    return(
+      <g key={"l"+f}>
+        <line x1={cx_-s} y1={cy_-s} x2={cx_+s} y2={cy_+s} stroke="#2563eb" strokeWidth="2.5"/>
+        <line x1={cx_+s} y1={cy_-s} x2={cx_-s} y2={cy_+s} stroke="#2563eb" strokeWidth="2.5"/>
+      </g>
+    );
+  };
+
+  const bcRightSymbol=(f,i)=>{
+    const cx_=fx(i), cy_=dy(rightBC[f]), s=6;
+    const masked=rightBCMask[f];
+    if(masked) return(
+      <g key={"rb"+f}>
+        <path d={`M${cx_+s},${cy_-s} L${cx_-s+2},${cy_-s} L${cx_-s+2},${cy_+s} L${cx_+s},${cy_+s}`}
+          fill="none" stroke="#dc2626" strokeWidth="2.5"/>
+      </g>
+    );
+    return(
+      <g key={"rb"+f}>
+        <path d={`M${cx_+3},${cy_-s} L${cx_-s+2},${cy_} L${cx_+3},${cy_+s}`}
+          fill="none" stroke="#dc2626" strokeWidth="2.5"/>
+      </g>
+    );
+  };
+
+  const bcLeftSymbol=(f,i)=>{
+    const cx_=fx(i), cy_=dy(leftBC[f]), s=6;
+    const masked=leftBCMask[f];
+    if(masked) return(
+      <g key={"lb"+f}>
+        <path d={`M${cx_-s},${cy_-s} L${cx_+s-2},${cy_-s} L${cx_+s-2},${cy_+s} L${cx_-s},${cy_+s}`}
+          fill="none" stroke="#2563eb" strokeWidth="2.5"/>
+      </g>
+    );
+    return(
+      <g key={"lb"+f}>
+        <path d={`M${cx_-3},${cy_-s} L${cx_+s-2},${cy_} L${cx_-3},${cy_+s}`}
+          fill="none" stroke="#2563eb" strokeWidth="2.5"/>
+      </g>
+    );
+  };
 
   return(
     <svg width="100%" viewBox={`0 0 ${W} ${H}`}
@@ -745,36 +823,37 @@ function AudigramSVG({rightT={},leftT={},interactive=false,onSet,activeEar="righ
       {[-10,0,10,20,30,40,50,60,70,80,90,100,110,120].map(db=>(
         <g key={db}>
           <line x1={ML} y1={dy(db)} x2={ML+PW} y2={dy(db)}
-            stroke={db===0?"#374151":"#e5e7eb"} strokeWidth={db===0?1.5:1}
-            strokeDasharray={db===0?"":""}/>
+            stroke={db===0?"#374151":"#e5e7eb"} strokeWidth={db===0?1.5:1}/>
           <text x={ML-6} y={dy(db)+4} fontSize="10" fill="#6b7280" textAnchor="end">{db}</text>
         </g>
       ))}
       <text x={ML-38} y={MT+PH/2} fontSize="10" fill="#9ca3af" textAnchor="middle"
         transform={`rotate(-90,${ML-38},${MT+PH/2})`}>Hearing Level (dB HL)</text>
       <text x={ML+PW/2} y={H-2} fontSize="10" fill="#9ca3af" textAnchor="middle">Frequency (Hz)</text>
+      {/* AC polylines */}
       {rPts.length>1&&<polyline points={rPts.join(" ")} fill="none" stroke="#dc2626" strokeWidth="1.5" strokeOpacity="0.7"/>}
       {lPts.length>1&&<polyline points={lPts.join(" ")} fill="none" stroke="#2563eb" strokeWidth="1.5" strokeOpacity="0.7"/>}
-      {AUDIG_FREQS.map((f,i)=>rightT[f]!=null&&(
-        <circle key={"r"+f} cx={fx(i)} cy={dy(rightT[f])} r={interactive&&activeEar==="right"?7:6}
-          fill="white" stroke="#dc2626" strokeWidth="2.5"/>
-      ))}
-      {AUDIG_FREQS.map((f,i)=>leftT[f]!=null&&(
-        <g key={"l"+f}>
-          <line x1={fx(i)-6} y1={dy(leftT[f])-6} x2={fx(i)+6} y2={dy(leftT[f])+6} stroke="#2563eb" strokeWidth="2.5"/>
-          <line x1={fx(i)+6} y1={dy(leftT[f])-6} x2={fx(i)-6} y2={dy(leftT[f])+6} stroke="#2563eb" strokeWidth="2.5"/>
-        </g>
-      ))}
-      <circle cx={ML+8} cy={MT-26} r="5" fill="white" stroke="#dc2626" strokeWidth="2"/>
-      <text x={ML+18} y={MT-22} fontSize="10" fill="#dc2626" fontWeight="600">Right (O)</text>
-      <line x1={ML+78} y1={MT-30} x2={ML+88} y2={MT-20} stroke="#2563eb" strokeWidth="2.5"/>
-      <line x1={ML+88} y1={MT-30} x2={ML+78} y2={MT-20} stroke="#2563eb" strokeWidth="2.5"/>
-      <text x={ML+94} y={MT-22} fontSize="10" fill="#2563eb" fontWeight="600">Left (X)</text>
-      {interactive&&(
-        <text x={ML+PW/2} y={MT-22} fontSize="10" fill="#9ca3af" textAnchor="middle">
-          Click to plot threshold · Click existing point to clear
-        </text>
-      )}
+      {/* BC polylines (dashed) */}
+      {rBCPts.length>1&&<polyline points={rBCPts.join(" ")} fill="none" stroke="#dc2626" strokeWidth="1.5" strokeOpacity="0.5" strokeDasharray="4 3"/>}
+      {lBCPts.length>1&&<polyline points={lBCPts.join(" ")} fill="none" stroke="#2563eb" strokeWidth="1.5" strokeOpacity="0.5" strokeDasharray="4 3"/>}
+      {/* AC symbols */}
+      {AUDIG_FREQS.map((f,i)=>rightT[f]!=null&&acRightSymbol(f,i))}
+      {AUDIG_FREQS.map((f,i)=>leftT[f]!=null&&acLeftSymbol(f,i))}
+      {/* BC symbols */}
+      {AUDIG_FREQS.map((f,i)=>rightBC[f]!=null&&bcRightSymbol(f,i))}
+      {AUDIG_FREQS.map((f,i)=>leftBC[f]!=null&&bcLeftSymbol(f,i))}
+      {/* Legend */}
+      <circle cx={ML+4} cy={MT-26} r="4" fill="white" stroke="#dc2626" strokeWidth="2"/>
+      <text x={ML+12} y={MT-22} fontSize="9" fill="#dc2626" fontWeight="600">R AC</text>
+      <g transform={`translate(${ML+44},${MT-26})`}>
+        <line x1={-4} y1={-4} x2={4} y2={4} stroke="#2563eb" strokeWidth="2"/>
+        <line x1={4} y1={-4} x2={-4} y2={4} stroke="#2563eb" strokeWidth="2"/>
+      </g>
+      <text x={ML+52} y={MT-22} fontSize="9" fill="#2563eb" fontWeight="600">L AC</text>
+      <path d={`M${ML+92},${MT-31} L${ML+84},${MT-26} L${ML+92},${MT-21}`} fill="none" stroke="#dc2626" strokeWidth="2"/>
+      <text x={ML+96} y={MT-22} fontSize="9" fill="#dc2626" fontWeight="600">R BC</text>
+      <path d={`M${ML+128},${MT-31} L${ML+136},${MT-26} L${ML+128},${MT-21}`} fill="none" stroke="#2563eb" strokeWidth="2"/>
+      <text x={ML+140} y={MT-22} fontSize="9" fill="#2563eb" fontWeight="600">L BC</text>
     </svg>
   );
 }
@@ -865,6 +944,17 @@ function generateCounseling(aud){
 const STEPS = ["Patient","Testing","Results","Device Selection","Care Plan","Schedule","Review"];
 
 
+// ── ROLE CHECK UTILITY ─────────────────────────────────────────────────────────
+// Role categories: 'care_coordinator' | 'provider' | 'admin'
+// TODO: Wire up real restrictions — replace body with:
+//   return Array.isArray(allowedRoles) && allowedRoles.includes(staffRole)
+// Currently returns true for all roles so all staff can do everything.
+// eslint-disable-next-line no-unused-vars
+function checkRole(_staffRole, _allowedRoles) {
+  return true; // TODO: enforce when roles are configured
+}
+
+
 export default function ProviderCRM({ staffId, clinicId }) {
   const [clinic, setClinic] = useState(DEFAULT_CLINIC);
   const [clinicDraft, setClinicDraft] = useState(DEFAULT_CLINIC);
@@ -879,6 +969,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [punchData, setPunchData] = useState({ cleanings: 0, appointments: 0, log: [] });
   const [punchConfirm, setPunchConfirm] = useState(null);
   const [punchSuccess, setPunchSuccess] = useState(null);
+
+  // ── Patient detail inline edit state ─────────────────────────────────────
+  // editSection: 'contact' | 'coverage' | 'devices' | 'campaign' | null
+  const [editSection,    setEditSection]    = useState(null);
+  const [editDraft,      setEditDraft]      = useState(null);
+  const [editSaving,     setEditSaving]     = useState(false);
+  const [editError,      setEditError]      = useState(null);
+  const [editSuccess,    setEditSuccess]    = useState(null);
+  const [patientCampaigns, setPatientCampaigns] = useState([]);
+  const [editPlanSearch, setEditPlanSearch] = useState("");
 
   // ── Intake queue state ────────────────────────────────────────────────
   const [pendingIntakes,  setPendingIntakes]  = useState([]);
@@ -895,8 +995,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [catSearch, setCatSearch] = useState("");
   const [catNewEntry, setCatNewEntry] = useState(false);
 
-  // Insurance plans state (initialized to hardcoded constant; replaced on mount from Supabase)
-  const [insurancePlans, setInsurancePlans] = useState(INSURANCE_PLANS);
 
 
   const saveCatalog = async (next) => {
@@ -913,12 +1011,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   // New patient form state
   const [form, setForm] = useState({
-    firstName:"", lastName:"", dob:"", phone:"", email:"",
+    firstName:"", lastName:"", dob:"", phone:"", email:"", address:"",
     payType:"insurance",
     carrier:"", planGroup:"", tpa:"", tier:"", tierPrice:null,
     left: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false},
     right: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false},
-    audiology: { rightT:{}, leftT:{}, unaidedR:null, unaidedL:null, aidedR:null, aidedL:null, sinBin:null },
+    audiology: { rightT:{}, leftT:{}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:null, unaidedL:null, aidedR:null, aidedL:null, sinBin:null },
     carePlan:"",
     fittingDate: new Date().toISOString().split("T")[0],
     appointments:[],
@@ -928,6 +1026,43 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const [activeSide, setActiveSide] = useState("left");
   const [audEar, setAudEar] = useState("right");
+  const [audTestType, setAudTestType] = useState("AC");
+  const [maskMode, setMaskMode] = useState(false);
+
+  // Address autocomplete state
+  const [addressSuggestions, setAddressSuggestions] = useState([]);
+  const [addressOpen, setAddressOpen] = useState(false);
+  const addressTimer = useRef(null);
+  const addressRef = useRef(null);
+
+  const searchAddress = (query) => {
+    clearTimeout(addressTimer.current);
+    upd("address", query);
+    if (query.length < 4) { setAddressSuggestions([]); setAddressOpen(false); return; }
+    addressTimer.current = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&countrycodes=us&limit=5`,
+          { headers: { "Accept-Language": "en" } }
+        );
+        const data = await res.json();
+        setAddressSuggestions(data);
+        setAddressOpen(data.length > 0);
+      } catch (e) { console.error("Address search:", e); }
+    }, 300);
+  };
+
+  const selectAddress = (item) => {
+    upd("address", item.display_name);
+    setAddressOpen(false);
+    setAddressSuggestions([]);
+  };
+
+  useEffect(() => {
+    const close = (e) => { if (addressRef.current && !addressRef.current.contains(e.target)) setAddressOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
 
 
   const upd = (k,v) => setForm(f => ({...f,[k]:v}));
@@ -937,7 +1072,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
   // Private-label (TruHearing Select) plan detection — must be defined before useEffects that reference it
   const isPrivateLabelPlan = (plan) =>
     plan?.tiers?.length > 0 && plan.tiers.every(t => ["Standard","Advanced","Premium"].includes(t.label));
-  const selectedInsurancePlan = insurancePlans.find(p => p.carrier === form.carrier && p.planGroup === form.planGroup);
+  const selectedInsurancePlan = INSURANCE_PLANS.find(p => p.carrier === form.carrier && p.planGroup === form.planGroup);
   const isPrivateLabel = form.payType === "insurance" && isPrivateLabelPlan(selectedInsurancePlan);
   const privateLabelTiers = isPrivateLabel ? (selectedInsurancePlan?.tiers || []) : [];
 
@@ -966,6 +1101,182 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const refreshPatients = async () => {
     const p = await loadAllPatients();
     setPatients(p);
+  };
+
+
+  // ── Patient detail edit handlers ──────────────────────────────────────────
+
+  const cancelEdit = () => {
+    setEditSection(null);
+    setEditDraft(null);
+    setEditError(null);
+    setEditSuccess(null);
+  };
+
+  const startEditContact = () => {
+    const p = selectedPatient;
+    const parts = (p.name || "").trim().split(/\s+/);
+    const lastName  = parts.length > 1 ? parts.pop() : "";
+    const firstName = parts.join(" ");
+    setEditDraft({ firstName, lastName, phone: p.phone || "", email: p.email || "", dob: p.dob || "", payType: p.payType || "insurance", notes: p.notes || "" });
+    setEditSection("contact");
+    setEditError(null);
+    setEditSuccess(null);
+  };
+
+  const saveEditContact = async () => {
+    setEditSaving(true); setEditError(null);
+    try {
+      await updatePatientContact(selectedPatient.id, {
+        first_name: editDraft.firstName,
+        last_name:  editDraft.lastName,
+        phone:      editDraft.phone  || null,
+        email:      editDraft.email  || null,
+        dob:        editDraft.dob    || null,
+        pay_type:   editDraft.payType,
+        notes:      editDraft.notes  || null,
+      });
+      const newName = [editDraft.firstName, editDraft.lastName].filter(Boolean).join(" ");
+      setSelectedPatient(p => ({ ...p, name: newName, phone: editDraft.phone, email: editDraft.email, dob: editDraft.dob, payType: editDraft.payType, notes: editDraft.notes }));
+      setPatients(prev => prev.map(pt => pt.id === selectedPatient.id ? { ...pt, name: newName, phone: editDraft.phone, email: editDraft.email } : pt));
+      setEditSuccess("Saved");
+      setTimeout(() => { setEditSection(null); setEditSuccess(null); }, 1400);
+    } catch (err) {
+      setEditError(err?.message || "Save failed");
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const startEditCoverage = () => {
+    const p = selectedPatient;
+    setEditDraft({
+      carrier:        p.insurance?.carrier    || "",
+      planGroup:      p.insurance?.planGroup  || "",
+      tpa:            p.insurance?.tpa        || "",
+      tier:           p.insurance?.tier       || "",
+      tierPrice:      p.insurance?.tierPrice  ?? null,
+      carePlanType:   p.carePlan              || "",
+      warrantyExpiry: p.devices?.warrantyExpiry || "",
+    });
+    setEditPlanSearch("");
+    setEditSection("coverage");
+    setEditError(null);
+    setEditSuccess(null);
+  };
+
+  const saveEditCoverage = async () => {
+    setEditSaving(true); setEditError(null);
+    try {
+      await updateInsuranceCoverage(
+        selectedPatient.id,
+        {
+          carrier:            editDraft.carrier        || null,
+          plan_group:         editDraft.planGroup      || null,
+          tpa:                editDraft.tpa            || null,
+          tier:               editDraft.tier           || null,
+          tier_price_per_aid: editDraft.tierPrice != null ? Math.round(editDraft.tierPrice * 100) : null,
+          care_plan_type:     editDraft.carePlanType   || null,
+          warranty_expiry:    editDraft.warrantyExpiry || null,
+        },
+        selectedPatient._ids?.coverageId || null
+      );
+      setSelectedPatient(p => ({
+        ...p,
+        carePlan: editDraft.carePlanType,
+        insurance: { ...p.insurance, carrier: editDraft.carrier, planGroup: editDraft.planGroup, tpa: editDraft.tpa, tier: editDraft.tier, tierPrice: editDraft.tierPrice },
+        devices: p.devices ? { ...p.devices, warrantyExpiry: editDraft.warrantyExpiry } : p.devices,
+        _ids: { ...p._ids, coverageId: p._ids?.coverageId || "pending" },
+      }));
+      setEditSuccess("Saved");
+      setTimeout(() => { setEditSection(null); setEditSuccess(null); }, 1400);
+    } catch (err) {
+      setEditError(err?.message || "Save failed");
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const startEditDevices = () => {
+    const d = selectedPatient.devices || {};
+    setEditDraft({
+      serialLeft:     d.serialLeft     || "",
+      serialRight:    d.serialRight    || "",
+      warrantyExpiry: d.warrantyExpiry || "",
+      fittingType:    d.fittingType    || "Bilateral",
+      left:  { ...(d.left  || {}) },
+      right: { ...(d.right || {}) },
+    });
+    setEditSection("devices");
+    setEditError(null);
+    setEditSuccess(null);
+  };
+
+  const saveEditDevices = async () => {
+    setEditSaving(true); setEditError(null);
+    try {
+      const { fittingId, leftSideId, rightSideId } = selectedPatient._ids || {};
+      if (fittingId) {
+        await updateDeviceFitting(fittingId, {
+          serial_left:     editDraft.serialLeft     || null,
+          serial_right:    editDraft.serialRight    || null,
+          warranty_expiry: editDraft.warrantyExpiry || null,
+          fitting_type:    editDraft.fittingType    || null,
+        });
+      }
+      const buildSideFields = (s) => ({
+        manufacturer:    s.manufacturer    || null,
+        family:          s.family          || null,
+        generation:      s.generation      || null,
+        variant:         s.variant         || null,
+        tech_level:      s.techLevel       || null,
+        style:           s.style           || null,
+        color:           s.color           || null,
+        battery:         s.battery         || null,
+        receiver_length: s.receiverLength  || null,
+        receiver_power:  s.receiverPower   || null,
+        dome:            s.dome            || null,
+      });
+      if (leftSideId  && editDraft.left)  await updateDeviceSide(leftSideId,  buildSideFields(editDraft.left));
+      if (rightSideId && editDraft.right) await updateDeviceSide(rightSideId, buildSideFields(editDraft.right));
+      setSelectedPatient(p => ({
+        ...p,
+        devices: { ...p.devices, serialLeft: editDraft.serialLeft, serialRight: editDraft.serialRight, warrantyExpiry: editDraft.warrantyExpiry, fittingType: editDraft.fittingType, left: editDraft.left || p.devices?.left, right: editDraft.right || p.devices?.right },
+      }));
+      setEditSuccess("Saved");
+      setTimeout(() => { setEditSection(null); setEditSuccess(null); }, 1400);
+    } catch (err) {
+      setEditError(err?.message || "Save failed");
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const startEditCampaign = (campaign) => {
+    const deliveries = (campaign.campaign_deliveries || [])
+      .sort((a, b) => (a.campaign_steps?.step_order ?? 0) - (b.campaign_steps?.step_order ?? 0))
+      .map(d => ({ id: d.id, stepOrder: d.campaign_steps?.step_order ?? 0, delayDays: d.campaign_steps?.delay_days ?? 0, channel: d.campaign_steps?.delivery_channel || "", status: d.status, scheduledDate: d.scheduled_date || "" }));
+    setEditDraft({ campaignId: campaign.id, status: campaign.status, triggerDate: campaign.trigger_date || "", deliveries });
+    setEditSection("campaign");
+    setEditError(null);
+    setEditSuccess(null);
+  };
+
+  const saveEditCampaign = async () => {
+    setEditSaving(true); setEditError(null);
+    try {
+      await updatePatientCampaign(editDraft.campaignId, { status: editDraft.status, trigger_date: editDraft.triggerDate || null });
+      for (const d of (editDraft.deliveries || [])) {
+        if (d.scheduledDate) await updateDeliveryDate(d.id, d.scheduledDate);
+      }
+      setPatientCampaigns(prev => prev.map(c => c.id === editDraft.campaignId ? { ...c, status: editDraft.status, trigger_date: editDraft.triggerDate } : c));
+      setEditSuccess("Saved");
+      setTimeout(() => { setEditSection(null); setEditSuccess(null); }, 1400);
+    } catch (err) {
+      setEditError(err?.message || "Save failed");
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   // ── Intake toast + Supabase Realtime subscription ─────────────────────
@@ -997,6 +1308,19 @@ export default function ProviderCRM({ staffId, clinicId }) {
     return unsubscribe;
   }, [clinicId, fireIntakeToast]);
 
+
+  // Load campaigns whenever the patient detail view is opened
+  useEffect(() => {
+    if (view === "patient" && selectedPatient?.id) {
+      setPatientCampaigns([]);
+      loadPatientCampaigns(selectedPatient.id).then(setPatientCampaigns).catch(() => {});
+    }
+    // Reset edit state when navigating away from patient
+    if (view !== "patient") {
+      setEditSection(null);
+      setEditDraft(null);
+    }
+  }, [view, selectedPatient?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Clear non-TruHearing device selections when a private-label plan is chosen
   useEffect(() => {
@@ -1067,6 +1391,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
       dob: form.dob,
       phone: form.phone,
       email: form.email,
+      address: form.address,
       payType: form.payType,
       insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
       devices: {
@@ -1104,7 +1429,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
   const startNew = () => {
-    setForm({ firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},audiology:{rightT:{},leftT:{},unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,sinBin:null},carePlan:"",fittingDate:new Date().toISOString().split("T")[0],appointments:[],notes:"" });
+    setForm({ firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},audiology:{rightT:{},leftT:{},rightBC:{},leftBC:{},rightMask:{},leftMask:{},rightBCMask:{},leftBCMask:{},tinnitusRight:false,tinnitusLeft:false,unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,sinBin:null},carePlan:"",fittingDate:new Date().toISOString().split("T")[0],appointments:[],notes:"" });
     setActiveSide("left");
     setStep(0); setSaved(false); setView("new");
   };
@@ -1158,7 +1483,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           fittingType:"Bilateral", manufacturer:"Signia", family:"Pure Charge&Go IX", techLevel:"7", style:"ric", color:"Silver", battery:"Rechargeable",
           fittingDate: "2025-01-15", warrantyExpiry: warrantyDate("2025-01-15", 4), serialLeft: genId(), serialRight: genId(),
         },
-        audiology: { rightT:{500:35,1000:40,2000:50,4000:65,8000:70}, leftT:{500:30,1000:40,2000:45,4000:60,8000:65}, unaidedR:72, unaidedL:78, aidedR:92, aidedL:94, sinBin:7 },
+        audiology: { rightT:{500:35,1000:40,2000:50,4000:65,8000:70}, leftT:{500:30,1000:40,2000:45,4000:60,8000:65}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:72, unaidedL:78, aidedR:92, aidedL:94, sinBin:7 },
         carePlan: "complete", appointments: [{ date:"2025-01-29", type:"2-Week Follow-Up" },{ date:"2025-02-12", type:"4-Week Follow-Up" }], notes: "Patient reports excellent satisfaction. Prefers telephone streaming.",
       },
       {
@@ -1172,7 +1497,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           fittingType:"Bilateral", manufacturer:"Signia", family:"Pure Charge&Go IX", techLevel:"5", style:"ric", color:"Graphite", battery:"Rechargeable",
           fittingDate: "2025-03-03", warrantyExpiry: warrantyDate("2025-03-03", 3), serialLeft: genId(), serialRight: genId(),
         },
-        audiology: { rightT:{500:45,1000:55,2000:65,4000:75,8000:80}, leftT:{500:50,1000:60,2000:70,4000:80,8000:85}, unaidedR:58, unaidedL:52, aidedR:84, aidedL:80, sinBin:12 },
+        audiology: { rightT:{500:45,1000:55,2000:65,4000:75,8000:80}, leftT:{500:50,1000:60,2000:70,4000:80,8000:85}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:58, unaidedL:52, aidedR:84, aidedL:80, sinBin:12 },
         carePlan: "punch", appointments: [], notes: "Moderate-to-severe bilateral. Needs follow-up on left dome fit.",
       },
       {
@@ -1186,7 +1511,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           fittingType:"Bilateral", manufacturer:"Phonak", family:"Audéo Infinio", techLevel:"90", style:"ric", color:"Champagne", battery:"Rechargeable",
           fittingDate: "2024-11-20", warrantyExpiry: warrantyDate("2024-11-20", 4), serialLeft: genId(), serialRight: genId(),
         },
-        audiology: { rightT:{500:20,1000:25,2000:35,4000:55,8000:65}, leftT:{500:20,1000:25,2000:30,4000:50,8000:60}, unaidedR:88, unaidedL:90, aidedR:98, aidedL:98, sinBin:4 },
+        audiology: { rightT:{500:20,1000:25,2000:35,4000:55,8000:65}, leftT:{500:20,1000:25,2000:30,4000:50,8000:60}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:88, unaidedL:90, aidedR:98, aidedL:98, sinBin:4 },
         carePlan: null, appointments: [{ date:"2025-12-01", type:"Annual Exam" }], notes: "Private pay. High-functioning loss, excellent word recognition. Very tech-savvy.",
       },
     ];
@@ -1453,6 +1778,25 @@ export default function ProviderCRM({ staffId, clinicId }) {
     .side-action-btn:hover { border-color: #9ca3af; background: #f9fafb; }
     .side-action-btn.cros { border-color: #a5b4fc; color: #4f46e5; background: #eef2ff; }
     .side-action-btn.cros:hover { background: #e0e7ff; }
+    /* TWO-COLUMN DEVICE LAYOUT */
+    .device-columns { display: grid; grid-template-columns: 1fr auto 1fr; gap: 0; margin-bottom: 16px; }
+    .device-col { border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; background: white; min-width: 0; transition: border-color 0.15s; }
+    .device-col.active { border-color: #93c5fd; box-shadow: 0 0 0 2px rgba(59,130,246,0.12); }
+    .device-col-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #f3f4f6; }
+    .device-col-header .ear-label { font-size: 14px; font-weight: 700; color: #0a1628; }
+    .device-col-header .ear-status { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
+    .device-col-header .ear-status.configured { background: #dcfce7; color: #16a34a; }
+    .device-col-header .ear-status.empty { background: #f3f4f6; color: #9ca3af; }
+    .copy-actions { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 0 10px; }
+    .copy-btn { display: flex; align-items: center; gap: 4px; padding: 6px 10px; border-radius: 8px; border: 1px solid #e5e7eb; background: white; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Sora',sans-serif; color: #374151; transition: all 0.15s; white-space: nowrap; }
+    .copy-btn:hover { border-color: #9ca3af; background: #f9fafb; }
+    .copy-btn.cros { border-color: #a5b4fc; color: #4f46e5; background: #eef2ff; font-size: 10px; }
+    .copy-btn.cros:hover { background: #e0e7ff; }
+    .copy-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    @media (max-width: 860px) {
+      .device-columns { grid-template-columns: 1fr; }
+      .copy-actions { flex-direction: row; padding: 10px 0; }
+    }
     /* INTAKE TOAST */
     .intake-toast { position: fixed; bottom: 28px; right: 28px; z-index: 9000; background: #0a1628; color: white; border-radius: 14px; padding: 16px 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.28); display: flex; align-items: center; gap: 14px; min-width: 300px; animation: slideUp 0.3s ease; }
     @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
@@ -1559,7 +1903,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   const days = daysUntil(p.devices?.warrantyExpiry||"");
                   const total = p.carePlan === "complete" ? 4 * 365 : 3 * 365;
                   const pct = Math.max(0, Math.min(100, (days / total) * 100));
-                  const fillClass = days < 30 ? "exp" : days < 90 ? "warn" : "";
+                  const fillClass = days < 90 ? "exp" : days < 360 ? "warn" : "";
                   return (
                     <tr key={p.id} onClick={() => { setSelectedPatient(p); setView("patient"); }}>
                       <td>
@@ -1579,7 +1923,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                         <span className={`badge ${p.carePlan}`}>{CARE_PLANS.find(c=>c.id===p.carePlan)?.label||p.carePlan}</span>
                       </td>
                       <td>
-                        <div style={{fontSize:12,color: days<30?"#ef4444":days<90?"#f59e0b":"#16a34a",fontWeight:600}}>
+                        <div style={{fontSize:12,color: days<90?"#ef4444":days<360?"#f59e0b":"#16a34a",fontWeight:600}}>
                           {days < 0 ? "Expired" : `${days}d left`}
                         </div>
                         <div className="warranty-bar"><div className={`warranty-fill ${fillClass}`} style={{width:`${pct}%`}} /></div>
@@ -1607,40 +1951,44 @@ export default function ProviderCRM({ staffId, clinicId }) {
   };
 
 
-  const carriersForType = [...new Set(insurancePlans.map(p => p.carrier))];
-  const plansForCarrier = insurancePlans.filter(p => p.carrier === form.carrier);
+  const carriersForType = [...new Set(INSURANCE_PLANS.map(p => p.carrier))];
+  const plansForCarrier = INSURANCE_PLANS.filter(p => p.carrier === form.carrier);
 
 
-  // Catalog-driven cascade derived values (side-aware)
-  const sd = form[activeSide]; // active side data shorthand
+  // Catalog-driven cascade derived values — computed per side
   const activeCatalog = catalog.filter(e => e.active);
-  const availMfrs = [...new Set(activeCatalog.filter(e => !sd.style || e.styles.includes(sd.style)).map(e => e.manufacturer))].sort();
-  const availGens = [...new Set(activeCatalog.filter(e => e.styles.includes(sd.style) && e.manufacturer === sd.manufacturer).map(e => e.generation))];
-  const availFamilies = activeCatalog.filter(e => e.styles.includes(sd.style) && e.manufacturer === sd.manufacturer && e.generation === sd.generation);
-  const selectedFamily = catalog.find(e => e.id === sd.familyId);
-  const availColors = selectedFamily?.colors || [];
-  const availBatteries = selectedFamily?.battery || [];
-  const availPowers = sd.manufacturer ? (RECEIVER_POWERS[sd.manufacturer] || []) : [];
-  const availDomes  = sd.manufacturer ? getDomeOptions(sd.manufacturer, sd.generation) : [];
-  const selectedPower = availPowers.find(p => p.id === sd.receiverPower);
-  const requiresEarmold = selectedPower?.earmold === true;
-  const variantRequired = (selectedFamily?.variants?.length || 0) > 1;
-  const hasCROSVariant = selectedFamily?.variants?.some(v => v.toLowerCase().includes("cros")) || false;
+  const getSideDerived = (sd) => {
+    const availMfrs = [...new Set(activeCatalog.filter(e => !sd.style || e.styles.includes(sd.style)).map(e => e.manufacturer))].sort();
+    const availGens = [...new Set(activeCatalog.filter(e => e.styles.includes(sd.style) && e.manufacturer === sd.manufacturer).map(e => e.generation))];
+    const availFamilies = activeCatalog.filter(e => e.styles.includes(sd.style) && e.manufacturer === sd.manufacturer && e.generation === sd.generation);
+    const selectedFamily = catalog.find(e => e.id === sd.familyId);
+    const availColors = selectedFamily?.colors || [];
+    const availBatteries = selectedFamily?.battery || [];
+    const availPowers = sd.manufacturer ? (RECEIVER_POWERS[sd.manufacturer] || []) : [];
+    const availDomes  = sd.manufacturer ? getDomeOptions(sd.manufacturer, sd.generation) : [];
+    const selectedPower = availPowers.find(p => p.id === sd.receiverPower);
+    const requiresEarmold = selectedPower?.earmold === true;
+    const variantRequired = (selectedFamily?.variants?.length || 0) > 1;
+    const hasCROSVariant = selectedFamily?.variants?.some(v => v.toLowerCase().includes("cros")) || false;
+    const thAvailForStyle = isPrivateLabel && sd.style
+      ? activeCatalog.filter(e =>
+          e.manufacturer === "TruHearing" &&
+          e.styles.includes(sd.style) &&
+          (sd.style === "bte" ? e.thSeries === "TH5" : e.planTierKey === sd.techLevel)
+        )
+      : [];
+    const selectedTHFamily = catalog.find(e => e.id === sd.familyId);
+    const thTierPrice = privateLabelTiers.find(t => t.label === sd.techLevel)?.price ?? 0;
+    const thEffectivePrice = selectedTHFamily?.rechargeable ? thTierPrice + 50 : thTierPrice;
+    return { availMfrs, availGens, availFamilies, selectedFamily, availColors, availBatteries,
+      availPowers, availDomes, selectedPower, requiresEarmold, variantRequired, hasCROSVariant,
+      thAvailForStyle, selectedTHFamily, thTierPrice, thEffectivePrice };
+  };
+  const leftDerived = getSideDerived(form.left);
+  const rightDerived = getSideDerived(form.right);
+  // Keep sd / otherSide for backward compat with non-step-3 code
+  const sd = form[activeSide];
   const otherSide = activeSide === "left" ? "right" : "left";
-
-  // ── TruHearing Select derived values (private-label path) ─────────────────
-  // thAvailForStyle: catalog entries valid for the current style + plan tier.
-  // BTE is always TH5 regardless of plan tier. All other styles filter by planTierKey.
-  const thAvailForStyle = isPrivateLabel && sd.style
-    ? activeCatalog.filter(e =>
-        e.manufacturer === "TruHearing" &&
-        e.styles.includes(sd.style) &&
-        (sd.style === "bte" ? e.thSeries === "TH5" : e.planTierKey === sd.techLevel)
-      )
-    : [];
-  const selectedTHFamily = catalog.find(e => e.id === sd.familyId);
-  const thTierPrice = privateLabelTiers.find(t => t.label === sd.techLevel)?.price ?? 0;
-  const thEffectivePrice = selectedTHFamily?.rechargeable ? thTierPrice + 50 : thTierPrice;
 
 
   const isSideConfigured = (s) => {
@@ -1680,6 +2028,20 @@ export default function ProviderCRM({ staffId, clinicId }) {
             upd("phone", fmt);
           }} placeholder="(555) 555-5555" /></div>
           <div className="field full"><label>Email</label><input value={form.email} onChange={e=>upd("email",e.target.value)} placeholder="patient@email.com" /></div>
+          <div className="field full" ref={addressRef} style={{position:"relative"}}>
+            <label>Address</label>
+            <input value={form.address} onChange={e=>searchAddress(e.target.value)} onFocus={()=>{ if (addressSuggestions.length) setAddressOpen(true); }} placeholder="Start typing an address..." autoComplete="off" />
+            {addressOpen && addressSuggestions.length > 0 && (
+              <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:50,background:"white",border:"1px solid #e5e7eb",borderRadius:8,marginTop:4,boxShadow:"0 4px 12px rgba(0,0,0,0.1)",maxHeight:220,overflowY:"auto"}}>
+                {addressSuggestions.map((s,i)=>(
+                  <div key={i} onClick={()=>selectAddress(s)} style={{padding:"10px 14px",fontSize:13,cursor:"pointer",borderBottom:i<addressSuggestions.length-1?"1px solid #f3f4f6":"none",color:"#0a1628",lineHeight:1.4}}
+                    onMouseOver={e=>e.currentTarget.style.background="#f9fafb"} onMouseOut={e=>e.currentTarget.style.background="white"}>
+                    {s.display_name}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="field full"><label>Payment Type</label>
             <div className="radio-group">
               {["insurance","private"].map(t => (
@@ -1702,7 +2064,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   style={{width:"100%",marginBottom:10,fontSize:13}}
                 />
                 <div style={{maxHeight:220,overflowY:"auto",display:"flex",flexDirection:"column",gap:6,paddingRight:4}}>
-                  {insurancePlans
+                  {INSURANCE_PLANS
                     .filter(p=>{
                       const q=(form._planSearch||"").toLowerCase();
                       return !q||p.carrier.toLowerCase().includes(q)||p.planGroup.toLowerCase().includes(q)||p.tpa.toLowerCase().includes(q);
@@ -1742,11 +2104,29 @@ export default function ProviderCRM({ staffId, clinicId }) {
     );
     if (step === 1) {
       const updAud=(k,v)=>upd("audiology",{...form.audiology,[k]:v});
-      const setThreshold=(ear,freq,val)=>{
-        const key=ear==="right"?"rightT":"leftT";
+      const setThreshold=(ear,freq,val,testType="AC",isMasked=false)=>{
+        const key=testType==="BC"
+          ?(ear==="right"?"rightBC":"leftBC")
+          :(ear==="right"?"rightT":"leftT");
+        const maskKey=testType==="BC"
+          ?(ear==="right"?"rightBCMask":"leftBCMask")
+          :(ear==="right"?"rightMask":"leftMask");
         const next={...form.audiology[key]};
-        if(val==null) delete next[freq]; else next[freq]=val;
-        updAud(key,next);
+        const nextMask={...form.audiology[maskKey]};
+        if(val==null){ delete next[freq]; delete nextMask[freq]; }
+        else{ next[freq]=val; if(isMasked) nextMask[freq]=true; else delete nextMask[freq]; }
+        upd("audiology",{...form.audiology,[key]:next,[maskKey]:nextMask});
+      };
+      const copyToOtherEar=()=>{
+        const src=audEar, dst=src==="right"?"left":"right";
+        const patch={};
+        // AC thresholds + masks
+        patch[dst==="right"?"rightT":"leftT"]={...(src==="right"?form.audiology.rightT:form.audiology.leftT)};
+        patch[dst==="right"?"rightMask":"leftMask"]={...(src==="right"?form.audiology.rightMask:form.audiology.leftMask)};
+        // BC thresholds + masks
+        patch[dst==="right"?"rightBC":"leftBC"]={...(src==="right"?form.audiology.rightBC:form.audiology.leftBC)};
+        patch[dst==="right"?"rightBCMask":"leftBCMask"]={...(src==="right"?form.audiology.rightBCMask:form.audiology.leftBCMask)};
+        upd("audiology",{...form.audiology,...patch});
       };
       const rPTA=getPTA(form.audiology.rightT);
       const lPTA=getPTA(form.audiology.leftT);
@@ -1759,40 +2139,85 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div className="card-title">Pure Tone Audiometry</div>
             <div style={{fontSize:12,color:"#6b7280",marginBottom:14,lineHeight:1.6}}>
               Click directly on the audiogram to plot thresholds. Click an existing symbol to clear it.
-              Switch ears using the toggle below. Pure tone average (PTA) calculates automatically from 500, 1000, and 2000 Hz.
+              Switch ears, test type (AC/BC), and masking mode using the controls below.
+              PTA calculates automatically from 500, 1000, and 2000 Hz.
             </div>
-            <div className="side-tabs" style={{marginBottom:14}}>
-              {["right","left"].map(ear=>(
-                <button key={ear} className={`side-tab ${audEar===ear?"active":""}`}
-                  onClick={()=>setAudEar(ear)}>
-                  <div className="side-tab-label">{ear==="right"?"🔴 Right Ear (O)":"Left Ear (X) 🔵"}</div>
-                  <div className="side-tab-sub">
-                    {ear==="right"
-                      ?(rPTA!=null?`PTA: ${rPTA} dB HL`:"No thresholds plotted")
-                      :(lPTA!=null?`PTA: ${lPTA} dB HL`:"No thresholds plotted")}
-                  </div>
-                </button>
-              ))}
+            {/* Ear toggle + Copy button */}
+            <div style={{display:"flex",alignItems:"stretch",gap:8,marginBottom:10}}>
+              <div className="side-tabs" style={{flex:1,marginBottom:0}}>
+                {["right","left"].map(ear=>(
+                  <button key={ear} className={`side-tab ${audEar===ear?"active":""}`}
+                    onClick={()=>setAudEar(ear)}>
+                    <div className="side-tab-label">{ear==="right"?"Right Ear":"Left Ear"}</div>
+                    <div className="side-tab-sub">
+                      {ear==="right"
+                        ?(rPTA!=null?`PTA: ${rPTA} dB HL`:"No thresholds")
+                        :(lPTA!=null?`PTA: ${lPTA} dB HL`:"No thresholds")}
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <button onClick={copyToOtherEar}
+                style={{padding:"6px 14px",borderRadius:8,border:"1px solid #d1d5db",background:"#f9fafb",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",display:"flex",alignItems:"center",gap:4}}
+                title={`Copy all thresholds from ${audEar} ear to ${audEar==="right"?"left":"right"} ear`}>
+                Copy {audEar==="right"?"→ Left":"← Right"}
+              </button>
+            </div>
+            {/* AC/BC toggle + Mask mode + Tinnitus */}
+            <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:12,flexWrap:"wrap"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,color:"#374151"}}>
+                <span>Test:</span>
+                {["AC","BC"].map(t=>(
+                  <button key={t} onClick={()=>setAudTestType(t)}
+                    style={{padding:"4px 12px",borderRadius:6,fontSize:12,fontWeight:600,cursor:"pointer",
+                      border:audTestType===t?"2px solid #6366f1":"1px solid #d1d5db",
+                      background:audTestType===t?"#eef2ff":"#fff",
+                      color:audTestType===t?"#4f46e5":"#6b7280"}}>
+                    {t==="AC"?"Air (AC)":"Bone (BC)"}
+                  </button>
+                ))}
+              </div>
+              <label style={{display:"flex",alignItems:"center",gap:5,fontSize:12,fontWeight:600,color:maskMode?"#7c3aed":"#6b7280",cursor:"pointer"}}>
+                <input type="checkbox" checked={maskMode} onChange={e=>setMaskMode(e.target.checked)}
+                  style={{accentColor:"#7c3aed"}}/>
+                Masked
+              </label>
+              <div style={{borderLeft:"1px solid #e5e7eb",paddingLeft:12,display:"flex",alignItems:"center",gap:12}}>
+                <label style={{display:"flex",alignItems:"center",gap:4,fontSize:12,color:"#dc2626",fontWeight:600,cursor:"pointer"}}>
+                  <input type="checkbox" checked={form.audiology.tinnitusRight}
+                    onChange={e=>updAud("tinnitusRight",e.target.checked)}
+                    style={{accentColor:"#dc2626"}}/>
+                  Tinnitus R
+                </label>
+                <label style={{display:"flex",alignItems:"center",gap:4,fontSize:12,color:"#2563eb",fontWeight:600,cursor:"pointer"}}>
+                  <input type="checkbox" checked={form.audiology.tinnitusLeft}
+                    onChange={e=>updAud("tinnitusLeft",e.target.checked)}
+                    style={{accentColor:"#2563eb"}}/>
+                  Tinnitus L
+                </label>
+              </div>
             </div>
             <div style={{background:"#fafafa",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 8px"}}>
               <AudigramSVG
                 rightT={form.audiology.rightT} leftT={form.audiology.leftT}
-                interactive={true} onSet={setThreshold} activeEar={audEar}/>
+                rightBC={form.audiology.rightBC} leftBC={form.audiology.leftBC}
+                rightMask={form.audiology.rightMask} leftMask={form.audiology.leftMask}
+                rightBCMask={form.audiology.rightBCMask} leftBCMask={form.audiology.leftBCMask}
+                interactive={true} onSet={setThreshold} activeEar={audEar}
+                activeTestType={audTestType} maskMode={maskMode}/>
             </div>
             {(rPTA!=null||lPTA!=null)&&(
               <div style={{display:"flex",gap:12,marginTop:12,flexWrap:"wrap"}}>
                 {rPTA!=null&&(
                   <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"8px 14px",fontSize:12}}>
                     <span style={{color:"#dc2626",fontWeight:700}}>Right PTA: {rPTA} dB HL</span>
-
-
+                    {rDeg&&<span style={{color:"#9ca3af",marginLeft:6}}>({rDeg})</span>}
                   </div>
                 )}
                 {lPTA!=null&&(
                   <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"8px 14px",fontSize:12}}>
                     <span style={{color:"#2563eb",fontWeight:700}}>Left PTA: {lPTA} dB HL</span>
-
-
+                    {lDeg&&<span style={{color:"#9ca3af",marginLeft:6}}>({lDeg})</span>}
                   </div>
                 )}
               </div>
@@ -1920,7 +2345,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div className="card">
               <div className="card-title">Your Audiogram</div>
               <div style={{background:"#fafafa",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 8px",marginBottom:14}}>
-                <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} interactive={false}/>
+                <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false}/>
               </div>
               <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
                 {rPTA!=null&&(
@@ -1956,6 +2381,14 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     <div style={{fontSize:11,fontWeight:600,marginTop:2,
                       color:aud.sinBin<=2?"#16a34a":aud.sinBin<=7?"#ca8a04":aud.sinBin<=15?"#ea580c":"#dc2626"}}>
                       {aud.sinBin<=2?"Near-normal":aud.sinBin<=7?"Mild":aud.sinBin<=15?"Moderate":"Severe"} difficulty in noise
+                    </div>
+                  </div>
+                )}
+                {(aud.tinnitusRight||aud.tinnitusLeft)&&(
+                  <div style={{background:"#fefce8",border:"1px solid #fde68a",borderRadius:8,padding:"10px 16px"}}>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#92400e",marginBottom:2}}>Tinnitus</div>
+                    <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>
+                      {aud.tinnitusRight&&aud.tinnitusLeft?"Bilateral":aud.tinnitusRight?"Right Ear":"Left Ear"}
                     </div>
                   </div>
                 )}
@@ -2024,379 +2457,360 @@ export default function ProviderCRM({ staffId, clinicId }) {
         </>
       );
     }
-    if (step === 3) return (
-      <>
-        <div className="card">
-          <div className="card-title">Treatment Options</div>
+    if (step === 3) {
 
+      const renderSideColumn = (side) => {
+        const s = form[side];
+        const d = side === "left" ? leftDerived : rightDerived;
+        const { availMfrs, availGens, availFamilies, selectedFamily, availColors, availBatteries,
+          availPowers, availDomes, requiresEarmold, variantRequired,
+          thAvailForStyle, selectedTHFamily, thTierPrice, thEffectivePrice } = d;
 
-          {/* ── Side Tabs ── */}
-          <div className="side-tabs">
-            {["left","right"].map(side => {
-              const configured = isSideConfigured(side);
-              const sideData = form[side];
-              const fam = catalog.find(e => e.id === sideData.familyId);
-              const subLabel = configured
-                ? (sideData.manufacturer === "TruHearing"
-                    ? `${fam?.thSeries||"TH"} · ${BODY_STYLES.find(s=>s.id===sideData.style)?.label||sideData.style} · ${sideData.techLevel}${fam?.rechargeable?" ♻":""}`
-                    : `${fam?.family || ""} · ${sideData.techLevel}`)
-                : "Not configured";
-              return (
-                <button key={side} className={`side-tab ${activeSide===side?"active":""} ${configured?"configured":""}`}
-                  onClick={()=>setActiveSide(side)}>
-                  <div className="side-tab-label">{side==="left"?"👂 Left Ear":"Right Ear 👂"}</div>
-                  <div className="side-tab-sub">{subLabel}</div>
-                </button>
-              );
-            })}
-          </div>
-
-
-          {/* ── Private-label plan notice ── */}
-          {isPrivateLabel && (
-            <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#1e40af",fontWeight:600}}>
-              🏷️ This plan uses TruHearing Select devices — select body style, then choose your tech tier and configure fit details.
+        return (
+          <div className={`device-col ${activeSide===side?"active":""}`} onClick={()=>setActiveSide(side)}>
+            <div className="device-col-header">
+              <span className="ear-label">{side==="left"?"👂 Left Ear":"Right Ear 👂"}</span>
+              <span className={`ear-status ${isSideConfigured(side)?"configured":"empty"}`}>
+                {isSideConfigured(side)?"Configured":"Not set"}
+              </span>
             </div>
-          )}
 
-          {/* ── 1. Body Style (all plans) ── */}
-          <div className="field" style={{marginBottom:16}}><label>Body Style</label>
-            <div className="style-grid">
-              {BODY_STYLES.map(s=>(
-                <div key={s.id} className={`style-card ${sd.style===s.id?"active":""}`}
-                  onClick={()=>isPrivateLabel
-                    ? resetSide(activeSide,{style:s.id,manufacturer:"TruHearing"})
-                    : resetSide(activeSide,{style:s.id})}>
-                  <div className="style-id">{s.label}</div>
-                  <div className="style-desc">{s.desc}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-
-          {/* ── 2–6. Standard catalog cascade ── */}
-          {!isPrivateLabel && (<>
-
-          {/* ── 2. Manufacturer ── */}
-          {sd.style && availMfrs.length > 0 && (
-            <div className="field" style={{marginBottom:16}}><label>Manufacturer</label>
-              <div className="radio-group">
-                {availMfrs.map(m=>(
-                  <div key={m} className={`radio-pill ${sd.manufacturer===m?"active":""}`}
-                    onClick={()=>setForm(f=>({...f,[activeSide]:{...f[activeSide],manufacturer:m,generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:""}}))}>
-                    <div className="radio-pill-label">{m}</div>
+            {/* ── 1. Body Style ── */}
+            <div className="field" style={{marginBottom:16}}><label>Body Style</label>
+              <div className="style-grid">
+                {BODY_STYLES.map(bs=>(
+                  <div key={bs.id} className={`style-card ${s.style===bs.id?"active":""}`}
+                    onClick={()=>isPrivateLabel
+                      ? resetSide(side,{style:bs.id,manufacturer:"TruHearing"})
+                      : resetSide(side,{style:bs.id})}>
+                    <div className="style-id">{bs.label}</div>
+                    <div className="style-desc">{bs.desc}</div>
                   </div>
                 ))}
               </div>
             </div>
-          )}
 
-
-          {/* ── 3. Generation ── */}
-          {sd.manufacturer && availGens.length > 0 && (
-            <div className="field" style={{marginBottom:16}}><label>Platform / Generation</label>
-              <div className="radio-group">
-                {availGens.map(g=>(
-                  <div key={g} className={`radio-pill ${sd.generation===g?"active":""}`}
-                    onClick={()=>setForm(f=>({...f,[activeSide]:{...f[activeSide],generation:g,familyId:"",variant:"",techLevel:"",color:"",battery:""}}))}>
-                    <div className="radio-pill-label">{g}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-
-          {/* ── 4. Model Family ── */}
-          {sd.generation && availFamilies.length > 0 && (
-            <div className="field" style={{marginBottom:16}}><label>Model Family</label>
-              <div className="plan-select-list">
-                {availFamilies.map(fam=>(
-                  <div key={fam.id} className={`plan-row ${sd.familyId===fam.id?"active":""}`}
-                    onClick={()=>{
-                      const autoVar = fam.variants.length===1 ? fam.variants[0] : "";
-                      const autoBat = fam.battery.length===1 ? fam.battery[0] : "";
-                      setForm(f=>({...f,[activeSide]:{...f[activeSide],familyId:fam.id,variant:autoVar,techLevel:"",color:"",battery:autoBat}}));
-                    }}>
-                    <div className="plan-row-top">
-                      <div>
-                        <div className="plan-row-name">{fam.family}</div>
-                        {fam.notes && <div className="plan-row-tpa">{fam.notes}</div>}
+            {/* ── 2–6. Standard catalog cascade ── */}
+            {!isPrivateLabel && (<>
+              {s.style && availMfrs.length > 0 && (
+                <div className="field" style={{marginBottom:16}}><label>Manufacturer</label>
+                  <div className="radio-group">
+                    {availMfrs.map(m=>(
+                      <div key={m} className={`radio-pill ${s.manufacturer===m?"active":""}`}
+                        onClick={()=>setForm(f=>({...f,[side]:{...f[side],manufacturer:m,generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:""}}))}>
+                        <div className="radio-pill-label">{m}</div>
                       </div>
-                      <div style={{display:"flex",gap:4,flexWrap:"wrap",justifyContent:"flex-end"}}>
-                        {fam.techLevels.slice(0,4).map(t=>(
-                          <span key={t} style={{fontSize:10,background:"#f3f4f6",border:"1px solid #e5e7eb",borderRadius:4,padding:"2px 5px",color:"#6b7280"}}>{t}</span>
-                        ))}
-                      </div>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-
-          {/* ── 5. Variant ── */}
-          {selectedFamily && selectedFamily.variants.length > 1 && (
-            <div className="field" style={{marginBottom:16}}><label>Variant</label>
-              <div className="radio-group">
-                {selectedFamily.variants.map(v=>(
-                  <div key={v} className={`radio-pill ${sd.variant===v?"active":""}`} onClick={()=>updSide(activeSide,"variant",v)}>
-                    <div className="radio-pill-label">{v}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-
-          {/* ── 6. Tech Level ── */}
-          {selectedFamily && (sd.variant || !variantRequired) && (
-            <div className="field" style={{marginBottom:16}}><label>Technology Level</label>
-              <div className="radio-group">
-                {selectedFamily.techLevels.map(t=>(
-                  <div key={t} className={`radio-pill ${sd.techLevel===t?"active":""}`} onClick={()=>updSide(activeSide,"techLevel",t)}>
-                    <div className="radio-pill-label">{t}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          </>)} {/* end standard cascade */}
-
-          {/* ── Private-label: tier → product → variant → CROS ── */}
-          {isPrivateLabel && sd.style && (<>
-
-            {/* Step A: Plan Tier Selection */}
-            <div className="field" style={{marginBottom:16}}><label>Technology Tier</label>
-              <div className="plan-select-list">
-                {privateLabelTiers.map(t => {
-                  const seriesDesc = sd.style === "bte"
-                    ? "TH5 · Signia X (BTE — always available)"
-                    : t.label === "Premium"  ? "TH7 Premium · 48ch · Signia IX"
-                    : t.label === "Advanced" ? "TH6 Advanced · 32ch · Signia AX"
-                    :                          "TH5 · Signia X";
-                  const isActive = sd.techLevel === t.label;
-                  return (
-                    <div key={t.label} className={`plan-row ${isActive?"active":""}`}
-                      onClick={()=>setForm(f=>({...f,[activeSide]:{...f[activeSide],
-                        manufacturer:"TruHearing", techLevel:t.label,
-                        familyId:"", generation:"", variant:"", battery:"", isCROS:false}}))}>
-                      <div className="plan-row-top">
-                        <div>
-                          <div className="plan-row-name">{t.label}</div>
-                          <div className="plan-row-tpa">{seriesDesc}</div>
-                        </div>
-                        <div style={{fontWeight:700,color:"#0a1628"}}>
-                          {t.price===0 ? "No Charge" : `$${t.price.toLocaleString()} / aid`}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Step B: Product / Power Source — filtered to tier + style */}
-            {sd.techLevel && thAvailForStyle.length > 0 && (
-              <div className="field" style={{marginBottom:16}}>
-                <label>{thAvailForStyle.length > 1 ? "Product / Power Source" : "Product"}</label>
-                <div className="radio-group" style={{flexWrap:"wrap",gap:8}}>
-                  {thAvailForStyle.map(p => (
-                    <div key={p.id}
-                      className={`radio-pill ${sd.familyId===p.id?"active":""}`}
-                      style={{minWidth:200,flexDirection:"column",alignItems:"flex-start"}}
-                      onClick={()=>setForm(f=>({...f,[activeSide]:{...f[activeSide],
-                        familyId:p.id, generation:p.generation,
-                        variant:p.variants.length===1?p.variants[0]:"",
-                        battery:p.battery[0]||"", isCROS:false}}))}>
-                      <div className="radio-pill-label">
-                        {p.rechargeable ? "♻ Rechargeable (Li-Ion)" : `🔋 ${p.battery[0]||"Battery"}`}
-                      </div>
-                      <div className="radio-pill-sub" style={{fontSize:10,marginTop:2,opacity:0.85}}>
-                        {p.family}{p.rechargeable ? " · +$50/aid" : ""}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Step C: Li-Ion upcharge notice */}
-            {selectedTHFamily?.rechargeable && sd.techLevel && (
-              <div style={{background:"#fef3c7",border:"1px solid #fde68a",borderRadius:8,
-                  padding:"10px 14px",marginBottom:16,fontSize:13,color:"#92400e",fontWeight:600}}>
-                ♻ Rechargeable Li-Ion —{" "}
-                {thTierPrice === 0
-                  ? <>No-charge plan + $50/aid upcharge = <strong>$50 / aid</strong></>
-                  : <>${thTierPrice.toLocaleString()} plan price + $50/aid upcharge = <strong>${thEffectivePrice.toLocaleString()} / aid</strong></>
-                }
-              </div>
-            )}
-
-            {/* Step D: BTE type / Custom style variant picker */}
-            {sd.familyId && selectedTHFamily && (sd.style === "bte" || sd.style !== "ric") &&
-              selectedTHFamily.variants.length > 1 && (
-              <div className="field" style={{marginBottom:16}}>
-                <label>{sd.style === "bte" ? "BTE Type" : "Custom Style"}</label>
-                <div className="radio-group" style={{flexWrap:"wrap"}}>
-                  {selectedTHFamily.variants.map(v=>(
-                    <div key={v} className={`radio-pill ${sd.variant===v?"active":""}`}
-                      onClick={()=>updSide(activeSide,"variant",v)}>
-                      <div className="radio-pill-label">{v}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Step E: CROS toggle — RIC only, when product has CROS variant */}
-            {sd.familyId && selectedTHFamily && sd.style === "ric" &&
-              selectedTHFamily.variants.includes("CROS") && (
-              <div className="field" style={{marginBottom:16}}><label>CROS / BiCROS</label>
-                <div className="radio-group">
-                  {[{v:false,label:"Standard"},{v:true,label:"📡 CROS Transmitter"}].map(({v,label})=>(
-                    <div key={String(v)} className={`radio-pill ${sd.isCROS===v?"active":""}`}
-                      onClick={()=>setForm(f=>({...f,[activeSide]:{...f[activeSide],isCROS:v}}))}>
-                      <div className="radio-pill-label">{label}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-          </>)}
-
-
-          {/* ── 7–8. Color / Battery (standard plans only) ── */}
-          {!isPrivateLabel && (<>
-
-          {/* ── 7. Color ── */}
-          {sd.techLevel && availColors.length > 0 && (
-            <div className="field" style={{marginBottom:16}}><label>Color</label>
-              <div className="color-swatches">
-                {availColors.map(c=>(
-                  <div key={c} className={`color-swatch ${sd.color===c?"active":""}`} onClick={()=>updSide(activeSide,"color",c)}>{c}</div>
-                ))}
-              </div>
-            </div>
-          )}
-
-
-          {/* ── 8. Battery (multi-option only) ── */}
-          {sd.techLevel && availBatteries.length > 1 && (
-            <div className="field" style={{marginBottom:16}}><label>Battery Type</label>
-              <div className="radio-group">
-                {availBatteries.map(b=>(
-                  <div key={b} className={`radio-pill ${sd.battery===b?"active":""}`} onClick={()=>updSide(activeSide,"battery",b)}>
-                    <div className="radio-pill-label">{b}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          </>)} {/* end color/battery standard-only block */}
-
-
-          {/* ── 9. Receiver + Dome — RIC, both standard and private-label ── */}
-          {sd.style === "ric" && sd.techLevel && availPowers.length > 0 && (
-            <>
-              <div style={{height:1,background:"#f3f4f6",margin:"4px 0 16px"}} />
-              <div className="field-grid" style={{marginBottom:0}}>
-                <div className="field"><label>Receiver Length</label>
-                  <select value={sd.receiverLength} onChange={e=>updSide(activeSide,"receiverLength",e.target.value)}>
-                    <option value="">Select…</option>
-                    {RECEIVER_LENGTHS.map(l=><option key={l} value={l}>{l}</option>)}
-                  </select>
-                </div>
-                <div className="field"><label>Receiver Power</label>
-                  <select value={sd.receiverPower} onChange={e=>{
-                    const pw=e.target.value;
-                    updSide(activeSide,"receiverPower",pw);
-                    if((RECEIVER_POWERS[sd.manufacturer]||[]).find(p=>p.id===pw)?.earmold) updSide(activeSide,"dome","");
-                  }}>
-                    <option value="">Select…</option>
-                    {availPowers.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}
-                  </select>
-                </div>
-              </div>
-              {sd.receiverPower && (
-                <div className="field" style={{marginBottom:0,marginTop:12}}>
-                  {requiresEarmold ? (
-                    <div style={{background:"#fef9c3",border:"1px solid #fde047",borderRadius:8,padding:"10px 14px",fontSize:13,color:"#854d0e",fontWeight:600}}>
-                      🦻 Earmold required — dome selector not applicable for this receiver
-                    </div>
-                  ) : (
-                    <><label>Dome Type</label>
-                      <select value={sd.dome} onChange={e=>updSide(activeSide,"dome",e.target.value)}>
-                        <option value="">Select…</option>
-                        {availDomes.map(d=><option key={d}>{d}</option>)}
-                      </select>
-                    </>
-                  )}
                 </div>
               )}
-            </>
-          )}
-
-          {/* ── Per-device pricing callout ── */}
-          {form.tierPrice != null && isSideConfigured(activeSide) && (() => {
-            const leftOk = isSideConfigured("left");
-            const rightOk = isSideConfigured("right");
-            const bothDone = leftOk && rightOk;
-            const total = form.tierPrice * (bothDone ? 2 : 1);
-            return (
-              <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:8,padding:"12px 16px",marginTop:8,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-                <div style={{fontSize:13,color:"#166534"}}>
-                  <span style={{fontWeight:700}}>
-                    {form.tier} · ${form.tierPrice.toLocaleString()} / aid
-                  </span>
-                  {bothDone && <span style={{color:"#16a34a",marginLeft:8}}>· Both ears configured</span>}
+              {s.manufacturer && availGens.length > 0 && (
+                <div className="field" style={{marginBottom:16}}><label>Platform / Generation</label>
+                  <div className="radio-group">
+                    {availGens.map(g=>(
+                      <div key={g} className={`radio-pill ${s.generation===g?"active":""}`}
+                        onClick={()=>setForm(f=>({...f,[side]:{...f[side],generation:g,familyId:"",variant:"",techLevel:"",color:"",battery:""}}))}>
+                        <div className="radio-pill-label">{g}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div style={{fontWeight:800,fontSize:18,color:"#0a1628"}}>
-                  {bothDone
-                    ? <>${total.toLocaleString()} <span style={{fontSize:12,fontWeight:400,color:"#6b7280"}}>total (2 aids)</span></>
-                    : <>${form.tierPrice.toLocaleString()} <span style={{fontSize:12,fontWeight:400,color:"#6b7280"}}>per aid</span></>
+              )}
+              {s.generation && availFamilies.length > 0 && (
+                <div className="field" style={{marginBottom:16}}><label>Model Family</label>
+                  <div className="plan-select-list">
+                    {availFamilies.map(fam=>(
+                      <div key={fam.id} className={`plan-row ${s.familyId===fam.id?"active":""}`}
+                        onClick={()=>{
+                          const autoVar = fam.variants.length===1 ? fam.variants[0] : "";
+                          const autoBat = fam.battery.length===1 ? fam.battery[0] : "";
+                          setForm(f=>({...f,[side]:{...f[side],familyId:fam.id,variant:autoVar,techLevel:"",color:"",battery:autoBat}}));
+                        }}>
+                        <div className="plan-row-top">
+                          <div>
+                            <div className="plan-row-name">{fam.family}</div>
+                            {fam.notes && <div className="plan-row-tpa">{fam.notes}</div>}
+                          </div>
+                          <div style={{display:"flex",gap:4,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                            {fam.techLevels.slice(0,4).map(t=>(
+                              <span key={t} style={{fontSize:10,background:"#f3f4f6",border:"1px solid #e5e7eb",borderRadius:4,padding:"2px 5px",color:"#6b7280"}}>{t}</span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {selectedFamily && selectedFamily.variants.length > 1 && (
+                <div className="field" style={{marginBottom:16}}><label>Variant</label>
+                  <div className="radio-group">
+                    {selectedFamily.variants.map(v=>(
+                      <div key={v} className={`radio-pill ${s.variant===v?"active":""}`} onClick={()=>updSide(side,"variant",v)}>
+                        <div className="radio-pill-label">{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {selectedFamily && (s.variant || !variantRequired) && (
+                <div className="field" style={{marginBottom:16}}><label>Technology Level</label>
+                  <div className="radio-group">
+                    {selectedFamily.techLevels.map(t=>(
+                      <div key={t} className={`radio-pill ${s.techLevel===t?"active":""}`} onClick={()=>updSide(side,"techLevel",t)}>
+                        <div className="radio-pill-label">{t}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>)}
+
+            {/* ── Private-label: tier → product → variant → CROS ── */}
+            {isPrivateLabel && s.style && (<>
+              <div className="field" style={{marginBottom:16}}><label>Technology Tier</label>
+                <div className="plan-select-list">
+                  {privateLabelTiers.map(t => {
+                    const seriesDesc = s.style === "bte"
+                      ? "TH5 · Signia X (BTE — always available)"
+                      : t.label === "Premium"  ? "TH7 Premium · 48ch · Signia IX"
+                      : t.label === "Advanced" ? "TH6 Advanced · 32ch · Signia AX"
+                      :                          "TH5 · Signia X";
+                    return (
+                      <div key={t.label} className={`plan-row ${s.techLevel===t.label?"active":""}`}
+                        onClick={()=>setForm(f=>({...f,[side]:{...f[side],
+                          manufacturer:"TruHearing", techLevel:t.label,
+                          familyId:"", generation:"", variant:"", battery:"", isCROS:false}}))}>
+                        <div className="plan-row-top">
+                          <div>
+                            <div className="plan-row-name">{t.label}</div>
+                            <div className="plan-row-tpa">{seriesDesc}</div>
+                          </div>
+                          <div style={{fontWeight:700,color:"#0a1628"}}>
+                            {t.price===0 ? "No Charge" : `$${t.price.toLocaleString()} / aid`}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              {s.techLevel && thAvailForStyle.length > 0 && (
+                <div className="field" style={{marginBottom:16}}>
+                  <label>{thAvailForStyle.length > 1 ? "Product / Power Source" : "Product"}</label>
+                  <div className="radio-group" style={{flexWrap:"wrap",gap:8}}>
+                    {thAvailForStyle.map(p => (
+                      <div key={p.id}
+                        className={`radio-pill ${s.familyId===p.id?"active":""}`}
+                        style={{minWidth:200,flexDirection:"column",alignItems:"flex-start"}}
+                        onClick={()=>setForm(f=>({...f,[side]:{...f[side],
+                          familyId:p.id, generation:p.generation,
+                          variant:p.variants.length===1?p.variants[0]:"",
+                          battery:p.battery[0]||"", isCROS:false}}))}>
+                        <div className="radio-pill-label">
+                          {p.rechargeable ? "♻ Rechargeable (Li-Ion)" : `🔋 ${p.battery[0]||"Battery"}`}
+                        </div>
+                        <div className="radio-pill-sub" style={{fontSize:10,marginTop:2,opacity:0.85}}>
+                          {p.family}{p.rechargeable ? " · +$50/aid" : ""}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {selectedTHFamily?.rechargeable && s.techLevel && (
+                <div style={{background:"#fef3c7",border:"1px solid #fde68a",borderRadius:8,
+                    padding:"10px 14px",marginBottom:16,fontSize:13,color:"#92400e",fontWeight:600}}>
+                  ♻ Rechargeable Li-Ion —{" "}
+                  {thTierPrice === 0
+                    ? <>No-charge plan + $50/aid upcharge = <strong>$50 / aid</strong></>
+                    : <>${thTierPrice.toLocaleString()} plan price + $50/aid upcharge = <strong>${thEffectivePrice.toLocaleString()} / aid</strong></>
                   }
                 </div>
-              </div>
-            );
-          })()}
-
-          {/* ── Side Action Buttons ── */}
-          {isSideConfigured(activeSide) && (
-            <div className="side-actions">
-              <button className="side-action-btn" onClick={()=>{
-                const src = form[activeSide];
-                setForm(f=>({...f,[otherSide]:{...src}}));
-                setActiveSide(otherSide);
-              }}>
-                {activeSide==="left" ? "Copy to Right Ear →" : "← Copy to Left Ear"}
-              </button>
-              {hasCROSVariant && (
-                <button className="side-action-btn cros" onClick={()=>{
-                  const src = form[activeSide];
-                  const crosFam = catalog.find(e => e.id === src.familyId);
-                  const crosVariant = crosFam?.variants.find(v=>v.toLowerCase().includes("cros")) || "CROS";
-                  setForm(f=>({...f,[otherSide]:{
-                    ...src,
-                    variant: crosVariant,
-                    receiverLength:"", receiverPower:"", dome:""
-                  }}));
-                  setActiveSide(otherSide);
-                }}>
-                  📡 Set {otherSide==="left"?"Left":"Right"} as CROS Transmitter
-                </button>
               )}
-            </div>
-          )}
-        </div>
+              {s.familyId && selectedTHFamily && (s.style === "bte" || s.style !== "ric") &&
+                selectedTHFamily.variants.length > 1 && (
+                <div className="field" style={{marginBottom:16}}>
+                  <label>{s.style === "bte" ? "BTE Type" : "Custom Style"}</label>
+                  <div className="radio-group" style={{flexWrap:"wrap"}}>
+                    {selectedTHFamily.variants.map(v=>(
+                      <div key={v} className={`radio-pill ${s.variant===v?"active":""}`}
+                        onClick={()=>updSide(side,"variant",v)}>
+                        <div className="radio-pill-label">{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {s.familyId && selectedTHFamily && s.style === "ric" &&
+                selectedTHFamily.variants.includes("CROS") && (
+                <div className="field" style={{marginBottom:16}}><label>CROS / BiCROS</label>
+                  <div className="radio-group">
+                    {[{v:false,label:"Standard"},{v:true,label:"📡 CROS Transmitter"}].map(({v,label})=>(
+                      <div key={String(v)} className={`radio-pill ${s.isCROS===v?"active":""}`}
+                        onClick={()=>setForm(f=>({...f,[side]:{...f[side],isCROS:v}}))}>
+                        <div className="radio-pill-label">{label}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>)}
 
-      </>
-    );
+            {/* ── 7–8. Color / Battery (standard only) ── */}
+            {!isPrivateLabel && (<>
+              {s.techLevel && availColors.length > 0 && (
+                <div className="field" style={{marginBottom:16}}><label>Color</label>
+                  <div className="color-swatches">
+                    {availColors.map(c=>(
+                      <div key={c} className={`color-swatch ${s.color===c?"active":""}`} onClick={()=>updSide(side,"color",c)}>{c}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {s.techLevel && availBatteries.length > 1 && (
+                <div className="field" style={{marginBottom:16}}><label>Battery Type</label>
+                  <div className="radio-group">
+                    {availBatteries.map(b=>(
+                      <div key={b} className={`radio-pill ${s.battery===b?"active":""}`} onClick={()=>updSide(side,"battery",b)}>
+                        <div className="radio-pill-label">{b}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>)}
+
+            {/* ── 9. Receiver + Dome (RIC) ── */}
+            {s.style === "ric" && s.techLevel && availPowers.length > 0 && (
+              <>
+                <div style={{height:1,background:"#f3f4f6",margin:"4px 0 16px"}} />
+                <div className="field-grid" style={{marginBottom:0}}>
+                  <div className="field"><label>Receiver Length</label>
+                    <select value={s.receiverLength} onChange={e=>updSide(side,"receiverLength",e.target.value)}>
+                      <option value="">Select…</option>
+                      {RECEIVER_LENGTHS.map(l=><option key={l} value={l}>{l}</option>)}
+                    </select>
+                  </div>
+                  <div className="field"><label>Receiver Power</label>
+                    <select value={s.receiverPower} onChange={e=>{
+                      const pw=e.target.value;
+                      updSide(side,"receiverPower",pw);
+                      if((RECEIVER_POWERS[s.manufacturer]||[]).find(p=>p.id===pw)?.earmold) updSide(side,"dome","");
+                    }}>
+                      <option value="">Select…</option>
+                      {availPowers.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {s.receiverPower && (
+                  <div className="field" style={{marginBottom:0,marginTop:12}}>
+                    {requiresEarmold ? (
+                      <div style={{background:"#fef9c3",border:"1px solid #fde047",borderRadius:8,padding:"10px 14px",fontSize:13,color:"#854d0e",fontWeight:600}}>
+                        🦻 Earmold required — dome not applicable
+                      </div>
+                    ) : (
+                      <><label>Dome Type</label>
+                        <select value={s.dome} onChange={e=>updSide(side,"dome",e.target.value)}>
+                          <option value="">Select…</option>
+                          {availDomes.map(dm=><option key={dm}>{dm}</option>)}
+                        </select>
+                      </>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        );
+      };
+
+      const leftConfigured = isSideConfigured("left");
+      const rightConfigured = isSideConfigured("right");
+      const leftHasCROS = leftDerived.hasCROSVariant;
+      const rightHasCROS = rightDerived.hasCROSVariant;
+
+      return (
+        <>
+          <div className="card">
+            <div className="card-title">Treatment Options</div>
+
+            {isPrivateLabel && (
+              <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#1e40af",fontWeight:600}}>
+                🏷️ This plan uses TruHearing Select devices — select body style, then choose your tech tier and configure fit details.
+              </div>
+            )}
+
+            <div className="device-columns">
+              {/* ── Left Column ── */}
+              {renderSideColumn("left")}
+
+              {/* ── Center Copy Buttons ── */}
+              <div className="copy-actions">
+                <button className="copy-btn" disabled={!leftConfigured}
+                  onClick={()=>{ setForm(f=>({...f,right:{...f.left}})); setActiveSide("right"); }}>
+                  →
+                </button>
+                {leftHasCROS && (
+                  <button className="copy-btn cros" disabled={!leftConfigured}
+                    onClick={()=>{
+                      const src = form.left;
+                      const crosFam = catalog.find(e => e.id === src.familyId);
+                      const crosVariant = crosFam?.variants.find(v=>v.toLowerCase().includes("cros")) || "CROS";
+                      setForm(f=>({...f,right:{...src, variant:crosVariant, receiverLength:"", receiverPower:"", dome:""}}));
+                      setActiveSide("right");
+                    }}>
+                    📡→
+                  </button>
+                )}
+                <div style={{height:1,width:24,background:"#e5e7eb",margin:"4px 0"}} />
+                <button className="copy-btn" disabled={!rightConfigured}
+                  onClick={()=>{ setForm(f=>({...f,left:{...f.right}})); setActiveSide("left"); }}>
+                  ←
+                </button>
+                {rightHasCROS && (
+                  <button className="copy-btn cros" disabled={!rightConfigured}
+                    onClick={()=>{
+                      const src = form.right;
+                      const crosFam = catalog.find(e => e.id === src.familyId);
+                      const crosVariant = crosFam?.variants.find(v=>v.toLowerCase().includes("cros")) || "CROS";
+                      setForm(f=>({...f,left:{...src, variant:crosVariant, receiverLength:"", receiverPower:"", dome:""}}));
+                      setActiveSide("left");
+                    }}>
+                    ←📡
+                  </button>
+                )}
+              </div>
+
+              {/* ── Right Column ── */}
+              {renderSideColumn("right")}
+            </div>
+
+            {/* ── Per-device pricing callout ── */}
+            {form.tierPrice != null && (leftConfigured || rightConfigured) && (() => {
+              const bothDone = leftConfigured && rightConfigured;
+              const total = form.tierPrice * (bothDone ? 2 : 1);
+              return (
+                <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:8,padding:"12px 16px",marginTop:8,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                  <div style={{fontSize:13,color:"#166534"}}>
+                    <span style={{fontWeight:700}}>
+                      {form.tier} · ${form.tierPrice.toLocaleString()} / aid
+                    </span>
+                    {bothDone && <span style={{color:"#16a34a",marginLeft:8}}>· Both ears configured</span>}
+                  </div>
+                  <div style={{fontWeight:800,fontSize:18,color:"#0a1628"}}>
+                    {bothDone
+                      ? <>${total.toLocaleString()} <span style={{fontSize:12,fontWeight:400,color:"#6b7280"}}>total (2 aids)</span></>
+                      : <>${form.tierPrice.toLocaleString()} <span style={{fontSize:12,fontWeight:400,color:"#6b7280"}}>per aid</span></>
+                    }
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </>
+      );
+    }
     if (step === 4) {
       const leftOk  = isSideConfigured("left");
       const rightOk = isSideConfigured("right");
@@ -2691,7 +3105,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
         const thSeries = fam?.thSeries || "";
         const isLi = fam?.rechargeable || false;
         const liUpcharge = fam?.liUpcharge || 0;
-        const planTierPrice = insurancePlans.find(p=>p.carrier===form.carrier&&p.planGroup===form.planGroup)
+        const planTierPrice = INSURANCE_PLANS.find(p=>p.carrier===form.carrier&&p.planGroup===form.planGroup)
           ?.tiers?.find(t=>t.label===d.techLevel)?.price ?? null;
         const effectivePrice = isLi && planTierPrice !== null ? planTierPrice + liUpcharge : planTierPrice;
         return (
@@ -2887,6 +3301,23 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
           <div className="settings-section">
+            <div className="settings-title">Campaign Administration</div>
+            <div style={{fontSize:12,color:"#9ca3af",marginBottom:12}}>Set up the default nurture campaign and backfill existing patients.</div>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+              <button className="btn-primary" onClick={async ()=>{
+                const result = await seedDefaultCampaign(clinicId, staffId);
+                if (result) alert("Default campaign seeded! Check the Campaigns view.");
+                else alert("Campaign already exists or error occurred.");
+              }}>Seed Default Campaign</button>
+              <button className="btn-ghost" onClick={async ()=>{
+                const result = await backfillCampaignEnrollment(clinicId, staffId);
+                alert(`Backfill complete: ${result.enrolled} enrolled, ${result.skipped} skipped.${result.error ? ' ' + result.error : ''}`);
+              }}>Backfill Existing Patients</button>
+            </div>
+          </div>
+
+
+          <div className="settings-section">
             <div className="settings-title">About Distil</div>
             {[["Version","1.0 Prototype"],["Patient App","Aided"],["Noah Integration","Coming soon — Noah ES API"],["HIPAA","Data stored locally in this session"]].map(([k,v])=>(
               <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #f3f4f6",fontSize:13}}>
@@ -2905,6 +3336,64 @@ export default function ProviderCRM({ staffId, clinicId }) {
     </>
   );
 
+
+  // ── PATIENT CAMPAIGN CARD (embedded in patient detail) ────────────────────
+  function PatientCampaignCard({ patient, staffId: sid }) {
+    const [campaigns, setCampaigns] = useState([]);
+    const [loaded, setLoaded] = useState(false);
+    useEffect(() => {
+      if (patient?.id) loadPatientCampaigns(patient.id).then(c => { setCampaigns(c); setLoaded(true); });
+    }, [patient?.id]);
+    if (!loaded) return null;
+    const CAT_COLORS = { welcome:"#16a34a", education:"#1d4ed8", maintenance:"#92400e", lima_charlie:"#4338ca", upgrade:"#be185d", general:"#6b7280" };
+    return (
+      <div className="detail-card full">
+        <div className="detail-card-title">Campaign Journey</div>
+        {campaigns.length === 0 ? (
+          <div style={{color:"#9ca3af",fontSize:13,padding:"12px 0"}}>No active campaigns. Patient will be auto-enrolled when saved with device data.</div>
+        ) : campaigns.map(c => {
+          const deliveries = c.campaign_deliveries || [];
+          const delivered = deliveries.filter(d => d.status === "delivered").length;
+          const total = deliveries.length;
+          const pct = total ? (delivered / total) * 100 : 0;
+          const next = deliveries.filter(d => d.status === "pending").sort((a,b) => a.scheduled_date.localeCompare(b.scheduled_date))[0];
+          return (
+            <div key={c.id} style={{marginBottom:16,padding:14,background:"#f9fafb",borderRadius:10,border:"1px solid #e5e7eb"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                <div style={{fontWeight:600,fontSize:13,color:"#0a1628"}}>{c.campaign_templates?.name || "Campaign"}</div>
+                <span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:12,
+                  background:c.status==="active"?"#dcfce7":c.status==="paused"?"#fef3c7":"#f3f4f6",
+                  color:c.status==="active"?"#16a34a":c.status==="paused"?"#92400e":"#6b7280"}}>{c.status}</span>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                <div style={{flex:1,height:4,background:"#e5e7eb",borderRadius:2,overflow:"hidden"}}>
+                  <div style={{width:`${pct}%`,height:"100%",background:"#16a34a",borderRadius:2}} />
+                </div>
+                <span style={{fontSize:11,color:"#9ca3af",whiteSpace:"nowrap"}}>{delivered}/{total} delivered</span>
+              </div>
+              {next && (
+                <div style={{fontSize:11,color:"#6b7280"}}>
+                  Next: <strong>{next.campaign_steps?.campaign_content?.title || "—"}</strong> on {fmtDate(next.scheduled_date)}
+                </div>
+              )}
+              {/* Recent timeline */}
+              <div style={{marginTop:10,display:"flex",flexWrap:"wrap",gap:4}}>
+                {deliveries.slice(0, 12).map((d, i) => {
+                  const cat = d.campaign_steps?.campaign_content?.category || "general";
+                  return (
+                    <div key={i} title={`${d.campaign_steps?.campaign_content?.title || ""} (${d.status})`} style={{
+                      width:8,height:8,borderRadius:"50%",
+                      background: d.status==="delivered" ? (CAT_COLORS[cat] || "#6b7280") : d.status==="pending" ? "#e5e7eb" : "#fecaca",
+                    }} />
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   // ── PATIENT DETAIL ────────────────────────────────────────────────────────
   const renderPatientDetail = () => {
@@ -2940,54 +3429,218 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
           <div className="detail-grid">
+            {/* ── CONTACT INFORMATION ─────────────────────────────────────── */}
             <div className="detail-card">
-              <div className="detail-card-title">Contact Information</div>
-              {[["Name",p.name],["Date of Birth",p.dob?fmtDate(p.dob):"—"],["Phone",p.phone||"—"],["Email",p.email||"—"]].map(([k,v])=>(
-                <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v}</span></div>
-              ))}
-            </div>
-            <div className="detail-card">
-              <div className="detail-card-title">Coverage</div>
-              {p.payType==="insurance" ? [
-                ["Carrier",p.insurance?.carrier],["Plan",p.insurance?.planGroup],["TPA",p.insurance?.tpa],["Tier",p.insurance?.tier],["Copay",`$${p.insurance?.tierPrice?.toLocaleString()}/aid`]
-              ].map(([k,v])=>(
-                <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v||"—"}</span></div>
-              )) : (
-                <div className="detail-row"><span className="detail-key">Type</span><span className="detail-val">Private Pay – $5,500</span></div>
-              )}
-              {p.payType === "insurance" && <div className="detail-row"><span className="detail-key">Care Plan</span><span className="detail-val">{CARE_PLANS.find(c=>c.id===p.carePlan)?.label||"—"}</span></div>}
-            </div>
-            <div className="detail-card full">
-              <div className="detail-card-title">Device Specifications</div>
-              <div style={{marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
-                <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>Fitting Type</span>
-                <span style={{fontSize:12,fontWeight:700,color:"#0a1628",background:"#f3f4f6",borderRadius:6,padding:"2px 8px"}}>{p.devices?.fittingType||"Bilateral"}</span>
+              <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
+                <div className="detail-card-title" style={{marginBottom:0}}>Contact Information</div>
+                {/* TODO: restrict to care_coordinator, provider, admin once checkRole is enforced */}
+                {editSection !== "contact" && checkRole(null, ["care_coordinator","provider","admin"]) && (
+                  <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={startEditContact}>Edit</button>
+                )}
               </div>
-              {[p.devices?.left, p.devices?.right].map((side, idx) => {
-                const sideLabel = idx===0 ? "👂 Left Ear" : "Right Ear 👂";
-                if (!side) return (
-                  <div key={idx} style={{color:"#9ca3af",fontSize:13,padding:"8px 0",borderBottom:"1px solid #f3f4f6"}}>{sideLabel} — Not configured</div>
-                );
-                const pwrLabel = (RECEIVER_POWERS[side.manufacturer]||[]).find(pw=>pw.id===side.receiverPower)?.label || side.receiverPower;
-                const isEm = (RECEIVER_POWERS[side.manufacturer]||[]).find(pw=>pw.id===side.receiverPower)?.earmold;
-                return (
-                  <div key={idx} style={{marginBottom:16}}>
-                    <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:6,paddingBottom:4,borderBottom:"1px solid #e5e7eb"}}>{sideLabel}</div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr"}}>
-                      {[["Manufacturer",side.manufacturer],["Platform",side.generation||"—"],["Model Family",side.family||"—"],["Variant",side.variant||"—"],["Tech Level",side.techLevel||"—"],["Body Style",BODY_STYLES.find(s=>s.id===side.style)?.label||side.style],["Color",side.color||"N/A"],["Battery",side.battery||"—"],
-                        ...(side.style==="ric" ? [["Receiver Length",side.receiverLength||"—"],["Receiver Power",pwrLabel||"—"],["Dome / Coupling",isEm?"Custom Earmold":(side.dome||"N/A")]] : []),
-                      ].map(([k,v])=>(
-                        <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v||"—"}</span></div>
+              {editSection === "contact" ? (
+                <div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>First Name</label><input value={editDraft.firstName} onChange={e=>setEditDraft(d=>({...d,firstName:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Last Name</label><input value={editDraft.lastName} onChange={e=>setEditDraft(d=>({...d,lastName:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Date of Birth</label><input type="date" value={editDraft.dob} onChange={e=>setEditDraft(d=>({...d,dob:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Phone</label><input value={editDraft.phone} onChange={e=>setEditDraft(d=>({...d,phone:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Email</label><input value={editDraft.email} onChange={e=>setEditDraft(d=>({...d,email:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                  </div>
+                  <div style={{marginBottom:10}}>
+                    <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:6}}>Pay Type</label>
+                    <div style={{display:"flex",gap:8}}>
+                      {[["insurance","Insurance"],["private","Private Pay"]].map(([val,label])=>(
+                        <div key={val} onClick={()=>setEditDraft(d=>({...d,payType:val}))} style={{flex:1,border:`2px solid ${editDraft.payType===val?"#0a1628":"#e5e7eb"}`,borderRadius:10,padding:"10px",cursor:"pointer",textAlign:"center",background:editDraft.payType===val?"#f8fafc":"white",transition:"all 0.15s"}}>
+                          <div style={{fontSize:13,fontWeight:600,color:"#0a1628"}}>{label}</div>
+                        </div>
                       ))}
                     </div>
                   </div>
-                );
-              })}
-              <div style={{borderTop:"1px solid #f3f4f6",paddingTop:12,display:"grid",gridTemplateColumns:"1fr 1fr"}}>
-                {[["Serial (L)",p.devices?.serialLeft],["Serial (R)",p.devices?.serialRight],["Fitting Date",fmtDate(p.devices?.fittingDate||p.createdAt)],["Warranty Expires",fmtDate(p.devices?.warrantyExpiry)],["Warranty Status",days<0?"Expired":`${days} days remaining`]].map(([k,v])=>(
-                  <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val" style={k==="Warranty Status"?{color:days<0?"#ef4444":days<90?"#f59e0b":"#16a34a"}:{}}>{v||"—"}</span></div>
-                ))}
+                  <div style={{marginBottom:4}}>
+                    <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Notes</label>
+                    <textarea value={editDraft.notes} onChange={e=>setEditDraft(d=>({...d,notes:e.target.value}))} rows={3} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",resize:"vertical",boxSizing:"border-box"}} />
+                  </div>
+                  <div style={{display:"flex",gap:8,alignItems:"center",marginTop:10}}>
+                    <button onClick={saveEditContact} disabled={editSaving} style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 18px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:editSaving?"wait":"pointer",opacity:editSaving?0.7:1}}>{editSaving?"Saving…":"Save Changes"}</button>
+                    <button onClick={cancelEdit} style={{background:"none",border:"1px solid #e5e7eb",borderRadius:8,padding:"8px 14px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
+                    {editError && <span style={{fontSize:12,color:"#ef4444"}}>{editError}</span>}
+                    {editSuccess && <span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>✓ {editSuccess}</span>}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  {[["Name",p.name],["Date of Birth",p.dob?fmtDate(p.dob):"—"],["Phone",p.phone||"—"],["Email",p.email||"—"]].map(([k,v])=>(
+                    <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v}</span></div>
+                  ))}
+                  {p.payType && <div className="detail-row"><span className="detail-key">Pay Type</span><span className="detail-val">{p.payType==="insurance"?"Insurance":"Private Pay"}</span></div>}
+                  {p.notes && <div className="detail-row"><span className="detail-key">Notes</span><span className="detail-val" style={{whiteSpace:"pre-wrap"}}>{p.notes}</span></div>}
+                </div>
+              )}
+            </div>
+
+            {/* ── COVERAGE ────────────────────────────────────────────────── */}
+            <div className="detail-card">
+              <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
+                <div className="detail-card-title" style={{marginBottom:0}}>Coverage</div>
+                {/* TODO: restrict to care_coordinator, provider, admin once checkRole is enforced */}
+                {editSection !== "coverage" && checkRole(null, ["care_coordinator","provider","admin"]) && (
+                  <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={startEditCoverage}>Edit</button>
+                )}
               </div>
+              {editSection === "coverage" ? (
+                <div>
+                  {/* Insurance plan search — reuses same component pattern as Step 0 of new patient form */}
+                  <div style={{background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:12,padding:"14px 16px",marginBottom:12}}>
+                    <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:10}}>Insurance Plan Search</div>
+                    <input
+                      placeholder="Search carrier or plan name…"
+                      value={editPlanSearch}
+                      onChange={e=>setEditPlanSearch(e.target.value)}
+                      style={{width:"100%",marginBottom:8,padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}}
+                    />
+                    <div style={{maxHeight:180,overflowY:"auto",display:"flex",flexDirection:"column",gap:5,paddingRight:2}}>
+                      {insurancePlans
+                        .filter(plan=>{const q=(editPlanSearch||"").toLowerCase();return !q||plan.carrier.toLowerCase().includes(q)||plan.planGroup.toLowerCase().includes(q)||(plan.tpa||"").toLowerCase().includes(q);})
+                        .sort((a,b)=>a.planGroup.localeCompare(b.planGroup))
+                        .slice(0,30)
+                        .map(plan=>(
+                          <div key={plan.planGroup}
+                            className={`plan-row ${editDraft.planGroup===plan.planGroup?"active":""}`}
+                            onClick={()=>setEditDraft(d=>({...d,carrier:plan.carrier,planGroup:plan.planGroup,tpa:plan.tpa||"",tier:"",tierPrice:null}))}>
+                            <div className="plan-row-name">{plan.planGroup}</div>
+                            <div className="plan-row-tpa">{plan.carrier} · via {plan.tpa}</div>
+                          </div>
+                        ))}
+                    </div>
+                    {editDraft.planGroup && (
+                      <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid #e5e7eb",display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>TPA</span>
+                        <span style={{fontSize:13,fontWeight:600,color:"#374151",background:"#f3f4f6",borderRadius:6,padding:"3px 10px"}}>{editDraft.tpa}</span>
+                        <button style={{marginLeft:"auto",fontSize:11,color:"#9ca3af",background:"none",border:"none",cursor:"pointer",padding:0}}
+                          onClick={()=>setEditDraft(d=>({...d,carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null}))}>✕ Clear</button>
+                      </div>
+                    )}
+                  </div>
+                  {/* Individual field overrides */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Carrier</label><input value={editDraft.carrier} onChange={e=>setEditDraft(d=>({...d,carrier:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>TPA</label><input value={editDraft.tpa} onChange={e=>setEditDraft(d=>({...d,tpa:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Tier</label><input value={editDraft.tier} onChange={e=>setEditDraft(d=>({...d,tier:e.target.value}))} placeholder="e.g. Level 3" style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Copay ($/aid)</label><input type="number" value={editDraft.tierPrice??""} onChange={e=>setEditDraft(d=>({...d,tierPrice:e.target.value?Number(e.target.value):null}))} placeholder="e.g. 999" style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Warranty Expiry</label><input type="date" value={editDraft.warrantyExpiry} onChange={e=>setEditDraft(d=>({...d,warrantyExpiry:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div>
+                      <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Care Plan</label>
+                      <select value={editDraft.carePlanType} onChange={e=>setEditDraft(d=>({...d,carePlanType:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",background:"white",boxSizing:"border-box"}}>
+                        <option value="">— None —</option>
+                        {CARE_PLANS.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:8,alignItems:"center",marginTop:10}}>
+                    <button onClick={saveEditCoverage} disabled={editSaving} style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 18px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:editSaving?"wait":"pointer",opacity:editSaving?0.7:1}}>{editSaving?"Saving…":"Save Changes"}</button>
+                    <button onClick={cancelEdit} style={{background:"none",border:"1px solid #e5e7eb",borderRadius:8,padding:"8px 14px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
+                    {editError && <span style={{fontSize:12,color:"#ef4444"}}>{editError}</span>}
+                    {editSuccess && <span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>✓ {editSuccess}</span>}
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  {p.payType==="insurance" ? [
+                    ["Carrier",p.insurance?.carrier],["Plan",p.insurance?.planGroup],["TPA",p.insurance?.tpa],["Tier",p.insurance?.tier],["Copay",p.insurance?.tierPrice!=null?`$${p.insurance.tierPrice.toLocaleString()}/aid`:null]
+                  ].map(([k,v])=>(
+                    <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v||"—"}</span></div>
+                  )) : (
+                    <div className="detail-row"><span className="detail-key">Type</span><span className="detail-val">Private Pay – $5,500</span></div>
+                  )}
+                  {p.payType === "insurance" && <div className="detail-row"><span className="detail-key">Care Plan</span><span className="detail-val">{CARE_PLANS.find(c=>c.id===p.carePlan)?.label||"—"}</span></div>}
+                  {p.devices?.warrantyExpiry && <div className="detail-row"><span className="detail-key">Warranty Expiry</span><span className="detail-val">{fmtDate(p.devices.warrantyExpiry)}</span></div>}
+                </div>
+              )}
+            </div>
+
+            {/* ── DEVICE SPECIFICATIONS ────────────────────────────────────── */}
+            <div className="detail-card full">
+              <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
+                <div className="detail-card-title" style={{marginBottom:0}}>Device Specifications</div>
+                {/* TODO: restrict to provider, admin once checkRole is enforced */}
+                {editSection !== "devices" && checkRole(null, ["provider","admin"]) && (
+                  <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={startEditDevices}>Edit</button>
+                )}
+              </div>
+              {editSection === "devices" ? (
+                <div>
+                  {/* Fitting-level fields */}
+                  <div style={{marginBottom:14}}>
+                    <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:8}}>Fitting Info</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
+                      <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Fitting Type</label>
+                        <select value={editDraft.fittingType} onChange={e=>setEditDraft(d=>({...d,fittingType:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",background:"white",boxSizing:"border-box"}}>
+                          {["Bilateral","Monaural Left","Monaural Right","CROS/BiCROS"].map(t=><option key={t}>{t}</option>)}
+                        </select>
+                      </div>
+                      <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Serial (L)</label><input value={editDraft.serialLeft} onChange={e=>setEditDraft(d=>({...d,serialLeft:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                      <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Serial (R)</label><input value={editDraft.serialRight} onChange={e=>setEditDraft(d=>({...d,serialRight:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                      <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Warranty Expiry</label><input type="date" value={editDraft.warrantyExpiry} onChange={e=>setEditDraft(d=>({...d,warrantyExpiry:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    </div>
+                  </div>
+                  {/* Per-side device fields */}
+                  {[["left","👂 Left Ear"],["right","Right Ear 👂"]].map(([side, sideLabel])=>{
+                    const sd = editDraft[side] || {};
+                    const setSD = (k,v) => setEditDraft(d=>({...d,[side]:{...d[side],[k]:v}}));
+                    const hasSide = !!(side==="left" ? selectedPatient._ids?.leftSideId : selectedPatient._ids?.rightSideId);
+                    if (!hasSide && !sd.manufacturer) return null;
+                    return (
+                      <div key={side} style={{marginBottom:14,paddingBottom:14,borderTop:"1px solid #f3f4f6",paddingTop:14}}>
+                        <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:8}}>{sideLabel}</div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
+                          {[["Manufacturer","manufacturer"],["Platform","generation"],["Model Family","family"],["Variant","variant"],["Tech Level","techLevel"],["Style","style"],["Color","color"],["Battery","battery"],["Receiver Length","receiverLength"],["Receiver Power","receiverPower"],["Dome / Coupling","dome"]].map(([label,key])=>(
+                            <div key={key}><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>{label}</label><input value={sd[key]||""} onChange={e=>setSD(key,e.target.value)} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div style={{display:"flex",gap:8,alignItems:"center",marginTop:10}}>
+                    <button onClick={saveEditDevices} disabled={editSaving} style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 18px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:editSaving?"wait":"pointer",opacity:editSaving?0.7:1}}>{editSaving?"Saving…":"Save Changes"}</button>
+                    <button onClick={cancelEdit} style={{background:"none",border:"1px solid #e5e7eb",borderRadius:8,padding:"8px 14px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
+                    {editError && <span style={{fontSize:12,color:"#ef4444"}}>{editError}</span>}
+                    {editSuccess && <span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>✓ {editSuccess}</span>}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div style={{marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>Fitting Type</span>
+                    <span style={{fontSize:12,fontWeight:700,color:"#0a1628",background:"#f3f4f6",borderRadius:6,padding:"2px 8px"}}>{p.devices?.fittingType||"Bilateral"}</span>
+                  </div>
+                  {[p.devices?.left, p.devices?.right].map((side, idx) => {
+                    const sideLabel = idx===0 ? "👂 Left Ear" : "Right Ear 👂";
+                    if (!side) return (
+                      <div key={idx} style={{color:"#9ca3af",fontSize:13,padding:"8px 0",borderBottom:"1px solid #f3f4f6"}}>{sideLabel} — Not configured</div>
+                    );
+                    const pwrLabel = (RECEIVER_POWERS[side.manufacturer]||[]).find(pw=>pw.id===side.receiverPower)?.label || side.receiverPower;
+                    const isEm = (RECEIVER_POWERS[side.manufacturer]||[]).find(pw=>pw.id===side.receiverPower)?.earmold;
+                    return (
+                      <div key={idx} style={{marginBottom:16}}>
+                        <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:6,paddingBottom:4,borderBottom:"1px solid #e5e7eb"}}>{sideLabel}</div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr"}}>
+                          {[["Manufacturer",side.manufacturer],["Platform",side.generation||"—"],["Model Family",side.family||"—"],["Variant",side.variant||"—"],["Tech Level",side.techLevel||"—"],["Body Style",BODY_STYLES.find(s=>s.id===side.style)?.label||side.style],["Color",side.color||"N/A"],["Battery",side.battery||"—"],
+                            ...(side.style==="ric" ? [["Receiver Length",side.receiverLength||"—"],["Receiver Power",pwrLabel||"—"],["Dome / Coupling",isEm?"Custom Earmold":(side.dome||"N/A")]] : []),
+                          ].map(([k,v])=>(
+                            <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v||"—"}</span></div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div style={{borderTop:"1px solid #f3f4f6",paddingTop:12,display:"grid",gridTemplateColumns:"1fr 1fr"}}>
+                    {[["Serial (L)",p.devices?.serialLeft],["Serial (R)",p.devices?.serialRight],["Fitting Date",fmtDate(p.devices?.fittingDate||p.createdAt)],["Warranty Expires",fmtDate(p.devices?.warrantyExpiry)],["Warranty Status",days<0?"Expired":`${days} days remaining`]].map(([k,v])=>(
+                      <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val" style={k==="Warranty Status"?{color:days<0?"#ef4444":days<90?"#f59e0b":"#16a34a"}:{}}>{v||"—"}</span></div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
             {/* ── AUDIOGRAM & EDUCATION PANEL ── */}
             {p.audiology && (getPTA(p.audiology.rightT)!=null || getPTA(p.audiology.leftT)!=null || p.audiology.unaidedR!=null || p.audiology.sinBin!=null) && (() => {
@@ -3001,7 +3654,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   <div className="detail-card full">
                     <div className="detail-card-title">Audiogram</div>
                     <div style={{background:"#fafafa",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 8px",marginBottom:12}}>
-                      <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} interactive={false}/>
+                      <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false}/>
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
                       {rPTA!=null&&(
@@ -3032,6 +3685,14 @@ export default function ProviderCRM({ staffId, clinicId }) {
                           <div style={{fontSize:11,fontWeight:600,marginTop:2,
                             color:aud.sinBin<=2?"#16a34a":aud.sinBin<=7?"#ca8a04":aud.sinBin<=15?"#ea580c":"#dc2626"}}>
                             {aud.sinBin<=2?"Near-normal":aud.sinBin<=7?"Mild":aud.sinBin<=15?"Moderate":"Severe"} difficulty in noise
+                          </div>
+                        </div>
+                      )}
+                      {(aud.tinnitusRight||aud.tinnitusLeft)&&(
+                        <div style={{background:"#fefce8",border:"1px solid #fde68a",borderRadius:8,padding:"10px 14px"}}>
+                          <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#92400e",marginBottom:3}}>Tinnitus</div>
+                          <div style={{fontSize:12,color:"#0a1628",fontWeight:600}}>
+                            {aud.tinnitusRight&&aud.tinnitusLeft?"Bilateral":aud.tinnitusRight?"Right":"Left"}
                           </div>
                         </div>
                       )}
@@ -3096,6 +3757,106 @@ export default function ProviderCRM({ staffId, clinicId }) {
               </div>
             )}
 
+
+            {/* ── CAMPAIGN JOURNEY ─────────────────────────────────────────────────── */}
+            {/* TODO: restrict campaign edits to care_coordinator, admin once checkRole is enforced */}
+            {patientCampaigns.length > 0 && patientCampaigns.map(campaign => {
+              const deliveries = (campaign.campaign_deliveries || [])
+                .sort((a,b) => (a.campaign_steps?.step_order ?? 0) - (b.campaign_steps?.step_order ?? 0));
+              const completedCount = deliveries.filter(d => d.status === "sent" || d.status === "delivered").length;
+              const totalCount = deliveries.length;
+              const progressPct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+              const isEditingThis = editSection === "campaign" && editDraft?.campaignId === campaign.id;
+              return (
+                <div key={campaign.id} className="detail-card full">
+                  <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
+                    <div className="detail-card-title" style={{marginBottom:0}}>
+                      Nurture Campaign
+                      <span style={{fontSize:11,fontWeight:400,color:"#9ca3af",marginLeft:8}}>{campaign.campaign_templates?.name || "Campaign"}</span>
+                    </div>
+                    {/* TODO: restrict to care_coordinator, admin when enforcing roles */}
+                    {!isEditingThis && checkRole(null, ["care_coordinator","admin"]) && (
+                      <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={()=>startEditCampaign(campaign)}>Edit</button>
+                    )}
+                  </div>
+
+                  {isEditingThis ? (
+                    <div>
+                      {/* Status control */}
+                      <div style={{marginBottom:14}}>
+                        <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:6}}>Campaign Status</label>
+                        <div style={{display:"flex",gap:8}}>
+                          {[["active","▶ Active"],["paused","⏸ Paused"],["cancelled","✕ Cancelled"]].map(([val,label])=>(
+                            <div key={val} onClick={()=>setEditDraft(d=>({...d,status:val}))} style={{padding:"8px 16px",border:`2px solid ${editDraft.status===val?"#0a1628":"#e5e7eb"}`,borderRadius:10,cursor:"pointer",background:editDraft.status===val?"#f8fafc":"white",transition:"all 0.15s",fontSize:13,fontWeight:600,color:editDraft.status===val?"#0a1628":"#6b7280"}}>
+                              {label}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      {/* Trigger date */}
+                      <div style={{marginBottom:14}}>
+                        <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Trigger Date (campaign start anchor)</label>
+                        <input type="date" value={editDraft.triggerDate} onChange={e=>setEditDraft(d=>({...d,triggerDate:e.target.value}))} style={{padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none"}} />
+                        <div style={{fontSize:11,color:"#9ca3af",marginTop:4}}>Changing this date shifts all pending deliveries forward or backward relative to their original schedule.</div>
+                      </div>
+                      {/* Per-delivery scheduled dates */}
+                      {editDraft.deliveries?.length > 0 && (
+                        <div style={{marginBottom:14}}>
+                          <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:8}}>Delivery Schedule</label>
+                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                            {editDraft.deliveries.map((d,i) => (
+                              <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"#f9fafb",borderRadius:8,border:"1px solid #e5e7eb"}}>
+                                <span style={{fontSize:11,fontWeight:700,color:"#9ca3af",width:20,flexShrink:0}}>#{d.stepOrder}</span>
+                                <span style={{fontSize:12,color:"#374151",flex:1}}>{d.channel || "Message"} · Day {d.delayDays}</span>
+                                <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:600,background:d.status==="sent"||d.status==="delivered"?"#dcfce7":d.status==="pending"?"#fef9c3":"#fee2e2",color:d.status==="sent"||d.status==="delivered"?"#16a34a":d.status==="pending"?"#854d0e":"#dc2626"}}>{d.status}</span>
+                                <input type="date" value={d.scheduledDate} onChange={e=>{const ds=[...editDraft.deliveries];ds[i]={...ds[i],scheduledDate:e.target.value};setEditDraft(dd=>({...dd,deliveries:ds}));}} style={{padding:"5px 8px",border:"1px solid #e5e7eb",borderRadius:6,fontFamily:"'Sora',sans-serif",fontSize:12,outline:"none"}} />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <div style={{display:"flex",gap:8,alignItems:"center",marginTop:10}}>
+                        <button onClick={saveEditCampaign} disabled={editSaving} style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 18px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:editSaving?"wait":"pointer",opacity:editSaving?0.7:1}}>{editSaving?"Saving…":"Save Changes"}</button>
+                        <button onClick={cancelEdit} style={{background:"none",border:"1px solid #e5e7eb",borderRadius:8,padding:"8px 14px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
+                        {editError && <span style={{fontSize:12,color:"#ef4444"}}>{editError}</span>}
+                        {editSuccess && <span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>✓ {editSuccess}</span>}
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      {/* Status + progress bar */}
+                      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+                        <span style={{fontSize:12,fontWeight:700,padding:"3px 12px",borderRadius:20,border:"1px solid",background:campaign.status==="active"?"#dcfce7":campaign.status==="paused"?"#fef9c3":"#f3f4f6",color:campaign.status==="active"?"#16a34a":campaign.status==="paused"?"#854d0e":"#6b7280",borderColor:campaign.status==="active"?"#bbf7d0":campaign.status==="paused"?"#fde68a":"#e5e7eb"}}>
+                          {campaign.status==="active"?"▶ Active":campaign.status==="paused"?"⏸ Paused":"✕ Cancelled"}
+                        </span>
+                        <span style={{fontSize:12,color:"#6b7280"}}>{completedCount} of {totalCount} steps completed</span>
+                        {campaign.trigger_date && <span style={{fontSize:11,color:"#9ca3af",marginLeft:"auto"}}>Started {fmtDate(campaign.trigger_date)}</span>}
+                      </div>
+                      {totalCount > 0 && (
+                        <div style={{background:"#f3f4f6",borderRadius:20,height:6,marginBottom:14,overflow:"hidden"}}>
+                          <div style={{height:"100%",background:"#16a34a",borderRadius:20,width:`${progressPct}%`,transition:"width 0.3s"}} />
+                        </div>
+                      )}
+                      {/* Delivery timeline */}
+                      {deliveries.length > 0 && (
+                        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                          {deliveries.map(d => (
+                            <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"#f9fafb",borderRadius:8,border:"1px solid #e5e7eb"}}>
+                              <div style={{width:20,height:20,borderRadius:"50%",background:d.status==="sent"||d.status==="delivered"?"#16a34a":d.status==="pending"?"#e5e7eb":"#ef4444",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                                {(d.status==="sent"||d.status==="delivered") && <span style={{color:"white",fontSize:10,fontWeight:700}}>✓</span>}
+                              </div>
+                              <span style={{fontSize:12,color:"#374151",flex:1}}>{d.campaign_steps?.delivery_channel || "Message"} · Day {d.campaign_steps?.delay_days ?? "?"}</span>
+                              <span style={{fontSize:11,color:"#9ca3af"}}>{d.scheduled_date ? fmtDate(d.scheduled_date) : "—"}</span>
+                              <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:600,background:d.status==="sent"||d.status==="delivered"?"#dcfce7":d.status==="pending"?"#fef9c3":"#fee2e2",color:d.status==="sent"||d.status==="delivered"?"#16a34a":d.status==="pending"?"#854d0e":"#dc2626"}}>{d.status}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
 
             {/* PUNCH CARD PANEL — only for punch plan patients */}
             {p.carePlan === "punch" && (() => {
@@ -3561,7 +4322,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div style={{fontSize:12,color:"rgba(255,255,255,0.7)",fontWeight:500,lineHeight:1.3}}>{clinic.address}</div>
           </div>
           <div className="sidebar-nav">
-            {[["🏠","Dashboard","dashboard"],["👥","Patients","patients"],["📅","Schedule","schedule"],["📊","Reports","reports"],["📋","Product Catalog","catalog"],["⚙️","Settings","settings"]].map(([icon,label,id])=>(
+            {[["🏠","Dashboard","dashboard"],["👥","Patients","patients"],["📅","Schedule","schedule"],["📊","Reports","reports"],["📬","Campaigns","campaigns"],["📚","Content Library","content"],["🎖️","Lima Charlie","lima-charlie"],["📋","Product Catalog","catalog"],["⚙️","Settings","settings"]].map(([icon,label,id])=>(
               <div key={id} className={`nav-item ${view===id||(id==="dashboard"&&view==="new")||(id==="patients"&&(view==="dashboard"||view==="patient"))?"active":""}`}
                 onClick={()=>{
                   if(id==="dashboard"||id==="patients") setView("dashboard");
@@ -3598,6 +4359,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
           {view === "patient" && renderPatientDetail()}
           {view === "settings" && renderSettings()}
           {view === "catalog" && renderCatalog()}
+          {view === "campaigns" && <CampaignManager clinicId={clinicId} staffId={staffId} patients={patients} />}
+          {view === "content" && <ContentLibrary clinicId={clinicId} staffId={staffId} />}
+          {view === "lima-charlie" && <LimaCharlie clinicId={clinicId} staffId={staffId} />}
           {view === "new" && (
             <>
               <div className="topbar">
