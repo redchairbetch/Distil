@@ -20,6 +20,9 @@ import {
   seedDefaultCampaign,
   backfillCampaignEnrollment,
   loadInsurancePlans,
+  resolveInsurancePlanId,
+  loadPricingReveal,
+  loadRetailAnchors,
   updatePatientContact,
   updateInsuranceCoverage,
   updateDeviceFitting,
@@ -987,6 +990,11 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const seenIntakeIds = useRef(new Set());
 
 
+  // Insurance plans from Supabase + retail anchors for pricing reveal
+  const [insurancePlans, setInsurancePlans] = useState([]);
+  const [retailAnchors, setRetailAnchors] = useState([]);
+  const [pricingReveal, setPricingReveal] = useState(null);
+
   // Product catalog state
   const [catalog, setCatalog] = useState(CATALOG_DEFAULT);
   const [catEditId, setCatEditId] = useState(null);      // which entry is open for editing
@@ -1094,6 +1102,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
         const plans = await loadInsurancePlans();
         if (plans?.length) setInsurancePlans(plans);
       } catch {}
+      try {
+        if (clinicId) {
+          const anchors = await loadRetailAnchors(clinicId);
+          if (anchors?.length) setRetailAnchors(anchors);
+        }
+      } catch {}
     })();
   }, [clinicId]);
 
@@ -1168,6 +1182,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const saveEditCoverage = async () => {
     setEditSaving(true); setEditError(null);
     try {
+      const planId = await resolveInsurancePlanId(
+        editDraft.carrier, editDraft.planGroup, editDraft.tier
+      );
       await updateInsuranceCoverage(
         selectedPatient.id,
         {
@@ -1176,6 +1193,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           tpa:                editDraft.tpa            || null,
           tier:               editDraft.tier           || null,
           tier_price_per_aid: editDraft.tierPrice != null ? Math.round(editDraft.tierPrice * 100) : null,
+          insurance_plan_id:  planId,
           care_plan_type:     editDraft.carePlanType   || null,
           warranty_expiry:    editDraft.warrantyExpiry || null,
         },
@@ -1986,6 +2004,30 @@ export default function ProviderCRM({ staffId, clinicId }) {
   };
   const leftDerived = getSideDerived(form.left);
   const rightDerived = getSideDerived(form.right);
+
+  // ── Pricing Reveal — compute from form state + retail anchors ──
+  const TIER_TO_ANCHOR = { "Premium":"select","Level 7":"select","Advanced":"advanced","Level 5":"advanced","Standard":"standard","Level 3":"standard","Level 2":"level2","Level 1":"level1" };
+  const pricingRevealData = useMemo(() => {
+    if (form.tierPrice == null || !form.tier) return null;
+    const anchorKey = TIER_TO_ANCHOR[form.tier];
+    if (!anchorKey) return null;
+    const anchor = retailAnchors.find(a => a.id === anchorKey);
+    if (!anchor) return null;
+    const retailPerAid = parseFloat(anchor.price_per_aid);
+    const copayPerAid = form.tierPrice;
+    const savingsPerAid = retailPerAid - copayPerAid;
+    const savingsPct = Math.round((savingsPerAid / retailPerAid) * 100);
+    return { tierLabel: anchor.label, retailPerAid, copayPerAid, savingsPerAid, savingsPct };
+  }, [form.tier, form.tierPrice, retailAnchors]);
+
+  // Detect rechargeable + Li-Ion upcharge from selected device families
+  const leftFamily = catalog.find(e => e.id === form.left.familyId);
+  const rightFamily = catalog.find(e => e.id === form.right.familyId);
+  const hasRechargeableLeft = leftFamily?.rechargeable || false;
+  const hasRechargeableRight = rightFamily?.rechargeable || false;
+  const liUpchargeLeft = leftFamily?.liUpcharge || 0;
+  const liUpchargeRight = rightFamily?.liUpcharge || 0;
+
   // Keep sd / otherSide for backward compat with non-step-3 code
   const sd = form[activeSide];
   const otherSide = activeSide === "left" ? "right" : "left";
@@ -2786,23 +2828,97 @@ export default function ProviderCRM({ staffId, clinicId }) {
               {renderSideColumn("right")}
             </div>
 
-            {/* ── Per-device pricing callout ── */}
-            {form.tierPrice != null && (leftConfigured || rightConfigured) && (() => {
+            {/* ── Pricing Reveal ── */}
+            {(() => {
               const bothDone = leftConfigured && rightConfigured;
-              const total = form.tierPrice * (bothDone ? 2 : 1);
-              return (
-                <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:8,padding:"12px 16px",marginTop:8,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-                  <div style={{fontSize:13,color:"#166534"}}>
-                    <span style={{fontWeight:700}}>
-                      {form.tier} · ${form.tierPrice.toLocaleString()} / aid
-                    </span>
-                    {bothDone && <span style={{color:"#16a34a",marginLeft:8}}>· Both ears configured</span>}
+              const aidCount = (leftConfigured ? 1 : 0) + (rightConfigured ? 1 : 0);
+
+              // Li-Ion upcharge: additive per aid if rechargeable device selected
+              const liUpchargePerAid = Math.max(
+                leftConfigured && hasRechargeableLeft ? liUpchargeLeft : 0,
+                rightConfigured && hasRechargeableRight ? liUpchargeRight : 0
+              );
+              const leftLiUp = leftConfigured && hasRechargeableLeft ? liUpchargeLeft : 0;
+              const rightLiUp = rightConfigured && hasRechargeableRight ? liUpchargeRight : 0;
+              const totalLiUpcharge = leftLiUp + rightLiUp;
+
+              // Null state — plan not linked
+              if (!pricingRevealData || form.tierPrice == null) {
+                if (!(leftConfigured || rightConfigured)) return null;
+                return (
+                  <div style={{background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:12,padding:"20px 24px",marginTop:12,textAlign:"center",color:"#9ca3af",fontSize:13}}>
+                    Select a plan to see your investment.
                   </div>
-                  <div style={{fontWeight:800,fontSize:18,color:"#0a1628"}}>
-                    {bothDone
-                      ? <>${total.toLocaleString()} <span style={{fontSize:12,fontWeight:400,color:"#6b7280"}}>total (2 aids)</span></>
-                      : <>${form.tierPrice.toLocaleString()} <span style={{fontSize:12,fontWeight:400,color:"#6b7280"}}>per aid</span></>
-                    }
+                );
+              }
+
+              const { tierLabel, retailPerAid, copayPerAid, savingsPerAid, savingsPct } = pricingRevealData;
+              const baseCopayPair = copayPerAid * aidCount;
+              const investmentPair = baseCopayPair + totalLiUpcharge;
+              const retailPair = retailPerAid * aidCount;
+              const planCoversPair = retailPair - investmentPair;
+              const investmentPerAid = copayPerAid + liUpchargePerAid;
+
+              // Chief complaint carry-forward quote
+              const chiefComplaint = form.notes || "";
+
+              return (
+                <div style={{background:"linear-gradient(135deg,#f0fdf4 0%,#f8fafc 100%)",border:"1px solid #bbf7d0",borderRadius:12,padding:"20px 24px",marginTop:12}}>
+                  {/* Chief complaint quote */}
+                  {chiefComplaint && (
+                    <div style={{fontSize:13,color:"#374151",fontStyle:"italic",borderLeft:"3px solid #16a34a",paddingLeft:12,marginBottom:16,lineHeight:1.5}}>
+                      "{chiefComplaint}"
+                    </div>
+                  )}
+
+                  {/* Technology tier label */}
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#9ca3af",marginBottom:12}}>
+                    {tierLabel} Technology
+                  </div>
+
+                  {/* Your Investment Today — headline */}
+                  <div style={{marginBottom:16}}>
+                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}}>Your Investment Today</div>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                      <span style={{fontSize:28,fontWeight:800,color:"#0a1628"}}>${investmentPair.toLocaleString()}</span>
+                      <span style={{fontSize:12,color:"#6b7280"}}>{bothDone ? `pair (${aidCount} aids)` : "per aid"}</span>
+                    </div>
+                    {/* Per-aid toggle when pair is shown */}
+                    {bothDone && (
+                      <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>
+                        ${investmentPerAid.toLocaleString()} / aid
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Li-Ion upcharge line item */}
+                  {totalLiUpcharge > 0 && (
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
+                      <span style={{color:"#6b7280"}}>Rechargeable (Li-Ion) upcharge</span>
+                      <span style={{fontWeight:600,color:"#374151"}}>+${totalLiUpcharge.toLocaleString()}</span>
+                    </div>
+                  )}
+
+                  {/* Plan covers */}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
+                    <span style={{color:"#6b7280"}}>Plan covers</span>
+                    <span style={{fontWeight:600,color:"#16a34a"}}>${planCoversPair.toLocaleString()}</span>
+                  </div>
+
+                  {/* Full retail value */}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
+                    <span style={{color:"#9ca3af"}}>Full retail value</span>
+                    <span style={{color:"#9ca3af",textDecoration:"line-through"}}>${retailPair.toLocaleString()}</span>
+                  </div>
+
+                  {/* Savings badge */}
+                  <div style={{background:"#dcfce7",borderRadius:8,padding:"10px 14px",marginTop:8,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                    <span style={{fontSize:13,fontWeight:700,color:"#166534"}}>
+                      You save ${(savingsPerAid * aidCount).toLocaleString()}
+                    </span>
+                    <span style={{background:"#16a34a",color:"white",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>
+                      {savingsPct}% off
+                    </span>
                   </div>
                 </div>
               );
