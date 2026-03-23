@@ -1217,13 +1217,35 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const startEditDevices = () => {
     const d = selectedPatient.devices || {};
+    const resolveFamily = (side) => {
+      if (!side) return EMPTY_SIDE();
+      const match = catalog.find(e =>
+        e.family === side.family &&
+        e.manufacturer === side.manufacturer &&
+        e.generation === side.generation
+      );
+      return {
+        style:          side.style          || "",
+        manufacturer:   side.manufacturer   || "",
+        generation:     side.generation     || "",
+        familyId:       match?.id           || "",
+        variant:        side.variant        || "",
+        techLevel:      side.techLevel      || "",
+        color:          side.color          || "",
+        battery:        side.battery        || "",
+        receiverLength: side.receiverLength || "",
+        receiverPower:  side.receiverPower  || "",
+        dome:           side.dome           || "",
+        isCROS:         false,
+      };
+    };
     setEditDraft({
       serialLeft:     d.serialLeft     || "",
       serialRight:    d.serialRight    || "",
       warrantyExpiry: d.warrantyExpiry || "",
       fittingType:    d.fittingType    || "Bilateral",
-      left:  { ...(d.left  || {}) },
-      right: { ...(d.right || {}) },
+      left:  resolveFamily(d.left),
+      right: resolveFamily(d.right),
     });
     setEditSection("devices");
     setEditError(null);
@@ -1244,7 +1266,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
       }
       const buildSideFields = (s) => ({
         manufacturer:    s.manufacturer    || null,
-        family:          s.family          || null,
+        family:          catalog.find(e => e.id === s.familyId)?.family || s.family || null,
         generation:      s.generation      || null,
         variant:         s.variant         || null,
         tech_level:      s.techLevel       || null,
@@ -1257,9 +1279,11 @@ export default function ProviderCRM({ staffId, clinicId }) {
       });
       if (leftSideId  && editDraft.left)  await updateDeviceSide(leftSideId,  buildSideFields(editDraft.left));
       if (rightSideId && editDraft.right) await updateDeviceSide(rightSideId, buildSideFields(editDraft.right));
+      const resolveLeft = editDraft.left ? { ...editDraft.left, family: catalog.find(e=>e.id===editDraft.left.familyId)?.family || editDraft.left.family || "" } : null;
+      const resolveRight = editDraft.right ? { ...editDraft.right, family: catalog.find(e=>e.id===editDraft.right.familyId)?.family || editDraft.right.family || "" } : null;
       setSelectedPatient(p => ({
         ...p,
-        devices: { ...p.devices, serialLeft: editDraft.serialLeft, serialRight: editDraft.serialRight, warrantyExpiry: editDraft.warrantyExpiry, fittingType: editDraft.fittingType, left: editDraft.left || p.devices?.left, right: editDraft.right || p.devices?.right },
+        devices: { ...p.devices, serialLeft: editDraft.serialLeft, serialRight: editDraft.serialRight, warrantyExpiry: editDraft.warrantyExpiry, fittingType: editDraft.fittingType, left: resolveLeft || p.devices?.left, right: resolveRight || p.devices?.right },
       }));
       setEditSuccess("Saved");
       setTimeout(() => { setEditSection(null); setEditSuccess(null); }, 1400);
@@ -2035,10 +2059,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const isSideConfigured = (s) => {
     const d = form[s];
-    if (d.manufacturer === "TruHearing") return !!(d.style && d.techLevel && d.familyId);
-    const fam = catalog.find(e => e.id === d.familyId);
-    const vReq = (fam?.variants?.length || 0) > 1;
-    return !!(d.familyId && d.techLevel && (!vReq || d.variant));
+    if (d.manufacturer === "TruHearing") return !!(d.style && d.techLevel);
+    return !!(d.familyId && d.techLevel);
   };
 
 
@@ -2620,9 +2642,20 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       :                          "TH5 · Signia X";
                     return (
                       <div key={t.label} className={`plan-row ${s.techLevel===t.label?"active":""}`}
-                        onClick={()=>setForm(f=>({...f,[side]:{...f[side],
-                          manufacturer:"TruHearing", techLevel:t.label,
-                          familyId:"", generation:"", variant:"", battery:"", isCROS:false}}))}>
+                        onClick={()=>{
+                          // Find products available for this style+tier combo
+                          const prods = activeCatalog.filter(e =>
+                            e.manufacturer === "TruHearing" &&
+                            e.styles.includes(s.style) &&
+                            (s.style === "bte" ? e.thSeries === "TH5" : e.planTierKey === t.label)
+                          );
+                          const auto = prods.length === 1 ? prods[0] : null;
+                          setForm(f=>({...f,[side]:{...f[side],
+                            manufacturer:"TruHearing", techLevel:t.label,
+                            familyId: auto?.id || "", generation: auto?.generation || "",
+                            variant: auto?.variants?.length===1 ? auto.variants[0] : "",
+                            battery: auto?.battery?.[0] || "", isCROS:false}}));
+                        }}>
                         <div className="plan-row-top">
                           <div>
                             <div className="plan-row-name">{t.label}</div>
@@ -2790,8 +2823,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
               {/* ── Center Copy Buttons ── */}
               <div className="copy-actions">
                 <button className="copy-btn" disabled={!leftConfigured}
-                  onClick={()=>{ setForm(f=>({...f,right:{...f.left}})); setActiveSide("right"); }}>
-                  →
+                  onClick={()=>{ setForm(f=>({...f,right:{...f.left}})); setActiveSide("right"); }}
+                  title="Copy left ear settings to right ear">
+                  Copy to Right →
                 </button>
                 {leftHasCROS && (
                   <button className="copy-btn cros" disabled={!leftConfigured}
@@ -2801,14 +2835,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       const crosVariant = crosFam?.variants.find(v=>v.toLowerCase().includes("cros")) || "CROS";
                       setForm(f=>({...f,right:{...src, variant:crosVariant, receiverLength:"", receiverPower:"", dome:""}}));
                       setActiveSide("right");
-                    }}>
-                    📡→
+                    }}
+                    title="Copy as CROS transmitter to right ear">
+                    📡 CROS →
                   </button>
                 )}
                 <div style={{height:1,width:24,background:"#e5e7eb",margin:"4px 0"}} />
                 <button className="copy-btn" disabled={!rightConfigured}
-                  onClick={()=>{ setForm(f=>({...f,left:{...f.right}})); setActiveSide("left"); }}>
-                  ←
+                  onClick={()=>{ setForm(f=>({...f,left:{...f.right}})); setActiveSide("left"); }}
+                  title="Copy right ear settings to left ear">
+                  ← Copy to Left
                 </button>
                 {rightHasCROS && (
                   <button className="copy-btn cros" disabled={!rightConfigured}
@@ -2818,8 +2854,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       const crosVariant = crosFam?.variants.find(v=>v.toLowerCase().includes("cros")) || "CROS";
                       setForm(f=>({...f,left:{...src, variant:crosVariant, receiverLength:"", receiverPower:"", dome:""}}));
                       setActiveSide("left");
-                    }}>
-                    ←📡
+                    }}
+                    title="Copy as CROS transmitter to left ear">
+                    ← CROS 📡
                   </button>
                 )}
               </div>
@@ -3616,7 +3653,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       style={{width:"100%",marginBottom:8,padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}}
                     />
                     <div style={{maxHeight:180,overflowY:"auto",display:"flex",flexDirection:"column",gap:5,paddingRight:2}}>
-                      {insurancePlans
+                      {(insurancePlans.length ? insurancePlans : INSURANCE_PLANS)
                         .filter(plan=>{const q=(editPlanSearch||"").toLowerCase();return !q||plan.carrier.toLowerCase().includes(q)||plan.planGroup.toLowerCase().includes(q)||(plan.tpa||"").toLowerCase().includes(q);})
                         .sort((a,b)=>a.planGroup.localeCompare(b.planGroup))
                         .slice(0,30)
@@ -3700,19 +3737,127 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Warranty Expiry</label><input type="date" value={editDraft.warrantyExpiry} onChange={e=>setEditDraft(d=>({...d,warrantyExpiry:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
                     </div>
                   </div>
-                  {/* Per-side device fields */}
+                  {/* Per-side device fields — cascading dropdowns */}
                   {[["left","👂 Left Ear"],["right","Right Ear 👂"]].map(([side, sideLabel])=>{
                     const sd = editDraft[side] || {};
-                    const setSD = (k,v) => setEditDraft(d=>({...d,[side]:{...d[side],[k]:v}}));
                     const hasSide = !!(side==="left" ? selectedPatient._ids?.leftSideId : selectedPatient._ids?.rightSideId);
-                    if (!hasSide && !sd.manufacturer) return null;
+                    if (!hasSide && !sd.manufacturer && !sd.style) return null;
+                    const derived = getSideDerived(sd);
+                    const { availMfrs, availGens, availFamilies, selectedFamily, availColors, availBatteries, availPowers, availDomes } = derived;
+                    const requiresEarmold = availPowers.find(p=>p.id===sd.receiverPower)?.earmold === true;
+                    const variantRequired = (selectedFamily?.variants?.length || 0) > 1;
+                    const selSty = {width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",background:"white",boxSizing:"border-box"};
+                    const lblSty = {fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4};
+                    const updSD = (updates) => setEditDraft(d=>({...d,[side]:{...d[side],...updates}}));
                     return (
                       <div key={side} style={{marginBottom:14,paddingBottom:14,borderTop:"1px solid #f3f4f6",paddingTop:14}}>
                         <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:8}}>{sideLabel}</div>
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
-                          {[["Manufacturer","manufacturer"],["Platform","generation"],["Model Family","family"],["Variant","variant"],["Tech Level","techLevel"],["Style","style"],["Color","color"],["Battery","battery"],["Receiver Length","receiverLength"],["Receiver Power","receiverPower"],["Dome / Coupling","dome"]].map(([label,key])=>(
-                            <div key={key}><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>{label}</label><input value={sd[key]||""} onChange={e=>setSD(key,e.target.value)} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
-                          ))}
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+
+                          {/* Body Style */}
+                          <div><label style={lblSty}>Body Style</label>
+                            <select value={sd.style||""} onChange={e=>updSD({style:e.target.value,manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:""})} style={selSty}>
+                              <option value="">Select…</option>
+                              {BODY_STYLES.map(bs=><option key={bs.id} value={bs.id}>{bs.label}</option>)}
+                            </select>
+                          </div>
+
+                          {/* Manufacturer */}
+                          <div><label style={lblSty}>Manufacturer</label>
+                            <select value={sd.manufacturer||""} onChange={e=>updSD({manufacturer:e.target.value,generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:""})} style={selSty} disabled={!sd.style}>
+                              <option value="">Select…</option>
+                              {availMfrs.map(m=><option key={m} value={m}>{m}</option>)}
+                            </select>
+                          </div>
+
+                          {/* Platform / Generation */}
+                          <div><label style={lblSty}>Platform</label>
+                            <select value={sd.generation||""} onChange={e=>updSD({generation:e.target.value,familyId:"",variant:"",techLevel:"",color:"",battery:""})} style={selSty} disabled={!sd.manufacturer}>
+                              <option value="">Select…</option>
+                              {availGens.map(g=><option key={g} value={g}>{g}</option>)}
+                            </select>
+                          </div>
+
+                          {/* Model Family */}
+                          <div><label style={lblSty}>Model Family</label>
+                            <select value={sd.familyId||""} onChange={e=>{
+                              const fam = catalog.find(f=>f.id===e.target.value);
+                              const autoVar = fam?.variants?.length===1 ? fam.variants[0] : "";
+                              const autoBat = fam?.battery?.length===1 ? fam.battery[0] : "";
+                              updSD({familyId:e.target.value,variant:autoVar,techLevel:"",color:"",battery:autoBat});
+                            }} style={selSty} disabled={!sd.generation}>
+                              <option value="">Select…</option>
+                              {availFamilies.map(fam=><option key={fam.id} value={fam.id}>{fam.family}</option>)}
+                            </select>
+                          </div>
+
+                          {/* Variant (only if multiple) */}
+                          {variantRequired && (
+                            <div><label style={lblSty}>Variant</label>
+                              <select value={sd.variant||""} onChange={e=>updSD({variant:e.target.value})} style={selSty}>
+                                <option value="">Select…</option>
+                                {selectedFamily.variants.map(v=><option key={v} value={v}>{v}</option>)}
+                              </select>
+                            </div>
+                          )}
+
+                          {/* Tech Level */}
+                          <div><label style={lblSty}>Tech Level</label>
+                            <select value={sd.techLevel||""} onChange={e=>updSD({techLevel:e.target.value})} style={selSty} disabled={!sd.familyId}>
+                              <option value="">Select…</option>
+                              {(selectedFamily?.techLevels||[]).map(t=><option key={t} value={t}>{t}</option>)}
+                            </select>
+                          </div>
+
+                          {/* Color */}
+                          {availColors.length > 0 && (
+                            <div><label style={lblSty}>Color</label>
+                              <select value={sd.color||""} onChange={e=>updSD({color:e.target.value})} style={selSty}>
+                                <option value="">Select…</option>
+                                {availColors.map(c=><option key={c} value={c}>{c}</option>)}
+                              </select>
+                            </div>
+                          )}
+
+                          {/* Battery (only if multiple) */}
+                          {availBatteries.length > 1 && (
+                            <div><label style={lblSty}>Battery</label>
+                              <select value={sd.battery||""} onChange={e=>updSD({battery:e.target.value})} style={selSty}>
+                                <option value="">Select…</option>
+                                {availBatteries.map(b=><option key={b} value={b}>{b}</option>)}
+                              </select>
+                            </div>
+                          )}
+
+                          {/* RIC: Receiver Length, Power, Dome */}
+                          {sd.style === "ric" && sd.techLevel && (<>
+                            <div><label style={lblSty}>Receiver Length</label>
+                              <select value={sd.receiverLength||""} onChange={e=>updSD({receiverLength:e.target.value})} style={selSty}>
+                                <option value="">Select…</option>
+                                {RECEIVER_LENGTHS.map(l=><option key={l} value={l}>{l}</option>)}
+                              </select>
+                            </div>
+                            <div><label style={lblSty}>Receiver Power</label>
+                              <select value={sd.receiverPower||""} onChange={e=>{updSD({receiverPower:e.target.value,dome:""});}} style={selSty}>
+                                <option value="">Select…</option>
+                                {availPowers.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}
+                              </select>
+                            </div>
+                            {sd.receiverPower && !requiresEarmold && (
+                              <div><label style={lblSty}>Dome / Coupling</label>
+                                <select value={sd.dome||""} onChange={e=>updSD({dome:e.target.value})} style={selSty}>
+                                  <option value="">Select…</option>
+                                  {availDomes.map(dm=><option key={dm} value={dm}>{dm}</option>)}
+                                </select>
+                              </div>
+                            )}
+                            {sd.receiverPower && requiresEarmold && (
+                              <div style={{display:"flex",alignItems:"center",fontSize:12,color:"#854d0e",fontWeight:600,background:"#fef9c3",borderRadius:8,padding:"8px 12px"}}>
+                                Earmold required
+                              </div>
+                            )}
+                          </>)}
+
                         </div>
                       </div>
                     );
