@@ -19,7 +19,6 @@ import {
   loadPatientCampaigns,
   seedDefaultCampaign,
   backfillCampaignEnrollment,
-  loadInsurancePlans,
 } from "./db.js";
 
 import ContentLibrary from "./views/ContentLibrary.jsx";
