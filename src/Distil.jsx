@@ -2059,10 +2059,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const isSideConfigured = (s) => {
     const d = form[s];
-    if (d.manufacturer === "TruHearing") return !!(d.style && d.techLevel && d.familyId);
-    const fam = catalog.find(e => e.id === d.familyId);
-    const vReq = (fam?.variants?.length || 0) > 1;
-    return !!(d.familyId && d.techLevel && (!vReq || d.variant));
+    if (d.manufacturer === "TruHearing") return !!(d.style && d.techLevel);
+    return !!(d.familyId && d.techLevel);
   };
 
 
@@ -2644,9 +2642,20 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       :                          "TH5 · Signia X";
                     return (
                       <div key={t.label} className={`plan-row ${s.techLevel===t.label?"active":""}`}
-                        onClick={()=>setForm(f=>({...f,[side]:{...f[side],
-                          manufacturer:"TruHearing", techLevel:t.label,
-                          familyId:"", generation:"", variant:"", battery:"", isCROS:false}}))}>
+                        onClick={()=>{
+                          // Find products available for this style+tier combo
+                          const prods = activeCatalog.filter(e =>
+                            e.manufacturer === "TruHearing" &&
+                            e.styles.includes(s.style) &&
+                            (s.style === "bte" ? e.thSeries === "TH5" : e.planTierKey === t.label)
+                          );
+                          const auto = prods.length === 1 ? prods[0] : null;
+                          setForm(f=>({...f,[side]:{...f[side],
+                            manufacturer:"TruHearing", techLevel:t.label,
+                            familyId: auto?.id || "", generation: auto?.generation || "",
+                            variant: auto?.variants?.length===1 ? auto.variants[0] : "",
+                            battery: auto?.battery?.[0] || "", isCROS:false}}));
+                        }}>
                         <div className="plan-row-top">
                           <div>
                             <div className="plan-row-name">{t.label}</div>
@@ -2814,8 +2823,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
               {/* ── Center Copy Buttons ── */}
               <div className="copy-actions">
                 <button className="copy-btn" disabled={!leftConfigured}
-                  onClick={()=>{ setForm(f=>({...f,right:{...f.left}})); setActiveSide("right"); }}>
-                  →
+                  onClick={()=>{ setForm(f=>({...f,right:{...f.left}})); setActiveSide("right"); }}
+                  title="Copy left ear settings to right ear">
+                  Copy to Right →
                 </button>
                 {leftHasCROS && (
                   <button className="copy-btn cros" disabled={!leftConfigured}
@@ -2825,14 +2835,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       const crosVariant = crosFam?.variants.find(v=>v.toLowerCase().includes("cros")) || "CROS";
                       setForm(f=>({...f,right:{...src, variant:crosVariant, receiverLength:"", receiverPower:"", dome:""}}));
                       setActiveSide("right");
-                    }}>
-                    📡→
+                    }}
+                    title="Copy as CROS transmitter to right ear">
+                    📡 CROS →
                   </button>
                 )}
                 <div style={{height:1,width:24,background:"#e5e7eb",margin:"4px 0"}} />
                 <button className="copy-btn" disabled={!rightConfigured}
-                  onClick={()=>{ setForm(f=>({...f,left:{...f.right}})); setActiveSide("left"); }}>
-                  ←
+                  onClick={()=>{ setForm(f=>({...f,left:{...f.right}})); setActiveSide("left"); }}
+                  title="Copy right ear settings to left ear">
+                  ← Copy to Left
                 </button>
                 {rightHasCROS && (
                   <button className="copy-btn cros" disabled={!rightConfigured}
@@ -2842,8 +2854,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       const crosVariant = crosFam?.variants.find(v=>v.toLowerCase().includes("cros")) || "CROS";
                       setForm(f=>({...f,left:{...src, variant:crosVariant, receiverLength:"", receiverPower:"", dome:""}}));
                       setActiveSide("left");
-                    }}>
-                    ←📡
+                    }}
+                    title="Copy as CROS transmitter to left ear">
+                    ← CROS 📡
                   </button>
                 )}
               </div>
@@ -3640,7 +3653,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       style={{width:"100%",marginBottom:8,padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}}
                     />
                     <div style={{maxHeight:180,overflowY:"auto",display:"flex",flexDirection:"column",gap:5,paddingRight:2}}>
-                      {insurancePlans
+                      {(insurancePlans.length ? insurancePlans : INSURANCE_PLANS)
                         .filter(plan=>{const q=(editPlanSearch||"").toLowerCase();return !q||plan.carrier.toLowerCase().includes(q)||plan.planGroup.toLowerCase().includes(q)||(plan.tpa||"").toLowerCase().includes(q);})
                         .sort((a,b)=>a.planGroup.localeCompare(b.planGroup))
                         .slice(0,30)
