@@ -56,6 +56,9 @@ Companion patient-facing app.
 - **Audiogram counseling language**: Avoid percentage improvement framing; focus on aided word recognition score and treatment implications
 - **Intake IDs**: Format `MHC-YYYYMMDD-XXXXX`
 - **HIPAA consent**: Verbatim MHC legal language, scroll-to-bottom gating
+- **"Neurotechnology" is trademarked** — owned by former Intermountain Audiology. Never use in app copy or patient-facing UI. Use "devices" instead.
+- **"Premium" is banned from patient-facing UI** — per scripting doc / Dr. Darrow. Use "Select" as the top tier label in all patient-visible contexts. "Premium" may exist internally in `insurance_plans.tier_label` (TruHearing's own naming) but never surfaces to patients.
+- **"Trial" and "demo" are banned** — use "adaptation period" and "evaluation."
 
 ---
 
@@ -80,6 +83,124 @@ Companion patient-facing app.
 
 ---
 
+## Narrative Thread — UX Architecture
+
+The patient education / device selection / care plan flow is structured as five sequential chapters. Each chapter opens with a one-line carry-forward from the previous, keeping the patient's story continuous from intake through close. The intake kiosk pre-loads Chapter 1 before the provider enters the room.
+
+| Chapter | Moment | Thread contribution |
+|---|---|---|
+| 1 — Patient story | Intake kiosk | Chief complaint · motivation score · soft commitment status |
+| 2 — Evidence | Post-testing | Diagnosis · WR gap · SNR loss · auto-mapped to stated complaints |
+| 3 — Recommendation | Device selection | Device rec · lifestyle rationale · insurance applied · patient cost only |
+| 4 — Investment | Care plan selection | Selected care plan · total investment · Complete Care+ pre-selected by default |
+| 5 — Commitment | Close | Treatment plan document · adaptation notes · provider checklist · day-2 call prompt |
+
+**Key design rules:**
+- Patient cost shown first, always. Retail price shown as "full retail value" for anchoring only.
+- Never show retail price without the insurance savings alongside it.
+- Care plan default = Complete Care+ (opt-out, not opt-in).
+- Provider-facing "prompter" sidebar shows talking points, soft commitment status, and close-readiness signal derived from motivation score + WR gap + severity.
+- The complaint carry-forward quote (patient's own words from intake) appears at the top of the pricing reveal.
+
+---
+
+## Pricing Reveal — Data Model
+
+### New table: `clinic_retail_anchors`
+Stores the clinic's private-pay retail anchor prices by technology tier. Editable from clinic settings.
+
+```
+id            text        PK (composite with clinic_id) — slug: 'select' | 'advanced' | 'standard' | 'level2' | 'level1'
+clinic_id     uuid        FK → clinics.id
+label         text        Patient-facing label (never "Premium")
+price_per_aid numeric     Clinic's full retail price per aid
+sort_order    integer
+updated_at    timestamptz
+```
+
+**Seeded values (clinic ae14da3e):**
+
+| id | label | price/aid |
+|---|---|---|
+| `select` | Select | $3,997.50 |
+| `advanced` | Advanced | $3,497.50 |
+| `standard` | Standard | $2,997.50 |
+| `level2` | Level 2 | $2,497.50 |
+| `level1` | Level 1 | $1,997.50 |
+
+### New column: `insurance_plans.retail_anchor_key`
+Text slug linking each plan tier row to a `clinic_retail_anchors` entry.
+
+**Mapping logic (all 295 rows populated):**
+
+| tier_label in insurance_plans | → retail_anchor_key |
+|---|---|
+| Premium, Level 7 | `select` |
+| Advanced, Level 5 | `advanced` |
+| Standard, Level 3 | `standard` |
+| Level 2 | `level2` |
+| Level 1 | `level1` |
+
+### New column: `insurance_coverage.insurance_plan_id`
+UUID FK → `insurance_plans.id`. Links a patient's coverage record to a specific plan row. Currently NULL on existing rows — must be populated when a patient's plan is selected in the UI.
+
+### `db.js` function: `loadPricingReveal(clinicId, patientId)`
+Ready to add — not yet in codebase.
+
+```javascript
+export async function loadPricingReveal(clinicId, patientId) {
+  const { data, error } = await supabase
+    .from('insurance_coverage')
+    .select(`
+      tier_price_per_aid,
+      tier,
+      insurance_plan_id,
+      insurance_plans (
+        tier_label,
+        retail_anchor_key
+      )
+    `)
+    .eq('patient_id', patientId)
+    .eq('active', true)
+    .single();
+
+  if (error || !data) return null;
+
+  const anchorKey = data.insurance_plans?.retail_anchor_key;
+  if (!anchorKey) return null;
+
+  const { data: anchor } = await supabase
+    .from('clinic_retail_anchors')
+    .select('label, price_per_aid')
+    .eq('id', anchorKey)
+    .eq('clinic_id', clinicId)
+    .single();
+
+  if (!anchor) return null;
+
+  const retailPerAid  = parseFloat(anchor.price_per_aid);
+  const copayPerAid   = data.tier_price_per_aid;
+  const savingsPerAid = retailPerAid - copayPerAid;
+  const savingsPct    = Math.round((savingsPerAid / retailPerAid) * 100);
+
+  return {
+    tierLabel:    anchor.label,
+    retailPerAid,
+    copayPerAid,
+    savingsPerAid,
+    savingsPct
+  };
+}
+```
+
+**Coding session TODO for pricing reveal:**
+1. Add `loadPricingReveal()` to `db.js`
+2. Wire `insurance_coverage.insurance_plan_id` FK write when patient plan is selected in UI
+3. Build `PricingReveal` component in Chapter 3 of narrative thread using output of `loadPricingReveal()`
+4. Component shows: full retail value · plan covers amount · your investment (pair default, per-aid toggle) · savings badge ($ + %)
+
+---
+
 ## Active Feature Backlog (Priority Order)
 
 ### Distil
@@ -94,12 +215,14 @@ Companion patient-facing app.
 5. Regimented care calendar: full 4–5 year appointment arc scheduled at fitting
 6. Upgrade tracking fields: `care_plan_start_date`, `upgrade_tier_offered`, `upgrade_outcome`, `donation_recipient`
 7. Insurance Plans management screen (deferred pending Supabase migration testing)
+8. **Narrative Thread UX** — five-chapter patient education / device selection / close flow (design complete, build pending)
+9. **Pricing Reveal component** — Chapter 3 of narrative thread (data model complete, `db.js` function ready, UI build pending)
 
 ### Aided
-8. Patient engagement: push notifications, educational content, short videos
-9. Year 4 Donate & Upgrade pathway — punch card incentive, charity donation flow
-10. Year 5 Loyalty discount pathway
-11. Video upload/record flow: donor message → recipient response → social share with consent
+10. Patient engagement: push notifications, educational content, short videos
+11. Year 4 Donate & Upgrade pathway — punch card incentive, charity donation flow
+12. Year 5 Loyalty discount pathway
+13. Video upload/record flow: donor message → recipient response → social share with consent
 
 ---
 
