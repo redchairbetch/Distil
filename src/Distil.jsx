@@ -571,7 +571,117 @@ const CATALOG_DEFAULT = [
     battery:["Rechargeable (Li-Ion)"], active:true,
     notes:"48ch · X platform · BTE Li-Ion · +$50/aid. Always available regardless of plan tier." },
 ];
-const RECEIVER_LENGTHS = ["0","1","2","3","4"];
+const RECEIVER_LENGTHS = ["0","1","2","3","4","5"];
+
+
+// ── TRUHEARING DEVICE CONFIG ──────────────────────────────────────────────────
+// Encodes the TruHearing website's model/tier/style availability, gain/matrix
+// options, color schemes, battery types, and dome options. Drives the private-label
+// cascade in Step 3 to mirror the TruHearing ordering portal exactly.
+
+const TH_STYLES = [
+  { id:"if",     label:"IF (Instant Fit)" },
+  { id:"iic",    label:"IIC (Invisible In the Canal)" },
+  { id:"cic",    label:"CIC (Completely In the Canal)" },
+  { id:"itc",    label:"ITC (In The Canal)" },
+  { id:"hs",     label:"HS (Half Shell)" },
+  { id:"fs",     label:"FS (Full Shell)" },
+  { id:"s_bte",  label:"S BTE (Standard Behind The Ear)" },
+  { id:"p_bte",  label:"P BTE (Power Behind The Ear)" },
+  { id:"sp_bte", label:"SP BTE (Super Power Behind The Ear)" },
+  { id:"ric",    label:"RIC (Receiver In Canal)" },
+  { id:"ric_bct",label:"RIC + BCT" },
+  { id:"sr",     label:"SR (Slim RIC)" },
+];
+
+const TH_MODELS = [
+  { id:"th7",   label:"TruHearing 7",    li:false },
+  { id:"th7li", label:"TruHearing 7 Li", li:true },
+  { id:"th6",   label:"TruHearing 6",    li:false },
+  { id:"th6li", label:"TruHearing 6 Li", li:true },
+  { id:"th5",   label:"TruHearing 5",    li:false },
+  { id:"th5li", label:"TruHearing 5 Li", li:true },
+];
+
+// model|techLevel → [style IDs]
+const TH_AVAILABILITY = {
+  "th7|Standard":   ["iic","cic"],
+  "th7|Advanced":   ["cic","itc","hs","fs"],
+  "th7|Premium":    ["iic","cic","itc","hs","fs"],
+  "th7li|Advanced": ["ric","ric_bct"],
+  "th7li|Premium":  ["ric","ric_bct","sr","if"],
+  "th6|Standard":   ["ric"],
+  "th6|Advanced":   ["ric"],
+  "th6|Premium":    ["ric"],
+  "th6li|Advanced": ["itc","hs","fs"],
+  "th6li|Premium":  ["itc","hs","fs","sr"],
+  "th5|Premium":    ["if"],
+  "th5li|Advanced": ["s_bte","p_bte","sp_bte"],
+  "th5li|Premium":  ["s_bte","p_bte","sp_bte"],
+};
+
+// model+style → gain/matrix options; earmold:true means HP encased earmold
+const TH_GAIN_MATRIX = {
+  "th7|iic":       [{id:"113/50 (S)", label:"113/50 (S)"}],
+  "th7|cic":       [{id:"113/50 (S)", label:"113/50 (S)"},{id:"118/55 (M)", label:"118/55 (M)"},{id:"124/65 (P)", label:"124/65 (P)"}],
+  "th7|itc":       [{id:"113/50 (S)", label:"113/50 (S)"},{id:"118/55 (M)", label:"118/55 (M)"},{id:"124/65 (P)", label:"124/65 (P)"}],
+  "th7|hs":        [{id:"113/50 (S)", label:"113/50 (S)"},{id:"118/55 (M)", label:"118/55 (M)"},{id:"124/65 (P)", label:"124/65 (P)"}],
+  "th7|fs":        [{id:"113/50 (S)", label:"113/50 (S)"},{id:"118/55 (M)", label:"118/55 (M)"},{id:"124/65 (P)", label:"124/65 (P)"}],
+  "th7li|ric":     [{id:"110/46 (S)", label:"110/46 (S)"},{id:"119/60 (M)", label:"119/60 (M)"},{id:"122/65 (P)", label:"122/65 (P)"},{id:"131/75 (HP)", label:"131/75 (HP)", earmold:true}],
+  "th7li|ric_bct": [{id:"110/46 (S)", label:"110/46 (S)"},{id:"119/60 (M)", label:"119/60 (M)"},{id:"122/65 (P)", label:"122/65 (P)"},{id:"131/75 (HP)", label:"131/75 (HP)", earmold:true}],
+  "th7li|sr":      [{id:"110/46 (S)", label:"110/46 (S)"},{id:"119/60 (M)", label:"119/60 (M)"},{id:"122/65 (P)", label:"122/65 (P)"}],
+  "th7li|if":      [{id:"114/50", label:"114/50"}],
+  "th6|ric":       [{id:"110/46 (S)", label:"110/46 (S)"},{id:"119/60 (M)", label:"119/60 (M)"},{id:"122/65 (P)", label:"122/65 (P)"},{id:"131/75 (HP)", label:"131/75 (HP)", earmold:true}],
+  "th6li|itc":     [{id:"113/50 (S)", label:"113/50 (S)"},{id:"118/55 (M)", label:"118/55 (M)"},{id:"124/65 (P)", label:"124/65 (P)"}],
+  "th6li|hs":      [{id:"113/50 (S)", label:"113/50 (S)"},{id:"118/55 (M)", label:"118/55 (M)"},{id:"124/65 (P)", label:"124/65 (P)"}],
+  "th6li|fs":      [{id:"113/50 (S)", label:"113/50 (S)"},{id:"118/55 (M)", label:"118/55 (M)"},{id:"124/65 (P)", label:"124/65 (P)"}],
+  "th6li|sr":      [{id:"110/46 (S)", label:"110/46 (S)"},{id:"119/60 (M)", label:"119/60 (M)"},{id:"122/65 (P)", label:"122/65 (P)"}],
+  "th5|if":        [{id:"113/50", label:"113/50"}],
+  "th5li|s_bte":   [{id:"125/50 Thin-Tube", label:"125/50 Thin-Tube"},{id:"133/60 Earhook", label:"133/60 Earhook"}],
+  "th5li|p_bte":   [{id:"130/66 Thin-Tube", label:"130/66 Thin-Tube"},{id:"135/77 Earhook", label:"135/77 Earhook"}],
+  "th5li|sp_bte":  [{id:"140/82 Earhook", label:"140/82 Earhook"}],
+};
+
+// Color schemes by style category
+const TH_COLORS = {
+  ric_bte:  ["Beige","Dark Brown","Black","Granite","Sandy Brown"],
+  slim_ric: ["Snow White/Rose Gold","Cosmic Blue/Rose Gold","Black/Silver","White","Black"],
+  if_faceplate: ["Mocha","Black"],
+  if_shell: ["Red/Blue"],
+  custom_faceplate: ["Beige","Tan","Mocha","Brown","Dark Brown","Black"],
+  custom_shell: ["Beige","Tan","Mocha","Brown","Dark Brown","Black"],
+};
+
+// Which style category each TH style belongs to (for color logic)
+const TH_STYLE_COLOR_CATEGORY = {
+  ric:"ric_bte", ric_bct:"ric_bte", s_bte:"ric_bte", p_bte:"ric_bte", sp_bte:"ric_bte",
+  sr:"slim_ric",
+  if:"if",
+  iic:"custom", cic:"custom", itc:"custom", hs:"custom", fs:"custom",
+};
+
+// Battery type auto-determined by model+style
+const TH_BATTERY = {
+  "th7|iic":"Size 10 (Disposable)", "th7|cic":"Size 10 (Disposable)",
+  "th7|itc":"Size 312 (Disposable)", "th7|hs":"Size 312 (Disposable)", "th7|fs":"Size 312 (Disposable)",
+  "th7li|ric":"Rechargeable (Li-Ion)", "th7li|ric_bct":"Rechargeable (Li-Ion)", "th7li|sr":"Rechargeable (Li-Ion)", "th7li|if":"Rechargeable (Li-Ion)",
+  "th6|ric":"Size 312 (Disposable)",
+  "th6li|itc":"Rechargeable (Li-Ion)", "th6li|hs":"Rechargeable (Li-Ion)", "th6li|fs":"Rechargeable (Li-Ion)", "th6li|sr":"Rechargeable (Li-Ion)",
+  "th5|if":"Size 10 (Disposable)",
+  "th5li|s_bte":"Rechargeable (Li-Ion)", "th5li|p_bte":"Rechargeable (Li-Ion)", "th5li|sp_bte":"Rechargeable (Li-Ion)",
+};
+
+// TruHearing dome options — two-step: category → sizes
+const TH_DOMES = {
+  "Open":   ["5mm","7mm","10mm"],
+  "Tulip":  ["8mm","12mm"],
+  "Vented": ["XS","S","M","L","XL"],
+  "Closed": ["XS","S","M","L","XL"],
+  "Power":  ["XS","S","M","L","XL"],
+};
+
+// Styles that show receiver length + dome selection
+const TH_RECEIVER_STYLES = ["ric","ric_bct","sr"];
 
 
 // Per-manufacturer receiver power options. earmold:true = auto-requires earmold, no dome
@@ -1013,7 +1123,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const EMPTY_SIDE = () => ({
     style:"", manufacturer:"", generation:"", familyId:"", variant:"",
-    techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false
+    techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false,
+    thModel:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""
   });
 
 
@@ -1022,8 +1133,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
     firstName:"", lastName:"", dob:"", phone:"", email:"", address:"",
     payType:"insurance",
     carrier:"", planGroup:"", tpa:"", tier:"", tierPrice:null,
-    left: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false},
-    right: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false},
+    left: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, thModel:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""},
+    right: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, thModel:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""},
     audiology: { rightT:{}, leftT:{}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:null, unaidedL:null, aidedR:null, aidedL:null, sinBin:null },
     carePlan:"",
     fittingDate: new Date().toISOString().split("T")[0],
@@ -1075,7 +1186,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const upd = (k,v) => setForm(f => ({...f,[k]:v}));
   const updSide = (side, k, v) => setForm(f => ({...f, [side]: {...f[side], [k]: v}}));
-  const resetSide = (side, partial={}) => setForm(f => ({...f, [side]: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, ...partial}}));
+  const resetSide = (side, partial={}) => setForm(f => ({...f, [side]: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, thModel:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:"", ...partial}}));
 
   // Private-label (TruHearing Select) plan detection — must be defined before useEffects that reference it
   const isPrivateLabelPlan = (plan) =>
@@ -1237,6 +1348,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
         receiverPower:  side.receiverPower  || "",
         dome:           side.dome           || "",
         isCROS:         false,
+        thModel:        side.thModel        || "",
+        faceplateColor: side.faceplateColor || "",
+        shellColor:     side.shellColor     || "",
+        gainMatrix:     side.gainMatrix     || "",
+        domeCategory:   side.domeCategory   || "",
+        domeSize:       side.domeSize       || "",
       };
     };
     setEditDraft({
@@ -1276,6 +1393,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
         receiver_length: s.receiverLength  || null,
         receiver_power:  s.receiverPower   || null,
         dome:            s.dome            || null,
+        th_model:        s.thModel         || null,
+        faceplate_color: s.faceplateColor  || null,
+        shell_color:     s.shellColor      || null,
+        gain_matrix:     s.gainMatrix      || null,
+        dome_category:   s.domeCategory    || null,
+        dome_size:       s.domeSize        || null,
       });
       if (leftSideId  && editDraft.left)  await updateDeviceSide(leftSideId,  buildSideFields(editDraft.left));
       if (rightSideId && editDraft.right) await updateDeviceSide(rightSideId, buildSideFields(editDraft.right));
@@ -2012,19 +2135,52 @@ export default function ProviderCRM({ staffId, clinicId }) {
     const requiresEarmold = selectedPower?.earmold === true;
     const variantRequired = (selectedFamily?.variants?.length || 0) > 1;
     const hasCROSVariant = selectedFamily?.variants?.some(v => v.toLowerCase().includes("cros")) || false;
-    const thAvailForStyle = isPrivateLabel && sd.style
-      ? activeCatalog.filter(e =>
-          e.manufacturer === "TruHearing" &&
-          e.styles.includes(sd.style) &&
-          (sd.style === "bte" ? e.thSeries === "TH5" : e.planTierKey === sd.techLevel)
-        )
+
+    // ── TruHearing cascade derived values ──
+    const tierLabels = privateLabelTiers.map(t => t.label);
+
+    // Models available for selected tech level
+    const thAvailModels = sd.techLevel
+      ? TH_MODELS.filter(m => TH_AVAILABILITY[`${m.id}|${sd.techLevel}`]?.length > 0)
       : [];
-    const selectedTHFamily = catalog.find(e => e.id === sd.familyId);
+
+    // Styles available for selected model+techLevel
+    const thAvailStyles = sd.thModel && sd.techLevel
+      ? (TH_AVAILABILITY[`${sd.thModel}|${sd.techLevel}`] || [])
+          .map(sid => TH_STYLES.find(s => s.id === sid)).filter(Boolean)
+      : [];
+
+    // Gain/Matrix for selected model+style
+    const thGainOptions = sd.thModel && sd.style
+      ? (TH_GAIN_MATRIX[`${sd.thModel}|${sd.style}`] || [])
+      : [];
+
+    // Color category
+    const thColorCategory = TH_STYLE_COLOR_CATEGORY[sd.style] || null;
+
+    // Battery (auto)
+    const thBattery = sd.thModel && sd.style
+      ? (TH_BATTERY[`${sd.thModel}|${sd.style}`] || "")
+      : "";
+
+    // Is rechargeable?
+    const thIsLi = TH_MODELS.find(m => m.id === sd.thModel)?.li || false;
+
+    // Earmold required from gain/matrix selection
+    const thSelectedGain = thGainOptions.find(g => g.id === sd.gainMatrix);
+    const thRequiresEarmold = thSelectedGain?.earmold === true;
+
+    // Has receiver (RIC/RIC+BCT/SR)
+    const thHasReceiver = TH_RECEIVER_STYLES.includes(sd.style);
+
+    // Pricing
     const thTierPrice = privateLabelTiers.find(t => t.label === sd.techLevel)?.price ?? 0;
-    const thEffectivePrice = selectedTHFamily?.rechargeable ? thTierPrice + 50 : thTierPrice;
+    const thEffectivePrice = thIsLi ? thTierPrice + 50 : thTierPrice;
+
     return { availMfrs, availGens, availFamilies, selectedFamily, availColors, availBatteries,
       availPowers, availDomes, selectedPower, requiresEarmold, variantRequired, hasCROSVariant,
-      thAvailForStyle, selectedTHFamily, thTierPrice, thEffectivePrice };
+      thAvailModels, thAvailStyles, thGainOptions, thColorCategory, thBattery, thIsLi,
+      thRequiresEarmold, thHasReceiver, thTierPrice, thEffectivePrice };
   };
   const leftDerived = getSideDerived(form.left);
   const rightDerived = getSideDerived(form.right);
@@ -2044,13 +2200,15 @@ export default function ProviderCRM({ staffId, clinicId }) {
     return { tierLabel: anchor.label, retailPerAid, copayPerAid, savingsPerAid, savingsPct };
   }, [form.tier, form.tierPrice, retailAnchors]);
 
-  // Detect rechargeable + Li-Ion upcharge from selected device families
+  // Detect rechargeable + Li-Ion upcharge from selected device families (standard catalog + TH)
   const leftFamily = catalog.find(e => e.id === form.left.familyId);
   const rightFamily = catalog.find(e => e.id === form.right.familyId);
-  const hasRechargeableLeft = leftFamily?.rechargeable || false;
-  const hasRechargeableRight = rightFamily?.rechargeable || false;
-  const liUpchargeLeft = leftFamily?.liUpcharge || 0;
-  const liUpchargeRight = rightFamily?.liUpcharge || 0;
+  const leftIsThLi = TH_MODELS.find(m => m.id === form.left.thModel)?.li || false;
+  const rightIsThLi = TH_MODELS.find(m => m.id === form.right.thModel)?.li || false;
+  const hasRechargeableLeft = leftFamily?.rechargeable || leftIsThLi;
+  const hasRechargeableRight = rightFamily?.rechargeable || rightIsThLi;
+  const liUpchargeLeft = leftFamily?.liUpcharge || (leftIsThLi ? 50 : 0);
+  const liUpchargeRight = rightFamily?.liUpcharge || (rightIsThLi ? 50 : 0);
 
   // Keep sd / otherSide for backward compat with non-step-3 code
   const sd = form[activeSide];
@@ -2059,7 +2217,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const isSideConfigured = (s) => {
     const d = form[s];
-    if (d.manufacturer === "TruHearing") return !!(d.style && d.techLevel);
+    if (d.manufacturer === "TruHearing") return !!(d.style && d.techLevel && d.thModel && d.gainMatrix);
     return !!(d.familyId && d.techLevel);
   };
 
@@ -2527,8 +2685,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
         const s = form[side];
         const d = side === "left" ? leftDerived : rightDerived;
         const { availMfrs, availGens, availFamilies, selectedFamily, availColors, availBatteries,
-          availPowers, availDomes, requiresEarmold, variantRequired,
-          thAvailForStyle, selectedTHFamily, thTierPrice, thEffectivePrice } = d;
+          availPowers, availDomes, requiresEarmold, variantRequired } = d;
 
         return (
           <div className={`device-col ${activeSide===side?"active":""}`} onClick={()=>setActiveSide(side)}>
@@ -2539,20 +2696,20 @@ export default function ProviderCRM({ staffId, clinicId }) {
               </span>
             </div>
 
-            {/* ── 1. Body Style ── */}
-            <div className="field" style={{marginBottom:16}}><label>Body Style</label>
-              <div className="style-grid">
-                {BODY_STYLES.map(bs=>(
-                  <div key={bs.id} className={`style-card ${s.style===bs.id?"active":""}`}
-                    onClick={()=>isPrivateLabel
-                      ? resetSide(side,{style:bs.id,manufacturer:"TruHearing"})
-                      : resetSide(side,{style:bs.id})}>
-                    <div className="style-id">{bs.label}</div>
-                    <div className="style-desc">{bs.desc}</div>
-                  </div>
-                ))}
+            {/* ── 1. Body Style (standard catalog only — TH uses its own style picker) ── */}
+            {!isPrivateLabel && (
+              <div className="field" style={{marginBottom:16}}><label>Body Style</label>
+                <div className="style-grid">
+                  {BODY_STYLES.map(bs=>(
+                    <div key={bs.id} className={`style-card ${s.style===bs.id?"active":""}`}
+                      onClick={()=>resetSide(side,{style:bs.id})}>
+                      <div className="style-id">{bs.label}</div>
+                      <div className="style-desc">{bs.desc}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* ── 2–6. Standard catalog cascade ── */}
             {!isPrivateLabel && (<>
@@ -2630,109 +2787,185 @@ export default function ProviderCRM({ staffId, clinicId }) {
               )}
             </>)}
 
-            {/* ── Private-label: tier → product → variant → CROS ── */}
-            {isPrivateLabel && s.style && (<>
+            {/* ── Private-label: TruHearing cascade ── */}
+            {isPrivateLabel && (<>
+              {/* 1. Technology Tier */}
               <div className="field" style={{marginBottom:16}}><label>Technology Tier</label>
                 <div className="plan-select-list">
-                  {privateLabelTiers.map(t => {
-                    const seriesDesc = s.style === "bte"
-                      ? "TH5 · Signia X (BTE — always available)"
-                      : t.label === "Premium"  ? "TH7 Premium · 48ch · Signia IX"
-                      : t.label === "Advanced" ? "TH6 Advanced · 32ch · Signia AX"
-                      :                          "TH5 · Signia X";
-                    return (
-                      <div key={t.label} className={`plan-row ${s.techLevel===t.label?"active":""}`}
-                        onClick={()=>{
-                          // Find products available for this style+tier combo
-                          const prods = activeCatalog.filter(e =>
-                            e.manufacturer === "TruHearing" &&
-                            e.styles.includes(s.style) &&
-                            (s.style === "bte" ? e.thSeries === "TH5" : e.planTierKey === t.label)
-                          );
-                          const auto = prods.length === 1 ? prods[0] : null;
-                          setForm(f=>({...f,[side]:{...f[side],
-                            manufacturer:"TruHearing", techLevel:t.label,
-                            familyId: auto?.id || "", generation: auto?.generation || "",
-                            variant: auto?.variants?.length===1 ? auto.variants[0] : "",
-                            battery: auto?.battery?.[0] || "", isCROS:false}}));
-                        }}>
-                        <div className="plan-row-top">
-                          <div>
-                            <div className="plan-row-name">{t.label}</div>
-                            <div className="plan-row-tpa">{seriesDesc}</div>
-                          </div>
-                          <div style={{fontWeight:700,color:"#0a1628"}}>
-                            {t.price===0 ? "No Charge" : `$${t.price.toLocaleString()} / aid`}
-                          </div>
+                  {privateLabelTiers.map(t => (
+                    <div key={t.label} className={`plan-row ${s.techLevel===t.label?"active":""}`}
+                      onClick={()=>setForm(f=>({...f,[side]:{...EMPTY_SIDE(), manufacturer:"TruHearing", techLevel:t.label}}))}>
+                      <div className="plan-row-top">
+                        <div><div className="plan-row-name">{t.label}</div></div>
+                        <div style={{fontWeight:700,color:"#0a1628"}}>
+                          {t.price===0 ? "No Charge" : `$${t.price.toLocaleString()} / aid`}
                         </div>
                       </div>
-                    );
-                  })}
+                    </div>
+                  ))}
                 </div>
               </div>
-              {s.techLevel && thAvailForStyle.length > 0 && (
-                <div className="field" style={{marginBottom:16}}>
-                  <label>{thAvailForStyle.length > 1 ? "Product / Power Source" : "Product"}</label>
-                  <div className="radio-group" style={{flexWrap:"wrap",gap:8}}>
-                    {thAvailForStyle.map(p => (
-                      <div key={p.id}
-                        className={`radio-pill ${s.familyId===p.id?"active":""}`}
-                        style={{minWidth:200,flexDirection:"column",alignItems:"flex-start"}}
-                        onClick={()=>setForm(f=>({...f,[side]:{...f[side],
-                          familyId:p.id, generation:p.generation,
-                          variant:p.variants.length===1?p.variants[0]:"",
-                          battery:p.battery[0]||"", isCROS:false}}))}>
-                        <div className="radio-pill-label">
-                          {p.rechargeable ? "♻ Rechargeable (Li-Ion)" : `🔋 ${p.battery[0]||"Battery"}`}
-                        </div>
-                        <div className="radio-pill-sub" style={{fontSize:10,marginTop:2,opacity:0.85}}>
-                          {p.family}{p.rechargeable ? " · +$50/aid" : ""}
-                        </div>
+
+              {/* 2. Model */}
+              {s.techLevel && d.thAvailModels.length > 0 && (
+                <div className="field" style={{marginBottom:16}}><label>Model</label>
+                  <div className="radio-group" style={{flexWrap:"wrap"}}>
+                    {d.thAvailModels.map(m=>(
+                      <div key={m.id} className={`radio-pill ${s.thModel===m.id?"active":""}`}
+                        onClick={()=>setForm(f=>({...f,[side]:{...f[side], thModel:m.id, style:"", color:"", faceplateColor:"", shellColor:"", gainMatrix:"", battery:"", receiverLength:"", receiverPower:"", dome:"", domeCategory:"", domeSize:"", familyId:"", variant:"", generation:""}}))}>
+                        <div className="radio-pill-label">{m.label}</div>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
-              {selectedTHFamily?.rechargeable && s.techLevel && (
+
+              {/* 3. Style */}
+              {s.thModel && d.thAvailStyles.length > 0 && (
+                <div className="field" style={{marginBottom:16}}><label>Style</label>
+                  <div className="radio-group" style={{flexWrap:"wrap"}}>
+                    {d.thAvailStyles.map(st=>{
+                      const autoBattery = TH_BATTERY[`${s.thModel}|${st.id}`] || "";
+                      const autoGainOptions = TH_GAIN_MATRIX[`${s.thModel}|${st.id}`] || [];
+                      const autoGain = autoGainOptions.length === 1 ? autoGainOptions[0].id : "";
+                      const autoShell = st.id === "if" ? "Red/Blue" : "";
+                      return (
+                        <div key={st.id} className={`radio-pill ${s.style===st.id?"active":""}`}
+                          onClick={()=>setForm(f=>({...f,[side]:{...f[side], style:st.id, color:"", faceplateColor:"", shellColor:autoShell, gainMatrix:autoGain, battery:autoBattery, receiverLength:"", receiverPower:"", dome:"", domeCategory:"", domeSize:""}}))}>
+                          <div className="radio-pill-label">{st.label}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* 4. Color — conditional by style category */}
+              {s.style && d.thColorCategory === "ric_bte" && (
+                <div className="field" style={{marginBottom:16}}><label>Color</label>
+                  <div className="color-swatches">
+                    {TH_COLORS.ric_bte.map(c=>(
+                      <div key={c} className={`color-swatch ${s.color===c?"active":""}`} onClick={()=>updSide(side,"color",c)}>{c}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {s.style && d.thColorCategory === "slim_ric" && (
+                <div className="field" style={{marginBottom:16}}><label>Color</label>
+                  <div className="color-swatches">
+                    {TH_COLORS.slim_ric.map(c=>(
+                      <div key={c} className={`color-swatch ${s.color===c?"active":""}`} onClick={()=>updSide(side,"color",c)}>{c}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {s.style && d.thColorCategory === "if" && (
+                <div className="field-grid" style={{marginBottom:16}}>
+                  <div className="field"><label>Faceplate Color</label>
+                    <select value={s.faceplateColor} onChange={e=>updSide(side,"faceplateColor",e.target.value)}>
+                      <option value="">Select...</option>
+                      {TH_COLORS.if_faceplate.map(c=><option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div className="field"><label>Shell Color</label>
+                    <select value={s.shellColor} onChange={e=>updSide(side,"shellColor",e.target.value)} disabled={true}>
+                      <option value="Red/Blue">Red/Blue</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+              {s.style && d.thColorCategory === "custom" && (
+                <div className="field-grid" style={{marginBottom:16}}>
+                  <div className="field"><label>Faceplate Color</label>
+                    <select value={s.faceplateColor} onChange={e=>updSide(side,"faceplateColor",e.target.value)}>
+                      <option value="">Select...</option>
+                      {TH_COLORS.custom_faceplate.map(c=><option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div className="field"><label>Shell Color</label>
+                    <select value={s.shellColor} onChange={e=>updSide(side,"shellColor",e.target.value)}>
+                      <option value="">Select...</option>
+                      {TH_COLORS.custom_shell.map(c=><option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* 5. Battery Type (auto-populated, read-only) */}
+              {s.style && d.thBattery && (
+                <div className="field" style={{marginBottom:16}}><label>Battery Type</label>
+                  <div style={{padding:"8px 12px",background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,fontSize:13,color:"#374151"}}>
+                    {d.thBattery}
+                  </div>
+                </div>
+              )}
+
+              {/* Li-Ion upcharge banner */}
+              {s.style && d.thIsLi && s.techLevel && (
                 <div style={{background:"#fef3c7",border:"1px solid #fde68a",borderRadius:8,
                     padding:"10px 14px",marginBottom:16,fontSize:13,color:"#92400e",fontWeight:600}}>
                   ♻ Rechargeable Li-Ion —{" "}
-                  {thTierPrice === 0
+                  {d.thTierPrice === 0
                     ? <>No-charge plan + $50/aid upcharge = <strong>$50 / aid</strong></>
-                    : <>${thTierPrice.toLocaleString()} plan price + $50/aid upcharge = <strong>${thEffectivePrice.toLocaleString()} / aid</strong></>
+                    : <>${d.thTierPrice.toLocaleString()} plan price + $50/aid upcharge = <strong>${d.thEffectivePrice.toLocaleString()} / aid</strong></>
                   }
                 </div>
               )}
-              {s.familyId && selectedTHFamily && (s.style === "bte" || s.style !== "ric") &&
-                selectedTHFamily.variants.length > 1 && (
-                <div className="field" style={{marginBottom:16}}>
-                  <label>{s.style === "bte" ? "BTE Type" : "Custom Style"}</label>
-                  <div className="radio-group" style={{flexWrap:"wrap"}}>
-                    {selectedTHFamily.variants.map(v=>(
-                      <div key={v} className={`radio-pill ${s.variant===v?"active":""}`}
-                        onClick={()=>updSide(side,"variant",v)}>
-                        <div className="radio-pill-label">{v}</div>
-                      </div>
-                    ))}
-                  </div>
+
+              {/* 6. Receiver Length (RIC/RIC+BCT/SR only) */}
+              {s.style && d.thHasReceiver && (
+                <div className="field" style={{marginBottom:16}}><label>Receiver Length</label>
+                  <select value={s.receiverLength} onChange={e=>updSide(side,"receiverLength",e.target.value)}>
+                    <option value="">Select...</option>
+                    {RECEIVER_LENGTHS.map(l=><option key={l} value={l}>{l}</option>)}
+                  </select>
                 </div>
               )}
-              {s.familyId && selectedTHFamily && s.style === "ric" &&
-                selectedTHFamily.variants.includes("CROS") && (
-                <div className="field" style={{marginBottom:16}}><label>CROS / BiCROS</label>
-                  <div className="radio-group">
-                    {[{v:false,label:"Standard"},{v:true,label:"📡 CROS Transmitter"}].map(({v,label})=>(
-                      <div key={String(v)} className={`radio-pill ${s.isCROS===v?"active":""}`}
-                        onClick={()=>setForm(f=>({...f,[side]:{...f[side],isCROS:v}}))}>
-                        <div className="radio-pill-label">{label}</div>
-                      </div>
-                    ))}
-                  </div>
+
+              {/* 7. Gain/Matrix */}
+              {s.style && d.thGainOptions.length > 0 && (
+                <div className="field" style={{marginBottom:16}}><label>Receiver Gain / Matrix</label>
+                  {d.thGainOptions.length === 1 ? (
+                    <div style={{padding:"8px 12px",background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,fontSize:13,color:"#374151"}}>
+                      {d.thGainOptions[0].label}
+                    </div>
+                  ) : (
+                    <select value={s.gainMatrix} onChange={e=>updSide(side,"gainMatrix",e.target.value)}>
+                      <option value="">Select...</option>
+                      {d.thGainOptions.map(g=><option key={g.id} value={g.id}>{g.label}</option>)}
+                    </select>
+                  )}
                 </div>
+              )}
+
+              {/* 8. Domes (RIC/RIC+BCT/SR — not for earmold) */}
+              {s.style && d.thHasReceiver && s.gainMatrix && (
+                d.thRequiresEarmold ? (
+                  <div style={{background:"#fef9c3",border:"1px solid #fde047",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#854d0e",fontWeight:600}}>
+                    🦻 Earmold required — dome not applicable (HP encased receiver)
+                  </div>
+                ) : (
+                  <div className="field-grid" style={{marginBottom:16}}>
+                    <div className="field"><label>Dome Category</label>
+                      <select value={s.domeCategory} onChange={e=>setForm(f=>({...f,[side]:{...f[side], domeCategory:e.target.value, domeSize:""}}))}>
+                        <option value="">Select...</option>
+                        {Object.keys(TH_DOMES).map(cat=><option key={cat} value={cat}>{cat}</option>)}
+                      </select>
+                    </div>
+                    {s.domeCategory && TH_DOMES[s.domeCategory] && (
+                      <div className="field"><label>Dome Size</label>
+                        <select value={s.domeSize} onChange={e=>updSide(side,"domeSize",e.target.value)}>
+                          <option value="">Select...</option>
+                          {TH_DOMES[s.domeCategory].map(sz=><option key={sz} value={sz}>{sz}</option>)}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )
               )}
             </>)}
 
-            {/* ── 7–8. Color / Battery (standard only) ── */}
+            {/* ── 7–8. Color / Battery (standard catalog only) ── */}
             {!isPrivateLabel && (<>
               {s.techLevel && availColors.length > 0 && (
                 <div className="field" style={{marginBottom:16}}><label>Color</label>
@@ -2756,8 +2989,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
               )}
             </>)}
 
-            {/* ── 9. Receiver + Dome (RIC) ── */}
-            {s.style === "ric" && s.techLevel && availPowers.length > 0 && (
+            {/* ── 9. Receiver + Dome (RIC — standard catalog only) ── */}
+            {!isPrivateLabel && s.style === "ric" && s.techLevel && availPowers.length > 0 && (
               <>
                 <div style={{height:1,background:"#f3f4f6",margin:"4px 0 16px"}} />
                 <div className="field-grid" style={{marginBottom:0}}>
@@ -2812,7 +3045,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
             {isPrivateLabel && (
               <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#1e40af",fontWeight:600}}>
-                🏷️ This plan uses TruHearing Select devices — select body style, then choose your tech tier and configure fit details.
+                🏷️ TruHearing Select — choose technology tier, model, and style to configure the device.
               </div>
             )}
 
