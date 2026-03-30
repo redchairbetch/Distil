@@ -48,7 +48,6 @@ Companion patient-facing app.
 ## Critical Architecture Rules
 - **Plan tier ≠ device generation**: Standard/Advanced/Premium are pricing sophistication labels. Device generation (X/AX/IX) is derived from TH series selection. Conflating these caused a major architectural bug previously.
 - **Supabase migration is fragile**: Verify correct file version before every edit. Git discipline critical.
-- **Li-Ion upcharge**: $50/aid added directly to displayed patient cost
 - **TH5 BTE**: Always available regardless of plan tier
 - **312-powered RICs**: Uncommon on TruHearing plans, mostly Standard tier
 - **Beltone**: Requires proprietary software authorization we don't have — use Rexton-only designation

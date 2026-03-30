@@ -46,101 +46,91 @@ const DEFAULT_CLINIC = {
 
 
 const INSURANCE_PLANS = [
-  { carrier:"Anthem", planGroup:"Medicare Preferred PPO; Medicare Supplement; Prefix MBL; Prefix VOD/YFZ; Prefix L7Q; Prefix VOC/YGZ; Anthem Empire Mediblue Freedom (PPO); Anthem Dual Advantage (HMO D-SNP); NV Anthem Medicare Advantage (HMO); NV Anthem I Carelon Chronic Care (HMO-POS C-SNP); KY Anthem Medicare Advantage HMO POS", tpa:"TruHearing", tiers:[{label:"Level 1",price:499}, {label:"Level 2",price:699}, {label:"Level 3",price:999}, {label:"Level 5",price:1399}, {label:"Level 7",price:1799}] },
-  { carrier:"Anthem", planGroup:"Prefix JRG / JRI", tpa:"TruHearing", notes:"Select (TH Private Label)", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
-  { carrier:"Anthem", planGroup:"Sheet Metal Workers' Union Local 33 Cleveland District via OH PPO/EPO Blue Access Local/Natl", tpa:"TruHearing", notes:"Select (TH Private Label)", tiers:[{label:"Advanced",price:499}, {label:"Premium",price:799}] },
-  { carrier:"Anthem", planGroup:"Prefix XMM", tpa:"TruHearing", tiers:[{label:"Level 2",price:699}, {label:"Level 3",price:999}, {label:"Level 5",price:1399}, {label:"Level 7",price:1799}] },
-  { carrier:"Anthem", planGroup:"Mediblue Access PPO; Preferred Provider Option; Prefix EAU", tpa:"TruHearing", tiers:[{label:"Level 1",price:1095}, {label:"Level 2",price:1400}, {label:"Level 3",price:1700}, {label:"Level 5",price:2095}, {label:"Level 7",price:2600}] },
-  { carrier:"Anthem", planGroup:"Plumbers & Pipefitters Union Local No. 525", tpa:"TruHearing", tiers:[{label:"Level 3",price:1195}, {label:"Level 5",price:1495}, {label:"Level 7",price:1895}] },
-  { carrier:"BCBS", planGroup:"BCBS Montana Medicare Advantage PPO", tpa:"TruHearing", tiers:[{label:"Level 3",price:1495}, {label:"Level 5",price:1895}, {label:"Level 7",price:2195}] },
-  { carrier:"BCBS", planGroup:"Arkansas Choice; Prefix PBHAB; BCBS Arkansas Medicare Advantage HMO", tpa:"TruHearing", tiers:[{label:"Level 3",price:445}, {label:"Level 5",price:745}, {label:"Level 7",price:1145}] },
-  { carrier:"BCBS", planGroup:"Arkansas Medipak; Prefix PBHF; Prefix XCM", tpa:"TruHearing", notes:"Select option only", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
-  { carrier:"BCBS", planGroup:"AR Blue Medicare Saver Choice PPO; Prefix MCMAB; Medicare Advantage Optimum (PPO) MT", tpa:"TruHearing", tiers:[{label:"Level 1",price:695}, {label:"Level 2",price:895}, {label:"Level 3",price:1250}, {label:"Level 5",price:1595}, {label:"Level 7",price:2050}] },
-  { carrier:"BCBS", planGroup:"AR BlueMedicare Advantage Premier Choice; AR BlueMedicare Advantage Premier HMO; AR BlueMedicare Advantage Classic Plus; AR Blue Medicare Advantage Classic", tpa:"TruHearing", notes:"Select (TH Private Label)", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
-  { carrier:"BCBS", planGroup:"Prefix XMC, XMX; True Blue Special Needs Plan (Idaho)", tpa:"TruHearing", notes:"Select (TH Private Label)", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
-  { carrier:"BCBS", planGroup:"TN Blue Advantage Garnet", tpa:"TruHearing", notes:"Select (TH Private Label)", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
-  { carrier:"BCBS", planGroup:"Blue Care Plus TN", tpa:"TruHearing", notes:"Select option only", tiers:[{label:"Advanced",price:499}, {label:"Premium",price:799}] },
-  { carrier:"BCBS", planGroup:"Montana BCBS", tpa:"TruHearing", notes:"3IX / 5IX / 7IX pricing", tiers:[{label:"Level 3",price:1499}, {label:"Level 5",price:1899}, {label:"Level 7",price:2199}] },
-  { carrier:"BCBS", planGroup:"BCBS of Michigan Prefix XYL", tpa:"TruHearing", notes:"Select (TH Private Label)", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
-  { carrier:"BCBS Idaho", planGroup:"Prefix XMM, XMA (Idaho)", tpa:"TruHearing", tiers:[{label:"Level 1",price:695}, {label:"Level 2",price:895}, {label:"Level 3",price:1250}, {label:"Level 5",price:1595}, {label:"Level 7",price:2050}] },
-  { carrier:"BCBS", planGroup:"Prefix X2B (Idaho)", tpa:"TruHearing", notes:"Signia Level 1 only – No Cost to Patient", tiers:[{label:"Level 1",price:0}] },
-  { carrier:"BCBS of Idaho", planGroup:"Idaho Medicaid Plus", tpa:"TruHearing", notes:"Select (TH Private Label)", tiers:[{label:"Standard",price:399}, {label:"Advanced",price:599}, {label:"Premium",price:899}] },
-  { carrier:"CareSource Ohio", planGroup:"Dual Advantage Medicare/Medicaid", tpa:"TruHearing", notes:"No Cost to Patient; TH Private Label Advanced tech only", tiers:[{label:"Advanced",price:0}] },
-  { carrier:"CareSource Ohio", planGroup:"Marketplace Bronze First", tpa:"TruHearing", notes:"Choice Options", tiers:[{label:"Level 3",price:1250}, {label:"Level 5",price:1595}, {label:"Level 7",price:2050}] },
-  { carrier:"Central Midwest", planGroup:"Central Midwest Carpenters Welfare Fund", tpa:"TruHearing", notes:"Choice Options", tiers:[{label:"Level 1",price:695}, {label:"Level 2",price:895}, {label:"Level 3",price:1250}, {label:"Level 5",price:1595}, {label:"Level 7",price:2050}] },
-  { carrier:"CIGNA", planGroup:"True Choice Medicare PPO MNPS; Cigna Med Adv Health Spring Tru Choice PPO; Cigna HealthSpring Preferred (HMO); Cigna HealthSpring Premier (HMO-POS)", tpa:"TruHearing", notes:"No Cost to Patient; Select options Advanced only", tiers:[{label:"Advanced",price:0}] },
-  { carrier:"Cleveland Bakers & Teamsters", planGroup:"Health and Welfare Fund", tpa:"TruHearing", notes:"Choice Options", tiers:[{label:"Level 1",price:695}, {label:"Level 2",price:895}, {label:"Level 3",price:1250}, {label:"Level 5",price:1595}, {label:"Level 7",price:2050}] },
-  { carrier:"Devoted Health", planGroup:"Prime Ohio HMO; Premium Ohio HMO", tpa:"TruHearing", notes:"Standard/Select: Beltone Rexton only; Level 7 Not Available", tiers:[{label:"Level 2",price:999}, {label:"Level 3",price:1399}, {label:"Level 5",price:1599}] },
-  { carrier:"Devoted Health", planGroup:"Choice Extra Ohio PPO; Core TN HMO; Choice Ohio PPO; Core OH HMO", tpa:"TruHearing", tiers:[{label:"Level 2",price:699}, {label:"Level 3",price:999}, {label:"Level 5",price:1399}, {label:"Level 7",price:1799}] },
-  { carrier:"Devoted Health", planGroup:"Ohio Giveback HMO", tpa:"TruHearing", notes:"No Cost to Patient", tiers:[{label:"Advanced",price:0}] },
-  { carrier:"Devoted Health", planGroup:"Ohio Giveback HMO (based on zip code); Dual Plus OH", tpa:"TruHearing", tiers:[{label:"Level 2",price:899}, {label:"Level 3",price:1199}, {label:"Level 5",price:1299}, {label:"Level 7",price:1499}] },
-  { carrier:"DMBA", planGroup:"Deseret Secure; Deseret Alliance", tpa:"TruHearing", tiers:[{label:"Level 2",price:899}, {label:"Level 3",price:1199}, {label:"Level 5",price:1299}, {label:"Level 7",price:1499}] },
-  { carrier:"EMI Educators Mutual Association", planGroup:"All Plans", tpa:"TruHearing", tiers:[{label:"Level 2",price:745}, {label:"Level 3",price:1025}, {label:"Level 5",price:1500}, {label:"Level 7",price:1800}] },
-  { carrier:"GEHA", planGroup:"UHC Choice Plus Plan", tpa:"TruHearing", tiers:[{label:"Level 1",price:399}, {label:"Level 2",price:745}, {label:"Level 3",price:1025}, {label:"Level 5",price:1500}, {label:"Level 7",price:1800}] },
-  { carrier:"Highmark", planGroup:"Prefix T3B", tpa:"TruHearing", tiers:[{label:"Level 2",price:1049}, {label:"Level 3",price:1349}, {label:"Level 5",price:1699}, {label:"Level 7",price:2099}] },
-  { carrier:"Highmark", planGroup:"Prefix HRT", tpa:"TruHearing", tiers:[{label:"Level 1",price:599}, {label:"Level 2",price:899}, {label:"Level 3",price:1099}, {label:"Level 5",price:1499}, {label:"Level 7",price:1899}] },
-  { carrier:"Highmark", planGroup:"Prefix HRF", tpa:"TruHearing", tiers:[{label:"Advanced",price:199}, {label:"Premium",price:499}] },
-  { carrier:"Highmark", planGroup:"Prefix C4K", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
-  { carrier:"Highmark", planGroup:"Prefix ZWD", tpa:"TruHearing", tiers:[{label:"Advanced",price:599}, {label:"Premium",price:899}] },
-  { carrier:"Humana", planGroup:"Medicare Advantage", tpa:"TruHearing", notes:"Advanced at Zero Copay", tiers:[{label:"Advanced",price:0}, {label:"Premium",price:299}] },
-  { carrier:"Humana", planGroup:"Humana Choice Diabetes and Heart (PPO C-SNP)", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
-  { carrier:"Humana", planGroup:"USAA Honor Giveback PPO; Humana Essentials Plus Giveback (PPO); Humana Honor PPO; Humana Choice Giveback (PPO); Humana Cleveland Clinic Preferred (HMO-POS); Full Access PPO; Total Complete HMO", tpa:"TruHearing", tiers:[{label:"Level 1",price:695}, {label:"Level 2",price:895}, {label:"Level 3",price:1250}, {label:"Level 5",price:1595}, {label:"Level 7",price:2050}] },
-  { carrier:"Humana", planGroup:"USAA Honor Giveback (HMO)", tpa:"TruHearing", tiers:[{label:"Level 3",price:1250}, {label:"Level 5",price:1595}, {label:"Level 7",price:2050}] },
-  { carrier:"Humana", planGroup:"Choice PPO", tpa:"TruHearing", notes:"Select option only", tiers:[{label:"Advanced",price:99}, {label:"Premium",price:399}] },
-  { carrier:"Humana", planGroup:"Value Plus PPO; Dual Select HMO; Dual Select PPO; Gold Plus HMO (based on zip code)", tpa:"TruHearing", notes:"Select option only; *Copay may vary depending on zip code", tiers:[{label:"Advanced",price:599}, {label:"Premium",price:899}] },
-  { carrier:"Humana", planGroup:"Gold Plus HMO (based on zip code); Gold Plus Diabetes and Heart (HMO CSNP); Value Choice PPO", tpa:"TruHearing", notes:"Select option only", tiers:[{label:"Advanced",price:499}, {label:"Premium",price:799}] },
-  { carrier:"Humana", planGroup:"Gold Plus Giveback HMO", tpa:"TruHearing", notes:"Select options only", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:799}] },
-  { carrier:"Humana Medicare", planGroup:"Employer PPO Ohio CARP. Health Plan", tpa:"TruHearing", notes:"Select option only", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
-  { carrier:"Humana Medicare", planGroup:"Humana Medicare Employer PPO University of Oklahoma; Humana NW Laborers Employee Plan; Humana Medicare Employer PPO International Associates", tpa:"TruHearing", notes:"Level 7 Not Available", tiers:[{label:"Level 2",price:1325}, {label:"Level 3",price:1575}, {label:"Level 5",price:1925}] },
-  { carrier:"Humana Medicare", planGroup:"Humana Medicare Employer PPO Board of Pensions", tpa:"TruHearing", notes:"Standard/Select: Beltone Rexton only", tiers:[{label:"Level 2",price:970}, {label:"Level 3",price:1270}, {label:"Level 5",price:1570}, {label:"Level 7",price:1970}] },
-  { carrier:"Lineco", planGroup:"Lineco", tpa:"TruHearing", notes:"Standard/Select: Beltone Rexton only; Level 7 Not Available", tiers:[{label:"Level 2",price:975}, {label:"Level 3",price:1275}, {label:"Level 5",price:1575}] },
-  { carrier:"Medical Mutual", planGroup:"Medicare Advantage Plans", tpa:"TruHearing", tiers:[{label:"Level 3",price:1645}, {label:"Level 5",price:1950}, {label:"Level 7",price:2350}] },
-  { carrier:"Moda", planGroup:"Medicare Supplement", tpa:"TruHearing", tiers:[{label:"Level 1",price:695}, {label:"Level 2",price:895}, {label:"Level 3",price:1250}, {label:"Level 5",price:1595}, {label:"Level 7",price:2050}] },
-  { carrier:"Moda", planGroup:"Moda Health Central PPO", tpa:"TruHearing", notes:"Select (TH Private Label)", tiers:[{label:"Standard",price:299}, {label:"Advanced",price:599}, {label:"Premium",price:899}] },
-  { carrier:"Pacific Source", planGroup:"Medicare Advantage", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Anthem", planGroup:"Prefix XMM", tpa:"TruHearing", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Anthem", planGroup:"MediBlue Access PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:499}, {label:"Premium",price:799}] },
+  { carrier:"Anthem", planGroup:"Preferred Provider Option", tpa:"TruHearing", tiers:[{label:"Advanced",price:499}, {label:"Premium",price:799}] },
+  { carrier:"Anthem", planGroup:"Prefix EAU", tpa:"TruHearing", tiers:[{label:"Advanced",price:499}, {label:"Premium",price:799}] },
+  { carrier:"BCBS", planGroup:"BCBS Montana Medicare Advantage PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"BCBS", planGroup:"Arkansas Medipak", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"BCBS", planGroup:"Prefix PBHF", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"BCBS", planGroup:"Prefix XCM", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"BCBS", planGroup:"AR Blue Medicare Saver Choice PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"BCBS", planGroup:"Prefix MCMAB", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"BCBS", planGroup:"Medicare Advantage Optimum PPO MT", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"BCBS Idaho", planGroup:"Prefix XMM Idaho", tpa:"TruHearing", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"BCBS Idaho", planGroup:"Prefix XMA Idaho", tpa:"TruHearing", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"BCBS", planGroup:"Prefix X2B Idaho", tpa:"TruHearing", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"BCBS", planGroup:"TN Blue Advantage Garnet", tpa:"TruHearing", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"BCBS", planGroup:"BCBS of Michigan Prefix XYL", tpa:"TruHearing", tiers:[{label:"Standard",price:399}, {label:"Advanced",price:599}, {label:"Premium",price:899}] },
+  { carrier:"BCBS", planGroup:"Blue Care Plus TN", tpa:"TruHearing", tiers:[{label:"Advanced",price:0}] },
+  { carrier:"BCBS of Idaho", planGroup:"Idaho Medicaid Plus", tpa:"TruHearing", tiers:[{label:"Standard",price:399}, {label:"Advanced",price:599}, {label:"Premium",price:899}] },
+  { carrier:"BCBS of Michigan", planGroup:"Prefix XYL", tpa:"TruHearing", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"CareSource Ohio", planGroup:"Dual Advantage Medicare/Medicaid", tpa:"TruHearing", tiers:[{label:"Advanced",price:0}] },
+  { carrier:"CIGNA", planGroup:"True Choice Medicare PPO MNPS; Cigna Med Adv Health Spring products", tpa:"TruHearing", tiers:[{label:"Advanced",price:0}] },
+  { carrier:"Devoted Health", planGroup:"Prime Ohio HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:199}, {label:"Premium",price:499}] },
+  { carrier:"Devoted Health", planGroup:"Premium Ohio HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:199}, {label:"Premium",price:499}] },
+  { carrier:"Devoted Health", planGroup:"Choice Extra Ohio PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
+  { carrier:"Devoted Health", planGroup:"Core TN HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
+  { carrier:"Devoted Health", planGroup:"Choice Ohio PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
+  { carrier:"Devoted Health", planGroup:"Core OH HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
+  { carrier:"Devoted Health", planGroup:"Ohio Giveback HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:599}, {label:"Premium",price:899}] },
+  { carrier:"Devoted Health", planGroup:"Dual Plus OH", tpa:"TruHearing", tiers:[{label:"Advanced",price:0}, {label:"Premium",price:299}] },
+  { carrier:"DMBA", planGroup:"Deseret Secure", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
+  { carrier:"DMBA", planGroup:"Deseret Alliance", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
+  { carrier:"Highmark", planGroup:"Prefix T3B", tpa:"TruHearing", tiers:[{label:"Advanced",price:99}, {label:"Premium",price:399}] },
+  { carrier:"Highmark", planGroup:"Prefix HRT", tpa:"TruHearing", tiers:[{label:"Advanced",price:599}, {label:"Premium",price:899}] },
+  { carrier:"Highmark", planGroup:"Prefix HRF", tpa:"TruHearing", tiers:[{label:"Advanced",price:499}, {label:"Premium",price:799}] },
+  { carrier:"Highmark", planGroup:"Prefix C4K", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:799}] },
+  { carrier:"Highmark", planGroup:"Prefix ZWD", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Humana", planGroup:"USAA Honor Giveback PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Humana", planGroup:"Humana Essentials Plus Giveback PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Humana", planGroup:"USAA Honor PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Humana", planGroup:"Humana Choice Giveback PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Humana", planGroup:"Humana Cleveland Clinic Preferred HMO-POS", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Humana", planGroup:"Full Access PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Humana", planGroup:"Total Complete HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Humana", planGroup:"USAA Honor Giveback HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
+  { carrier:"Humana", planGroup:"Choice PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:299}, {label:"Premium",price:599}] },
+  { carrier:"Humana", planGroup:"Value Plus PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:0}] },
+  { carrier:"Humana", planGroup:"Dual Select HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:0}] },
+  { carrier:"Humana", planGroup:"Dual Select PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:0}] },
+  { carrier:"Humana", planGroup:"Gold Plus HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Humana", planGroup:"Gold Plus Diabetes and Heart HMO CSNP", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Humana", planGroup:"Value Choice PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Humana", planGroup:"Medicare Advantage (most plans)", tpa:"TruHearing", tiers:[{label:"Advanced",price:0}, {label:"Premium",price:299}] },
+  { carrier:"Humana", planGroup:"Humana Choice Diabetes and Heart PPO C-SNP", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
+  { carrier:"Humana", planGroup:"Gold Plus Diabetes HMO CSNP", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Humana", planGroup:"Gold Plus Giveback HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:499}, {label:"Premium",price:799}] },
+  { carrier:"Humana Medicare", planGroup:"Humana Medicare Employer PPO Board of Pensions", tpa:"TruHearing", tiers:[{label:"Advanced",price:99}, {label:"Premium",price:399}] },
+  { carrier:"Medical Mutual", planGroup:"Medicare Advantage Plans", tpa:"TruHearing", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Moda", planGroup:"Medicare Supplement", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
+  { carrier:"Moda", planGroup:"Moda Health Central PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:599}, {label:"Premium",price:899}] },
+  { carrier:"Pacific Source", planGroup:"Medicare Advantage", tpa:"TruHearing", tiers:[{label:"Standard",price:599}, {label:"Advanced",price:799}, {label:"Premium",price:999}] },
   { carrier:"Primetime Health", planGroup:"Medicare Advantage HMO", tpa:"TruHearing", tiers:[{label:"Standard",price:599}, {label:"Advanced",price:799}, {label:"Premium",price:999}] },
-  { carrier:"Prominence", planGroup:"Prominence Plus HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
-  { carrier:"Prominence", planGroup:"Prominence Plans", tpa:"TruHearing", notes:"*Copays may vary based on patient", tiers:[{label:"Advanced",price:299}, {label:"Premium",price:599}] },
-  { carrier:"Providence", planGroup:"Choice Plan; Medicare Advantage", tpa:"TruHearing", notes:"Advanced – Zero Copay; some zipcodes under Gold Plus may have a zero copay", tiers:[{label:"Advanced",price:0}] },
-  { carrier:"Providence", planGroup:"Medicare Flex; Providence Medicare Align HMO", tpa:"TruHearing", notes:"Some zipcodes under Gold Plus may have a zero copay", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
-  { carrier:"Regence", planGroup:"Medicare Supplement Bridge Plan N; Prefix ZVU; Prefix ZVY and XNH; UAW", tpa:"TruHearing", tiers:[{label:"Advanced",price:499}, {label:"Premium",price:799}] },
-  { carrier:"Regence", planGroup:"Medicare Advantage PPO; Prefix ZVX, ZVW, ZVH, ZVU, ZHO; Medicare Supplement Bridge Plan G (Prefix YVO)", tpa:"TruHearing", tiers:[{label:"Level 2",price:699}, {label:"Level 3",price:999}, {label:"Level 5",price:1399}, {label:"Level 7",price:1799}] },
-  { carrier:"Saint Alphonsus HMO", planGroup:"Medicare Advantage", tpa:"TruHearing", tiers:[{label:"Level 3",price:1250}, {label:"Level 5",price:1595}, {label:"Level 7",price:2050}] },
-  { carrier:"SCAN", planGroup:"Prefix 40028942101; Prefix 40045778801; Prefix 40010939801", tpa:"TruHearing", tiers:[{label:"Advanced",price:99}, {label:"Premium",price:399}] },
-  { carrier:"SCAN", planGroup:"SCAN Classic HMO; SCAN Venture HMO", tpa:"TruHearing", tiers:[{label:"Level 3",price:1495}, {label:"Level 5",price:1895}, {label:"Level 7",price:2195}] },
-  { carrier:"Select Health Choice", planGroup:"All Plans", tpa:"TruHearing", tiers:[{label:"Level 1",price:600}, {label:"Level 2",price:850}, {label:"Level 3",price:1100}, {label:"Level 5",price:1350}, {label:"Level 7",price:1500}] },
-  { carrier:"Select Health Advantage", planGroup:"All Plans", tpa:"TruHearing", notes:"*Copays may vary based on patient", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
-  { carrier:"Select Health", planGroup:"Medicare + Kroger HMO; Medicare Choice (PPO); Medicare Essential (HMO); Medicare Classic (HMO); Medicare", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
-  { carrier:"Summit Health", planGroup:"All Plans", tpa:"TruHearing", tiers:[{label:"Advanced",price:599}, {label:"Premium",price:899}] },
-  { carrier:"Surebridge", planGroup:"Dental Wise Plus", tpa:"TruHearing", tiers:[{label:"Level 2",price:1325}, {label:"Level 3",price:1575}, {label:"Level 5",price:1925}, {label:"Level 7",price:2325}] },
-  { carrier:"UAW", planGroup:"UAW Retiree; UAW Trust", tpa:"TruHearing", tiers:[{label:"Level 2",price:475}, {label:"Level 3",price:775}, {label:"Level 5",price:1075}, {label:"Level 7",price:1475}] },
-  { carrier:"UCLA Health", planGroup:"MA Prestige Plan", tpa:"TruHearing", tiers:[{label:"Level 1",price:600}, {label:"Level 2",price:850}, {label:"Level 3",price:1100}, {label:"Level 5",price:1350}, {label:"Level 7",price:1500}] },
+  { carrier:"Providence", planGroup:"Choice Plan", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Providence", planGroup:"Medicare Advantage", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Providence", planGroup:"Medicare Flex", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
+  { carrier:"Providence", planGroup:"Providence Medicare Align HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
+  { carrier:"Regence", planGroup:"Prefix ZVX", tpa:"TruHearing", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Regence", planGroup:"Prefix ZVW", tpa:"TruHearing", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Regence", planGroup:"Prefix ZVH", tpa:"TruHearing", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Regence", planGroup:"Prefix ZVU", tpa:"TruHearing", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Regence", planGroup:"Prefix ZHO", tpa:"TruHearing", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Regence", planGroup:"Medicare Supplement Bridge Plan G Prefix YVO", tpa:"TruHearing", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"SCAN", planGroup:"Prefix 40028942101", tpa:"TruHearing", tiers:[{label:"Advanced",price:450}, {label:"Premium",price:750}] },
+  { carrier:"SCAN", planGroup:"Prefix 40045778801", tpa:"TruHearing", tiers:[{label:"Advanced",price:450}, {label:"Premium",price:750}] },
+  { carrier:"SCAN", planGroup:"Prefix 40010939801", tpa:"TruHearing", tiers:[{label:"Advanced",price:450}, {label:"Premium",price:750}] },
+  { carrier:"SCAN", planGroup:"SCAN Classic HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:550}, {label:"Premium",price:850}] },
+  { carrier:"SCAN", planGroup:"SCAN Venture HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:550}, {label:"Premium",price:850}] },
+  { carrier:"Select Health Advantage", planGroup:"All Plans", tpa:"TruHearing", tiers:[{label:"Standard",price:99}, {label:"Advanced",price:399}, {label:"Premium",price:699}] },
+  { carrier:"Select Health", planGroup:"Medicare + Kroger HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Select Health", planGroup:"Medicare Choice PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Select Health", planGroup:"Medicare Essential HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Select Health", planGroup:"Medicare Classic HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Select Health", planGroup:"Medicare", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Summit Health", planGroup:"All Plans", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
   { carrier:"UMR", planGroup:"Teachers Health Trust", tpa:"TruHearing", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
-  { carrier:"Vision Service Plan (VSP)", planGroup:"Vision Service Plan (VSP)", tpa:"TruHearing", tiers:[{label:"Level 1",price:700}, {label:"Level 2",price:975}, {label:"Level 3",price:1250}, {label:"Level 5",price:1450}, {label:"Level 7",price:1800}] },
-  { carrier:"Wellcare / Wellcare Healthnet / Healthnet", planGroup:"All Plans", tpa:"TruHearing", notes:"Choice plan", tiers:[{label:"Level 1",price:1250}, {label:"Level 2",price:1350}, {label:"Level 3",price:1595}, {label:"Level 5",price:1950}, {label:"Level 7",price:2325}] },
-  { carrier:"Wellcare", planGroup:"Wellcare Dual Select HMO D SNP", tpa:"TruHearing", tiers:[{label:"Level 1",price:650}, {label:"Level 2",price:750}, {label:"Level 3",price:995}, {label:"Level 5",price:1350}, {label:"Level 7",price:1725}] },
-  { carrier:"Wellpoint (also known as Amerigroup)", planGroup:"All Plans", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
-  { carrier:"AARP Medicare", planGroup:"AARP Medicare Advantage Choice Plan / AARP Medicare Advantage Choice Plan 1 / AARP Medicare Advantage Choice Plan 2 / AARP Medicare Advantage Choice Plan 3", tpa:"United Healthcare Hearing", notes:"UHCH Branded Relate Product $399", tiers:[{label:"Level 2",price:800}, {label:"Level 3",price:800}, {label:"Level 5",price:1225}] },
-  { carrier:"AARP Medicare", planGroup:"AARP Medicare Advantage Plan 1", tpa:"United Healthcare Hearing", tiers:[{label:"Level 3",price:1399}, {label:"Level 7",price:1899}] },
-  { carrier:"AARP Medicare Advantage", planGroup:"AARP Medicare Advantage Choice PPO / AARP Medicare Advantage PPO / AARP Medicare Advantage HMO POS / AARP Medicare Advantage Essentials HMO POS / AARP Medicare Advantage Extras HMO POS / Patriot / AARP Medicare Advantage Giveback from UHC UT PPO / AARP Medicare Adv. Extra Value HMO POS / AARP Medicare Advantage Plan 2", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:599}, {label:"Level 3",price:829}, {label:"Level 5",price:1249}] },
-  { carrier:"AARP Medicare Advantage", planGroup:"Medicare Supplement Plan C / Medicare Supplement Plan G / Medicare Supplement Plan L / Medicare Supplement Plan N", tpa:"United Healthcare Hearing", tiers:[{label:"Level 3",price:1299}, {label:"Level 7",price:1649}] },
-  { carrier:"AARP United Healthcare", planGroup:"Medicare Supplement", tpa:"United Healthcare Hearing", notes:"UHCH Branded Relate Product $399 or $699", tiers:[{label:"Level 3",price:1349}, {label:"Level 5",price:1749}, {label:"Level 7",price:2199}] },
-  { carrier:"AARP United Healthcare", planGroup:"AARP Medicare Advantage Walgreens (HMO POS)", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:599}, {label:"Level 3",price:829}, {label:"Level 5",price:1249}] },
-  { carrier:"AARP United Healthcare", planGroup:"AARP Medicare Advantage UHC OH (HMO POS) / Medicare Advantage from CA - 004P (HMO) / AARP Medicare Extra Value / AARP Medicare Adv Essential", tpa:"United Healthcare Hearing", notes:"UHCH Branded Relate Product $399", tiers:[{label:"Level 2",price:599}, {label:"Level 3",price:829}, {label:"Level 5",price:1249}] },
-  { carrier:"Anthem Blue Cross", planGroup:"Los Angeles County Fire Fighters Local 1014 Health & Welfare Plan", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:1149}, {label:"Level 3",price:1449}, {label:"Level 5",price:1949}, {label:"Level 7",price:2299}] },
-  { carrier:"Blue Shield California", planGroup:"Prefix XEE / XEM", tpa:"United Healthcare Hearing", notes:"Level designations use IX suffix", tiers:[{label:"Level 3",price:1499}, {label:"Level 5",price:1899}, {label:"Level 7",price:2199}] },
-  { carrier:"CIGNA Union", planGroup:"Ironworkers Intermountain H&W", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:1049}, {label:"Level 3",price:1349}, {label:"Level 5",price:1699}, {label:"Level 7",price:2099}] },
-  { carrier:"United Healthcare", planGroup:"United Health Chronic Complete Assure / United Healthcare Dual Complete Choice DSNP / United Health Dual Complete Choice / UHC Dual Complete Full Plan G / Washington Dual Complete Plan G / UHC Nursing Home Plan / UHC Dual Complete OH / UHC Care Advantage UT / WA PPO I SNP", tpa:"United Healthcare Hearing", tiers:[{label:"Level 3",price:1249}, {label:"Level 5",price:1799}, {label:"Level 7",price:2249}] },
-  { carrier:"United Healthcare", planGroup:"UHC Dual Complete HMO POS / UHC Dual Complete Choice Select PPO D SNP / UHC Complete Care AR-0005 PPO C SNP / UHC Complete Care AR-V001 PPO D SNP / UHC Complete Care HMO / UHC Dual Complete OH-V001 (HMO POS D-SNP) / UHC Dual Complete WA (PPO DSNP)", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:599}, {label:"Level 3",price:829}, {label:"Level 5",price:1249}] },
-  { carrier:"United Healthcare", planGroup:"UHC Dual Complete PPO / UHC Dual Complete Choice PPO / UHC Dual Complete HMO (D-SNP) / UHC Dual Complete OH Plan OH DSNP / UHC Dual Complete OH-S2 (HMO-POS D SNP) / UHC Dual Complete OH-S3 (HMO-POS D-SNP) / UHC Dual Complete WA (HMO POS D SNP) / UHC Dual Complete Choice - SH PPO D SNP / UHC Assisted Living Plan PPO / UHC Care Advantage PPO / UHC Dual Complete AR-S2 (PPO D-SNP) / UHC Dual Complete ID-Y1 (HMO-POS D-SNP) / UHC Dual Complete WA S1 PPO", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:1099}, {label:"Level 3",price:1249}, {label:"Level 5",price:1599}, {label:"Level 7",price:2199}] },
-  { carrier:"United Healthcare", planGroup:"UHC Medicare Direct", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:999}, {label:"Level 3",price:1249}, {label:"Level 5",price:1799}, {label:"Level 7",price:2249}] },
-  { carrier:"United Healthcare", planGroup:"UHC The Villages Medicare Advantage / UHC Rocky Mountain Medicare Advantage", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:599}, {label:"Level 3",price:829}, {label:"Level 5",price:1249}] },
-  { carrier:"United Healthcare", planGroup:"UHC Complete Care Support OR-1 A PPO C SNP / UHC Complete Care Support ID-1A (PPO C-SNP) / United Health Chronic Complete Assure / UHC Dual Complete WY-S001 (PPO D-SNP)", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:1099}, {label:"Level 3",price:1249}, {label:"Level 5",price:1599}, {label:"Level 7",price:2199}] },
-  { carrier:"United Healthcare", planGroup:"UHC Signature HMO", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:1199}, {label:"Level 3",price:1499}, {label:"Level 5",price:1899}, {label:"Level 7",price:2199}] },
-  { carrier:"United Healthcare", planGroup:"UHC Choice Plus", tpa:"United Healthcare Hearing", tiers:[{label:"Level 3",price:1399}, {label:"Level 7",price:1999}] },
-  { carrier:"United Healthcare", planGroup:"UHC AT&T Group Medicare Adv. PPO *Plus / UHC AT&T Group Medicare Adv. PPO / UHC Group Medicare Adv PEBB Complete PPO / UHC GEHA Group Medicare Advantage / United Healthcare Group Medicare Advantage PPO / UHC Group Medicare Advantage (PPO) APWU Health Plan / UHC Lumen Retiree Medicare Advantage (PPO) / UHC Group Medicare Adv PPO UAW Retiree", tpa:"United Healthcare Hearing", tiers:[{label:"Level 3",price:1399}, {label:"Level 7",price:1899}] },
-  { carrier:"WM Medicare", planGroup:"White Motor Retiree Trust", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:1149}, {label:"Level 3",price:1449}, {label:"Level 5",price:1899}, {label:"Level 7",price:2299}] },
-  { carrier:"Surest via UHC Choice+", planGroup:"Surest via UHC Choice+", tpa:"United Healthcare Hearing", tiers:[{label:"Level 2",price:1199}, {label:"Level 3",price:1499}, {label:"Level 5",price:1899}, {label:"Level 7",price:2199}] },
+  { carrier:"Wellpoint / Amerigroup", planGroup:"All Plans", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
 ];
 
 
@@ -478,32 +468,31 @@ const CATALOG_DEFAULT = [
   // ── TRUHEARING SELECT (Private-label WSAudiology products) ─────────────────
   // Plan tier → product (one-to-one): "Premium"→TH7 Premium (48ch·IX), "Advanced"→TH6 Advanced (32ch·AX), "Standard"→TH5 (X)
   // TH5 BTE is always available regardless of plan tier — the plan price covers whatever the clinician fits.
-  // rechargeable:true entries carry a $50/aid Li-Ion upcharge added directly to the plan tier price.
 
   // ── TH7 Premium · Signia IX · 48ch ── planTierKey:"Premium" ──────────────
   { id:"th7-prem-ric-li", manufacturer:"TruHearing", generation:"IX",
     thSeries:"TH7", planTierKey:"Premium",
     family:"TH7 Premium — RIC Rechargeable", styles:["ric"],
     variants:["Standard","CROS"], techLevels:["Premium"],
-    rechargeable:true, liUpcharge:50,
+    rechargeable:true, liUpcharge:0,
     battery:["Rechargeable (Li-Ion)"], active:true,
-    notes:"48ch · IX platform · +$50/aid unless plan covers Li-Ion upcharge." },
+    notes:"48ch · IX platform · Rechargeable Li-Ion." },
 
   { id:"th7-prem-sr-li", manufacturer:"TruHearing", generation:"IX",
     thSeries:"TH7", planTierKey:"Premium",
     family:"TH7 Premium — SR Rechargeable (Super Power RIC)", styles:["ric"],
     variants:["Standard"], techLevels:["Premium"],
-    rechargeable:true, liUpcharge:50,
+    rechargeable:true, liUpcharge:0,
     battery:["Rechargeable (Li-Ion)"], active:true,
-    notes:"48ch · IX · Super-power RIC · +$50/aid. For severe-profound loss." },
+    notes:"48ch · IX · Super-power RIC · Rechargeable Li-Ion. For severe-profound loss." },
 
   { id:"th7-prem-if-li", manufacturer:"TruHearing", generation:"IX",
     thSeries:"TH7", planTierKey:"Premium",
     family:"TH7 Premium — Instant Fit Rechargeable", styles:["ite"],
     variants:["Standard"], techLevels:["Premium"],
-    rechargeable:true, liUpcharge:50,
+    rechargeable:true, liUpcharge:0,
     battery:["Rechargeable (Li-Ion)"], active:true,
-    notes:"48ch · IX · IF Li-Ion custom · +$50/aid." },
+    notes:"48ch · IX · IF Li-Ion custom · Rechargeable Li-Ion." },
 
   { id:"th7-prem-custom", manufacturer:"TruHearing", generation:"IX",
     thSeries:"TH7", planTierKey:"Premium",
@@ -526,25 +515,25 @@ const CATALOG_DEFAULT = [
     thSeries:"TH6", planTierKey:"Advanced",
     family:"TH6 Advanced — RIC Rechargeable", styles:["ric"],
     variants:["Standard","CROS"], techLevels:["Advanced"],
-    rechargeable:true, liUpcharge:50,
+    rechargeable:true, liUpcharge:0,
     battery:["Rechargeable (Li-Ion)"], active:true,
-    notes:"32ch · AX platform · +$50/aid unless plan covers Li-Ion." },
+    notes:"32ch · AX platform · Rechargeable Li-Ion." },
 
   { id:"th6-adv-sr-li", manufacturer:"TruHearing", generation:"AX",
     thSeries:"TH6", planTierKey:"Advanced",
     family:"TH6 Advanced — SR Rechargeable (Super Power RIC)", styles:["ric"],
     variants:["Standard"], techLevels:["Advanced"],
-    rechargeable:true, liUpcharge:50,
+    rechargeable:true, liUpcharge:0,
     battery:["Rechargeable (Li-Ion)"], active:true,
-    notes:"32ch · AX · Super-power RIC · +$50/aid. Severe-profound loss." },
+    notes:"32ch · AX · Super-power RIC · Rechargeable Li-Ion. Severe-profound loss." },
 
   { id:"th6-adv-custom-li", manufacturer:"TruHearing", generation:"AX",
     thSeries:"TH6", planTierKey:"Advanced",
     family:"TH6 Advanced — Custom Rechargeable (ITC)", styles:["ite","itc"],
     variants:["ITC / HS / FS"], techLevels:["Advanced"],
-    rechargeable:true, liUpcharge:50,
+    rechargeable:true, liUpcharge:0,
     battery:["Rechargeable (Li-Ion)"], active:true,
-    notes:"32ch · AX · ITC Li-Ion custom · +$50/aid." },
+    notes:"32ch · AX · ITC Li-Ion custom · Rechargeable Li-Ion." },
 
   // ── TH5 · Signia X ── planTierKey:"Standard"; BTE always available ────────
   { id:"th5-if", manufacturer:"TruHearing", generation:"X",
@@ -559,17 +548,17 @@ const CATALOG_DEFAULT = [
     thSeries:"TH5", planTierKey:"Standard",
     family:"TH5 Advanced — BTE Rechargeable (32ch)", styles:["bte"],
     variants:["Standard BTE (Thin-tube)","Standard BTE (Earhook)","Power BTE (Thin-tube)","Power BTE (Earhook)","SP BTE"],
-    techLevels:["Standard"], rechargeable:true, liUpcharge:50,
+    techLevels:["Standard"], rechargeable:true, liUpcharge:0,
     battery:["Rechargeable (Li-Ion)"], active:true,
-    notes:"32ch · X platform · BTE Li-Ion · +$50/aid. Always available regardless of plan tier." },
+    notes:"32ch · X platform · BTE Li-Ion · Rechargeable Li-Ion. Always available regardless of plan tier." },
 
   { id:"th5-bte-prem-li", manufacturer:"TruHearing", generation:"X",
     thSeries:"TH5", planTierKey:"Standard",
     family:"TH5 Premium — BTE Rechargeable (48ch)", styles:["bte"],
     variants:["Standard BTE (Thin-tube)","Standard BTE (Earhook)","Power BTE (Thin-tube)","Power BTE (Earhook)","SP BTE"],
-    techLevels:["Standard"], rechargeable:true, liUpcharge:50,
+    techLevels:["Standard"], rechargeable:true, liUpcharge:0,
     battery:["Rechargeable (Li-Ion)"], active:true,
-    notes:"48ch · X platform · BTE Li-Ion · +$50/aid. Always available regardless of plan tier." },
+    notes:"48ch · X platform · BTE Li-Ion · Rechargeable Li-Ion. Always available regardless of plan tier." },
 ];
 const RECEIVER_LENGTHS = ["0","1","2","3","4","5"];
 
@@ -2175,12 +2164,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
     // Pricing
     const thTierPrice = privateLabelTiers.find(t => t.label === sd.techLevel)?.price ?? 0;
-    const thEffectivePrice = thIsLi ? thTierPrice + 50 : thTierPrice;
-
     return { availMfrs, availGens, availFamilies, selectedFamily, availColors, availBatteries,
       availPowers, availDomes, selectedPower, requiresEarmold, variantRequired, hasCROSVariant,
       thAvailModels, thAvailStyles, thGainOptions, thColorCategory, thBattery, thIsLi,
-      thRequiresEarmold, thHasReceiver, thTierPrice, thEffectivePrice };
+      thRequiresEarmold, thHasReceiver, thTierPrice };
   };
   const leftDerived = getSideDerived(form.left);
   const rightDerived = getSideDerived(form.right);
@@ -2200,15 +2187,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
     return { tierLabel: anchor.label, retailPerAid, copayPerAid, savingsPerAid, savingsPct };
   }, [form.tier, form.tierPrice, retailAnchors]);
 
-  // Detect rechargeable + Li-Ion upcharge from selected device families (standard catalog + TH)
+  // Device family lookups
   const leftFamily = catalog.find(e => e.id === form.left.familyId);
   const rightFamily = catalog.find(e => e.id === form.right.familyId);
-  const leftIsThLi = TH_MODELS.find(m => m.id === form.left.thModel)?.li || false;
-  const rightIsThLi = TH_MODELS.find(m => m.id === form.right.thModel)?.li || false;
-  const hasRechargeableLeft = leftFamily?.rechargeable || leftIsThLi;
-  const hasRechargeableRight = rightFamily?.rechargeable || rightIsThLi;
-  const liUpchargeLeft = leftFamily?.liUpcharge || (leftIsThLi ? 50 : 0);
-  const liUpchargeRight = rightFamily?.liUpcharge || (rightIsThLi ? 50 : 0);
 
   // Keep sd / otherSide for backward compat with non-step-3 code
   const sd = form[activeSide];
@@ -2900,18 +2881,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 </div>
               )}
 
-              {/* Li-Ion upcharge banner */}
-              {s.style && d.thIsLi && s.techLevel && (
-                <div style={{background:"#fef3c7",border:"1px solid #fde68a",borderRadius:8,
-                    padding:"10px 14px",marginBottom:16,fontSize:13,color:"#92400e",fontWeight:600}}>
-                  ♻ Rechargeable Li-Ion —{" "}
-                  {d.thTierPrice === 0
-                    ? <>No-charge plan + $50/aid upcharge = <strong>$50 / aid</strong></>
-                    : <>${d.thTierPrice.toLocaleString()} plan price + $50/aid upcharge = <strong>${d.thEffectivePrice.toLocaleString()} / aid</strong></>
-                  }
-                </div>
-              )}
-
               {/* 6. Receiver Length (RIC/RIC+BCT/SR only) */}
               {s.style && d.thHasReceiver && (
                 <div className="field" style={{marginBottom:16}}><label>Receiver Length</label>
@@ -3103,15 +3072,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
               const bothDone = leftConfigured && rightConfigured;
               const aidCount = (leftConfigured ? 1 : 0) + (rightConfigured ? 1 : 0);
 
-              // Li-Ion upcharge: additive per aid if rechargeable device selected
-              const liUpchargePerAid = Math.max(
-                leftConfigured && hasRechargeableLeft ? liUpchargeLeft : 0,
-                rightConfigured && hasRechargeableRight ? liUpchargeRight : 0
-              );
-              const leftLiUp = leftConfigured && hasRechargeableLeft ? liUpchargeLeft : 0;
-              const rightLiUp = rightConfigured && hasRechargeableRight ? liUpchargeRight : 0;
-              const totalLiUpcharge = leftLiUp + rightLiUp;
-
               // Null state — plan not linked
               if (!pricingRevealData || form.tierPrice == null) {
                 if (!(leftConfigured || rightConfigured)) return null;
@@ -3123,11 +3083,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
               }
 
               const { tierLabel, retailPerAid, copayPerAid, savingsPerAid, savingsPct } = pricingRevealData;
-              const baseCopayPair = copayPerAid * aidCount;
-              const investmentPair = baseCopayPair + totalLiUpcharge;
+              const investmentPair = copayPerAid * aidCount;
               const retailPair = retailPerAid * aidCount;
               const planCoversPair = retailPair - investmentPair;
-              const investmentPerAid = copayPerAid + liUpchargePerAid;
 
               // Chief complaint carry-forward quote
               const chiefComplaint = form.notes || "";
@@ -3156,18 +3114,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     {/* Per-aid toggle when pair is shown */}
                     {bothDone && (
                       <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>
-                        ${investmentPerAid.toLocaleString()} / aid
+                        ${copayPerAid.toLocaleString()} / aid
                       </div>
                     )}
                   </div>
-
-                  {/* Li-Ion upcharge line item */}
-                  {totalLiUpcharge > 0 && (
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
-                      <span style={{color:"#6b7280"}}>Rechargeable (Li-Ion) upcharge</span>
-                      <span style={{fontWeight:600,color:"#374151"}}>+${totalLiUpcharge.toLocaleString()}</span>
-                    </div>
-                  )}
 
                   {/* Plan covers */}
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
@@ -3201,11 +3151,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
       const leftOk  = isSideConfigured("left");
       const rightOk = isSideConfigured("right");
       const aidCount = (leftOk ? 1 : 0) + (rightOk ? 1 : 0);
-      const leftLiUp = leftOk && hasRechargeableLeft ? liUpchargeLeft : 0;
-      const rightLiUp = rightOk && hasRechargeableRight ? liUpchargeRight : 0;
-      const totalLiUpcharge = leftLiUp + rightLiUp;
       const aidBase = form.tierPrice != null ? form.tierPrice * aidCount : null;
-      const aidTotal = aidBase != null ? aidBase + totalLiUpcharge : null;
+      const aidTotal = aidBase;
       const isTruHearing = form.tpa === "TruHearing";
       const isUHCH = form.tpa === "United Healthcare Hearing";
       const isTruHearingTPA = isTruHearing || isUHCH;
@@ -3248,19 +3195,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
             {renderSide("right","Right Ear 👂")}
             {aidBase != null && (
               <>
-                {totalLiUpcharge > 0 && (
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #f3f4f6"}}>
-                    <div>
-                      <div style={{fontSize:13,fontWeight:600,color:"#0a1628"}}>Li-Ion Rechargeable</div>
-                      <div style={{fontSize:10,color:"#9ca3af"}}>${liUpchargeLeft || liUpchargeRight}/aid upcharge</div>
-                    </div>
-                    <div style={{fontSize:15,fontWeight:700,color:"#0a1628"}}>+${totalLiUpcharge.toLocaleString()}</div>
-                  </div>
-                )}
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,paddingTop:10,borderTop:"2px solid #e5e7eb"}}>
                   <div>
                     <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>Device Total</div>
-                    <div style={{fontSize:11,color:"#6b7280"}}>{aidCount} aid{aidCount!==1?"s":""} · {form.tier} tier{totalLiUpcharge > 0 ? " · incl. Li-Ion" : ""}</div>
+                    <div style={{fontSize:11,color:"#6b7280"}}>{aidCount} aid{aidCount!==1?"s":""} · {form.tier} tier</div>
                   </div>
                   <div style={{background:"#0a1628",color:"white",borderRadius:8,padding:"8px 16px",textAlign:"right"}}>
                     <div style={{fontSize:20,fontWeight:800,lineHeight:1}}>
@@ -3523,7 +3461,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
                   {aidTotal != null && (
                     <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
-                      <span>Hearing aids ({aidCount} aid{aidCount!==1?"s":""} · {form.tier}{totalLiUpcharge > 0 ? " · incl. Li-Ion" : ""})</span>
+                      <span>Hearing aids ({aidCount} aid{aidCount!==1?"s":""} · {form.tier})</span>
                       <span style={{fontWeight:600}}>{aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}</span>
                     </div>
                   )}
@@ -3590,10 +3528,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
         const thGen = fam?.generation || d.generation || "—";
         const thSeries = fam?.thSeries || "";
         const isLi = fam?.rechargeable || false;
-        const liUpcharge = fam?.liUpcharge || 0;
         const planTierPrice = INSURANCE_PLANS.find(p=>p.carrier===form.carrier&&p.planGroup===form.planGroup)
           ?.tiers?.find(t=>t.label===d.techLevel)?.price ?? null;
-        const effectivePrice = isLi && planTierPrice !== null ? planTierPrice + liUpcharge : planTierPrice;
         return (
           <>
             <div className="review-row" style={{background:"#f8fafc",borderRadius:6,padding:"6px 10px",margin:"4px 0"}}>
@@ -3623,21 +3559,11 @@ export default function ProviderCRM({ staffId, clinicId }) {
             ].map(([v,k])=>(
               <div className="review-row" key={k}><span className="review-key">{k}</span><span className="review-val">{v}</span></div>
             ))}
-            {isTH && effectivePrice !== null && (
-              <div className="review-row" style={{background: isLi?"#fef9c3":"#f0fdf4",borderRadius:6,padding:"6px 10px",marginTop:4}}>
+            {isTH && planTierPrice !== null && (
+              <div className="review-row" style={{background:"#f0fdf4",borderRadius:6,padding:"6px 10px",marginTop:4}}>
                 <span className="review-key">Patient Cost</span>
-                <span className="review-val" style={{fontWeight:700,color: isLi?"#92400e":"#15803d"}}>
-                  {effectivePrice === 0 ? "No Charge" : `$${effectivePrice.toLocaleString()} / aid`}
-                  {isLi && planTierPrice !== null && planTierPrice > 0 && (
-                    <span style={{fontWeight:400,fontSize:11,color:"#78350f",marginLeft:6}}>
-                      (${planTierPrice.toLocaleString()} plan + $50 Li-Ion)
-                    </span>
-                  )}
-                  {isLi && planTierPrice === 0 && (
-                    <span style={{fontWeight:400,fontSize:11,color:"#78350f",marginLeft:6}}>
-                      (No-charge plan + $50 Li-Ion upcharge)
-                    </span>
-                  )}
+                <span className="review-val" style={{fontWeight:700,color:"#15803d"}}>
+                  {planTierPrice === 0 ? "No Charge" : `$${planTierPrice.toLocaleString()} / aid`}
                 </span>
               </div>
             )}
