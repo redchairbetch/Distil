@@ -2968,7 +2968,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
       const leftOk  = isSideConfigured("left");
       const rightOk = isSideConfigured("right");
       const aidCount = (leftOk ? 1 : 0) + (rightOk ? 1 : 0);
-      const aidTotal = form.tierPrice != null ? form.tierPrice * aidCount : null;
+      // Include Li-Ion upcharge so total matches Device Selection "Your Investment Today"
+      const leftFam4 = catalog.find(e => e.id === form.left.familyId);
+      const rightFam4 = catalog.find(e => e.id === form.right.familyId);
+      const liUp4Left = leftOk && (leftFam4?.rechargeable || false) ? (leftFam4?.liUpcharge || 0) : 0;
+      const liUp4Right = rightOk && (rightFam4?.rechargeable || false) ? (rightFam4?.liUpcharge || 0) : 0;
+      const totalLiUpcharge4 = liUp4Left + liUp4Right;
+      const aidTotal = form.tierPrice != null ? form.tierPrice * aidCount + totalLiUpcharge4 : null;
       const isTruHearing = form.tpa === "TruHearing";
       const isUHCH = form.tpa === "United Healthcare Hearing";
       const isTruHearingTPA = isTruHearing || isUHCH;
@@ -3310,33 +3316,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
     }
     if (step === 5) return (
       <div className="card">
-        <div className="card-title">Schedule Appointments</div>
-        <div className="field" style={{marginBottom:8}}><label>Fitting Date</label>
+        <div className="card-title">Schedule</div>
+        <div className="field" style={{marginBottom:8}}><label>Tentative Fitting Date</label>
           <input type="date" value={form.fittingDate} onChange={e=>upd("fittingDate",e.target.value)} />
         </div>
         <div style={{height:1,background:"#f3f4f6",margin:"20px 0"}} />
-        <div className="card-title" style={{fontSize:14}}>Additional Appointments</div>
-        <div className="appt-list">
-          {form.appointments.map((a,i)=>(
-            <div className="appt-row" key={i}>
-              <span>📅 {fmtDate(a.date)}</span>
-              <span>· {a.type}</span>
-              <button className="appt-del" onClick={()=>upd("appointments",form.appointments.filter((_,j)=>j!==i))}>×</button>
-            </div>
-          ))}
-        </div>
-        <div className="add-appt-row">
-          <div className="field"><label>Date</label><input type="date" value={newApptDate} onChange={e=>setNewApptDate(e.target.value)} /></div>
-          <div className="field"><label>Type</label>
-            <select value={newApptType} onChange={e=>setNewApptType(e.target.value)}>
-              {VISIT_TYPES.map(t=><option key={t}>{t}</option>)}
-            </select>
-          </div>
-          <button className="btn-primary" style={{marginTop:22}} onClick={addAppt}>Add</button>
-        </div>
-        <div style={{marginTop:16}}>
-          <div className="field"><label>Notes</label><textarea value={form.notes} onChange={e=>upd("notes",e.target.value)} rows={3} placeholder="Special considerations, hearing test results, etc." /></div>
-        </div>
+        <div className="field"><label>Notes</label><textarea value={form.notes} onChange={e=>upd("notes",e.target.value)} rows={3} placeholder="Special considerations, hearing test results, etc." /></div>
       </div>
     );
     if (step === 6) {
@@ -3422,7 +3407,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           <div className="review-section">
             <div className="review-label">Coverage</div>
             {form.payType==="insurance" ? (
-              [[form.carrier,"Carrier"],[form.planGroup,"Plan"],[form.tpa,"TPA"],[`${form.tier} · $${form.tierPrice?.toLocaleString()}/aid`,"Selected Tier"],[CARE_PLANS.find(c=>c.id===form.carePlan)?.label||"","Care Plan"]].map(([v,k])=>(
+              [[form.carrier,"Carrier"],[form.planGroup,"Plan"],[form.tpa,"TPA"],[CARE_PLANS.find(c=>c.id===form.carePlan)?.label||"","Care Plan"]].map(([v,k])=>(
                 <div className="review-row" key={k}><span className="review-key">{k}</span><span className="review-val">{v}</span></div>
               ))
             ) : (
@@ -3437,8 +3422,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           </div>
           <div className="review-section">
             <div className="review-label">Schedule</div>
-            <div className="review-row"><span className="review-key">Fitting Date</span><span className="review-val">{fmtDate(form.fittingDate)}</span></div>
-            <div className="review-row"><span className="review-key">Additional Appointments</span><span className="review-val">{form.appointments.length}</span></div>
+            <div className="review-row"><span className="review-key">Tentative Fitting Date</span><span className="review-val">{fmtDate(form.fittingDate)}</span></div>
           </div>
         </div>
       );
