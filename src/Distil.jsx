@@ -3201,7 +3201,11 @@ export default function ProviderCRM({ staffId, clinicId }) {
       const leftOk  = isSideConfigured("left");
       const rightOk = isSideConfigured("right");
       const aidCount = (leftOk ? 1 : 0) + (rightOk ? 1 : 0);
-      const aidTotal = form.tierPrice != null ? form.tierPrice * aidCount : null;
+      const leftLiUp = leftOk && hasRechargeableLeft ? liUpchargeLeft : 0;
+      const rightLiUp = rightOk && hasRechargeableRight ? liUpchargeRight : 0;
+      const totalLiUpcharge = leftLiUp + rightLiUp;
+      const aidBase = form.tierPrice != null ? form.tierPrice * aidCount : null;
+      const aidTotal = aidBase != null ? aidBase + totalLiUpcharge : null;
       const isTruHearing = form.tpa === "TruHearing";
       const isUHCH = form.tpa === "United Healthcare Hearing";
       const isTruHearingTPA = isTruHearing || isUHCH;
@@ -3242,19 +3246,30 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:8}}>Selected Devices</div>
             {renderSide("left","👂 Left Ear")}
             {renderSide("right","Right Ear 👂")}
-            {aidTotal != null && (
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,paddingTop:10,borderTop:"2px solid #e5e7eb"}}>
-                <div>
-                  <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>Device Total</div>
-                  <div style={{fontSize:11,color:"#6b7280"}}>{aidCount} aid{aidCount!==1?"s":""} · {form.tier} tier</div>
-                </div>
-                <div style={{background:"#0a1628",color:"white",borderRadius:8,padding:"8px 16px",textAlign:"right"}}>
-                  <div style={{fontSize:20,fontWeight:800,lineHeight:1}}>
-                    {aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}
+            {aidBase != null && (
+              <>
+                {totalLiUpcharge > 0 && (
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #f3f4f6"}}>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:600,color:"#0a1628"}}>Li-Ion Rechargeable</div>
+                      <div style={{fontSize:10,color:"#9ca3af"}}>${liUpchargeLeft || liUpchargeRight}/aid upcharge</div>
+                    </div>
+                    <div style={{fontSize:15,fontWeight:700,color:"#0a1628"}}>+${totalLiUpcharge.toLocaleString()}</div>
                   </div>
-                  {aidCount===1 && <div style={{fontSize:10,opacity:0.6,marginTop:2}}>one ear · add second to update</div>}
+                )}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,paddingTop:10,borderTop:"2px solid #e5e7eb"}}>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>Device Total</div>
+                    <div style={{fontSize:11,color:"#6b7280"}}>{aidCount} aid{aidCount!==1?"s":""} · {form.tier} tier{totalLiUpcharge > 0 ? " · incl. Li-Ion" : ""}</div>
+                  </div>
+                  <div style={{background:"#0a1628",color:"white",borderRadius:8,padding:"8px 16px",textAlign:"right"}}>
+                    <div style={{fontSize:20,fontWeight:800,lineHeight:1}}>
+                      {aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}
+                    </div>
+                    {aidCount===1 && <div style={{fontSize:10,opacity:0.6,marginTop:2}}>one ear · add second to update</div>}
+                  </div>
                 </div>
-              </div>
+              </>
             )}
           </div>
         );
@@ -3389,8 +3404,11 @@ export default function ProviderCRM({ staffId, clinicId }) {
       );
 
       const selectedPlan = CARE_PLANS.find(c => c.id === form.carePlan);
-      const grandTotal = aidTotal != null && form.carePlan
-        ? aidTotal + cpCostFor(form.carePlan)
+      const cpCost = form.carePlan ? cpCostFor(form.carePlan) : null;
+      const grandTotal = aidTotal != null && cpCost != null
+        ? aidTotal + cpCost
+        : aidTotal != null ? aidTotal
+        : cpCost != null ? cpCost
         : null;
 
       return (
@@ -3499,22 +3517,26 @@ export default function ProviderCRM({ staffId, clinicId }) {
             </div>
 
             {/* Total investment */}
-            {grandTotal != null && (
+            {(aidTotal != null || form.carePlan) && (
               <div style={{marginTop:20,borderTop:"2px solid #e5e7eb",paddingTop:16}}>
                 <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:10}}>Total Patient Investment</div>
                 <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
-                    <span>Hearing aids ({aidCount} aid{aidCount!==1?"s":""} · {form.tier})</span>
-                    <span style={{fontWeight:600}}>{aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}</span>
-                  </div>
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
-                    <span>{selectedPlan?.label}</span>
-                    <span style={{fontWeight:600}}>
-                      {form.carePlan==="paygo"
-                        ? (isTruHearing?"$975 est.":isUHCH?"$1,235 est.":"$65/visit")
-                        : `$${cpCostFor(form.carePlan).toLocaleString()}`}
-                    </span>
-                  </div>
+                  {aidTotal != null && (
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
+                      <span>Hearing aids ({aidCount} aid{aidCount!==1?"s":""} · {form.tier}{totalLiUpcharge > 0 ? " · incl. Li-Ion" : ""})</span>
+                      <span style={{fontWeight:600}}>{aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}</span>
+                    </div>
+                  )}
+                  {form.carePlan && (
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
+                      <span>{selectedPlan?.label}</span>
+                      <span style={{fontWeight:600}}>
+                        {form.carePlan==="paygo"
+                          ? (isTruHearing?"$975 est.":isUHCH?"$1,235 est.":"$65/visit")
+                          : `$${cpCost.toLocaleString()}`}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <div style={{background:"linear-gradient(135deg,#0a1628,#1a3050)",borderRadius:12,padding:"18px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                   <div>
