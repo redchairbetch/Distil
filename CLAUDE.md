@@ -50,7 +50,6 @@ You are not a single assistant — you are Kurt's entire development team. Use n
 ## Critical Domain Rules (Non-Negotiable)
 
 - **Plan tier != device generation.** Standard/Advanced/Premium = pricing labels. X/AX/IX = device generation from TH series. Never conflate.
-- **Li-Ion upcharge:** $50/aid added to patient cost display
 - **TH5 BTE:** Always available regardless of plan tier
 - **Normal hearing threshold:** 20 dB (not 25 dB)
 - **Banned terms in patient-facing UI:** "Neurotechnology" (trademarked), "Premium" (use "Select"), "Trial"/"Demo" (use "adaptation period"/"evaluation")

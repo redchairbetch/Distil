@@ -170,6 +170,12 @@ function assembleSide(s) {
     receiverLength: s.receiver_length || '',
     receiverPower:  s.receiver_power  || '',
     dome:           s.dome            || '',
+    thModel:        s.th_model        || '',
+    faceplateColor: s.faceplate_color || '',
+    shellColor:     s.shell_color     || '',
+    gainMatrix:     s.gain_matrix     || '',
+    domeCategory:   s.dome_category   || '',
+    domeSize:       s.dome_size       || '',
   }
 }
 
@@ -394,6 +400,12 @@ function buildSideRow(fittingId, ear, side) {
     receiver_length: side.receiverLength  || null,
     receiver_power:  side.receiverPower   || null,
     dome:            side.dome            || null,
+    th_model:        side.thModel         || null,
+    faceplate_color: side.faceplateColor  || null,
+    shell_color:     side.shellColor      || null,
+    gain_matrix:     side.gainMatrix      || null,
+    dome_category:   side.domeCategory    || null,
+    dome_size:       side.domeSize        || null,
   }
 }
 
