@@ -572,6 +572,111 @@ const CATALOG_DEFAULT = [
     battery:["Rechargeable (Li-Ion)"], active:true,
     notes:"48ch · X platform · BTE Li-Ion · +$50/aid. Always available regardless of plan tier." },
 ];
+
+const TH_STYLES = [
+  { id:"if",     label:"IF (Instant Fit)" },
+  { id:"iic",    label:"IIC (Invisible In the Canal)" },
+  { id:"cic",    label:"CIC (Completely In the Canal)" },
+  { id:"itc",    label:"ITC (In The Canal)" },
+  { id:"hs",     label:"HS (Half Shell)" },
+  { id:"fs",     label:"FS (Full Shell)" },
+  { id:"s_bte",  label:"S BTE (Standard Behind The Ear)" },
+  { id:"p_bte",  label:"P BTE (Power Behind The Ear)" },
+  { id:"sp_bte", label:"SP BTE (Super Power Behind The Ear)" },
+  { id:"ric",    label:"RIC (Receiver In Canal)" },
+  { id:"ric_bct",label:"RIC + BCT" },
+  { id:"sr",     label:"SR (Slim RIC)" },
+];
+
+const TH_MODELS = [
+  { id:"th7",   label:"TruHearing 7",    li:false },
+  { id:"th7li", label:"TruHearing 7 Li", li:true },
+  { id:"th6",   label:"TruHearing 6",    li:false },
+  { id:"th6li", label:"TruHearing 6 Li", li:true },
+  { id:"th5",   label:"TruHearing 5",    li:false },
+  { id:"th5li", label:"TruHearing 5 Li", li:true },
+];
+
+// model|techLevel → [style IDs]
+const TH_AVAILABILITY = {
+  "th7|Standard":   ["iic","cic"],
+  "th7|Advanced":   ["cic","itc","hs","fs"],
+  "th7|Premium":    ["iic","cic","itc","hs","fs"],
+  "th7li|Advanced": ["ric","ric_bct"],
+  "th7li|Premium":  ["ric","ric_bct","sr","if"],
+  "th6|Standard":   ["ric"],
+  "th6|Advanced":   ["ric"],
+  "th6|Premium":    ["ric"],
+  "th6li|Advanced": ["itc","hs","fs"],
+  "th6li|Premium":  ["itc","hs","fs","sr"],
+  "th5|Premium":    ["if"],
+  "th5li|Advanced": ["s_bte","p_bte","sp_bte"],
+  "th5li|Premium":  ["s_bte","p_bte","sp_bte"],
+};
+
+// model+style → gain/matrix options; earmold:true means HP encased earmold
+const TH_GAIN_MATRIX = {
+  "th7|iic":       [{id:"113/50 (S)", label:"113/50 (S)"}],
+  "th7|cic":       [{id:"113/50 (S)", label:"113/50 (S)"},{id:"118/55 (M)", label:"118/55 (M)"},{id:"124/65 (P)", label:"124/65 (P)"}],
+  "th7|itc":       [{id:"113/50 (S)", label:"113/50 (S)"},{id:"118/55 (M)", label:"118/55 (M)"},{id:"124/65 (P)", label:"124/65 (P)"}],
+  "th7|hs":        [{id:"113/50 (S)", label:"113/50 (S)"},{id:"118/55 (M)", label:"118/55 (M)"},{id:"124/65 (P)", label:"124/65 (P)"}],
+  "th7|fs":        [{id:"113/50 (S)", label:"113/50 (S)"},{id:"118/55 (M)", label:"118/55 (M)"},{id:"124/65 (P)", label:"124/65 (P)"}],
+  "th7li|ric":     [{id:"110/46 (S)", label:"110/46 (S)"},{id:"119/60 (M)", label:"119/60 (M)"},{id:"122/65 (P)", label:"122/65 (P)"},{id:"131/75 (HP)", label:"131/75 (HP)", earmold:true}],
+  "th7li|ric_bct": [{id:"110/46 (S)", label:"110/46 (S)"},{id:"119/60 (M)", label:"119/60 (M)"},{id:"122/65 (P)", label:"122/65 (P)"},{id:"131/75 (HP)", label:"131/75 (HP)", earmold:true}],
+  "th7li|sr":      [{id:"110/46 (S)", label:"110/46 (S)"},{id:"119/60 (M)", label:"119/60 (M)"},{id:"122/65 (P)", label:"122/65 (P)"}],
+  "th7li|if":      [{id:"114/50", label:"114/50"}],
+  "th6|ric":       [{id:"110/46 (S)", label:"110/46 (S)"},{id:"119/60 (M)", label:"119/60 (M)"},{id:"122/65 (P)", label:"122/65 (P)"},{id:"131/75 (HP)", label:"131/75 (HP)", earmold:true}],
+  "th6li|itc":     [{id:"113/50 (S)", label:"113/50 (S)"},{id:"118/55 (M)", label:"118/55 (M)"},{id:"124/65 (P)", label:"124/65 (P)"}],
+  "th6li|hs":      [{id:"113/50 (S)", label:"113/50 (S)"},{id:"118/55 (M)", label:"118/55 (M)"},{id:"124/65 (P)", label:"124/65 (P)"}],
+  "th6li|fs":      [{id:"113/50 (S)", label:"113/50 (S)"},{id:"118/55 (M)", label:"118/55 (M)"},{id:"124/65 (P)", label:"124/65 (P)"}],
+  "th6li|sr":      [{id:"110/46 (S)", label:"110/46 (S)"},{id:"119/60 (M)", label:"119/60 (M)"},{id:"122/65 (P)", label:"122/65 (P)"}],
+  "th5|if":        [{id:"113/50", label:"113/50"}],
+  "th5li|s_bte":   [{id:"125/50 Thin-Tube", label:"125/50 Thin-Tube"},{id:"133/60 Earhook", label:"133/60 Earhook"}],
+  "th5li|p_bte":   [{id:"130/66 Thin-Tube", label:"130/66 Thin-Tube"},{id:"135/77 Earhook", label:"135/77 Earhook"}],
+  "th5li|sp_bte":  [{id:"140/82 Earhook", label:"140/82 Earhook"}],
+};
+
+// Color schemes by style category
+const TH_COLORS = {
+  ric_bte:  ["Beige","Dark Brown","Black","Granite","Sandy Brown"],
+  slim_ric: ["Snow White/Rose Gold","Cosmic Blue/Rose Gold","Black/Silver","White","Black"],
+  if_faceplate: ["Mocha","Black"],
+  if_shell: ["Red/Blue"],
+  custom_faceplate: ["Beige","Tan","Mocha","Brown","Dark Brown","Black"],
+  custom_shell: ["Beige","Tan","Mocha","Brown","Dark Brown","Black"],
+};
+
+// Which style category each TH style belongs to (for color logic)
+const TH_STYLE_COLOR_CATEGORY = {
+  ric:"ric_bte", ric_bct:"ric_bte", s_bte:"ric_bte", p_bte:"ric_bte", sp_bte:"ric_bte",
+  sr:"slim_ric",
+  if:"if",
+  iic:"custom", cic:"custom", itc:"custom", hs:"custom", fs:"custom",
+};
+
+// Battery type auto-determined by model+style
+const TH_BATTERY = {
+  "th7|iic":"Size 10 (Disposable)", "th7|cic":"Size 10 (Disposable)",
+  "th7|itc":"Size 312 (Disposable)", "th7|hs":"Size 312 (Disposable)", "th7|fs":"Size 312 (Disposable)",
+  "th7li|ric":"Rechargeable (Li-Ion)", "th7li|ric_bct":"Rechargeable (Li-Ion)", "th7li|sr":"Rechargeable (Li-Ion)", "th7li|if":"Rechargeable (Li-Ion)",
+  "th6|ric":"Size 312 (Disposable)",
+  "th6li|itc":"Rechargeable (Li-Ion)", "th6li|hs":"Rechargeable (Li-Ion)", "th6li|fs":"Rechargeable (Li-Ion)", "th6li|sr":"Rechargeable (Li-Ion)",
+  "th5|if":"Size 10 (Disposable)",
+  "th5li|s_bte":"Rechargeable (Li-Ion)", "th5li|p_bte":"Rechargeable (Li-Ion)", "th5li|sp_bte":"Rechargeable (Li-Ion)",
+};
+
+// TruHearing dome options — two-step: category → sizes
+const TH_DOMES = {
+  "Open":   ["5mm","7mm","10mm"],
+  "Tulip":  ["8mm","12mm"],
+  "Vented": ["XS","S","M","L","XL"],
+  "Closed": ["XS","S","M","L","XL"],
+  "Power":  ["XS","S","M","L","XL"],
+};
+
+// Styles that show receiver length + dome selection
+const TH_RECEIVER_STYLES = ["ric","ric_bct","sr"];
+
 const RECEIVER_LENGTHS = ["0","1","2","3","4"];
 
 
