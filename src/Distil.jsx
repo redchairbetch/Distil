@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import CarePlanSelector from "./views/CarePlanSelector";
 
 
 import {
@@ -972,6 +973,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [punchData, setPunchData] = useState({ cleanings: 0, appointments: 0, log: [] });
   const [punchConfirm, setPunchConfirm] = useState(null);
   const [punchSuccess, setPunchSuccess] = useState(null);
+  const [showCarePlanSelector, setShowCarePlanSelector] = useState(false);
 
   // ── Patient detail inline edit state ─────────────────────────────────────
   // editSection: 'contact' | 'coverage' | 'devices' | 'campaign' | null
@@ -4217,6 +4219,31 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 </div>
               );
             })}
+
+            {/* CARE PLAN SELECTOR — expandable comparison tool */}
+            {p.payType === "insurance" && (
+              <div className="detail-card full">
+                <div style={{display:"flex",alignItems:"center",marginBottom: showCarePlanSelector ? 16 : 0}}>
+                  <div className="detail-card-title" style={{marginBottom:0}}>Care Plan Comparison</div>
+                  <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}}
+                    onClick={()=>setShowCarePlanSelector(v=>!v)}>
+                    {showCarePlanSelector ? "Collapse" : "Compare Plans"}
+                  </button>
+                </div>
+                {showCarePlanSelector && (
+                  <CarePlanSelector
+                    patientId={p.id}
+                    currentPlan={p.carePlan}
+                    patientName={p.name}
+                    coverageId={p._ids?.coverageId}
+                    onPlanSaved={(newPlan) => {
+                      setSelectedPatient(prev => prev ? { ...prev, carePlan: newPlan } : prev);
+                      setPatients(prev => prev.map(pt => pt.id === p.id ? { ...pt, carePlan: newPlan } : pt));
+                    }}
+                  />
+                )}
+              </div>
+            )}
 
             {/* PUNCH CARD PANEL — only for punch plan patients */}
             {p.carePlan === "punch" && (() => {
