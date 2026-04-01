@@ -34,6 +34,7 @@ import {
 import ContentLibrary from "./views/ContentLibrary.jsx";
 import CampaignManager from "./views/CampaignManager.jsx";
 import LimaCharlie from "./views/LimaCharlie.jsx";
+import CarePlanSelector from "./views/CarePlanSelector.jsx";
 
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
@@ -3968,6 +3969,17 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   {p.devices?.warrantyExpiry && <div className="detail-row"><span className="detail-key">Warranty Expiry</span><span className="detail-val">{fmtDate(p.devices.warrantyExpiry)}</span></div>}
                 </div>
               )}
+            </div>
+
+            {/* ── CARE PLAN SELECTOR ──────────────────────────────────────── */}
+            <div className="detail-card full" style={{padding:0,overflow:"hidden"}}>
+              <CarePlanSelector
+                patientId={p.id}
+                currentPlan={p.carePlan || null}
+                patientName={p.name}
+                coverageId={p._ids?.coverageId || null}
+                onPlanSaved={(planId) => setSelectedPatient(prev => ({ ...prev, carePlan: planId }))}
+              />
             </div>
 
             {/* ── DEVICE SPECIFICATIONS ────────────────────────────────────── */}
