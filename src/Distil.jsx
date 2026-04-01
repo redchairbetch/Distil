@@ -1160,7 +1160,22 @@ export default function ProviderCRM({ staffId, clinicId }) {
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const content = await page.getTextContent();
-        fullText += content.items.map(item => item.str).join(" ") + "\n";
+        // Group text items by y-position to reconstruct lines
+        const lineMap = new Map();
+        for (const item of content.items) {
+          if (!item.str.trim()) continue;
+          // y-coordinate is in item.transform[5], round to group nearby items
+          const y = Math.round(item.transform[5]);
+          if (!lineMap.has(y)) lineMap.set(y, []);
+          lineMap.get(y).push({ x: item.transform[4], str: item.str });
+        }
+        // Sort lines top-to-bottom (higher y = higher on page in PDF coords)
+        const sortedYs = [...lineMap.keys()].sort((a, b) => b - a);
+        for (const y of sortedYs) {
+          // Sort items left-to-right within each line
+          const items = lineMap.get(y).sort((a, b) => a.x - b.x);
+          fullText += items.map(it => it.str).join(" ") + "\n";
+        }
       }
       const result = parseMedRxPdf(fullText);
       if (!result.success) {

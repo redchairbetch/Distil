@@ -75,7 +75,67 @@ export function parseMedRxPdf(text) {
     return { success: false, error: 'This does not appear to be a MedRx report. The PDF text does not contain the MedRx identifier.' };
   }
 
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  // Split text into lines, then expand combined Right/Left lines.
+  // MedRx PDFs render both ears side-by-side at the same y-position,
+  // producing: "Right 125 250 ... 8k Left 125 250 ... 8k"
+  // followed by: "AC 40 20 ... 75 AC 45 25 ... 75"
+  // We need to split AND interleave: Right header, Right AC, Left header, Left AC
+  const rawLines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const lines = [];
+
+  /** Try to split a line with two AC or BC tokens: "AC ... AC ..." → [first, second] */
+  function splitDualTestRow(line, prefix) {
+    const re = new RegExp(`\\d\\s+${prefix}\\b`, 'i');
+    const idx = line.search(re);
+    if (idx < 0) return null;
+    // Find the second prefix token after the matched digit
+    const searchFrom = idx + 1;
+    let splitAt = line.indexOf(prefix, searchFrom);
+    if (splitAt < 0) splitAt = line.indexOf(prefix.toLowerCase(), searchFrom);
+    if (splitAt < 0) return null;
+    return [line.slice(0, splitAt).trim(), line.slice(splitAt).trim()];
+  }
+
+  for (let li = 0; li < rawLines.length; li++) {
+    const line = rawLines[li];
+
+    // Detect combined frequency header: "Right ... Left ..."
+    const leftIdx = line.search(/\bLeft\s+\d/i);
+    if (/^Right\s+\d/i.test(line) && leftIdx > 0) {
+      const rightHeader = line.slice(0, leftIdx).trim();
+      const leftHeader = line.slice(leftIdx).trim();
+
+      // Check if the NEXT line is a combined AC row, and interleave
+      const nextLine = rawLines[li + 1] || '';
+      const acParts = /^AC\b/i.test(nextLine) ? splitDualTestRow(nextLine, 'AC') : null;
+
+      if (acParts) {
+        // Interleave: Right header → Right AC → Left header → Left AC
+        lines.push(rightHeader);
+        lines.push(acParts[0]);
+        lines.push(leftHeader);
+        lines.push(acParts[1]);
+        li++; // skip the AC line, we already consumed it
+
+        // Also check for a combined BC row after the AC row
+        const bcLine = rawLines[li + 1] || '';
+        const bcParts = /^BC\b/i.test(bcLine) ? splitDualTestRow(bcLine, 'BC') : null;
+        if (bcParts) {
+          // Insert BC rows right after their respective headers+AC
+          lines.splice(lines.length - 2, 0, bcParts[0]); // after right AC
+          lines.push(bcParts[1]); // after left AC
+          li++; // skip the BC line
+        }
+      } else {
+        // No combined AC row follows — just split the headers
+        lines.push(rightHeader);
+        lines.push(leftHeader);
+      }
+      continue;
+    }
+
+    lines.push(line);
+  }
 
   // Extract patient name and test date from header
   // Pattern: "MedRx LastName, FirstName M/D/YYYY H:MM:SS AM/PM Page N"
