@@ -1755,7 +1755,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     .warranty-fill.warn { background: #f59e0b; }
     .warranty-fill.exp { background: #ef4444; }
     /* WIZARD */
-    .wizard-wrap { max-width: 760px; }
+    .wizard-wrap { max-width: 960px; margin: 0 auto; }
     .wizard-steps { display: flex; gap: 0; margin-bottom: 32px; }
     .wizard-step { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; }
     .wizard-step:not(:last-child)::after { content:''; position: absolute; top: 14px; left: 50%; width: 100%; height: 2px; background: #e5e7eb; z-index: 0; }
@@ -3165,50 +3165,48 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
       const DeviceSummary = () => {
         if (!leftOk && !rightOk) return null;
+        const detailRow = (label, value) => (
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"3px 0"}}>
+            <span style={{color:"#6b7280"}}>{label}</span>
+            <span style={{color:"#0a1628",fontWeight:500}}>{value || "—"}</span>
+          </div>
+        );
         const renderSide = (side, label) => {
           const d = form[side];
           if (!isSideConfigured(side)) return null;
           const fam = catalog.find(e => e.id === d.familyId);
-          const name = d.manufacturer === "TruHearing"
-            ? `TruHearing Select · ${d.techLevel}`
-            : `${fam?.family || ""} · ${d.techLevel}`;
+          const brand = d.manufacturer === "TruHearing" ? "TruHearing Select" : (d.manufacturer || "—");
+          const model = d.manufacturer === "TruHearing" ? (d.thModel || "—") : (fam?.family || "—");
+          const styleLabel = BODY_STYLES.find(s => s.id === d.style)?.label || d.style || "—";
           return (
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #f3f4f6"}}>
-              <div>
-                <div style={{fontSize:13,fontWeight:600,color:"#0a1628"}}>{label}</div>
-                <div style={{fontSize:11,color:"#6b7280",marginTop:1}}>{name}</div>
-              </div>
-              {form.tierPrice != null && (
-                <div style={{textAlign:"right"}}>
-                  <div style={{fontSize:15,fontWeight:700,color:"#0a1628"}}>
-                    {form.tierPrice===0?"No Charge":`$${form.tierPrice.toLocaleString()}`}
-                  </div>
-                  <div style={{fontSize:10,color:"#9ca3af"}}>per aid</div>
-                </div>
-              )}
+            <div style={{padding:"10px 0",borderBottom:"1px solid #f3f4f6"}}>
+              <div style={{fontSize:13,fontWeight:600,color:"#0a1628",marginBottom:6}}>{label}</div>
+              {detailRow("Brand", brand)}
+              {detailRow("Model", model)}
+              {detailRow("Technology", d.techLevel || "—")}
+              {detailRow("Style", styleLabel)}
+              {form.tierPrice != null && detailRow("Cost per device", form.tierPrice === 0 ? "No Charge" : `$${form.tierPrice.toLocaleString()}`)}
             </div>
           );
         };
         return (
           <div style={{background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:10,padding:"14px 16px",marginBottom:20}}>
             <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:8}}>Selected Devices</div>
-            {renderSide("left","👂 Left Ear")}
-            {renderSide("right","Right Ear 👂")}
+            {renderSide("left","Left Ear")}
+            {renderSide("right","Right Ear")}
             {aidBase != null && (
-              <>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,paddingTop:10,borderTop:"2px solid #e5e7eb"}}>
-                  <div>
-                    <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>Device Total</div>
-                    <div style={{fontSize:11,color:"#6b7280"}}>{aidCount} aid{aidCount!==1?"s":""} · {form.tier} tier</div>
-                  </div>
-                  <div style={{background:"#0a1628",color:"white",borderRadius:8,padding:"8px 16px",textAlign:"right"}}>
-                    <div style={{fontSize:20,fontWeight:800,lineHeight:1}}>
-                      {aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}
-                    </div>
-                    {aidCount===1 && <div style={{fontSize:10,opacity:0.6,marginTop:2}}>one ear · add second to update</div>}
-                  </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,paddingTop:10,borderTop:"2px solid #e5e7eb"}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>Device Total</div>
+                  <div style={{fontSize:11,color:"#6b7280"}}>{aidCount} aid{aidCount!==1?"s":""} · {form.tier} tier</div>
                 </div>
-              </>
+                <div style={{background:"#0a1628",color:"white",borderRadius:8,padding:"8px 16px",textAlign:"right"}}>
+                  <div style={{fontSize:20,fontWeight:800,lineHeight:1}}>
+                    {aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}
+                  </div>
+                  {aidCount===1 && <div style={{fontSize:10,opacity:0.6,marginTop:2}}>one ear · add second to update</div>}
+                </div>
+              </div>
             )}
           </div>
         );
@@ -3261,8 +3259,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
                   {aidTotal != null && (
                     <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
-                      <span>Hearing aids ({aidCount} aid{aidCount!==1?"s":""} · {form.tier})</span>
-                      <span style={{fontWeight:600}}>{aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}</span>
+                      <span>Hearing aids ({aidCount} aid{aidCount!==1?"s":""}{form.tier?` · ${form.tier}`:""})</span>
+                      <span style={{fontWeight:600}}>{aidTotal===0?"Covered by plan":`$${aidTotal.toLocaleString()}`}</span>
                     </div>
                   )}
                   {form.carePlan && (
