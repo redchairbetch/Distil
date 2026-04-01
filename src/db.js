@@ -50,6 +50,72 @@ export function onAuthStateChange(callback) {
 
 
 // ============================================================
+// STAFF PROFILE (for purchase agreements, provider info)
+// ============================================================
+
+/**
+ * Load full staff profile including clinic details and licenses.
+ * Returns: { id, full_name, role, licenses, signature_url, clinic }
+ * where clinic = { id, name, address, phone }
+ */
+export async function loadStaffProfile(staffId) {
+  const { data, error } = await supabase
+    .from('staff')
+    .select('id, full_name, role, licenses, signature_url, clinics(id, name, address, phone)')
+    .eq('id', staffId)
+    .single()
+  if (error || !data) return null
+
+  // Parse state from clinic address (e.g. "1234 N Hearing Ave, St. George, UT 84770" → "UT")
+  const addrParts = (data.clinics?.address || '').split(',').map(s => s.trim())
+  const stateZip = addrParts[addrParts.length - 1] || ''
+  const stateMatch = stateZip.match(/\b([A-Z]{2})\b/)
+  const clinicState = stateMatch ? stateMatch[1] : null
+
+  // Pick the license that matches the clinic's state
+  const licenses = data.licenses || {}
+  const activeLicense = clinicState && licenses[clinicState] ? licenses[clinicState] : Object.values(licenses)[0] || ''
+
+  return {
+    id: data.id,
+    fullName: data.full_name,
+    role: data.role,
+    licenses,
+    activeLicense,
+    clinicState,
+    signatureUrl: data.signature_url,
+    clinic: data.clinics
+  }
+}
+
+/**
+ * Update provider signature URL after uploading to Supabase Storage
+ */
+export async function updateStaffSignature(staffId, signatureUrl) {
+  const { error } = await supabase
+    .from('staff')
+    .update({ signature_url: signatureUrl })
+    .eq('id', staffId)
+  if (error) throw error
+}
+
+/**
+ * Upload a signature image to Supabase Storage and return the public URL.
+ * Expects a File or Blob object.
+ */
+export async function uploadSignatureImage(staffId, file) {
+  const filePath = `signatures/${staffId}.png`
+  const { error: uploadError } = await supabase.storage
+    .from('provider-assets')
+    .upload(filePath, file, { upsert: true, contentType: 'image/png' })
+  if (uploadError) throw uploadError
+
+  const { data } = supabase.storage.from('provider-assets').getPublicUrl(filePath)
+  return data.publicUrl
+}
+
+
+// ============================================================
 // HELPERS
 // ============================================================
 

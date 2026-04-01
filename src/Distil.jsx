@@ -29,7 +29,9 @@ import {
   updateDeviceSide,
   updatePatientCampaign,
   updateDeliveryDate,
+  loadStaffProfile,
 } from "./db.js";
+import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 
 import ContentLibrary from "./views/ContentLibrary.jsx";
 import CampaignManager from "./views/CampaignManager.jsx";
@@ -1094,6 +1096,14 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [retailAnchors, setRetailAnchors] = useState([]);
   const [pricingReveal, setPricingReveal] = useState(null);
 
+  // ── Purchase Agreement state ──────────────────────────────────────────
+  const [staffProfile, setStaffProfile] = useState(null);
+  const [showPurchaseAgreement, setShowPurchaseAgreement] = useState(false);
+  const [paSignatureName, setPaSignatureName] = useState("");
+  const [paStep, setPaStep] = useState("sign"); // 'sign' | 'delivery' | 'done'
+  const [paDeliveryName, setPaDeliveryName] = useState("");
+  const [paDeliveryDate, setPaDeliveryDate] = useState("");
+
   // Product catalog state
   const [catalog, setCatalog] = useState(CATALOG_DEFAULT);
   const [catEditId, setCatEditId] = useState(null);      // which entry is open for editing
@@ -1206,6 +1216,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
         if (clinicId) {
           const anchors = await loadRetailAnchors(clinicId);
           if (anchors?.length) setRetailAnchors(anchors);
+        }
+      } catch {}
+      try {
+        if (staffId) {
+          const profile = await loadStaffProfile(staffId);
+          if (profile) setStaffProfile(profile);
         }
       } catch {}
     })();
@@ -3819,10 +3835,183 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div className="topbar-title">{p.name}</div>
             <div className="topbar-sub">Patient ID: {p.id.slice(0,8).toUpperCase()} · {p.location} · Added {fmtDate(p.createdAt)}</div>
           </div>
-          <div style={{display:"flex",gap:10}}>
+          <div style={{display:"flex",gap:10,alignItems:"center"}}>
+            {p.devices && p.carePlan && (
+              <button
+                style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
+                onClick={() => { setPaSignatureName(""); setPaDeliveryName(""); setPaDeliveryDate(""); setPaStep("sign"); setShowPurchaseAgreement(true); }}
+              >
+                <span style={{fontSize:14}}>📄</span> Purchase Agreement
+              </button>
+            )}
             <button className="btn-ghost" onClick={()=>setView("dashboard")}>← Back</button>
           </div>
         </div>
+
+        {/* ── PURCHASE AGREEMENT MODAL ──────────────────────────────────── */}
+        {showPurchaseAgreement && (() => {
+          const cpId = p.carePlan;
+          const hasDevices = p.devices?.left || p.devices?.right;
+          const canGenerate = paSignatureName.trim().length > 2;
+
+          const handleGeneratePDF = (includeDelivery = false) => {
+            const pricePerAid = p.insurance?.tierPrice || 0;
+            downloadPurchaseAgreement({
+              patient: { name: p.name, address: p.address, phone: p.phone, dob: p.dob },
+              devices: {
+                fittingType: p.devices?.fittingType || 'bilateral',
+                left: p.devices?.left || null,
+                right: p.devices?.right || null,
+              },
+              carePlan: cpId,
+              pricePerAid,
+              clinic: staffProfile?.clinic || clinic,
+              provider: {
+                fullName: staffProfile?.fullName || 'Provider',
+                activeLicense: staffProfile?.activeLicense || '',
+                signatureUrl: staffProfile?.signatureUrl || null,
+              },
+              patientSignature: paSignatureName.trim(),
+              patientSignatureDate: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+              deliverySignature: includeDelivery ? paDeliveryName.trim() || null : null,
+              deliveryDate: includeDelivery ? paDeliveryDate || null : null,
+              signatureImageBase64: null, // Will be populated once signature is uploaded to Supabase Storage
+            });
+            setShowPurchaseAgreement(false);
+          };
+
+          return (
+            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(10,22,40,0.55)",backdropFilter:"blur(4px)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setShowPurchaseAgreement(false)}>
+              <div style={{background:"white",borderRadius:16,padding:32,width:520,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}} onClick={e=>e.stopPropagation()}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+                  <div>
+                    <div style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:18,color:"#0a1628"}}>Purchase Agreement</div>
+                    <div style={{fontFamily:"'Sora',sans-serif",fontSize:12,color:"#6b7280",marginTop:2}}>{p.name}</div>
+                  </div>
+                  <button onClick={()=>setShowPurchaseAgreement(false)} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#9ca3af",padding:4}}>✕</button>
+                </div>
+
+                {/* Summary */}
+                <div style={{background:"#f8fafc",borderRadius:10,padding:16,marginBottom:20,border:"1px solid #e5e7eb"}}>
+                  <div style={{fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:11,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,marginBottom:8}}>Agreement Summary</div>
+                  {hasDevices && (
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#374151"}}>{p.devices?.left?.manufacturer || p.devices?.right?.manufacturer} {p.devices?.left?.family || p.devices?.right?.family} ({p.devices?.fittingType === 'bilateral' ? 'pair' : 'single'})</span>
+                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:600,color:"#0a1628"}}>${((p.insurance?.tierPrice||0) * (p.devices?.fittingType === 'bilateral' || p.devices?.fittingType === 'cros_bicros' ? 2 : 1)).toLocaleString('en-US',{minimumFractionDigits:2})}</span>
+                    </div>
+                  )}
+                  {cpId && cpId !== 'paygo' && (
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#374151"}}>{cpId === 'complete' ? 'Complete Care+' : 'Treatment Punch Card'}</span>
+                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:600,color:"#0a1628"}}>{cpId === 'complete' ? '$1,250.00' : '$575.00'}</span>
+                    </div>
+                  )}
+                  {cpId === 'paygo' && (
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#6b7280",fontStyle:"italic"}}>Pay-As-You-Go (est. 5-yr: $1,625)</span>
+                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#6b7280"}}>$0.00</span>
+                    </div>
+                  )}
+                  <div style={{borderTop:"1px solid #e5e7eb",marginTop:8,paddingTop:8,display:"flex",justifyContent:"space-between"}}>
+                    <span style={{fontFamily:"'Sora',sans-serif",fontSize:14,fontWeight:700,color:"#0a1628"}}>Total</span>
+                    <span style={{fontFamily:"'Sora',sans-serif",fontSize:14,fontWeight:700,color:"#0a1628"}}>${(((p.insurance?.tierPrice||0) * (p.devices?.fittingType === 'bilateral' || p.devices?.fittingType === 'cros_bicros' ? 2 : 1)) + (cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0)).toLocaleString('en-US',{minimumFractionDigits:2})}</span>
+                  </div>
+                </div>
+
+                {paStep === "sign" && (
+                  <>
+                    {/* Adopt and Sign */}
+                    <div style={{marginBottom:20}}>
+                      <div style={{fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:11,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,marginBottom:8}}>Patient Signature — Adopt and Sign</div>
+                      <div style={{fontFamily:"'Sora',sans-serif",fontSize:12,color:"#6b7280",marginBottom:10}}>Type your full legal name to electronically sign this agreement.</div>
+                      <input
+                        value={paSignatureName}
+                        onChange={e => setPaSignatureName(e.target.value)}
+                        placeholder="Full legal name"
+                        autoFocus
+                        style={{width:"100%",padding:"12px 14px",border:"1px solid #e5e7eb",borderRadius:10,fontFamily:"'Sora',sans-serif",fontSize:14,outline:"none",boxSizing:"border-box"}}
+                      />
+                      {paSignatureName.trim().length > 2 && (
+                        <div style={{marginTop:12,padding:"14px 18px",background:"#f8fafc",borderRadius:10,border:"1px dashed #d1d5db"}}>
+                          <div style={{fontFamily:"'Georgia','Times New Roman',serif",fontSize:24,fontStyle:"italic",color:"#0a1628",letterSpacing:0.5}}>{paSignatureName}</div>
+                          <div style={{fontFamily:"'Sora',sans-serif",fontSize:10,color:"#9ca3af",marginTop:4}}>Electronic signature preview</div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{display:"flex",gap:10}}>
+                      <button
+                        disabled={!canGenerate}
+                        onClick={() => handleGeneratePDF(false)}
+                        style={{flex:1,background:canGenerate?"#0a1628":"#d1d5db",color:"white",border:"none",borderRadius:10,padding:"12px 20px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,cursor:canGenerate?"pointer":"not-allowed",transition:"all 0.15s"}}
+                      >
+                        Adopt, Sign & Download
+                      </button>
+                      <button
+                        onClick={() => setPaStep("delivery")}
+                        style={{background:"none",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",color:"#6b7280",whiteSpace:"nowrap"}}
+                      >
+                        + Delivery
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {paStep === "delivery" && (
+                  <>
+                    {/* Show patient signature as confirmed */}
+                    <div style={{background:"#ecfdf5",borderRadius:10,padding:12,marginBottom:16,border:"1px solid #a7f3d0",display:"flex",alignItems:"center",gap:8}}>
+                      <span style={{color:"#16a34a",fontSize:16}}>✓</span>
+                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#065f46"}}>Purchase signed by {paSignatureName}</span>
+                    </div>
+
+                    <div style={{marginBottom:16}}>
+                      <div style={{fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:11,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,marginBottom:8}}>Delivery Acknowledgement</div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                        <div>
+                          <label style={{fontFamily:"'Sora',sans-serif",fontSize:11,color:"#6b7280",display:"block",marginBottom:4}}>Patient Name</label>
+                          <input
+                            value={paDeliveryName}
+                            onChange={e => setPaDeliveryName(e.target.value)}
+                            placeholder="Full legal name"
+                            autoFocus
+                            style={{width:"100%",padding:"10px 12px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}}
+                          />
+                        </div>
+                        <div>
+                          <label style={{fontFamily:"'Sora',sans-serif",fontSize:11,color:"#6b7280",display:"block",marginBottom:4}}>Delivery Date</label>
+                          <input
+                            type="date"
+                            value={paDeliveryDate}
+                            onChange={e => setPaDeliveryDate(e.target.value)}
+                            style={{width:"100%",padding:"10px 12px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{display:"flex",gap:10}}>
+                      <button
+                        onClick={() => setPaStep("sign")}
+                        style={{background:"none",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",color:"#6b7280"}}
+                      >
+                        ← Back
+                      </button>
+                      <button
+                        onClick={() => handleGeneratePDF(true)}
+                        disabled={!paDeliveryName.trim() || !paDeliveryDate}
+                        style={{flex:1,background:(paDeliveryName.trim()&&paDeliveryDate)?"#0a1628":"#d1d5db",color:"white",border:"none",borderRadius:10,padding:"12px 20px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,cursor:(paDeliveryName.trim()&&paDeliveryDate)?"pointer":"not-allowed",transition:"all 0.15s"}}
+                      >
+                        Sign & Download with Delivery
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
         <div className="content">
           <div className="qr-prompt">
             <div className="qr-title">Patient App QR Code</div>
