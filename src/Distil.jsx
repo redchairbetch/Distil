@@ -3152,11 +3152,23 @@ export default function ProviderCRM({ staffId, clinicId }) {
       const leftOk  = isSideConfigured("left");
       const rightOk = isSideConfigured("right");
       const aidCount = (leftOk ? 1 : 0) + (rightOk ? 1 : 0);
-      const aidBase = form.tierPrice != null ? form.tierPrice * aidCount : null;
-      const aidTotal = aidBase;
       const isTruHearing = form.tpa === "TruHearing";
       const isUHCH = form.tpa === "United Healthcare Hearing";
       const isTruHearingTPA = isTruHearing || isUHCH;
+
+      // Resolve effective price per aid — form.tierPrice for standard plans,
+      // derived from privateLabelTiers for TruHearing/private-label plans
+      const effectiveTierPrice = (() => {
+        if (form.tierPrice != null) return form.tierPrice;
+        // For TruHearing: derive from the selected tech level + plan tiers
+        const activeSideData = leftOk ? form.left : rightOk ? form.right : null;
+        if (activeSideData?.techLevel && privateLabelTiers.length > 0) {
+          return privateLabelTiers.find(t => t.label === activeSideData.techLevel)?.price ?? null;
+        }
+        return null;
+      })();
+      const aidBase = effectiveTierPrice != null ? effectiveTierPrice * aidCount : null;
+      const aidTotal = aidBase;
 
       const cpCostFor = (id) =>
         id === "paygo"    ? (isTruHearing ? 975 : isUHCH ? 1235 : 0)
@@ -3185,7 +3197,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
               {detailRow("Model", model)}
               {detailRow("Technology", d.techLevel || "—")}
               {detailRow("Style", styleLabel)}
-              {form.tierPrice != null && detailRow("Cost per device", form.tierPrice === 0 ? "No Charge" : `$${form.tierPrice.toLocaleString()}`)}
+              {effectiveTierPrice != null && detailRow("Cost per device", effectiveTierPrice === 0 ? "No Charge" : `$${effectiveTierPrice.toLocaleString()}`)}
             </div>
           );
         };
@@ -3198,7 +3210,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,paddingTop:10,borderTop:"2px solid #e5e7eb"}}>
                 <div>
                   <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>Device Total</div>
-                  <div style={{fontSize:11,color:"#6b7280"}}>{aidCount} aid{aidCount!==1?"s":""} · {form.tier} tier</div>
+                  <div style={{fontSize:11,color:"#6b7280"}}>{aidCount} aid{aidCount!==1?"s":""}{form.tier ? ` · ${form.tier} tier` : ""}</div>
                 </div>
                 <div style={{background:"#0a1628",color:"white",borderRadius:8,padding:"8px 16px",textAlign:"right"}}>
                   <div style={{fontSize:20,fontWeight:800,lineHeight:1}}>
