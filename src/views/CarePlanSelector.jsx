@@ -107,20 +107,29 @@ function totals(scenarioIdx) {
 }
 
 // ── COMPONENT ────────────────────────────────────────────────────────────────
-export default function CarePlanSelector({ patientId, currentPlan, patientName, onPlanSaved, coverageId }) {
-  const [selectedPlan, setSelectedPlan] = useState(currentPlan || null);
+// wizardMode: no confirm/save — just calls onSelect(planId) on click
+// detail mode (default): two-step confirm → save to Supabase → print
+export default function CarePlanSelector({ patientId, currentPlan, patientName, onPlanSaved, coverageId, wizardMode, onSelect, selectedPlanOverride }) {
+  const [localSelected, setLocalSelected] = useState(currentPlan || null);
   const [scenario, setScenario] = useState(0);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState(null);
   const printRef = useRef(null);
 
+  // In wizard mode, parent controls selection via selectedPlanOverride
+  const selectedPlan = wizardMode ? (selectedPlanOverride || null) : localSelected;
+
   const costs = totals(scenario);
   const paygoTotal = costs[0];
 
   const handleSelect = (planId) => {
+    if (wizardMode) {
+      if (onSelect) onSelect(planId);
+      return;
+    }
     if (saved) return;
-    setSelectedPlan(planId);
+    setLocalSelected(planId);
     setSaved(false);
     setError(null);
   };
@@ -211,12 +220,12 @@ export default function CarePlanSelector({ patientId, currentPlan, patientName, 
   };
 
   const planChanged = selectedPlan && selectedPlan !== currentPlan;
-  const showConfirm = planChanged && !saved;
-  const showPrint = saved;
+  const showConfirm = !wizardMode && planChanged && !saved;
+  const showPrint = !wizardMode && saved;
 
   // ── RENDER ──────────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding: "20px 28px", fontFamily: "'Sora', sans-serif" }}>
+    <div style={{ padding: wizardMode ? 0 : "20px 28px", fontFamily: "'Sora', sans-serif" }}>
 
       {/* Header row */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
@@ -399,7 +408,7 @@ export default function CarePlanSelector({ patientId, currentPlan, patientName, 
                 {saving ? "Saving\u2026" : `Confirm ${PLANS.find(p => p.id === selectedPlan)?.shortLabel}`}
               </button>
               <button
-                onClick={() => { setSelectedPlan(currentPlan || null); setError(null); }}
+                onClick={() => { setLocalSelected(currentPlan || null); setError(null); }}
                 style={{
                   background: "none", border: "1px solid #e5e7eb", borderRadius: 8,
                   padding: "10px 18px", fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 13,
