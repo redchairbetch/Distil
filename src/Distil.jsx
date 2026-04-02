@@ -1511,18 +1511,18 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const buildSideRecord = (s) => {
     if (!s.familyId && s.manufacturer !== "TruHearing") return null;
-    if (s.manufacturer === "TruHearing" && (!s.techLevel || !s.familyId)) return null;
+    if (s.manufacturer === "TruHearing" && (!s.techLevel || !s.thModel)) return null;
     if (s.manufacturer === "TruHearing") {
-      const thFam = catalog.find(e => e.id === s.familyId);
+      const thMod = TH_MODELS.find(m => m.id === s.thModel);
       const pwrLabel = (RECEIVER_POWERS["TruHearing"]||[]).find(p=>p.id===s.receiverPower)?.label || s.receiverPower;
       const isEarmold = (RECEIVER_POWERS["TruHearing"]||[]).find(p=>p.id===s.receiverPower)?.earmold;
       return {
         manufacturer: "TruHearing",
-        generation: thFam?.generation || "IX",
-        family: thFam?.family || "TruHearing Select",
-        thSeries: thFam?.thSeries || "",
-        rechargeable: thFam?.rechargeable || false,
-        liUpcharge: thFam?.liUpcharge || 0,
+        generation: "IX",
+        family: thMod?.label || "TruHearing Select",
+        thSeries: "",
+        rechargeable: thMod?.li || false,
+        liUpcharge: 0,
         variant: s.isCROS ? "CROS Transmitter" : (s.variant || ""),
         techLevel: s.techLevel, style: s.style || "ric",
         color: "", battery: s.battery || "",
@@ -2822,7 +2822,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 <div className="plan-select-list">
                   {privateLabelTiers.map(t => (
                     <div key={t.label} className={`plan-row ${s.techLevel===t.label?"active":""}`}
-                      onClick={()=>setForm(f=>({...f,[side]:{...EMPTY_SIDE(), manufacturer:"TruHearing", techLevel:t.label}}))}>
+                      onClick={()=>setForm(f=>({...f, tier:t.label, tierPrice:t.price, [side]:{...EMPTY_SIDE(), manufacturer:"TruHearing", techLevel:t.label}}))}>
                       <div className="plan-row-top">
                         <div><div className="plan-row-name">{t.label}</div></div>
                         <div style={{fontWeight:700,color:"#0a1628"}}>
@@ -3271,32 +3271,32 @@ export default function ProviderCRM({ staffId, clinicId }) {
         {
           category: "Office Visits",
           paygo:    "Billed per visit · $65 each",
-          punch:    "28 prepaid · unlimited types",
-          complete: "Unlimited · 4-year period",
+          punch:    "All visits · 4-year period",
+          complete: "Unlimited · 5-year period",
         },
         {
           category: "Cleanings",
           paygo:    isTruHearingTPA ? "Yr 1 covered by plan" : "$65 each",
-          punch:    "12 included",
-          complete: "Unlimited",
+          punch:    "All included · 4-year period",
+          complete: "Unlimited · 5-year period",
         },
         {
           category: "Adjustments & Triage",
           paygo:    isTruHearingTPA ? "Yr 1 covered by plan" : "$65 each",
-          punch:    "16 included",
-          complete: "Unlimited",
+          punch:    "All included · 4-year period",
+          complete: "Unlimited · 5-year period",
         },
         {
           category: "Warranty",
           paygo:    "3 years · Yr 4 repair $250/aid",
           punch:    "3 years · Yr 4 repair $250/aid",
-          complete: "4 years · Yr 4 repairs covered",
+          complete: "5 years · repairs covered",
         },
         {
           category: "Loss & Damage",
           paygo:    "$275 / aid deductible · 3 years",
           punch:    "$275 / aid deductible · 3 years",
-          complete: "$275 / aid deductible · 4 years",
+          complete: "$275 / aid deductible · 5 years",
         },
       ];
 
@@ -3309,8 +3309,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
       };
       const planCovData = {
         paygo:    {v1:"oop",v2:"oop",v3:"oop",v4:"oop",v5:"oop",v6:"oop",v7:"oop",v8:"oop",v9:"oop"},
-        punch:    {v1:"inc",v2:"inc",v3:"inc",v4:"inc",v5:"par",v6:"par",v7:"oop",v8:"oop",v9:"oop"},
-        complete: {v1:"inc",v2:"inc",v3:"inc",v4:"inc",v5:"inc",v6:"inc",v7:"inc",v8:"inc",v9:"cred"},
+        punch:    {v1:"inc",v2:"inc",v3:"inc",v4:"inc",v5:"inc",v6:"inc",v7:"inc",v8:"inc",v9:"oop"},
+        complete: {v1:"inc",v2:"inc",v3:"inc",v4:"inc",v5:"inc",v6:"inc",v7:"inc",v8:"inc",v9:"inc"},
       };
       const dFill   = {inc:"#16a34a",par:"#d97706",oop:"transparent",cred:"#7c3aed"};
       const dStroke = {inc:"#15803d",par:"#b45309",oop:"#d1d5db",    cred:"#6d28d9"};
@@ -3551,7 +3551,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 <button
                   disabled={!(form.payType === "private" || !!form.carePlan)}
                   style={{background:"#15803d",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",opacity:(form.payType === "private" || !!form.carePlan)?1:0.4,display:"flex",alignItems:"center",gap:8}}
-                  onClick={()=>{ setPaSignatureName(""); setShowWizardPaModal(true); }}
+                  onClick={()=>{ setPaSignatureName(""); setPaStep("review"); setShowWizardPaModal(true); }}
                 >
                   <span style={{fontSize:16}}>📝</span> Sign Purchase Agreement
                 </button>
@@ -5171,72 +5171,154 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 </div>
               </div>
 
-              {/* ── WIZARD PURCHASE AGREEMENT MODAL ────────────────── */}
-              {showWizardPaModal && (
-                <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(10,22,40,0.55)",backdropFilter:"blur(4px)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setShowWizardPaModal(false)}>
-                  <div style={{background:"white",borderRadius:16,padding:32,width:520,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}} onClick={e=>e.stopPropagation()}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-                      <div>
-                        <div style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:18,color:"#0a1628"}}>Purchase Agreement</div>
-                        <div style={{fontFamily:"'Sora',sans-serif",fontSize:12,color:"#6b7280",marginTop:2}}>{[form.firstName,form.lastName].filter(Boolean).join(" ")}</div>
+              {/* ── WIZARD PURCHASE AGREEMENT — FULL-PAGE REVIEW ────── */}
+              {showWizardPaModal && (() => {
+                const pName = [form.firstName,form.lastName].filter(Boolean).join(" ");
+                const leftRec = buildSideRecord(form.left);
+                const rightRec = buildSideRecord(form.right);
+                const isCROS = [leftRec,rightRec].some(r=>r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
+                const fType = leftRec && rightRec ? (isCROS?"cros_bicros":"bilateral") : leftRec?"monaural_left":"monaural_right";
+                const ac = (fType==="bilateral"||fType==="cros_bicros")?2:1;
+                const devTotal = (form.tierPrice||0)*ac;
+                const cpId = form.carePlan||"complete";
+                const cpLabel = cpId==="complete"?"Complete Care+":(cpId==="punch"?"Treatment Punch Card":"Pay-As-You-Go");
+                const cpPrice = cpId==="complete"?1250:(cpId==="punch"?575:0);
+                const cpWarranty = cpId==="complete"?5:3;
+                const cpDesc = cpId==="complete"?"Unlimited visits, cleanings, adjustments, and repairs for 5 years":(cpId==="punch"?"All visits and cleanings covered for 4 years · 3-year manufacturer warranty":"$65/visit · Annual exams covered");
+                const total = devTotal+cpPrice;
+                const provName = staffProfile?.fullName||"Provider";
+                const provLic = staffProfile?.activeLicense||"";
+                const clinicObj = staffProfile?.clinic||clinic;
+                const ss = {section:{fontSize:10,fontWeight:700,color:"#0a1628",letterSpacing:0.5,textTransform:"uppercase",marginBottom:6,marginTop:18},body:{fontSize:13,color:"#374151",lineHeight:1.7}};
+                return (
+                  <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(10,22,40,0.92)",zIndex:9999,display:"flex",justifyContent:"center",overflowY:"auto"}}>
+                    <div style={{background:"white",width:700,minHeight:"100vh",padding:"40px 48px 60px",boxShadow:"0 0 80px rgba(0,0,0,0.4)"}}>
+                      {/* Header */}
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                        <div>
+                          <div style={{fontFamily:"'Sora',sans-serif",fontWeight:800,fontSize:16,color:"#0a1628"}}>MY HEARING CENTERS</div>
+                          <div style={{fontSize:11,color:"#6b7280"}}>{clinicObj?.address}  ·  {clinicObj?.phone}</div>
+                        </div>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontFamily:"'Sora',sans-serif",fontWeight:800,fontSize:14,color:"#0a1628"}}>HEARING AID PURCHASE AGREEMENT</div>
+                          <div style={{fontSize:11,color:"#9ca3af",marginTop:2}}>Date: {new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</div>
+                        </div>
+                        <button onClick={()=>setShowWizardPaModal(false)} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"#9ca3af",padding:"0 0 0 12px",lineHeight:1}}>✕</button>
                       </div>
-                      <button onClick={()=>setShowWizardPaModal(false)} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#9ca3af",padding:4}}>✕</button>
-                    </div>
+                      <div style={{height:1,background:"#e5e7eb",margin:"12px 0"}}/>
 
-                    <div style={{marginBottom:20}}>
-                      <label style={{fontFamily:"'Sora',sans-serif",fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:6}}>Patient Signature — Adopt and Sign</label>
-                      <input
-                        type="text"
-                        placeholder="Type your full legal name"
-                        value={paSignatureName}
-                        onChange={e=>setPaSignatureName(e.target.value)}
-                        style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #d1d5db",fontFamily:"'Sora',sans-serif",fontSize:14,boxSizing:"border-box"}}
-                      />
-                      {paSignatureName.trim().length > 2 && (
-                        <div style={{marginTop:12,padding:"14px 18px",background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:10}}>
-                          <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:6}}>Signature Preview</div>
-                          <div style={{fontFamily:"Georgia,serif",fontStyle:"italic",fontSize:24,color:"#0a1628"}}>{paSignatureName}</div>
+                      {/* Patient */}
+                      <div style={ss.section}>Patient Information</div>
+                      <div style={{display:"flex",gap:40,fontSize:13,color:"#374151"}}>
+                        <div><span style={{color:"#9ca3af",fontSize:11}}>Name</span><br/>{pName}</div>
+                        <div><span style={{color:"#9ca3af",fontSize:11}}>Phone</span><br/>{form.phone||"—"}</div>
+                        <div><span style={{color:"#9ca3af",fontSize:11}}>Address</span><br/>{form.address||"—"}</div>
+                      </div>
+
+                      {/* Devices */}
+                      <div style={ss.section}>Device Specifications</div>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                        <thead><tr style={{background:"#0a1628",color:"white",fontSize:11}}>
+                          {["","Manufacturer","Model","Style","Battery","Price"].map(h=><th key={h} style={{padding:"6px 8px",textAlign:"left",fontWeight:600}}>{h}</th>)}
+                        </tr></thead>
+                        <tbody>
+                          {[["Right",rightRec],["Left",leftRec]].map(([label,d],i)=> d && (
+                            <tr key={label} style={{background:i%2===0?"#f8fafc":"white"}}>
+                              <td style={{padding:"6px 8px",fontWeight:600,color:"#0a1628"}}>{label}</td>
+                              <td style={{padding:"6px 8px"}}>{d.manufacturer||"—"}</td>
+                              <td style={{padding:"6px 8px"}}>{[d.family,d.variant,d.techLevel].filter(Boolean).join(" ")||"—"}</td>
+                              <td style={{padding:"6px 8px"}}>{d.style||"—"}</td>
+                              <td style={{padding:"6px 8px"}}>{d.battery||"—"}</td>
+                              <td style={{padding:"6px 8px",fontWeight:700}}>${(form.tierPrice||0).toLocaleString('en-US',{minimumFractionDigits:2})}</td>
+                            </tr>
+                          ))}
+                          <tr style={{background:"#e5e7eb"}}>
+                            <td colSpan={5} style={{padding:"6px 8px",fontWeight:700,color:"#0a1628"}}>Device Total ({ac===2?"pair":"single"})</td>
+                            <td style={{padding:"6px 8px",fontWeight:700,color:"#0a1628"}}>${devTotal.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+
+                      {/* Care Plan */}
+                      <div style={ss.section}>Care Plan</div>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 14px"}}>
+                        <div>
+                          <div style={{fontWeight:700,fontSize:13,color:"#0a1628"}}>{cpLabel}</div>
+                          <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{cpDesc}</div>
+                        </div>
+                        {cpPrice > 0 && <div style={{fontWeight:700,fontSize:14,color:"#0a1628"}}>${cpPrice.toLocaleString('en-US',{minimumFractionDigits:2})}</div>}
+                      </div>
+
+                      {/* Total */}
+                      <div style={{background:"#0a1628",borderRadius:8,padding:"12px 16px",marginTop:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div style={{color:"white",fontWeight:700,fontSize:14}}>TOTAL PURCHASE PRICE</div>
+                        <div style={{color:"white",fontWeight:800,fontSize:18}}>${total.toLocaleString('en-US',{minimumFractionDigits:2})}</div>
+                      </div>
+
+                      {/* Terms */}
+                      <div style={ss.section}>Warranty</div>
+                      <div style={ss.body}>Manufacturer warrants hearing aid(s) free from defects for {cpWarranty} year(s) from delivery. All repairs during warranty at no charge. One-time loss/damage replacement: $275/aid.</div>
+
+                      <div style={ss.section}>100% Satisfaction Guaranteed</div>
+                      <div style={ss.body}>Patient may cancel for any reason within 60 days. Full refund within 30 days of returning aids in working condition. MHC may refuse refund for aids lost or damaged beyond repair.</div>
+
+                      <div style={ss.section}>Patient Responsibility</div>
+                      <div style={ss.body}>Patient agrees to follow rehabilitation instructions, communicate progress, and allow a minimum 30-day adjustment period. MHC may adjust or recommend different aids at no extra cost unless patient chooses an upgrade.</div>
+
+                      {/* Signature section */}
+                      <div style={{height:1,background:"#e5e7eb",margin:"24px 0"}}/>
+
+                      {paStep !== "sign" ? (
+                        <div style={{textAlign:"center",padding:"20px 0"}}>
+                          <button
+                            style={{background:"#15803d",color:"white",border:"none",borderRadius:8,padding:"14px 32px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:15,cursor:"pointer"}}
+                            onClick={()=>setPaStep("sign")}
+                          >
+                            Adopt and Sign
+                          </button>
+                        </div>
+                      ) : (
+                        <div>
+                          <div style={{fontSize:12,fontWeight:700,color:"#374151",marginBottom:8}}>Patient Signature — Type to Sign</div>
+                          <input
+                            type="text" placeholder="Type your full legal name" value={paSignatureName} onChange={e=>setPaSignatureName(e.target.value)}
+                            style={{width:"100%",padding:"12px 14px",borderRadius:8,border:"1px solid #d1d5db",fontFamily:"'Sora',sans-serif",fontSize:15,boxSizing:"border-box"}}
+                          />
+                          {paSignatureName.trim().length > 2 && (
+                            <div style={{marginTop:12,padding:"14px 18px",background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:10}}>
+                              <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:6}}>Signature Preview</div>
+                              <div style={{fontFamily:"Georgia,serif",fontStyle:"italic",fontSize:28,color:"#0a1628"}}>{paSignatureName}</div>
+                            </div>
+                          )}
+                          <button
+                            disabled={paSignatureName.trim().length<=2}
+                            style={{width:"100%",marginTop:16,background:paSignatureName.trim().length>2?"#15803d":"#d1d5db",color:"white",border:"none",borderRadius:8,padding:"14px 20px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,cursor:paSignatureName.trim().length>2?"pointer":"not-allowed"}}
+                            onClick={()=>{
+                              const sigDate = new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+                              downloadPurchaseAgreement({
+                                patient:{name:pName,address:form.address,phone:form.phone,dob:form.dob},
+                                devices:{fittingType:fType,left:leftRec,right:rightRec},
+                                carePlan:cpId, pricePerAid:form.tierPrice||0,
+                                clinic:clinicObj,
+                                provider:{fullName:provName,activeLicense:provLic,signatureUrl:staffProfile?.signatureUrl||null},
+                                patientSignature:paSignatureName.trim(), patientSignatureDate:sigDate,
+                                deliverySignature:null, deliveryDate:null, signatureImageBase64:null,
+                              });
+                              setWizardPaSigned(true);
+                              setWizardPaSignatureDate(new Date().toISOString());
+                              setShowWizardPaModal(false);
+                              setPaStep("review");
+                              setStep(5);
+                            }}
+                          >
+                            Sign & Proceed
+                          </button>
                         </div>
                       )}
                     </div>
-
-                    <button
-                      disabled={paSignatureName.trim().length <= 2}
-                      style={{
-                        width:"100%",background:paSignatureName.trim().length>2?"#15803d":"#d1d5db",
-                        color:"white",border:"none",borderRadius:8,padding:"14px 20px",
-                        fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,cursor:paSignatureName.trim().length>2?"pointer":"not-allowed",
-                      }}
-                      onClick={()=>{
-                        const leftRec = buildSideRecord(form.left);
-                        const rightRec = buildSideRecord(form.right);
-                        const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
-                        const fType = leftRec && rightRec ? (isCROS ? "cros_bicros" : "bilateral") : leftRec ? "monaural_left" : "monaural_right";
-                        const sigDate = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-                        downloadPurchaseAgreement({
-                          patient: { name: [form.firstName,form.lastName].filter(Boolean).join(" "), address: form.address, phone: form.phone, dob: form.dob },
-                          devices: { fittingType: fType, left: leftRec, right: rightRec },
-                          carePlan: form.carePlan || "complete",
-                          pricePerAid: form.tierPrice || 0,
-                          clinic: staffProfile?.clinic || clinic,
-                          provider: { fullName: staffProfile?.fullName || "Provider", activeLicense: staffProfile?.activeLicense || "", signatureUrl: staffProfile?.signatureUrl || null },
-                          patientSignature: paSignatureName.trim(),
-                          patientSignatureDate: sigDate,
-                          deliverySignature: null,
-                          deliveryDate: null,
-                          signatureImageBase64: null,
-                        });
-                        setWizardPaSigned(true);
-                        setWizardPaSignatureDate(new Date().toISOString());
-                        setShowWizardPaModal(false);
-                        setStep(5); // jump to Review
-                      }}
-                    >
-                      Adopt, Sign & Download
-                    </button>
                   </div>
-                </div>
-              )}
+                );
+              })()}
             </>
           )}
         </div>
