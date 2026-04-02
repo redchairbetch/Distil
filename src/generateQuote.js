@@ -18,37 +18,33 @@ const MED_GRAY = [156, 163, 175]
 const BLACK = [0, 0, 0]
 const WHITE = [255, 255, 255]
 const GREEN = [22, 163, 74]
-const AMBER = [217, 119, 6]
-const PURPLE = [124, 58, 237]
 
 // Care plan metadata
 const CARE_PLAN_META = {
-  paygo:    { label: 'Pay-As-You-Go', warrantyYears: 3, price: null, fiveYearCost: 1625, ldCost: 275 },
-  punch:    { label: 'Treatment Punch Card', warrantyYears: 3, price: 575, ldCost: 275 },
-  complete: { label: 'Complete Care+', warrantyYears: 4, price: 1250, ldCost: 275 },
+  paygo:    { label: 'Pay-As-You-Go', warrantyYears: 3, coverageYears: 0, price: null, fiveYearCost: 1625, ldCost: 275 },
+  punch:    { label: 'Treatment Punch Card', warrantyYears: 3, coverageYears: 4, price: 575, ldCost: 275 },
+  complete: { label: 'Complete Care+', warrantyYears: 5, coverageYears: 5, price: 1250, ldCost: 275 },
 }
 
 // Plan comparison data
 const PLAN_COMPARE = [
   { label: 'Cost',                 paygo: '$65/visit',    punch: '$575 one-time',  complete: '$1,250 one-time' },
-  { label: 'Office Visits',        paygo: 'Per visit',    punch: '28 prepaid',     complete: 'Unlimited' },
-  { label: 'Cleanings',            paygo: 'Per visit',    punch: '12 included',    complete: 'Unlimited' },
-  { label: 'Adjustments & Triage', paygo: 'Per visit',    punch: '16 included',    complete: 'Unlimited' },
-  { label: 'Warranty',             paygo: '3 years',      punch: '3 years',        complete: '4 years' },
-  { label: 'Loss & Damage',       paygo: '$275/aid',     punch: '$275/aid',       complete: '$275/aid (yr 4 repairs covered)' },
+  { label: 'Office Visits',        paygo: 'Per visit',    punch: 'All visits (4 yrs)',  complete: 'Unlimited (5 yrs)' },
+  { label: 'Cleanings',            paygo: 'Per visit',    punch: 'All included (4 yrs)', complete: 'Unlimited (5 yrs)' },
+  { label: 'Adjustments & Triage', paygo: 'Per visit',    punch: 'All included (4 yrs)', complete: 'Unlimited (5 yrs)' },
+  { label: 'Warranty',             paygo: '3 years',      punch: '3 years',        complete: '5 years' },
+  { label: 'Loss & Damage',       paygo: '$275/aid (3 yrs)', punch: '$275/aid (3 yrs)', complete: '$275/aid (5 yrs)' },
 ]
 
-// Coverage dot data per plan (9 visits over ~4-year lifecycle)
+// Coverage dot data per plan (9 visits over lifecycle)
 const PLAN_COV = {
   paygo:    ['oop','oop','oop','oop','oop','oop','oop','oop','oop'],
-  punch:    ['inc','inc','inc','inc','par','par','oop','oop','oop'],
-  complete: ['inc','inc','inc','inc','inc','inc','inc','inc','cred'],
+  punch:    ['inc','inc','inc','inc','inc','inc','inc','inc','oop'],
+  complete: ['inc','inc','inc','inc','inc','inc','inc','inc','inc'],
 }
 const COV_COLORS = {
   inc:  { fill: [22, 163, 74],  stroke: [21, 128, 61]  },
-  par:  { fill: [217, 119, 6],  stroke: [180, 83, 9]   },
   oop:  { fill: [255,255,255],  stroke: [209, 213, 219] },
-  cred: { fill: [124, 58, 237], stroke: [109, 40, 217]  },
 }
 
 // Audiogram constants
@@ -227,7 +223,7 @@ export function generateQuote({
   y += 6
 
   const colLabels = ['', 'Manufacturer', 'Model', 'Style', 'Battery', 'Price']
-  const colWidths = [50, 90, 110, 80, 70, CONTENT_W - 400]
+  const colWidths = [40, 80, 100, 65, 110, CONTENT_W - 395]
   const colX = []
   let cx = MARGIN
   for (const w of colWidths) { colX.push(cx); cx += w }
@@ -253,9 +249,10 @@ export function generateQuote({
     doc.setFont('helvetica', 'normal')
     doc.setTextColor(...BLACK)
     doc.text(side.manufacturer || '—', colX[1] + 6, y + 2)
-    const model = [side.family, side.variant, side.techLevel].filter(Boolean).join(' ')
+    const model = [side.family, side.techLevel].filter(Boolean).join(' ')
     doc.text(model || '—', colX[2] + 6, y + 2)
-    doc.text(side.style || '—', colX[3] + 6, y + 2)
+    const styleLabel = (side.style || '—').toUpperCase()
+    doc.text(styleLabel, colX[3] + 6, y + 2)
     doc.text(side.battery || '—', colX[4] + 6, y + 2)
     doc.setFont('helvetica', 'bold')
     doc.text(fmt$(pricePerAid), colX[5] + 6, y + 2)
@@ -313,9 +310,9 @@ export function generateQuote({
   doc.setFontSize(8.5)
   doc.setTextColor(...GRAY)
   if (selectedCarePlan === 'complete') {
-    doc.text('Includes all follow-up visits, cleanings, adjustments, and repairs for 4 years', MARGIN + 14, y + 34)
+    doc.text('Unlimited visits, cleanings, adjustments, and repairs for 5 years', MARGIN + 14, y + 34)
   } else if (selectedCarePlan === 'punch') {
-    doc.text('Prepaid bundle of follow-up visits and cleanings for 3 years', MARGIN + 14, y + 34)
+    doc.text('All visits and cleanings covered for 4 years', MARGIN + 14, y + 34)
   } else {
     doc.text('$65 per visit · Annual exams covered', MARGIN + 14, y + 34)
     doc.text(`Estimated 5-year cost: ${fmt$(cpMeta.fiveYearCost)}`, MARGIN + 14, y + 48)
@@ -507,9 +504,7 @@ export function generateQuote({
   // Legend
   const legendItems = [
     { fill: GREEN,   stroke: [21,128,61],  label: 'Included' },
-    { fill: AMBER,   stroke: [180,83,9],   label: 'Partial' },
     { fill: WHITE,   stroke: [209,213,219], label: 'Out of pocket' },
-    { fill: PURPLE,  stroke: [109,40,217],  label: 'Upgrade credit' },
   ]
   let lx = MARGIN
   legendItems.forEach(item => {
@@ -843,15 +838,29 @@ export function generateQuote({
     y += 8
   })
 
-  // Citations
-  y = checkPage(doc, y, 30)
-  doc.setFont('helvetica', 'italic')
-  doc.setFontSize(7.5)
-  doc.setTextColor(...MED_GRAY)
-  const citLines = wrapText(doc, 'Sources: Lancet Commission on Dementia Prevention (2024); Journal of the American Medical Association (JAMA); Journal of the American Academy of Audiology (JAAA); Hearing Health Foundation; Lin et al. (2025) — ACHIEVE Study, Alzheimer\'s & Dementia.', CONTENT_W)
-  citLines.forEach(line => {
-    doc.text(line, MARGIN, y)
-    y += 10
+  // Citations with URLs
+  y = checkPage(doc, y, 70)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.setTextColor(...NAVY)
+  doc.text('Sources', MARGIN, y)
+  y += 12
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7)
+  doc.setTextColor(...GRAY)
+  const citations = [
+    ['Lancet Commission on Dementia Prevention, Intervention, and Care (2020)', 'https://doi.org/10.1016/S0140-6736(20)30367-6'],
+    ['Lin et al. — ACHIEVE Study, Lancet (2023)', 'https://doi.org/10.1016/S0140-6736(23)01048-8'],
+    ['Deal et al. — Hearing Treatment & Cognitive Decline, JAMA (2023)', 'https://doi.org/10.1001/jamaoto.2023.3439'],
+    ['Hearing Health Foundation — Hearing Loss & Brain Health', 'https://hearinghealthfoundation.org/hearing-loss-brain-health'],
+  ]
+  citations.forEach(([label, url]) => {
+    doc.text(`${label}`, MARGIN + 8, y)
+    y += 9
+    doc.setTextColor(30, 64, 175) // blue link color
+    doc.textWithLink(url, MARGIN + 8, y, { url })
+    doc.setTextColor(...GRAY)
+    y += 12
   })
 
   y += 16

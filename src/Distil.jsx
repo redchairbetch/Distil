@@ -1511,27 +1511,33 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const buildSideRecord = (s) => {
     if (!s.familyId && s.manufacturer !== "TruHearing") return null;
-    if (s.manufacturer === "TruHearing" && (!s.techLevel || !s.familyId)) return null;
+    if (s.manufacturer === "TruHearing" && (!s.techLevel || !s.thModel)) return null;
     if (s.manufacturer === "TruHearing") {
-      const thFam = catalog.find(e => e.id === s.familyId);
-      const pwrLabel = (RECEIVER_POWERS["TruHearing"]||[]).find(p=>p.id===s.receiverPower)?.label || s.receiverPower;
-      const isEarmold = (RECEIVER_POWERS["TruHearing"]||[]).find(p=>p.id===s.receiverPower)?.earmold;
+      const thMod = TH_MODELS.find(m => m.id === s.thModel);
+      const isRIC = ["ric","ric_bct","sr"].includes(s.style);
+      const thGainLabel = s.gainMatrix || s.receiverPower || "";
+      const thGainEntry = s.thModel && s.style ? (TH_GAIN_MATRIX[`${s.thModel}|${s.style}`]||[]).find(g=>g.id===s.gainMatrix) : null;
+      const thIsEarmold = thGainEntry?.earmold || false;
+      const thDome = thIsEarmold ? "Custom Earmold" : (s.domeCategory && s.domeSize ? `${s.domeCategory} ${s.domeSize}` : s.domeCategory || s.dome || "");
       return {
         manufacturer: "TruHearing",
-        generation: thFam?.generation || "IX",
-        family: thFam?.family || "TruHearing Select",
-        thSeries: thFam?.thSeries || "",
-        rechargeable: thFam?.rechargeable || false,
-        liUpcharge: thFam?.liUpcharge || 0,
+        generation: "IX",
+        family: thMod?.label || "TruHearing Select",
+        thModel: s.thModel || "",
+        thSeries: "",
+        rechargeable: thMod?.li || false,
+        liUpcharge: 0,
         variant: s.isCROS ? "CROS Transmitter" : (s.variant || ""),
         techLevel: s.techLevel, style: s.style || "ric",
         color: "", battery: s.battery || "",
-        receiverLength: s.style === "ric" ? s.receiverLength : "",
-        receiverPower: s.style === "ric" ? s.receiverPower : "",
-        receiver: s.style === "ric" && s.receiverLength && s.receiverPower
-          ? `Length ${s.receiverLength} · ${pwrLabel}` : "",
-        dome: s.style === "ric"
-          ? (isEarmold ? "Custom Earmold" : s.dome) : "",
+        receiverLength: isRIC ? (s.receiverLength || "") : "",
+        receiverPower: isRIC ? thGainLabel : "",
+        gainMatrix: s.gainMatrix || "",
+        domeCategory: s.domeCategory || "",
+        domeSize: s.domeSize || "",
+        receiver: isRIC && s.receiverLength && thGainLabel
+          ? `Length ${s.receiverLength} · ${thGainLabel}` : "",
+        dome: isRIC ? thDome : "",
       };
     }
     const fam = catalog.find(e => e.id === s.familyId);
@@ -2619,7 +2625,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 )}
                 {(aud.aidedR!=null||aud.aidedL!=null)&&(
                   <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:8,padding:"10px 16px"}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#16a34a",marginBottom:2}}>CCT Aided</div>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#16a34a",marginBottom:2}}>WRS @ MCL</div>
                     {aud.aidedR!=null&&<div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>R: {aud.aidedR}%</div>}
                     {aud.aidedL!=null&&<div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>L: {aud.aidedL}%</div>}
                   </div>
@@ -2822,7 +2828,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 <div className="plan-select-list">
                   {privateLabelTiers.map(t => (
                     <div key={t.label} className={`plan-row ${s.techLevel===t.label?"active":""}`}
-                      onClick={()=>setForm(f=>({...f,[side]:{...EMPTY_SIDE(), manufacturer:"TruHearing", techLevel:t.label}}))}>
+                      onClick={()=>setForm(f=>({...f, tier:t.label, tierPrice:t.price, [side]:{...EMPTY_SIDE(), manufacturer:"TruHearing", techLevel:t.label}}))}>
                       <div className="plan-row-top">
                         <div><div className="plan-row-name">{t.label}</div></div>
                         <div style={{fontWeight:700,color:"#0a1628"}}>
@@ -3271,32 +3277,32 @@ export default function ProviderCRM({ staffId, clinicId }) {
         {
           category: "Office Visits",
           paygo:    "Billed per visit · $65 each",
-          punch:    "28 prepaid · unlimited types",
-          complete: "Unlimited · 4-year period",
+          punch:    "All visits · 4-year period",
+          complete: "Unlimited · 5-year period",
         },
         {
           category: "Cleanings",
           paygo:    isTruHearingTPA ? "Yr 1 covered by plan" : "$65 each",
-          punch:    "12 included",
-          complete: "Unlimited",
+          punch:    "All included · 4-year period",
+          complete: "Unlimited · 5-year period",
         },
         {
           category: "Adjustments & Triage",
           paygo:    isTruHearingTPA ? "Yr 1 covered by plan" : "$65 each",
-          punch:    "16 included",
-          complete: "Unlimited",
+          punch:    "All included · 4-year period",
+          complete: "Unlimited · 5-year period",
         },
         {
           category: "Warranty",
           paygo:    "3 years · Yr 4 repair $250/aid",
           punch:    "3 years · Yr 4 repair $250/aid",
-          complete: "4 years · Yr 4 repairs covered",
+          complete: "5 years · repairs covered",
         },
         {
           category: "Loss & Damage",
           paygo:    "$275 / aid deductible · 3 years",
           punch:    "$275 / aid deductible · 3 years",
-          complete: "$275 / aid deductible · 4 years",
+          complete: "$275 / aid deductible · 5 years",
         },
       ];
 
@@ -3309,8 +3315,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
       };
       const planCovData = {
         paygo:    {v1:"oop",v2:"oop",v3:"oop",v4:"oop",v5:"oop",v6:"oop",v7:"oop",v8:"oop",v9:"oop"},
-        punch:    {v1:"inc",v2:"inc",v3:"inc",v4:"inc",v5:"par",v6:"par",v7:"oop",v8:"oop",v9:"oop"},
-        complete: {v1:"inc",v2:"inc",v3:"inc",v4:"inc",v5:"inc",v6:"inc",v7:"inc",v8:"inc",v9:"cred"},
+        punch:    {v1:"inc",v2:"inc",v3:"inc",v4:"inc",v5:"inc",v6:"inc",v7:"inc",v8:"inc",v9:"oop"},
+        complete: {v1:"inc",v2:"inc",v3:"inc",v4:"inc",v5:"inc",v6:"inc",v7:"inc",v8:"inc",v9:"inc"},
       };
       const dFill   = {inc:"#16a34a",par:"#d97706",oop:"transparent",cred:"#7c3aed"};
       const dStroke = {inc:"#15803d",par:"#b45309",oop:"#d1d5db",    cred:"#6d28d9"};
@@ -3551,7 +3557,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 <button
                   disabled={!(form.payType === "private" || !!form.carePlan)}
                   style={{background:"#15803d",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",opacity:(form.payType === "private" || !!form.carePlan)?1:0.4,display:"flex",alignItems:"center",gap:8}}
-                  onClick={()=>{ setPaSignatureName(""); setShowWizardPaModal(true); }}
+                  onClick={()=>{ setPaSignatureName(""); setPaStep("review"); setShowWizardPaModal(true); }}
                 >
                   <span style={{fontSize:16}}>📝</span> Sign Purchase Agreement
                 </button>
@@ -3583,7 +3589,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
         if (!d.familyId && !isTH) return (
           <div className="review-row"><span className="review-key">{label}</span><span className="review-val" style={{color:"#9ca3af"}}>Not configured</span></div>
         );
-        if (isTH && (!d.techLevel || !d.familyId)) return (
+        if (isTH && (!d.techLevel || !d.thModel)) return (
           <div className="review-row"><span className="review-key">{label}</span><span className="review-val" style={{color:"#9ca3af"}}>Not configured</span></div>
         );
         const pwrLabel = (RECEIVER_POWERS[d.manufacturer]||[]).find(p=>p.id===d.receiverPower)?.label||"—";
@@ -4376,26 +4382,34 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>Fitting Type</span>
                     <span style={{fontSize:12,fontWeight:700,color:"#0a1628",background:"#f3f4f6",borderRadius:6,padding:"2px 8px"}}>{p.devices?.fittingType||"Bilateral"}</span>
                   </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
                   {[p.devices?.left, p.devices?.right].map((side, idx) => {
                     const sideLabel = idx===0 ? "👂 Left Ear" : "Right Ear 👂";
                     if (!side) return (
-                      <div key={idx} style={{color:"#9ca3af",fontSize:13,padding:"8px 0",borderBottom:"1px solid #f3f4f6"}}>{sideLabel} — Not configured</div>
+                      <div key={idx}><div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:6,paddingBottom:4,borderBottom:"1px solid #e5e7eb"}}>{sideLabel}</div><div style={{color:"#9ca3af",fontSize:13,padding:"8px 0"}}>Not configured</div></div>
                     );
-                    const pwrLabel = (RECEIVER_POWERS[side.manufacturer]||[]).find(pw=>pw.id===side.receiverPower)?.label || side.receiverPower;
-                    const isEm = (RECEIVER_POWERS[side.manufacturer]||[]).find(pw=>pw.id===side.receiverPower)?.earmold;
+                    const isTH = side.manufacturer === "TruHearing";
+                    const pwrLabel = isTH
+                      ? (side.gainMatrix || side.receiverPower || "—")
+                      : ((RECEIVER_POWERS[side.manufacturer]||[]).find(pw=>pw.id===side.receiverPower)?.label || side.receiverPower || "—");
+                    const isEm = isTH
+                      ? false
+                      : (RECEIVER_POWERS[side.manufacturer]||[]).find(pw=>pw.id===side.receiverPower)?.earmold;
+                    const domeVal = isTH
+                      ? (side.domeCategory && side.domeSize ? `${side.domeCategory} ${side.domeSize}` : side.domeCategory || side.dome || "N/A")
+                      : (isEm ? "Custom Earmold" : (side.dome || "N/A"));
                     return (
-                      <div key={idx} style={{marginBottom:16}}>
+                      <div key={idx}>
                         <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:6,paddingBottom:4,borderBottom:"1px solid #e5e7eb"}}>{sideLabel}</div>
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr"}}>
-                          {[["Manufacturer",side.manufacturer],["Platform",side.generation||"—"],["Model Family",side.family||"—"],["Variant",side.variant||"—"],["Tech Level",side.techLevel||"—"],["Body Style",BODY_STYLES.find(s=>s.id===side.style)?.label||side.style],["Color",side.color||"N/A"],["Battery",side.battery||"—"],
-                            ...(side.style==="ric" ? [["Receiver Length",side.receiverLength||"—"],["Receiver Power",pwrLabel||"—"],["Dome / Coupling",isEm?"Custom Earmold":(side.dome||"N/A")]] : []),
-                          ].map(([k,v])=>(
-                            <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v||"—"}</span></div>
-                          ))}
-                        </div>
+                        {[["Manufacturer",side.manufacturer],["Model",side.family||"—"],["Tech Level",side.techLevel||"—"],["Body Style",BODY_STYLES.find(s=>s.id===side.style)?.label||side.style],["Color",side.color||"N/A"],["Battery",side.battery||"—"],
+                          ...(side.style==="ric"||side.style==="ric_bct"||side.style==="sr" ? [["Receiver Length",side.receiverLength||"—"],["Receiver Power",pwrLabel],["Dome / Coupling",domeVal]] : []),
+                        ].map(([k,v])=>(
+                          <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v||"—"}</span></div>
+                        ))}
                       </div>
                     );
                   })}
+                  </div>
                   <div style={{borderTop:"1px solid #f3f4f6",paddingTop:12,display:"grid",gridTemplateColumns:"1fr 1fr"}}>
                     {[["Serial (L)",p.devices?.serialLeft],["Serial (R)",p.devices?.serialRight],["Fitting Date",fmtDate(p.devices?.fittingDate||p.createdAt)],["Warranty Expires",fmtDate(p.devices?.warrantyExpiry)],["Warranty Status",days<0?"Expired":`${days} days remaining`]].map(([k,v])=>(
                       <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val" style={k==="Warranty Status"?{color:days<0?"#ef4444":days<90?"#f59e0b":"#16a34a"}:{}}>{v||"—"}</span></div>
@@ -4412,99 +4426,74 @@ export default function ProviderCRM({ staffId, clinicId }) {
               const lPTA = getPTA(aud.leftT);
               return (
                 <>
-                  {/* Audiogram display */}
+                  {/* Audiogram display — two-column: scores left, chart right */}
                   <div className="detail-card full">
-                    <div className="detail-card-title">Audiogram</div>
-                    <div style={{background:"#fafafa",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 8px",marginBottom:12}}>
-                      <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false}/>
-                    </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
-                      {rPTA!=null&&(
-                        <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"10px 14px"}}>
-                          <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:3}}>Right PTA</div>
-                          <div style={{fontSize:18,fontWeight:800,color:"#0a1628"}}>{rPTA} <span style={{fontSize:11,fontWeight:400,color:"#9ca3af"}}>dB HL</span></div>
-                          <div style={{fontSize:11,color:"#dc2626",fontWeight:600,marginTop:2}}>{getDegreeName(rPTA)}</div>
-                        </div>
-                      )}
-                      {lPTA!=null&&(
-                        <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 14px"}}>
-                          <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:3}}>Left PTA</div>
-                          <div style={{fontSize:18,fontWeight:800,color:"#0a1628"}}>{lPTA} <span style={{fontSize:11,fontWeight:400,color:"#9ca3af"}}>dB HL</span></div>
-                          <div style={{fontSize:11,color:"#2563eb",fontWeight:600,marginTop:2}}>{getDegreeName(lPTA)}</div>
-                        </div>
-                      )}
-                      {(aud.unaidedR!=null||aud.unaidedL!=null)&&(
-                        <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 14px"}}>
-                          <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:3}}>CCT Unaided</div>
-                          {aud.unaidedR!=null&&<div style={{fontSize:12,color:"#0a1628",fontWeight:600}}>R: {aud.unaidedR}%</div>}
-                          {aud.unaidedL!=null&&<div style={{fontSize:12,color:"#0a1628",fontWeight:600}}>L: {aud.unaidedL}%</div>}
-                        </div>
-                      )}
-                      {aud.sinBin!=null&&(
-                        <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 14px"}}>
-                          <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:3}}>QuickSIN SNR Loss</div>
-                          <div style={{fontSize:18,fontWeight:800,color:"#0a1628"}}>{aud.sinBin} <span style={{fontSize:11,fontWeight:400,color:"#9ca3af"}}>dB</span></div>
-                          <div style={{fontSize:11,fontWeight:600,marginTop:2,
-                            color:aud.sinBin<=2?"#16a34a":aud.sinBin<=7?"#ca8a04":aud.sinBin<=15?"#ea580c":"#dc2626"}}>
-                            {aud.sinBin<=2?"Near-normal":aud.sinBin<=7?"Mild":aud.sinBin<=15?"Moderate":"Severe"} difficulty in noise
+                    <div className="detail-card-title">Hearing Evaluation</div>
+                    <div style={{display:"grid",gridTemplateColumns:"200px 1fr",gap:16}}>
+                      {/* Left column: score cards stacked */}
+                      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                        {rPTA!=null&&(
+                          <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"10px 12px"}}>
+                            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:2}}>Right PTA</div>
+                            <div style={{fontSize:20,fontWeight:800,color:"#0a1628",lineHeight:1}}>{rPTA} <span style={{fontSize:10,fontWeight:400,color:"#9ca3af"}}>dB HL</span></div>
+                            <div style={{fontSize:10,color:"#dc2626",fontWeight:600,marginTop:2}}>{getDegreeName(rPTA)}</div>
                           </div>
-                        </div>
-                      )}
-                      {(aud.tinnitusRight||aud.tinnitusLeft)&&(
-                        <div style={{background:"#fefce8",border:"1px solid #fde68a",borderRadius:8,padding:"10px 14px"}}>
-                          <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#92400e",marginBottom:3}}>Tinnitus</div>
-                          <div style={{fontSize:12,color:"#0a1628",fontWeight:600}}>
-                            {aud.tinnitusRight&&aud.tinnitusLeft?"Bilateral":aud.tinnitusRight?"Right":"Left"}
+                        )}
+                        {lPTA!=null&&(
+                          <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 12px"}}>
+                            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:2}}>Left PTA</div>
+                            <div style={{fontSize:20,fontWeight:800,color:"#0a1628",lineHeight:1}}>{lPTA} <span style={{fontSize:10,fontWeight:400,color:"#9ca3af"}}>dB HL</span></div>
+                            <div style={{fontSize:10,color:"#2563eb",fontWeight:600,marginTop:2}}>{getDegreeName(lPTA)}</div>
                           </div>
-                        </div>
-                      )}
+                        )}
+                        {(aud.unaidedR!=null||aud.unaidedL!=null)&&(
+                          <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 12px"}}>
+                            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>CCT Unaided</div>
+                            {aud.unaidedR!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>R: {aud.unaidedR}%</div>}
+                            {aud.unaidedL!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>L: {aud.unaidedL}%</div>}
+                          </div>
+                        )}
+                        {(aud.wrMclR!=null||aud.wrMclL!=null)&&(
+                          <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:8,padding:"10px 12px"}}>
+                            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#16a34a",marginBottom:2}}>WR @ MCL</div>
+                            {aud.wrMclR!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>R: {aud.wrMclR}%</div>}
+                            {aud.wrMclL!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>L: {aud.wrMclL}%</div>}
+                          </div>
+                        )}
+                        {(aud.aidedR!=null||aud.aidedL!=null)&&(
+                          <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 12px"}}>
+                            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>WRS @ MCL</div>
+                            {aud.aidedR!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>R: {aud.aidedR}%</div>}
+                            {aud.aidedL!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>L: {aud.aidedL}%</div>}
+                          </div>
+                        )}
+                        {aud.sinBin!=null&&(
+                          <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 12px"}}>
+                            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>QuickSIN</div>
+                            <div style={{fontSize:20,fontWeight:800,color:"#0a1628",lineHeight:1}}>{aud.sinBin} <span style={{fontSize:10,fontWeight:400,color:"#9ca3af"}}>dB SNR</span></div>
+                            <div style={{fontSize:10,fontWeight:600,marginTop:2,
+                              color:aud.sinBin<=2?"#16a34a":aud.sinBin<=7?"#ca8a04":aud.sinBin<=15?"#ea580c":"#dc2626"}}>
+                              {aud.sinBin<=2?"Near-normal":aud.sinBin<=7?"Mild":aud.sinBin<=15?"Moderate":"Severe"}
+                            </div>
+                          </div>
+                        )}
+                        {(aud.tinnitusRight||aud.tinnitusLeft)&&(
+                          <div style={{background:"#fefce8",border:"1px solid #fde68a",borderRadius:8,padding:"10px 12px"}}>
+                            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#92400e",marginBottom:2}}>Tinnitus</div>
+                            <div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>
+                              {aud.tinnitusRight&&aud.tinnitusLeft?"Bilateral":aud.tinnitusRight?"Right":"Left"}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      {/* Right column: audiogram chart */}
+                      <div style={{background:"#fafafa",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 8px"}}>
+                        <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false}/>
+                      </div>
                     </div>
                   </div>
 
 
-                  {/* Patient education narrative */}
-                  {sections&&sections.length>0&&(
-                    <div className="detail-card full">
-                      <div className="detail-card-title" style={{marginBottom:4}}>Patient Counseling Guide</div>
-                      <div style={{fontSize:11,color:"#9ca3af",marginBottom:18}}>
-                        Generated from test results · Use as a conversation guide during the appointment
-                      </div>
-                      {sections.map((s,i)=>(
-                        <div key={i} style={{marginBottom:i<sections.length-1?20:0,paddingBottom:i<sections.length-1?20:0,borderBottom:i<sections.length-1?"1px solid #f3f4f6":"none"}}>
-                          <div style={{fontSize:12,fontWeight:700,color:"#0a1628",marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
-                            <span style={{fontSize:16}}>{["🎯","💬","✅","🔊"][i]}</span>
-                            {s.heading}
-                          </div>
-                          <div style={{fontSize:13,color:"#374151",lineHeight:1.75}}>{s.body}</div>
-                        </div>
-                      ))}
-
-
-                      {/* Research highlights — positive outcomes framing */}
-                      <div style={{marginTop:24,background:"linear-gradient(135deg,#f0fdf4,#f0f9ff)",border:"1px solid #d1fae5",borderRadius:12,padding:"18px 20px"}}>
-                        <div style={{fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#059669",marginBottom:14}}>
-                          📚 Why Treatment Matters — Evidence Summary
-                        </div>
-                        {[
-                          {icon:"🧠", title:"Cognitive load", body:"Untreated hearing loss forces the brain to devote extra resources to decoding sound — leaving less capacity for memory, comprehension, and attention. Hearing aids reduce this processing burden significantly. Studies consistently show improved working memory performance in consistent aid users."},
-                          {icon:"😴", title:"Fatigue & quality of life", body:"Listening fatigue is real and measurable. Patients with treated hearing loss report substantially lower rates of social withdrawal, depression, and daily exhaustion. The effort of following conversation in noise is genuinely tiring — correcting the input changes that equation."},
-                          {icon:"🗣️", title:"Relationships & connection", body:"Communication difficulty strains relationships in ways patients often don't articulate directly. Spouses and family members frequently report more satisfaction and less frustration after treatment begins. This is often the most immediate and tangible benefit."},
-                          {icon:"🔈", title:"Auditory plasticity", body:"The auditory system adapts to deprivation over time — pathways that go unstimulated become less efficient. Early treatment preserves those pathways. This is why fitting sooner rather than later produces better long-term outcomes, even when patients feel they're 'managing fine.'"},
-                        ].map(r=>(
-                          <div key={r.title} style={{display:"flex",gap:12,marginBottom:14,paddingBottom:14,borderBottom:"1px solid rgba(0,0,0,0.05)"}}>
-                            <span style={{fontSize:20,flexShrink:0}}>{r.icon}</span>
-                            <div>
-                              <div style={{fontSize:12,fontWeight:700,color:"#0a1628",marginBottom:4}}>{r.title}</div>
-                              <div style={{fontSize:12,color:"#374151",lineHeight:1.65}}>{r.body}</div>
-                            </div>
-                          </div>
-                        ))}
-                        <div style={{fontSize:11,color:"#9ca3af",marginTop:4,fontStyle:"italic"}}>
-                          Sources: Hearing Health Foundation, JAMA; Journal of the American Academy of Audiology; The Lancet Commission on Dementia Prevention
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </>
               );
             })()}
@@ -5171,72 +5160,154 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 </div>
               </div>
 
-              {/* ── WIZARD PURCHASE AGREEMENT MODAL ────────────────── */}
-              {showWizardPaModal && (
-                <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(10,22,40,0.55)",backdropFilter:"blur(4px)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setShowWizardPaModal(false)}>
-                  <div style={{background:"white",borderRadius:16,padding:32,width:520,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}} onClick={e=>e.stopPropagation()}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-                      <div>
-                        <div style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:18,color:"#0a1628"}}>Purchase Agreement</div>
-                        <div style={{fontFamily:"'Sora',sans-serif",fontSize:12,color:"#6b7280",marginTop:2}}>{[form.firstName,form.lastName].filter(Boolean).join(" ")}</div>
+              {/* ── WIZARD PURCHASE AGREEMENT — FULL-PAGE REVIEW ────── */}
+              {showWizardPaModal && (() => {
+                const pName = [form.firstName,form.lastName].filter(Boolean).join(" ");
+                const leftRec = buildSideRecord(form.left);
+                const rightRec = buildSideRecord(form.right);
+                const isCROS = [leftRec,rightRec].some(r=>r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
+                const fType = leftRec && rightRec ? (isCROS?"cros_bicros":"bilateral") : leftRec?"monaural_left":"monaural_right";
+                const ac = (fType==="bilateral"||fType==="cros_bicros")?2:1;
+                const devTotal = (form.tierPrice||0)*ac;
+                const cpId = form.carePlan||"complete";
+                const cpLabel = cpId==="complete"?"Complete Care+":(cpId==="punch"?"Treatment Punch Card":"Pay-As-You-Go");
+                const cpPrice = cpId==="complete"?1250:(cpId==="punch"?575:0);
+                const cpWarranty = cpId==="complete"?5:3;
+                const cpDesc = cpId==="complete"?"Unlimited visits, cleanings, adjustments, and repairs for 5 years":(cpId==="punch"?"All visits and cleanings covered for 4 years · 3-year manufacturer warranty":"$65/visit · Annual exams covered");
+                const total = devTotal+cpPrice;
+                const provName = staffProfile?.fullName||"Provider";
+                const provLic = staffProfile?.activeLicense||"";
+                const clinicObj = staffProfile?.clinic||clinic;
+                const ss = {section:{fontSize:10,fontWeight:700,color:"#0a1628",letterSpacing:0.5,textTransform:"uppercase",marginBottom:6,marginTop:18},body:{fontSize:13,color:"#374151",lineHeight:1.7}};
+                return (
+                  <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(10,22,40,0.92)",zIndex:9999,overflowY:"auto"}}>
+                    <div style={{background:"white",width:700,margin:"0 auto",padding:"40px 48px 80px",boxShadow:"0 0 80px rgba(0,0,0,0.4)"}}>
+                      {/* Header */}
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+                        <div>
+                          <div style={{fontFamily:"'Sora',sans-serif",fontWeight:800,fontSize:16,color:"#0a1628"}}>MY HEARING CENTERS</div>
+                          <div style={{fontSize:11,color:"#6b7280"}}>{clinicObj?.address}  ·  {clinicObj?.phone}</div>
+                        </div>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontFamily:"'Sora',sans-serif",fontWeight:800,fontSize:14,color:"#0a1628"}}>HEARING AID PURCHASE AGREEMENT</div>
+                          <div style={{fontSize:11,color:"#9ca3af",marginTop:2}}>Date: {new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</div>
+                        </div>
+                        <button onClick={()=>setShowWizardPaModal(false)} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"#9ca3af",padding:"0 0 0 12px",lineHeight:1}}>✕</button>
                       </div>
-                      <button onClick={()=>setShowWizardPaModal(false)} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#9ca3af",padding:4}}>✕</button>
-                    </div>
+                      <div style={{height:1,background:"#e5e7eb",margin:"12px 0"}}/>
 
-                    <div style={{marginBottom:20}}>
-                      <label style={{fontFamily:"'Sora',sans-serif",fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:6}}>Patient Signature — Adopt and Sign</label>
-                      <input
-                        type="text"
-                        placeholder="Type your full legal name"
-                        value={paSignatureName}
-                        onChange={e=>setPaSignatureName(e.target.value)}
-                        style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #d1d5db",fontFamily:"'Sora',sans-serif",fontSize:14,boxSizing:"border-box"}}
-                      />
-                      {paSignatureName.trim().length > 2 && (
-                        <div style={{marginTop:12,padding:"14px 18px",background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:10}}>
-                          <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:6}}>Signature Preview</div>
-                          <div style={{fontFamily:"Georgia,serif",fontStyle:"italic",fontSize:24,color:"#0a1628"}}>{paSignatureName}</div>
+                      {/* Patient */}
+                      <div style={ss.section}>Patient Information</div>
+                      <div style={{display:"flex",gap:40,fontSize:13,color:"#374151"}}>
+                        <div><span style={{color:"#9ca3af",fontSize:11}}>Name</span><br/>{pName}</div>
+                        <div><span style={{color:"#9ca3af",fontSize:11}}>Phone</span><br/>{form.phone||"—"}</div>
+                        <div><span style={{color:"#9ca3af",fontSize:11}}>Address</span><br/>{form.address||"—"}</div>
+                      </div>
+
+                      {/* Devices */}
+                      <div style={ss.section}>Device Specifications</div>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                        <thead><tr style={{background:"#0a1628",color:"white",fontSize:11}}>
+                          {["","Manufacturer","Model","Style","Battery","Price"].map(h=><th key={h} style={{padding:"6px 8px",textAlign:"left",fontWeight:600}}>{h}</th>)}
+                        </tr></thead>
+                        <tbody>
+                          {[["Right",rightRec],["Left",leftRec]].map(([label,d],i)=> d && (
+                            <tr key={label} style={{background:i%2===0?"#f8fafc":"white"}}>
+                              <td style={{padding:"6px 8px",fontWeight:600,color:"#0a1628"}}>{label}</td>
+                              <td style={{padding:"6px 8px"}}>{d.manufacturer||"—"}</td>
+                              <td style={{padding:"6px 8px"}}>{[d.family,d.variant,d.techLevel].filter(Boolean).join(" ")||"—"}</td>
+                              <td style={{padding:"6px 8px"}}>{d.style||"—"}</td>
+                              <td style={{padding:"6px 8px"}}>{d.battery||"—"}</td>
+                              <td style={{padding:"6px 8px",fontWeight:700}}>${(form.tierPrice||0).toLocaleString('en-US',{minimumFractionDigits:2})}</td>
+                            </tr>
+                          ))}
+                          <tr style={{background:"#e5e7eb"}}>
+                            <td colSpan={5} style={{padding:"6px 8px",fontWeight:700,color:"#0a1628"}}>Device Total ({ac===2?"pair":"single"})</td>
+                            <td style={{padding:"6px 8px",fontWeight:700,color:"#0a1628"}}>${devTotal.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+
+                      {/* Care Plan */}
+                      <div style={ss.section}>Care Plan</div>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 14px"}}>
+                        <div>
+                          <div style={{fontWeight:700,fontSize:13,color:"#0a1628"}}>{cpLabel}</div>
+                          <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{cpDesc}</div>
+                        </div>
+                        {cpPrice > 0 && <div style={{fontWeight:700,fontSize:14,color:"#0a1628"}}>${cpPrice.toLocaleString('en-US',{minimumFractionDigits:2})}</div>}
+                      </div>
+
+                      {/* Total */}
+                      <div style={{background:"#0a1628",borderRadius:8,padding:"12px 16px",marginTop:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <div style={{color:"white",fontWeight:700,fontSize:14}}>TOTAL PURCHASE PRICE</div>
+                        <div style={{color:"white",fontWeight:800,fontSize:18}}>${total.toLocaleString('en-US',{minimumFractionDigits:2})}</div>
+                      </div>
+
+                      {/* Terms */}
+                      <div style={ss.section}>Warranty</div>
+                      <div style={ss.body}>The manufacturer warrants patient's hearing aid(s) to be free from defects in workmanship and materials for a period of {cpWarranty} year(s) from date of delivery and agrees to make all necessary repairs without charge to patient during the warranty period. The manufacturer provides a one-time loss and damage replacement during the warranty period at a cost of $275 per hearing aid.</div>
+
+                      <div style={ss.section}>100% Satisfaction Guaranteed</div>
+                      <div style={ss.body}>Patient has a right to cancel this agreement for any reason within 60 days. Patient is entitled to receive a full refund of any payment made for the hearing aid within 30 days of returning the hearing aid to MHC in normal working condition. MHC may refuse to provide a refund for a hearing aid that has been lost or damaged beyond repair while in the patient's possession.</div>
+
+                      <div style={ss.section}>Patient Responsibility</div>
+                      <div style={ss.body}>Patient is responsible to carefully follow all rehabilitation instructions and communicate with the provider on the progress with adjustments. During this time MHC may make any needed adjustments on the hearing aid(s) for the benefit of the patient's listening and hearing comfort. Patient should realize that adjusting to hearing aids is not an overnight experience and may take time. Patient also agrees to allow themselves time to adjust and allows MHC to assist them in their hearing rehabilitation. If MHC believes that, during the rehabilitation period, a different choice of circuitry, model, or choice of hearing aid(s) is better suited to the patient's needs, no extra cost will be incurred by the patient unless an upgrade of quality, model, or style is chosen. Suggested rehabilitation time is a minimum of 30 days. Additional time may be granted subject to approval by MHC.</div>
+
+                      {/* Signature section */}
+                      <div style={{height:1,background:"#e5e7eb",margin:"24px 0"}}/>
+
+                      {paStep !== "sign" ? (
+                        <div style={{textAlign:"center",padding:"20px 0"}}>
+                          <button
+                            style={{background:"#15803d",color:"white",border:"none",borderRadius:8,padding:"14px 32px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:15,cursor:"pointer"}}
+                            onClick={()=>setPaStep("sign")}
+                          >
+                            Adopt and Sign
+                          </button>
+                        </div>
+                      ) : (
+                        <div>
+                          <div style={{fontSize:12,fontWeight:700,color:"#374151",marginBottom:8}}>Patient Signature — Type to Sign</div>
+                          <input
+                            type="text" placeholder="Type your full legal name" value={paSignatureName} onChange={e=>setPaSignatureName(e.target.value)}
+                            style={{width:"100%",padding:"12px 14px",borderRadius:8,border:"1px solid #d1d5db",fontFamily:"'Sora',sans-serif",fontSize:15,boxSizing:"border-box"}}
+                          />
+                          {paSignatureName.trim().length > 2 && (
+                            <div style={{marginTop:12,padding:"14px 18px",background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:10}}>
+                              <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:6}}>Signature Preview</div>
+                              <div style={{fontFamily:"Georgia,serif",fontStyle:"italic",fontSize:28,color:"#0a1628"}}>{paSignatureName}</div>
+                            </div>
+                          )}
+                          <button
+                            disabled={paSignatureName.trim().length<=2}
+                            style={{width:"100%",marginTop:16,background:paSignatureName.trim().length>2?"#15803d":"#d1d5db",color:"white",border:"none",borderRadius:8,padding:"14px 20px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,cursor:paSignatureName.trim().length>2?"pointer":"not-allowed"}}
+                            onClick={()=>{
+                              const sigDate = new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+                              downloadPurchaseAgreement({
+                                patient:{name:pName,address:form.address,phone:form.phone,dob:form.dob},
+                                devices:{fittingType:fType,left:leftRec,right:rightRec},
+                                carePlan:cpId, pricePerAid:form.tierPrice||0,
+                                clinic:clinicObj,
+                                provider:{fullName:provName,activeLicense:provLic,signatureUrl:staffProfile?.signatureUrl||null},
+                                patientSignature:paSignatureName.trim(), patientSignatureDate:sigDate,
+                                deliverySignature:null, deliveryDate:null, signatureImageBase64:null,
+                              });
+                              setWizardPaSigned(true);
+                              setWizardPaSignatureDate(new Date().toISOString());
+                              setShowWizardPaModal(false);
+                              setPaStep("review");
+                              setStep(5);
+                            }}
+                          >
+                            Sign & Proceed
+                          </button>
                         </div>
                       )}
                     </div>
-
-                    <button
-                      disabled={paSignatureName.trim().length <= 2}
-                      style={{
-                        width:"100%",background:paSignatureName.trim().length>2?"#15803d":"#d1d5db",
-                        color:"white",border:"none",borderRadius:8,padding:"14px 20px",
-                        fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,cursor:paSignatureName.trim().length>2?"pointer":"not-allowed",
-                      }}
-                      onClick={()=>{
-                        const leftRec = buildSideRecord(form.left);
-                        const rightRec = buildSideRecord(form.right);
-                        const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
-                        const fType = leftRec && rightRec ? (isCROS ? "cros_bicros" : "bilateral") : leftRec ? "monaural_left" : "monaural_right";
-                        const sigDate = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-                        downloadPurchaseAgreement({
-                          patient: { name: [form.firstName,form.lastName].filter(Boolean).join(" "), address: form.address, phone: form.phone, dob: form.dob },
-                          devices: { fittingType: fType, left: leftRec, right: rightRec },
-                          carePlan: form.carePlan || "complete",
-                          pricePerAid: form.tierPrice || 0,
-                          clinic: staffProfile?.clinic || clinic,
-                          provider: { fullName: staffProfile?.fullName || "Provider", activeLicense: staffProfile?.activeLicense || "", signatureUrl: staffProfile?.signatureUrl || null },
-                          patientSignature: paSignatureName.trim(),
-                          patientSignatureDate: sigDate,
-                          deliverySignature: null,
-                          deliveryDate: null,
-                          signatureImageBase64: null,
-                        });
-                        setWizardPaSigned(true);
-                        setWizardPaSignatureDate(new Date().toISOString());
-                        setShowWizardPaModal(false);
-                        setStep(5); // jump to Review
-                      }}
-                    >
-                      Adopt, Sign & Download
-                    </button>
                   </div>
-                </div>
-              )}
+                );
+              })()}
             </>
           )}
         </div>
