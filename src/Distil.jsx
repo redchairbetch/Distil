@@ -2625,7 +2625,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 )}
                 {(aud.aidedR!=null||aud.aidedL!=null)&&(
                   <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:8,padding:"10px 16px"}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#16a34a",marginBottom:2}}>CCT Aided</div>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#16a34a",marginBottom:2}}>WRS @ MCL</div>
                     {aud.aidedR!=null&&<div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>R: {aud.aidedR}%</div>}
                     {aud.aidedL!=null&&<div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>L: {aud.aidedL}%</div>}
                   </div>
@@ -3589,7 +3589,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
         if (!d.familyId && !isTH) return (
           <div className="review-row"><span className="review-key">{label}</span><span className="review-val" style={{color:"#9ca3af"}}>Not configured</span></div>
         );
-        if (isTH && (!d.techLevel || !d.familyId)) return (
+        if (isTH && (!d.techLevel || !d.thModel)) return (
           <div className="review-row"><span className="review-key">{label}</span><span className="review-val" style={{color:"#9ca3af"}}>Not configured</span></div>
         );
         const pwrLabel = (RECEIVER_POWERS[d.manufacturer]||[]).find(p=>p.id===d.receiverPower)?.label||"—";
@@ -4462,7 +4462,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                         )}
                         {(aud.aidedR!=null||aud.aidedL!=null)&&(
                           <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 12px"}}>
-                            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>CCT Aided</div>
+                            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>WRS @ MCL</div>
                             {aud.aidedR!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>R: {aud.aidedR}%</div>}
                             {aud.aidedL!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>L: {aud.aidedL}%</div>}
                           </div>
