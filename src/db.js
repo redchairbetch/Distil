@@ -212,6 +212,8 @@ function assemblePatient(row) {
       unaidedL: audiogram?.unaided_wrs_left  ?? null,
       aidedR:   audiogram?.aided_wrs_right   ?? null,
       aidedL:   audiogram?.aided_wrs_left    ?? null,
+      wrMclR:   audiogram?.wr_mcl_right      ?? null,
+      wrMclL:   audiogram?.wr_mcl_left       ?? null,
       sinBin:   audiogram?.sin_score         ?? null,
     },
 

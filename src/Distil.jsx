@@ -1514,24 +1514,30 @@ export default function ProviderCRM({ staffId, clinicId }) {
     if (s.manufacturer === "TruHearing" && (!s.techLevel || !s.thModel)) return null;
     if (s.manufacturer === "TruHearing") {
       const thMod = TH_MODELS.find(m => m.id === s.thModel);
-      const pwrLabel = (RECEIVER_POWERS["TruHearing"]||[]).find(p=>p.id===s.receiverPower)?.label || s.receiverPower;
-      const isEarmold = (RECEIVER_POWERS["TruHearing"]||[]).find(p=>p.id===s.receiverPower)?.earmold;
+      const isRIC = ["ric","ric_bct","sr"].includes(s.style);
+      const thGainLabel = s.gainMatrix || s.receiverPower || "";
+      const thGainEntry = s.thModel && s.style ? (TH_GAIN_MATRIX[`${s.thModel}|${s.style}`]||[]).find(g=>g.id===s.gainMatrix) : null;
+      const thIsEarmold = thGainEntry?.earmold || false;
+      const thDome = thIsEarmold ? "Custom Earmold" : (s.domeCategory && s.domeSize ? `${s.domeCategory} ${s.domeSize}` : s.domeCategory || s.dome || "");
       return {
         manufacturer: "TruHearing",
         generation: "IX",
         family: thMod?.label || "TruHearing Select",
+        thModel: s.thModel || "",
         thSeries: "",
         rechargeable: thMod?.li || false,
         liUpcharge: 0,
         variant: s.isCROS ? "CROS Transmitter" : (s.variant || ""),
         techLevel: s.techLevel, style: s.style || "ric",
         color: "", battery: s.battery || "",
-        receiverLength: s.style === "ric" ? s.receiverLength : "",
-        receiverPower: s.style === "ric" ? s.receiverPower : "",
-        receiver: s.style === "ric" && s.receiverLength && s.receiverPower
-          ? `Length ${s.receiverLength} · ${pwrLabel}` : "",
-        dome: s.style === "ric"
-          ? (isEarmold ? "Custom Earmold" : s.dome) : "",
+        receiverLength: isRIC ? (s.receiverLength || "") : "",
+        receiverPower: isRIC ? thGainLabel : "",
+        gainMatrix: s.gainMatrix || "",
+        domeCategory: s.domeCategory || "",
+        domeSize: s.domeSize || "",
+        receiver: isRIC && s.receiverLength && thGainLabel
+          ? `Length ${s.receiverLength} · ${thGainLabel}` : "",
+        dome: isRIC ? thDome : "",
       };
     }
     const fam = catalog.find(e => e.id === s.familyId);
@@ -4420,52 +4426,70 @@ export default function ProviderCRM({ staffId, clinicId }) {
               const lPTA = getPTA(aud.leftT);
               return (
                 <>
-                  {/* Audiogram display */}
+                  {/* Audiogram display — two-column: scores left, chart right */}
                   <div className="detail-card full">
-                    <div className="detail-card-title">Audiogram</div>
-                    <div style={{background:"#fafafa",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 8px",marginBottom:12}}>
-                      <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false}/>
-                    </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
-                      {rPTA!=null&&(
-                        <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"10px 14px"}}>
-                          <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:3}}>Right PTA</div>
-                          <div style={{fontSize:18,fontWeight:800,color:"#0a1628"}}>{rPTA} <span style={{fontSize:11,fontWeight:400,color:"#9ca3af"}}>dB HL</span></div>
-                          <div style={{fontSize:11,color:"#dc2626",fontWeight:600,marginTop:2}}>{getDegreeName(rPTA)}</div>
-                        </div>
-                      )}
-                      {lPTA!=null&&(
-                        <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 14px"}}>
-                          <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:3}}>Left PTA</div>
-                          <div style={{fontSize:18,fontWeight:800,color:"#0a1628"}}>{lPTA} <span style={{fontSize:11,fontWeight:400,color:"#9ca3af"}}>dB HL</span></div>
-                          <div style={{fontSize:11,color:"#2563eb",fontWeight:600,marginTop:2}}>{getDegreeName(lPTA)}</div>
-                        </div>
-                      )}
-                      {(aud.unaidedR!=null||aud.unaidedL!=null)&&(
-                        <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 14px"}}>
-                          <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:3}}>CCT Unaided</div>
-                          {aud.unaidedR!=null&&<div style={{fontSize:12,color:"#0a1628",fontWeight:600}}>R: {aud.unaidedR}%</div>}
-                          {aud.unaidedL!=null&&<div style={{fontSize:12,color:"#0a1628",fontWeight:600}}>L: {aud.unaidedL}%</div>}
-                        </div>
-                      )}
-                      {aud.sinBin!=null&&(
-                        <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 14px"}}>
-                          <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:3}}>QuickSIN SNR Loss</div>
-                          <div style={{fontSize:18,fontWeight:800,color:"#0a1628"}}>{aud.sinBin} <span style={{fontSize:11,fontWeight:400,color:"#9ca3af"}}>dB</span></div>
-                          <div style={{fontSize:11,fontWeight:600,marginTop:2,
-                            color:aud.sinBin<=2?"#16a34a":aud.sinBin<=7?"#ca8a04":aud.sinBin<=15?"#ea580c":"#dc2626"}}>
-                            {aud.sinBin<=2?"Near-normal":aud.sinBin<=7?"Mild":aud.sinBin<=15?"Moderate":"Severe"} difficulty in noise
+                    <div className="detail-card-title">Hearing Evaluation</div>
+                    <div style={{display:"grid",gridTemplateColumns:"200px 1fr",gap:16}}>
+                      {/* Left column: score cards stacked */}
+                      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                        {rPTA!=null&&(
+                          <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"10px 12px"}}>
+                            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:2}}>Right PTA</div>
+                            <div style={{fontSize:20,fontWeight:800,color:"#0a1628",lineHeight:1}}>{rPTA} <span style={{fontSize:10,fontWeight:400,color:"#9ca3af"}}>dB HL</span></div>
+                            <div style={{fontSize:10,color:"#dc2626",fontWeight:600,marginTop:2}}>{getDegreeName(rPTA)}</div>
                           </div>
-                        </div>
-                      )}
-                      {(aud.tinnitusRight||aud.tinnitusLeft)&&(
-                        <div style={{background:"#fefce8",border:"1px solid #fde68a",borderRadius:8,padding:"10px 14px"}}>
-                          <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#92400e",marginBottom:3}}>Tinnitus</div>
-                          <div style={{fontSize:12,color:"#0a1628",fontWeight:600}}>
-                            {aud.tinnitusRight&&aud.tinnitusLeft?"Bilateral":aud.tinnitusRight?"Right":"Left"}
+                        )}
+                        {lPTA!=null&&(
+                          <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 12px"}}>
+                            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:2}}>Left PTA</div>
+                            <div style={{fontSize:20,fontWeight:800,color:"#0a1628",lineHeight:1}}>{lPTA} <span style={{fontSize:10,fontWeight:400,color:"#9ca3af"}}>dB HL</span></div>
+                            <div style={{fontSize:10,color:"#2563eb",fontWeight:600,marginTop:2}}>{getDegreeName(lPTA)}</div>
                           </div>
-                        </div>
-                      )}
+                        )}
+                        {(aud.unaidedR!=null||aud.unaidedL!=null)&&(
+                          <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 12px"}}>
+                            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>CCT Unaided</div>
+                            {aud.unaidedR!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>R: {aud.unaidedR}%</div>}
+                            {aud.unaidedL!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>L: {aud.unaidedL}%</div>}
+                          </div>
+                        )}
+                        {(aud.wrMclR!=null||aud.wrMclL!=null)&&(
+                          <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:8,padding:"10px 12px"}}>
+                            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#16a34a",marginBottom:2}}>WR @ MCL</div>
+                            {aud.wrMclR!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>R: {aud.wrMclR}%</div>}
+                            {aud.wrMclL!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>L: {aud.wrMclL}%</div>}
+                          </div>
+                        )}
+                        {(aud.aidedR!=null||aud.aidedL!=null)&&(
+                          <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 12px"}}>
+                            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>CCT Aided</div>
+                            {aud.aidedR!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>R: {aud.aidedR}%</div>}
+                            {aud.aidedL!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>L: {aud.aidedL}%</div>}
+                          </div>
+                        )}
+                        {aud.sinBin!=null&&(
+                          <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 12px"}}>
+                            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>QuickSIN</div>
+                            <div style={{fontSize:20,fontWeight:800,color:"#0a1628",lineHeight:1}}>{aud.sinBin} <span style={{fontSize:10,fontWeight:400,color:"#9ca3af"}}>dB SNR</span></div>
+                            <div style={{fontSize:10,fontWeight:600,marginTop:2,
+                              color:aud.sinBin<=2?"#16a34a":aud.sinBin<=7?"#ca8a04":aud.sinBin<=15?"#ea580c":"#dc2626"}}>
+                              {aud.sinBin<=2?"Near-normal":aud.sinBin<=7?"Mild":aud.sinBin<=15?"Moderate":"Severe"}
+                            </div>
+                          </div>
+                        )}
+                        {(aud.tinnitusRight||aud.tinnitusLeft)&&(
+                          <div style={{background:"#fefce8",border:"1px solid #fde68a",borderRadius:8,padding:"10px 12px"}}>
+                            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#92400e",marginBottom:2}}>Tinnitus</div>
+                            <div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>
+                              {aud.tinnitusRight&&aud.tinnitusLeft?"Bilateral":aud.tinnitusRight?"Right":"Left"}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      {/* Right column: audiogram chart */}
+                      <div style={{background:"#fafafa",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 8px"}}>
+                        <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false}/>
+                      </div>
                     </div>
                   </div>
 
@@ -5156,8 +5180,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 const clinicObj = staffProfile?.clinic||clinic;
                 const ss = {section:{fontSize:10,fontWeight:700,color:"#0a1628",letterSpacing:0.5,textTransform:"uppercase",marginBottom:6,marginTop:18},body:{fontSize:13,color:"#374151",lineHeight:1.7}};
                 return (
-                  <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(10,22,40,0.92)",zIndex:9999,display:"flex",justifyContent:"center",overflowY:"auto"}}>
-                    <div style={{background:"white",width:700,minHeight:"100vh",padding:"40px 48px 60px",boxShadow:"0 0 80px rgba(0,0,0,0.4)"}}>
+                  <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(10,22,40,0.92)",zIndex:9999,overflowY:"auto"}}>
+                    <div style={{background:"white",width:700,margin:"0 auto",padding:"40px 48px 80px",boxShadow:"0 0 80px rgba(0,0,0,0.4)"}}>
                       {/* Header */}
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
                         <div>
