@@ -32,6 +32,7 @@ import {
   loadStaffProfile,
 } from "./db.js";
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
+import { downloadQuote } from "./generateQuote.js";
 
 import ContentLibrary from "./views/ContentLibrary.jsx";
 import CampaignManager from "./views/CampaignManager.jsx";
@@ -1045,7 +1046,7 @@ function generateCounseling(aud){
 
 
 // ── WIZARD STEPS ──────────────────────────────────────────────────────────────
-const STEPS = ["Patient","Testing","Results","Device Selection","Care Plan","Schedule","Review"];
+const STEPS = ["Patient","Testing","Results","Device Selection","Care Plan","Review"];
 
 
 // ── ROLE CHECK UTILITY ─────────────────────────────────────────────────────────
@@ -1104,6 +1105,11 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [paDeliveryName, setPaDeliveryName] = useState("");
   const [paDeliveryDate, setPaDeliveryDate] = useState("");
 
+  // ── Wizard PA / Quote fork state ─────────────────────────────────────
+  const [showWizardPaModal, setShowWizardPaModal] = useState(false);
+  const [wizardPaSigned, setWizardPaSigned] = useState(false);
+  const [wizardPaSignatureDate, setWizardPaSignatureDate] = useState(null);
+
   // Product catalog state
   const [catalog, setCatalog] = useState(CATALOG_DEFAULT);
   const [catEditId, setCatEditId] = useState(null);      // which entry is open for editing
@@ -1136,7 +1142,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
     right: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, thModel:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""},
     audiology: { rightT:{}, leftT:{}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:null, unaidedL:null, aidedR:null, aidedL:null, sinBin:null },
     carePlan:"",
-    fittingDate: new Date().toISOString().split("T")[0],
     appointments:[],
     notes:"",
   });
@@ -1543,6 +1548,28 @@ export default function ProviderCRM({ staffId, clinicId }) {
     };
   };
 
+  // ── Generate Quote PDF from wizard state ─────────────────────────────
+  const handleGenerateQuote = () => {
+    const leftRec = buildSideRecord(form.left);
+    const rightRec = buildSideRecord(form.right);
+    const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
+    const fittingType = leftRec && rightRec ? (isCROS ? "cros_bicros" : "bilateral") : leftRec ? "monaural_left" : "monaural_right";
+    const counselingSections = generateCounseling(form.audiology); // returns array of {heading,body} or null
+    downloadQuote({
+      patient: { name: [form.firstName, form.lastName].filter(Boolean).join(" "), phone: form.phone },
+      devices: { fittingType, left: leftRec, right: rightRec },
+      pricePerAid: form.tierPrice || 0,
+      selectedCarePlan: form.carePlan || "complete",
+      payType: form.payType,
+      tpa: form.tpa,
+      carrier: form.carrier,
+      audiology: form.audiology,
+      counselingSections: counselingSections,
+      clinic: staffProfile?.clinic || clinic,
+      provider: { fullName: staffProfile?.fullName || "Provider", activeLicense: staffProfile?.activeLicense || "" },
+    });
+  };
+
 
   const handleSave = async () => {
     setSaveError(null);
@@ -1553,6 +1580,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
       || form.left.isCROS || form.right.isCROS;
     const fittingType = leftRec && rightRec ? (isCROS ? "CROS/BiCROS" : "Bilateral") : leftRec ? "Monaural Left" : "Monaural Right";
     const years = form.payType === "insurance" && form.carePlan === "complete" ? 4 : 3;
+    // Warranty starts 14 days after PA signature (average fitting lead time), or today if no PA signed
+    const warrantyStart = wizardPaSignatureDate
+      ? new Date(new Date(wizardPaSignatureDate).getTime() + 14 * 86400000).toISOString().split("T")[0]
+      : new Date().toISOString().split("T")[0];
     const patient = {
       id: genId(),
       location: clinic.name,
@@ -1574,8 +1605,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
         style: primary?.style || "",
         color: primary?.color || "",
         battery: primary?.battery || "",
-        fittingDate: form.fittingDate,
-        warrantyExpiry: warrantyDate(form.fittingDate, years),
+        fittingDate: warrantyStart,
+        warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null,
         serialLeft: genId(),
         serialRight: genId(),
       },
@@ -1599,8 +1630,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
   const startNew = () => {
-    setForm({ firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},audiology:{rightT:{},leftT:{},rightBC:{},leftBC:{},rightMask:{},leftMask:{},rightBCMask:{},leftBCMask:{},tinnitusRight:false,tinnitusLeft:false,unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,sinBin:null},carePlan:"",fittingDate:new Date().toISOString().split("T")[0],appointments:[],notes:"" });
+    setForm({ firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},audiology:{rightT:{},leftT:{},rightBC:{},leftBC:{},rightMask:{},leftMask:{},rightBCMask:{},leftBCMask:{},tinnitusRight:false,tinnitusLeft:false,unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,sinBin:null},carePlan:"",appointments:[],notes:"" });
     setActiveSide("left");
+    setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
     setStep(0); setSaved(false); setView("new");
   };
 
@@ -2225,8 +2257,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     true, // Results — always skippable
     (isSideConfigured("left") || isSideConfigured("right")),
     form.payType === "private" || !!form.carePlan,
-    true,
-    true,
+    true, // Review — always valid
   ][step];
 
 
@@ -3513,21 +3544,38 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 </div>
               </div>
             )}
+
+            {/* ── Fork: Sign PA / Generate Quote / Continue ────────── */}
+            <div style={{marginTop:24,display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
+              <div style={{display:"flex",gap:12,width:"100%",justifyContent:"center"}}>
+                <button
+                  disabled={!(form.payType === "private" || !!form.carePlan)}
+                  style={{background:"#15803d",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",opacity:(form.payType === "private" || !!form.carePlan)?1:0.4,display:"flex",alignItems:"center",gap:8}}
+                  onClick={()=>{ setPaSignatureName(""); setShowWizardPaModal(true); }}
+                >
+                  <span style={{fontSize:16}}>📝</span> Sign Purchase Agreement
+                </button>
+                <button
+                  disabled={!(form.payType === "private" || !!form.carePlan)}
+                  style={{background:"#1e40af",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",opacity:(form.payType === "private" || !!form.carePlan)?1:0.4,display:"flex",alignItems:"center",gap:8}}
+                  onClick={handleGenerateQuote}
+                >
+                  <span style={{fontSize:16}}>📄</span> Generate Quote
+                </button>
+              </div>
+              <button
+                disabled={!(form.payType === "private" || !!form.carePlan)}
+                style={{background:"none",border:"none",color:"#9ca3af",fontFamily:"'Sora',sans-serif",fontSize:12,cursor:"pointer",padding:"4px 12px",opacity:(form.payType === "private" || !!form.carePlan)?1:0.4}}
+                onClick={()=>setStep(5)}
+              >
+                Continue to review →
+              </button>
+            </div>
           </div>
         </>
       );
     }
-    if (step === 5) return (
-      <div className="card">
-        <div className="card-title">Schedule</div>
-        <div className="field" style={{marginBottom:8}}><label>Tentative Fitting Date</label>
-          <input type="date" value={form.fittingDate} onChange={e=>upd("fittingDate",e.target.value)} />
-        </div>
-        <div style={{height:1,background:"#f3f4f6",margin:"20px 0"}} />
-        <div className="field"><label>Notes</label><textarea value={form.notes} onChange={e=>upd("notes",e.target.value)} rows={3} placeholder="Special considerations, hearing test results, etc." /></div>
-      </div>
-    );
-    if (step === 6) {
+    if (step === 5) {
       const ReviewSide = ({side, label}) => {
         const d = form[side];
         const fam = catalog.find(e => e.id === d.familyId);
@@ -3611,10 +3659,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div style={{height:8}} />
             <ReviewSide side="right" label="Right Ear 👂" />
           </div>
-          <div className="review-section">
-            <div className="review-label">Schedule</div>
-            <div className="review-row"><span className="review-key">Tentative Fitting Date</span><span className="review-val">{fmtDate(form.fittingDate)}</span></div>
-          </div>
+          {wizardPaSigned && (
+            <div style={{background:"#ecfdf5",border:"1px solid #bbf7d0",borderRadius:8,padding:"12px 16px",marginTop:12,display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:18}}>✓</span>
+              <div>
+                <div style={{fontSize:13,fontWeight:700,color:"#15803d"}}>Purchase Agreement signed</div>
+                <div style={{fontSize:11,color:"#16a34a"}}>Warranty begins 14 days from signature date</div>
+              </div>
+            </div>
+          )}
+          <div className="field" style={{marginTop:16}}><label>Notes</label><textarea value={form.notes} onChange={e=>upd("notes",e.target.value)} rows={3} placeholder="Special considerations, follow-up notes, etc." /></div>
         </div>
       );
     }
@@ -5103,9 +5157,11 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       {step===0?"Cancel":"← Back"}
                     </button>
                     {step < STEPS.length-1 ? (
-                      <button className="btn-primary" disabled={!canProceed} style={{opacity:canProceed?1:0.4}} onClick={()=>setStep(s=>s+1)}>
-                        Continue →
-                      </button>
+                      step === 4 ? null : (
+                        <button className="btn-primary" disabled={!canProceed} style={{opacity:canProceed?1:0.4}} onClick={()=>setStep(s=>s+1)}>
+                          Continue →
+                        </button>
+                      )
                     ) : (
                       <button className="btn-primary green" onClick={handleSave}>
                         ✓ Create Patient Profile
@@ -5114,6 +5170,73 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   </div>
                 </div>
               </div>
+
+              {/* ── WIZARD PURCHASE AGREEMENT MODAL ────────────────── */}
+              {showWizardPaModal && (
+                <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(10,22,40,0.55)",backdropFilter:"blur(4px)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setShowWizardPaModal(false)}>
+                  <div style={{background:"white",borderRadius:16,padding:32,width:520,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}} onClick={e=>e.stopPropagation()}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+                      <div>
+                        <div style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:18,color:"#0a1628"}}>Purchase Agreement</div>
+                        <div style={{fontFamily:"'Sora',sans-serif",fontSize:12,color:"#6b7280",marginTop:2}}>{[form.firstName,form.lastName].filter(Boolean).join(" ")}</div>
+                      </div>
+                      <button onClick={()=>setShowWizardPaModal(false)} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#9ca3af",padding:4}}>✕</button>
+                    </div>
+
+                    <div style={{marginBottom:20}}>
+                      <label style={{fontFamily:"'Sora',sans-serif",fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:6}}>Patient Signature — Adopt and Sign</label>
+                      <input
+                        type="text"
+                        placeholder="Type your full legal name"
+                        value={paSignatureName}
+                        onChange={e=>setPaSignatureName(e.target.value)}
+                        style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #d1d5db",fontFamily:"'Sora',sans-serif",fontSize:14,boxSizing:"border-box"}}
+                      />
+                      {paSignatureName.trim().length > 2 && (
+                        <div style={{marginTop:12,padding:"14px 18px",background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:10}}>
+                          <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:6}}>Signature Preview</div>
+                          <div style={{fontFamily:"Georgia,serif",fontStyle:"italic",fontSize:24,color:"#0a1628"}}>{paSignatureName}</div>
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      disabled={paSignatureName.trim().length <= 2}
+                      style={{
+                        width:"100%",background:paSignatureName.trim().length>2?"#15803d":"#d1d5db",
+                        color:"white",border:"none",borderRadius:8,padding:"14px 20px",
+                        fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,cursor:paSignatureName.trim().length>2?"pointer":"not-allowed",
+                      }}
+                      onClick={()=>{
+                        const leftRec = buildSideRecord(form.left);
+                        const rightRec = buildSideRecord(form.right);
+                        const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
+                        const fType = leftRec && rightRec ? (isCROS ? "cros_bicros" : "bilateral") : leftRec ? "monaural_left" : "monaural_right";
+                        const sigDate = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+                        downloadPurchaseAgreement({
+                          patient: { name: [form.firstName,form.lastName].filter(Boolean).join(" "), address: form.address, phone: form.phone, dob: form.dob },
+                          devices: { fittingType: fType, left: leftRec, right: rightRec },
+                          carePlan: form.carePlan || "complete",
+                          pricePerAid: form.tierPrice || 0,
+                          clinic: staffProfile?.clinic || clinic,
+                          provider: { fullName: staffProfile?.fullName || "Provider", activeLicense: staffProfile?.activeLicense || "", signatureUrl: staffProfile?.signatureUrl || null },
+                          patientSignature: paSignatureName.trim(),
+                          patientSignatureDate: sigDate,
+                          deliverySignature: null,
+                          deliveryDate: null,
+                          signatureImageBase64: null,
+                        });
+                        setWizardPaSigned(true);
+                        setWizardPaSignatureDate(new Date().toISOString());
+                        setShowWizardPaModal(false);
+                        setStep(5); // jump to Review
+                      }}
+                    >
+                      Adopt, Sign & Download
+                    </button>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>
