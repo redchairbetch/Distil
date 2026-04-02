@@ -119,7 +119,7 @@ export function generatePurchaseAgreement({
   doc.text('DEVICE SPECIFICATIONS', M, y)
   y += 8
 
-  const colWidths = [42, 82, 120, 68, 62, CW - 374]
+  const colWidths = [36, 72, 100, 56, 110, CW - 374]
   const colX = []; let cx = M
   for (const w of colWidths) { colX.push(cx); cx += w }
 
@@ -213,42 +213,45 @@ export function generatePurchaseAgreement({
   doc.text(fmt$(totalPurchasePrice), PAGE_W - M - 10, y + 10, { align: 'right' })
   y += 28
 
-  // ── TERMS (condensed) ──
+  // ── TERMS (original MHC legal verbiage) ──
+  const termFS = 5.8  // font size to fit one page
+  const termLH = 7    // line height
+
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(7.5)
+  doc.setFontSize(7)
   doc.setTextColor(...NAVY)
   doc.text('WARRANTY', M, y)
-  y += 9
+  y += 8
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(6.5)
+  doc.setFontSize(termFS)
   doc.setTextColor(...BLACK)
-  const warrantyText = `Manufacturer warrants hearing aid(s) free from defects for ${cpMeta.warrantyYears} year(s) from delivery. All repairs during warranty at no charge. One-time loss/damage replacement: $${cpMeta.ldCost}/aid.`
-  wrapText(doc, warrantyText, CW).forEach(line => { doc.text(line, M, y); y += 8 })
-  y += 4
+  const warrantyText = `The manufacturer warrants patient's hearing aid(s) to be free from defects in workmanship and materials for a period of ${cpMeta.warrantyYears} year(s) from date of delivery and agrees to make all necessary repairs without charge to patient during the warranty period. The manufacturer provides a one-time loss and damage replacement during the warranty period at a cost of $${cpMeta.ldCost} per hearing aid.`
+  wrapText(doc, warrantyText, CW).forEach(line => { doc.text(line, M, y); y += termLH })
+  y += 3
 
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(7.5)
+  doc.setFontSize(7)
   doc.setTextColor(...NAVY)
   doc.text('100% SATISFACTION GUARANTEED', M, y)
-  y += 9
+  y += 8
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(6.5)
+  doc.setFontSize(termFS)
   doc.setTextColor(...BLACK)
-  const satText = 'Patient may cancel for any reason within 60 days. Full refund within 30 days of returning aids in working condition. MHC may refuse refund for aids lost or damaged beyond repair.'
-  wrapText(doc, satText, CW).forEach(line => { doc.text(line, M, y); y += 8 })
-  y += 4
+  const satText = `Patient has a right to cancel this agreement for any reason within 60 days. Patient is entitled to receive a full refund of any payment made for the hearing aid within 30 days of returning the hearing aid to MHC in normal working condition. MHC may refuse to provide a refund for a hearing aid that has been lost or damaged beyond repair while in the patient's possession.`
+  wrapText(doc, satText, CW).forEach(line => { doc.text(line, M, y); y += termLH })
+  y += 3
 
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(7.5)
+  doc.setFontSize(7)
   doc.setTextColor(...NAVY)
   doc.text('PATIENT RESPONSIBILITY', M, y)
-  y += 9
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(6.5)
-  doc.setTextColor(...BLACK)
-  const respText = 'Patient agrees to follow rehabilitation instructions, communicate progress, and allow a minimum 30-day adjustment period. MHC may adjust or recommend different aids at no extra cost unless patient chooses an upgrade.'
-  wrapText(doc, respText, CW).forEach(line => { doc.text(line, M, y); y += 8 })
   y += 8
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(termFS)
+  doc.setTextColor(...BLACK)
+  const respText = `Patient is responsible to carefully follow all rehabilitation instructions and communicate with the provider on the progress with adjustments. During this time MHC may make any needed adjustments on the hearing aid(s) for the benefit of the patient's listening and hearing comfort. Patient should realize that adjusting to hearing aids is not an overnight experience and may take time. Patient also agrees to allow themselves time to adjust and allows MHC to assist them in their hearing rehabilitation. If MHC believes that, during the rehabilitation period, a different choice of circuitry, model, or choice of hearing aid(s) is better suited to the patient's needs, no extra cost will be incurred by the patient unless an upgrade of quality, model, or style is chosen. Suggested rehabilitation time is a minimum of 30 days. Additional time may be granted subject to approval by MHC.`
+  wrapText(doc, respText, CW).forEach(line => { doc.text(line, M, y); y += termLH })
+  y += 6
 
   // ── AGREEMENT SIGNATURES ──
   y = drawHR(doc, y)

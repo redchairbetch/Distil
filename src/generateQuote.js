@@ -223,7 +223,7 @@ export function generateQuote({
   y += 6
 
   const colLabels = ['', 'Manufacturer', 'Model', 'Style', 'Battery', 'Price']
-  const colWidths = [50, 90, 110, 80, 70, CONTENT_W - 400]
+  const colWidths = [40, 80, 100, 65, 110, CONTENT_W - 395]
   const colX = []
   let cx = MARGIN
   for (const w of colWidths) { colX.push(cx); cx += w }

@@ -4376,26 +4376,34 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>Fitting Type</span>
                     <span style={{fontSize:12,fontWeight:700,color:"#0a1628",background:"#f3f4f6",borderRadius:6,padding:"2px 8px"}}>{p.devices?.fittingType||"Bilateral"}</span>
                   </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
                   {[p.devices?.left, p.devices?.right].map((side, idx) => {
                     const sideLabel = idx===0 ? "👂 Left Ear" : "Right Ear 👂";
                     if (!side) return (
-                      <div key={idx} style={{color:"#9ca3af",fontSize:13,padding:"8px 0",borderBottom:"1px solid #f3f4f6"}}>{sideLabel} — Not configured</div>
+                      <div key={idx}><div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:6,paddingBottom:4,borderBottom:"1px solid #e5e7eb"}}>{sideLabel}</div><div style={{color:"#9ca3af",fontSize:13,padding:"8px 0"}}>Not configured</div></div>
                     );
-                    const pwrLabel = (RECEIVER_POWERS[side.manufacturer]||[]).find(pw=>pw.id===side.receiverPower)?.label || side.receiverPower;
-                    const isEm = (RECEIVER_POWERS[side.manufacturer]||[]).find(pw=>pw.id===side.receiverPower)?.earmold;
+                    const isTH = side.manufacturer === "TruHearing";
+                    const pwrLabel = isTH
+                      ? (side.gainMatrix || side.receiverPower || "—")
+                      : ((RECEIVER_POWERS[side.manufacturer]||[]).find(pw=>pw.id===side.receiverPower)?.label || side.receiverPower || "—");
+                    const isEm = isTH
+                      ? false
+                      : (RECEIVER_POWERS[side.manufacturer]||[]).find(pw=>pw.id===side.receiverPower)?.earmold;
+                    const domeVal = isTH
+                      ? (side.domeCategory && side.domeSize ? `${side.domeCategory} ${side.domeSize}` : side.domeCategory || side.dome || "N/A")
+                      : (isEm ? "Custom Earmold" : (side.dome || "N/A"));
                     return (
-                      <div key={idx} style={{marginBottom:16}}>
+                      <div key={idx}>
                         <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:6,paddingBottom:4,borderBottom:"1px solid #e5e7eb"}}>{sideLabel}</div>
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr"}}>
-                          {[["Manufacturer",side.manufacturer],["Platform",side.generation||"—"],["Model Family",side.family||"—"],["Variant",side.variant||"—"],["Tech Level",side.techLevel||"—"],["Body Style",BODY_STYLES.find(s=>s.id===side.style)?.label||side.style],["Color",side.color||"N/A"],["Battery",side.battery||"—"],
-                            ...(side.style==="ric" ? [["Receiver Length",side.receiverLength||"—"],["Receiver Power",pwrLabel||"—"],["Dome / Coupling",isEm?"Custom Earmold":(side.dome||"N/A")]] : []),
-                          ].map(([k,v])=>(
-                            <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v||"—"}</span></div>
-                          ))}
-                        </div>
+                        {[["Manufacturer",side.manufacturer],["Model",side.family||"—"],["Tech Level",side.techLevel||"—"],["Body Style",BODY_STYLES.find(s=>s.id===side.style)?.label||side.style],["Color",side.color||"N/A"],["Battery",side.battery||"—"],
+                          ...(side.style==="ric"||side.style==="ric_bct"||side.style==="sr" ? [["Receiver Length",side.receiverLength||"—"],["Receiver Power",pwrLabel],["Dome / Coupling",domeVal]] : []),
+                        ].map(([k,v])=>(
+                          <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v||"—"}</span></div>
+                        ))}
                       </div>
                     );
                   })}
+                  </div>
                   <div style={{borderTop:"1px solid #f3f4f6",paddingTop:12,display:"grid",gridTemplateColumns:"1fr 1fr"}}>
                     {[["Serial (L)",p.devices?.serialLeft],["Serial (R)",p.devices?.serialRight],["Fitting Date",fmtDate(p.devices?.fittingDate||p.createdAt)],["Warranty Expires",fmtDate(p.devices?.warrantyExpiry)],["Warranty Status",days<0?"Expired":`${days} days remaining`]].map(([k,v])=>(
                       <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val" style={k==="Warranty Status"?{color:days<0?"#ef4444":days<90?"#f59e0b":"#16a34a"}:{}}>{v||"—"}</span></div>
@@ -4462,49 +4470,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   </div>
 
 
-                  {/* Patient education narrative */}
-                  {sections&&sections.length>0&&(
-                    <div className="detail-card full">
-                      <div className="detail-card-title" style={{marginBottom:4}}>Patient Counseling Guide</div>
-                      <div style={{fontSize:11,color:"#9ca3af",marginBottom:18}}>
-                        Generated from test results · Use as a conversation guide during the appointment
-                      </div>
-                      {sections.map((s,i)=>(
-                        <div key={i} style={{marginBottom:i<sections.length-1?20:0,paddingBottom:i<sections.length-1?20:0,borderBottom:i<sections.length-1?"1px solid #f3f4f6":"none"}}>
-                          <div style={{fontSize:12,fontWeight:700,color:"#0a1628",marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
-                            <span style={{fontSize:16}}>{["🎯","💬","✅","🔊"][i]}</span>
-                            {s.heading}
-                          </div>
-                          <div style={{fontSize:13,color:"#374151",lineHeight:1.75}}>{s.body}</div>
-                        </div>
-                      ))}
-
-
-                      {/* Research highlights — positive outcomes framing */}
-                      <div style={{marginTop:24,background:"linear-gradient(135deg,#f0fdf4,#f0f9ff)",border:"1px solid #d1fae5",borderRadius:12,padding:"18px 20px"}}>
-                        <div style={{fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#059669",marginBottom:14}}>
-                          📚 Why Treatment Matters — Evidence Summary
-                        </div>
-                        {[
-                          {icon:"🧠", title:"Cognitive load", body:"Untreated hearing loss forces the brain to devote extra resources to decoding sound — leaving less capacity for memory, comprehension, and attention. Hearing aids reduce this processing burden significantly. Studies consistently show improved working memory performance in consistent aid users."},
-                          {icon:"😴", title:"Fatigue & quality of life", body:"Listening fatigue is real and measurable. Patients with treated hearing loss report substantially lower rates of social withdrawal, depression, and daily exhaustion. The effort of following conversation in noise is genuinely tiring — correcting the input changes that equation."},
-                          {icon:"🗣️", title:"Relationships & connection", body:"Communication difficulty strains relationships in ways patients often don't articulate directly. Spouses and family members frequently report more satisfaction and less frustration after treatment begins. This is often the most immediate and tangible benefit."},
-                          {icon:"🔈", title:"Auditory plasticity", body:"The auditory system adapts to deprivation over time — pathways that go unstimulated become less efficient. Early treatment preserves those pathways. This is why fitting sooner rather than later produces better long-term outcomes, even when patients feel they're 'managing fine.'"},
-                        ].map(r=>(
-                          <div key={r.title} style={{display:"flex",gap:12,marginBottom:14,paddingBottom:14,borderBottom:"1px solid rgba(0,0,0,0.05)"}}>
-                            <span style={{fontSize:20,flexShrink:0}}>{r.icon}</span>
-                            <div>
-                              <div style={{fontSize:12,fontWeight:700,color:"#0a1628",marginBottom:4}}>{r.title}</div>
-                              <div style={{fontSize:12,color:"#374151",lineHeight:1.65}}>{r.body}</div>
-                            </div>
-                          </div>
-                        ))}
-                        <div style={{fontSize:11,color:"#9ca3af",marginTop:4,fontStyle:"italic"}}>
-                          Sources: Hearing Health Foundation, JAMA; Journal of the American Academy of Audiology; The Lancet Commission on Dementia Prevention
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </>
               );
             })()}
@@ -5257,13 +5222,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
                       {/* Terms */}
                       <div style={ss.section}>Warranty</div>
-                      <div style={ss.body}>Manufacturer warrants hearing aid(s) free from defects for {cpWarranty} year(s) from delivery. All repairs during warranty at no charge. One-time loss/damage replacement: $275/aid.</div>
+                      <div style={ss.body}>The manufacturer warrants patient's hearing aid(s) to be free from defects in workmanship and materials for a period of {cpWarranty} year(s) from date of delivery and agrees to make all necessary repairs without charge to patient during the warranty period. The manufacturer provides a one-time loss and damage replacement during the warranty period at a cost of $275 per hearing aid.</div>
 
                       <div style={ss.section}>100% Satisfaction Guaranteed</div>
-                      <div style={ss.body}>Patient may cancel for any reason within 60 days. Full refund within 30 days of returning aids in working condition. MHC may refuse refund for aids lost or damaged beyond repair.</div>
+                      <div style={ss.body}>Patient has a right to cancel this agreement for any reason within 60 days. Patient is entitled to receive a full refund of any payment made for the hearing aid within 30 days of returning the hearing aid to MHC in normal working condition. MHC may refuse to provide a refund for a hearing aid that has been lost or damaged beyond repair while in the patient's possession.</div>
 
                       <div style={ss.section}>Patient Responsibility</div>
-                      <div style={ss.body}>Patient agrees to follow rehabilitation instructions, communicate progress, and allow a minimum 30-day adjustment period. MHC may adjust or recommend different aids at no extra cost unless patient chooses an upgrade.</div>
+                      <div style={ss.body}>Patient is responsible to carefully follow all rehabilitation instructions and communicate with the provider on the progress with adjustments. During this time MHC may make any needed adjustments on the hearing aid(s) for the benefit of the patient's listening and hearing comfort. Patient should realize that adjusting to hearing aids is not an overnight experience and may take time. Patient also agrees to allow themselves time to adjust and allows MHC to assist them in their hearing rehabilitation. If MHC believes that, during the rehabilitation period, a different choice of circuitry, model, or choice of hearing aid(s) is better suited to the patient's needs, no extra cost will be incurred by the patient unless an upgrade of quality, model, or style is chosen. Suggested rehabilitation time is a minimum of 30 days. Additional time may be granted subject to approval by MHC.</div>
 
                       {/* Signature section */}
                       <div style={{height:1,background:"#e5e7eb",margin:"24px 0"}}/>
