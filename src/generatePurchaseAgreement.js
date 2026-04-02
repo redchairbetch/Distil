@@ -93,20 +93,28 @@ export function generatePurchaseAgreement({
   y = drawHR(doc, y)
   y += 8
 
-  // ── PATIENT INFO (compact inline) ──
+  // ── PATIENT INFO ──
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(7)
   doc.setTextColor(...MED_GRAY)
   doc.text('Patient', M, y)
   doc.text('Phone', M + CW * 0.5, y)
-  doc.text('Address', M + CW * 0.75, y)
   y += 9
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8.5)
   doc.setTextColor(...BLACK)
   doc.text(patient.name || '—', M, y)
   doc.text(patient.phone || '—', M + CW * 0.5, y)
-  doc.text(patient.address || '—', M + CW * 0.75, y)
+  y += 11
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(7)
+  doc.setTextColor(...MED_GRAY)
+  doc.text('Address', M, y)
+  y += 9
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8.5)
+  doc.setTextColor(...BLACK)
+  doc.text(patient.address || '—', M, y)
 
   y += 12
   y = drawHR(doc, y)
