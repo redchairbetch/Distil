@@ -382,6 +382,8 @@ export async function savePatient(patient, staffId, clinicId) {
           unaided_wrs_left:  a.unaidedL ?? null,
           aided_wrs_right:   a.aidedR   ?? null,
           aided_wrs_left:    a.aidedL   ?? null,
+          wr_mcl_right:      a.wrMclR   ?? null,
+          wr_mcl_left:       a.wrMclL   ?? null,
           sin_score:         a.sinBin   ?? null,
           tinnitus_right:    a.tinnitusRight ?? false,
           tinnitus_left:     a.tinnitusLeft  ?? false,

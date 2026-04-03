@@ -1,5 +1,11 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import * as pdfjsLib from "pdfjs-dist";
+import { parseMedRxPdf } from "./parsers/medrxParser.js";
 
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  "pdfjs-dist/build/pdf.worker.mjs",
+  import.meta.url
+).toString();
 
 import {
   loadAllPatients,
@@ -1140,7 +1146,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     carrier:"", planGroup:"", tpa:"", tier:"", tierPrice:null,
     left: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, thModel:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""},
     right: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, thModel:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""},
-    audiology: { rightT:{}, leftT:{}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:null, unaidedL:null, aidedR:null, aidedL:null, sinBin:null },
+    audiology: { rightT:{}, leftT:{}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:null, unaidedL:null, aidedR:null, aidedL:null, wrMclR:null, wrMclL:null, sinBin:null },
     carePlan:"",
     appointments:[],
     notes:"",
@@ -1151,6 +1157,70 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [audEar, setAudEar] = useState("right");
   const [audTestType, setAudTestType] = useState("AC");
   const [maskMode, setMaskMode] = useState(false);
+
+  // PDF import state
+  const [pdfImport, setPdfImport] = useState(null); // { fields: Set, warnings: [], patientName, testDate }
+  const [pdfDragOver, setPdfDragOver] = useState(false);
+  const pdfInputRef = useRef(null);
+
+  const handlePdfImport = async (file) => {
+    if (!file || file.type !== "application/pdf") {
+      alert("Please upload a PDF file.");
+      return;
+    }
+    try {
+      const arrayBuf = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
+      let fullText = "";
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        // Group text items by y-position to reconstruct lines
+        const lineMap = new Map();
+        for (const item of content.items) {
+          if (!item.str.trim()) continue;
+          // y-coordinate is in item.transform[5], round to group nearby items
+          const y = Math.round(item.transform[5]);
+          if (!lineMap.has(y)) lineMap.set(y, []);
+          lineMap.get(y).push({ x: item.transform[4], str: item.str });
+        }
+        // Sort lines top-to-bottom (higher y = higher on page in PDF coords)
+        const sortedYs = [...lineMap.keys()].sort((a, b) => b - a);
+        for (const y of sortedYs) {
+          // Sort items left-to-right within each line
+          const items = lineMap.get(y).sort((a, b) => a.x - b.x);
+          fullText += items.map(it => it.str).join(" ") + "\n";
+        }
+      }
+      const result = parseMedRxPdf(fullText);
+      if (!result.success) {
+        alert(result.error);
+        return;
+      }
+      // Merge parsed data into form.audiology — parsed values win, nulls don't overwrite
+      const merged = { ...form.audiology };
+      const d = result.data;
+      if (Object.keys(d.rightT).length)  merged.rightT  = { ...merged.rightT, ...d.rightT };
+      if (Object.keys(d.leftT).length)   merged.leftT   = { ...merged.leftT, ...d.leftT };
+      if (Object.keys(d.rightBC).length) merged.rightBC = { ...merged.rightBC, ...d.rightBC };
+      if (Object.keys(d.leftBC).length)  merged.leftBC  = { ...merged.leftBC, ...d.leftBC };
+      if (d.wrMclR != null) merged.wrMclR = d.wrMclR;
+      if (d.wrMclL != null) merged.wrMclL = d.wrMclL;
+      if (d.sinBin != null) merged.sinBin = d.sinBin;
+      upd("audiology", merged);
+      setPdfImport({
+        fields: result.importedFields,
+        warnings: result.warnings,
+        patientName: result.patientName,
+        testDate: result.testDate,
+      });
+    } catch (err) {
+      console.error("PDF import error:", err);
+      alert("Failed to read PDF. Make sure it's a valid MedRx report.");
+    }
+  };
+
+  const clearPdfImport = () => setPdfImport(null);
 
   // Address autocomplete state
   const [addressSuggestions, setAddressSuggestions] = useState([]);
@@ -1636,7 +1706,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
   const startNew = () => {
-    setForm({ firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},audiology:{rightT:{},leftT:{},rightBC:{},leftBC:{},rightMask:{},leftMask:{},rightBCMask:{},leftBCMask:{},tinnitusRight:false,tinnitusLeft:false,unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,sinBin:null},carePlan:"",appointments:[],notes:"" });
+    setForm({ firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},audiology:{rightT:{},leftT:{},rightBC:{},leftBC:{},rightMask:{},leftMask:{},rightBCMask:{},leftBCMask:{},tinnitusRight:false,tinnitusLeft:false,unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,wrMclR:null,wrMclL:null,sinBin:null},carePlan:"",appointments:[],notes:"" });
     setActiveSide("left");
     setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
     setStep(0); setSaved(false); setView("new");
@@ -2388,8 +2458,64 @@ export default function ProviderCRM({ staffId, clinicId }) {
       const lPTA=getPTA(form.audiology.leftT);
       const rDeg=getDegreeName(rPTA);
       const lDeg=getDegreeName(lPTA);
+      const importHighlight = (field) => pdfImport?.fields?.has(field)
+        ? { background: "#fef9c3", border: "1.5px solid #f59e0b", borderRadius: 6 }
+        : {};
       return(
         <>
+          {/* ── PDF Import Drop Zone ── */}
+          <div
+            onDragOver={e => { e.preventDefault(); setPdfDragOver(true); }}
+            onDragLeave={() => setPdfDragOver(false)}
+            onDrop={e => { e.preventDefault(); setPdfDragOver(false); handlePdfImport(e.dataTransfer.files[0]); }}
+            onClick={() => pdfInputRef.current?.click()}
+            style={{
+              border: pdfImport ? "2px solid #f59e0b" : pdfDragOver ? "2px solid #6366f1" : "2px dashed #d1d5db",
+              borderRadius: 10,
+              padding: pdfImport ? 14 : 24,
+              marginBottom: 16,
+              textAlign: "center",
+              cursor: "pointer",
+              background: pdfImport ? "#fefce8" : pdfDragOver ? "#eef2ff" : "#fafafa",
+              transition: "all 0.15s",
+            }}
+          >
+            <input ref={pdfInputRef} type="file" accept=".pdf" style={{display:"none"}}
+              onChange={e => { handlePdfImport(e.target.files[0]); e.target.value = ""; }} />
+            {pdfImport ? (
+              <div style={{textAlign:"left"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <span style={{fontSize:14,fontWeight:700,color:"#92400e"}}>
+                    MedRx Report Imported
+                  </span>
+                  <button onClick={e => { e.stopPropagation(); clearPdfImport(); }}
+                    style={{padding:"4px 12px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",fontSize:11,fontWeight:600,cursor:"pointer",color:"#6b7280"}}>
+                    Clear Import
+                  </button>
+                </div>
+                <div style={{fontSize:12,color:"#78716c"}}>
+                  {pdfImport.patientName && <span><strong>Patient:</strong> {pdfImport.patientName} &nbsp; </span>}
+                  {pdfImport.testDate && <span><strong>Test Date:</strong> {pdfImport.testDate} &nbsp; </span>}
+                  <strong>{pdfImport.fields?.size || 0}</strong> fields imported
+                </div>
+                {pdfImport.warnings?.length > 0 && (
+                  <div style={{marginTop:8,fontSize:11,color:"#b45309",lineHeight:1.5}}>
+                    {pdfImport.warnings.map((w, i) => <div key={i}>&#9888; {w}</div>)}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                <div style={{fontSize:13,fontWeight:600,color:pdfDragOver?"#4f46e5":"#9ca3af",marginBottom:4}}>
+                  Drop MedRx PDF here or click to upload
+                </div>
+                <div style={{fontSize:11,color:"#d1d5db"}}>
+                  Auto-fills audiogram, WR scores, and QuickSIN
+                </div>
+              </>
+            )}
+          </div>
+
           {/* ── Pure Tone Audiometry ── */}
           <div className="card">
             <div className="card-title">Pure Tone Audiometry</div>
@@ -2552,6 +2678,46 @@ export default function ProviderCRM({ staffId, clinicId }) {
           </div>
 
 
+          {/* ── WR at MCL (from MedRx report) ── */}
+          <div className="card" style={pdfImport?.fields?.has("wrMclR") || pdfImport?.fields?.has("wrMclL") ? {border:"1.5px solid #f59e0b",background:"#fffbeb"} : {}}>
+            <div className="card-title">Word Recognition at MCL</div>
+            <div style={{fontSize:12,color:"#6b7280",marginBottom:14,lineHeight:1.6}}>
+              Word recognition tested at the patient's <strong>most comfortable level (MCL)</strong>.
+              {pdfImport?.fields?.has("wrMclR") || pdfImport?.fields?.has("wrMclL")
+                ? <span style={{color:"#b45309",fontWeight:600}}> Imported from MedRx report.</span>
+                : " Enter manually or import from a MedRx PDF above."}
+            </div>
+            <div className="field-grid">
+              <div className="field">
+                <label>Right Ear Score (%)</label>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <input type="number" min="0" max="100" step="2" placeholder="e.g. 96"
+                    value={form.audiology.wrMclR??""} style={{width:90,...importHighlight("wrMclR")}}
+                    onChange={e=>updAud("wrMclR",e.target.value===""?null:Number(e.target.value))}/>
+                  {form.audiology.wrMclR!=null&&form.audiology.wrMclR<100&&(
+                    <span style={{fontSize:11,fontWeight:700,color:"#6b7280"}}>
+                      {100-form.audiology.wrMclR}% deficit at MCL
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="field">
+                <label>Left Ear Score (%)</label>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <input type="number" min="0" max="100" step="2" placeholder="e.g. 92"
+                    value={form.audiology.wrMclL??""} style={{width:90,...importHighlight("wrMclL")}}
+                    onChange={e=>updAud("wrMclL",e.target.value===""?null:Number(e.target.value))}/>
+                  {form.audiology.wrMclL!=null&&form.audiology.wrMclL<100&&(
+                    <span style={{fontSize:11,fontWeight:700,color:"#6b7280"}}>
+                      {100-form.audiology.wrMclL}% deficit at MCL
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+
           {/* ── QuickSIN ── */}
           <div className="card">
             <div className="card-title">Signal-to-Noise Ratio Assessment — QuickSIN</div>
@@ -2566,7 +2732,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
               <label>Binaural SNR Loss (dB)</label>
               <div style={{display:"flex",alignItems:"center",gap:12}}>
                 <input type="number" min="0" max="30" step="0.5" placeholder="e.g. 9.5"
-                  value={form.audiology.sinBin??""} style={{width:110}}
+                  value={form.audiology.sinBin??""} style={{width:110,...importHighlight("sinBin")}}
                   onChange={e=>updAud("sinBin",e.target.value===""?null:Number(e.target.value))}/>
                 {form.audiology.sinBin!=null&&(
                   <div>
