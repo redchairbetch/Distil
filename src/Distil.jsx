@@ -820,7 +820,94 @@ function getSlope(t){
 }
 
 
-function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={},leftMask={},rightBCMask={},leftBCMask={},interactive=false,onSet,activeEar="right",activeTestType="AC",maskMode=false}){
+// ── WORST-THRESHOLD SEVERITY (Change 4) ──────────────────────────────────────
+function getWorstThresholdSeverity(thresholds){
+  if(!thresholds)return null;
+  const vals=Object.values(thresholds).filter(v=>v!=null);
+  if(!vals.length)return null;
+  const worst=Math.max(...vals);
+  if(worst<=20)return"Normal"; if(worst<=40)return"Mild";
+  if(worst<=55)return"Moderate"; if(worst<=70)return"Moderately Severe";
+  if(worst<=90)return"Severe"; return"Profound";
+}
+function getWorstThreshold(thresholds){
+  if(!thresholds)return null;
+  const vals=Object.values(thresholds).filter(v=>v!=null);
+  return vals.length?Math.max(...vals):null;
+}
+
+
+// ── CONTINUOUS FREQUENCY → X MAPPER ──────────────────────────────────────────
+// Maps any Hz value to SVG x using log-interpolation across AUDIG_FREQS
+function freqToSvgX(hz, ML, PW){
+  const logFreqs=AUDIG_FREQS.map(f=>Math.log2(f));
+  const logHz=Math.log2(hz);
+  const logMin=logFreqs[0], logMax=logFreqs[logFreqs.length-1];
+  const frac=(logHz-logMin)/(logMax-logMin);
+  return ML+frac*PW;
+}
+
+
+// ── THRESHOLD INTERPOLATION ──────────────────────────────────────────────────
+// Linearly interpolates patient threshold at any frequency from tested frequencies
+function interpolateThreshold(thresholds, freq){
+  if(!thresholds)return null;
+  if(thresholds[freq]!=null)return thresholds[freq];
+  const tested=AUDIG_FREQS.filter(f=>thresholds[f]!=null).sort((a,b)=>a-b);
+  if(!tested.length)return null;
+  if(freq<=tested[0])return thresholds[tested[0]];
+  if(freq>=tested[tested.length-1])return thresholds[tested[tested.length-1]];
+  let lo=tested[0], hi=tested[tested.length-1];
+  for(const f of tested){ if(f<=freq)lo=f; if(f>=freq&&f<hi)hi=f; }
+  if(lo===hi)return thresholds[lo];
+  const ratio=(freq-lo)/(hi-lo);
+  return thresholds[lo]+ratio*(thresholds[hi]-thresholds[lo]);
+}
+
+
+// ── SPEECH BANANA BOUNDARY COORDINATES ───────────────────────────────────────
+const SPEECH_BANANA_UPPER=[
+  {freq:250,db:20},{freq:500,db:15},{freq:1000,db:20},{freq:2000,db:20},
+  {freq:4000,db:25},{freq:6000,db:35},{freq:8000,db:40}
+];
+const SPEECH_BANANA_LOWER=[
+  {freq:8000,db:65},{freq:6000,db:65},{freq:4000,db:70},{freq:2000,db:65},
+  {freq:1000,db:65},{freq:500,db:60},{freq:250,db:60}
+];
+
+
+// ── PHONEME POSITIONS ────────────────────────────────────────────────────────
+// Phoneme positions — clinical freq/dB, with display offsets to prevent overlap
+// displayFreq/displayDb are used for SVG placement; freq/db for audibility math
+const PHONEMES=[
+  {label:'j',freq:250,db:35, displayFreq:250,displayDb:35},
+  {label:'u',freq:310,db:28, displayFreq:310,displayDb:28},
+  {label:'v',freq:500,db:22, displayFreq:420,displayDb:22},
+  {label:'z',freq:500,db:24, displayFreq:580,displayDb:24},
+  {label:'m',freq:500,db:34, displayFreq:430,displayDb:33},
+  {label:'b',freq:500,db:36, displayFreq:530,displayDb:37},
+  {label:'n',freq:500,db:38, displayFreq:440,displayDb:40},
+  {label:'g',freq:500,db:42, displayFreq:540,displayDb:43},
+  {label:'d',freq:500,db:44, displayFreq:450,displayDb:47},
+  {label:'e',freq:600,db:30, displayFreq:650,displayDb:30},
+  {label:'l',freq:750,db:40, displayFreq:750,displayDb:40},
+  {label:'i',freq:1000,db:34, displayFreq:1000,displayDb:34},
+  {label:'a',freq:1000,db:50, displayFreq:1050,displayDb:50},
+  {label:'o',freq:900,db:44, displayFreq:900,displayDb:44},
+  {label:'r',freq:1500,db:44, displayFreq:1500,displayDb:44},
+  {label:'p',freq:2000,db:34, displayFreq:1900,displayDb:34},
+  {label:'h',freq:2000,db:38, displayFreq:2100,displayDb:38},
+  {label:'ch',freq:2500,db:54, displayFreq:2400,displayDb:54},
+  {label:'sh',freq:2500,db:56, displayFreq:2650,displayDb:58},
+  {label:'k',freq:3000,db:40, displayFreq:3000,displayDb:40},
+  {label:'f',freq:4000,db:44, displayFreq:4000,displayDb:44},
+  {label:'s',freq:5000,db:40, displayFreq:5000,displayDb:40},
+  {label:'th',freq:6000,db:44, displayFreq:6000,displayDb:44},
+];
+const HIGH_FREQ_CONSONANTS=['s','th','f','sh','ch','k','p'];
+
+
+function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={},leftMask={},rightBCMask={},leftBCMask={},interactive=false,onSet,activeEar="right",activeTestType="AC",maskMode=false,showBanana=false,phonemeDimMode=null}){
   const W=600,H=340,ML=52,MT=42,MR=88,MB=24;
   const PW=W-ML-MR, PH=H-MT-MB;
   const fx=i=>ML+i*(PW/(AUDIG_FREQS.length-1));
@@ -941,6 +1028,51 @@ function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={},leftM
       <text x={ML-38} y={MT+PH/2} fontSize="10" fill="#9ca3af" textAnchor="middle"
         transform={`rotate(-90,${ML-38},${MT+PH/2})`}>Hearing Level (dB HL)</text>
       <text x={ML+PW/2} y={H-2} fontSize="10" fill="#9ca3af" textAnchor="middle">Frequency (Hz)</text>
+      {/* Speech banana overlay */}
+      {showBanana&&(
+        <g>
+          <polygon
+            points={[...SPEECH_BANANA_UPPER,...SPEECH_BANANA_LOWER].map(p=>`${freqToSvgX(p.freq,ML,PW)},${dy(p.db)}`).join(" ")}
+            fill="#ffffff" fillOpacity="0.75" stroke="#f59e0b" strokeWidth="1" strokeOpacity="0.4"/>
+          {/* 1000 Hz dashed vertical divider */}
+          <line x1={freqToSvgX(1000,ML,PW)} y1={MT} x2={freqToSvgX(1000,ML,PW)} y2={MT+PH}
+            stroke="#d1d5db" strokeWidth="1" strokeDasharray="4 3"/>
+          {/* Awareness / Clarity labels */}
+          <text x={(ML+freqToSvgX(1000,ML,PW))/2} y={dy(12)} fontSize="9" fill="#9ca3af"
+            textAnchor="middle" fontWeight="600" fontStyle="italic">Awareness</text>
+          <text x={(freqToSvgX(1000,ML,PW)+ML+PW)/2} y={dy(12)} fontSize="9" fill="#9ca3af"
+            textAnchor="middle" fontWeight="600" fontStyle="italic">Clarity</text>
+        </g>
+      )}
+      {/* Phoneme labels with dimming */}
+      {showBanana&&phonemeDimMode&&PHONEMES.map((ph,pi)=>{
+        const px=freqToSvgX(ph.displayFreq,ML,PW);
+        const py=dy(ph.displayDb);
+        // Determine audibility per ear
+        const rThr=interpolateThreshold(rightT,ph.freq);
+        const lThr=interpolateThreshold(leftT,ph.freq);
+        const rInaudible=rThr!=null&&rThr>ph.db;
+        const lInaudible=lThr!=null&&lThr>ph.db;
+        const rBorderline=rThr!=null&&!rInaudible&&(rThr>ph.db-5);
+        const lBorderline=lThr!=null&&!lInaudible&&(lThr>ph.db-5);
+        // Pick which ear(s) to evaluate
+        let inaudible=false, borderline=false;
+        if(phonemeDimMode==="right"){ inaudible=rInaudible; borderline=!inaudible&&rBorderline; }
+        else if(phonemeDimMode==="left"){ inaudible=lInaudible; borderline=!inaudible&&lBorderline; }
+        else{ /* both — use worse ear */ inaudible=rInaudible||lInaudible; borderline=!inaudible&&(rBorderline||lBorderline); }
+        const opacity=inaudible?1.0:borderline?0.85:1.0;
+        const color=inaudible?"#c2410c":borderline?"#f59e0b":"#1e293b";
+        const weight=inaudible?700:600;
+        return(
+          <g key={"ph"+pi}>
+            <text x={px} y={py+4} fontSize="10" fill={color} opacity={opacity}
+              textAnchor="middle" fontWeight={weight} style={{fontFamily:"Sora,sans-serif"}}
+              letterSpacing="0.5">
+              {ph.label}
+            </text>
+          </g>
+        );
+      })}
       {/* AC polylines */}
       {rPts.length>1&&<polyline points={rPts.join(" ")} fill="none" stroke="#dc2626" strokeWidth="1.5" strokeOpacity="0.7"/>}
       {lPts.length>1&&<polyline points={lPts.join(" ")} fill="none" stroke="#2563eb" strokeWidth="1.5" strokeOpacity="0.7"/>}
@@ -1157,6 +1289,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [audEar, setAudEar] = useState("right");
   const [audTestType, setAudTestType] = useState("AC");
   const [maskMode, setMaskMode] = useState(false);
+  const [phonemeDimMode, setPhonemeDimMode] = useState("both");
 
   // PDF import state
   const [pdfImport, setPdfImport] = useState(null); // { fields: Set, warnings: [], patientName, testDate }
@@ -1896,7 +2029,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     label { font-size: 11px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; }
     input, select, textarea { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; font-size: 14px; font-family: 'Sora',sans-serif; outline: none; transition: border 0.15s; width: 100%; background: white; }
     input:focus, select:focus, textarea:focus { border-color: #0a1628; }
-    .radio-group { display: flex; gap: 10px; }
+    .radio-group { display: flex; gap: 10px; flex-wrap: wrap; }
     .radio-pill { flex: 1; border: 2px solid #e5e7eb; border-radius: 10px; padding: 12px; cursor: pointer; text-align: center; transition: all 0.15s; }
     .radio-pill.active { border-color: #0a1628; background: #0a1628; color: white; }
     .radio-pill-label { font-size: 13px; font-weight: 600; }
@@ -1912,7 +2045,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     .tier-pill { padding: 5px 14px; border-radius: 20px; border: 1px solid #e5e7eb; font-size: 12px; cursor: pointer; transition: all 0.15s; }
     .tier-pill:hover { border-color: #0a1628; }
     .tier-pill.active { background: #0a1628; color: white; border-color: #0a1628; }
-    .style-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
+    .style-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
     .style-card { border: 2px solid #e5e7eb; border-radius: 10px; padding: 14px 12px; text-align: center; cursor: pointer; transition: all 0.15s; }
     .style-card:hover { border-color: #9ca3af; }
     .style-card.active { border-color: #0a1628; background: #f8fafc; }
@@ -2057,8 +2190,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
     .side-action-btn.cros { border-color: #a5b4fc; color: #4f46e5; background: #eef2ff; }
     .side-action-btn.cros:hover { background: #e0e7ff; }
     /* TWO-COLUMN DEVICE LAYOUT */
-    .device-columns { display: grid; grid-template-columns: 1fr auto 1fr; gap: 0; margin-bottom: 16px; }
-    .device-col { border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; background: white; min-width: 0; transition: border-color 0.15s; }
+    .device-columns { display: grid; grid-template-columns: 1fr 120px 1fr; gap: 0; margin-bottom: 16px; max-width: 1100px; margin-left: auto; margin-right: auto; }
+    .device-col { border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; background: white; min-width: 0; overflow: visible; transition: border-color 0.15s; }
     .device-col.active { border-color: #93c5fd; box-shadow: 0 0 0 2px rgba(59,130,246,0.12); }
     .device-col-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #f3f4f6; }
     .device-col-header .ear-label { font-size: 14px; font-weight: 700; color: #0a1628; }
@@ -2646,36 +2779,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           </div>
 
 
-          {/* ── Aided Discrimination ── */}
-          <div className="card">
-            <div className="card-title">Aided Speech Discrimination</div>
-            <div style={{fontSize:12,color:"#6b7280",marginBottom:14,lineHeight:1.6}}>
-              Speech discrimination at the patient's <strong>most comfortable level (MCL)</strong>.
-              This reflects realistic word recognition with amplification in quiet.
-            </div>
-            <div className="field-grid">
-              <div className="field">
-                <label>Right Ear Score (%)</label>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <input type="number" min="0" max="100" step="2" placeholder="e.g. 88"
-                    value={form.audiology.aidedR??""} style={{width:90}}
-                    onChange={e=>updAud("aidedR",e.target.value===""?null:Number(e.target.value))}/>
-
-
-                </div>
-              </div>
-              <div className="field">
-                <label>Left Ear Score (%)</label>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <input type="number" min="0" max="100" step="2" placeholder="e.g. 92"
-                    value={form.audiology.aidedL??""} style={{width:90}}
-                    onChange={e=>updAud("aidedL",e.target.value===""?null:Number(e.target.value))}/>
-
-
-                </div>
-              </div>
-            </div>
-          </div>
+          {/* Aided Speech Discrimination removed — WRS @ MCL covers this */}
 
 
           {/* ── WR at MCL (from MedRx report) ── */}
@@ -2758,48 +2862,111 @@ export default function ProviderCRM({ staffId, clinicId }) {
       const aud = form.audiology;
       const rPTA = getPTA(aud.rightT);
       const lPTA = getPTA(aud.leftT);
-      const sections = generateCounseling(aud);
-      const hasAnyData = rPTA!=null || lPTA!=null || aud.unaidedR!=null || aud.unaidedL!=null || aud.aidedR!=null || aud.sinBin!=null;
+      const hasThresholds = rPTA!=null || lPTA!=null;
+      const hasAnyData = hasThresholds || aud.unaidedR!=null || aud.unaidedL!=null || aud.wrMclR!=null || aud.wrMclL!=null || aud.sinBin!=null;
+
+      // ── Worst-threshold severity (Change 4) ──
+      const rSeverity = getWorstThresholdSeverity(aud.rightT);
+      const lSeverity = getWorstThresholdSeverity(aud.leftT);
+      const severityRank = s => ["Normal","Mild","Moderate","Moderately Severe","Severe","Profound"].indexOf(s);
+      const overallSeverity = (rSeverity && lSeverity)
+        ? (severityRank(rSeverity) >= severityRank(lSeverity) ? rSeverity : lSeverity)
+        : (rSeverity || lSeverity);
+
+      // ── CCT scores ──
+      const cctR = aud.unaidedR, cctL = aud.unaidedL;
+      const cctDefR = cctR!=null ? 100-cctR : null;
+      const cctDefL = cctL!=null ? 100-cctL : null;
+      const worseCCT = (cctR!=null && cctL!=null) ? Math.min(cctR, cctL) : (cctR ?? cctL);
+      const cctColor = v => v==null ? "#9ca3af" : v>=90 ? "#16a34a" : v>=75 ? "#f59e0b" : "#dc2626";
+
+      // ── Phoneme dimming analysis ──
+      const computeInaudible = (thresholds, dimMode) => {
+        return PHONEMES.map(ph => {
+          const rThr = interpolateThreshold(aud.rightT, ph.freq);
+          const lThr = interpolateThreshold(aud.leftT, ph.freq);
+          const rIn = rThr!=null && rThr > ph.db;
+          const lIn = lThr!=null && lThr > ph.db;
+          let inaudible = false;
+          if(dimMode==="right") inaudible = rIn;
+          else if(dimMode==="left") inaudible = lIn;
+          else inaudible = rIn || lIn;
+          return inaudible ? ph.label : null;
+        }).filter(Boolean);
+      };
+      const inaudibleBoth = computeInaudible(null, "both");
+      const highFreqInaudible = inaudibleBoth.filter(l => HIGH_FREQ_CONSONANTS.includes(l));
+
+      // ── Dynamic copy (Change 5) ──
+      const chiefComplaint = form.notes || "";
+
+      const findingSentence = {
+        "Normal": "Your hearing thresholds are within the normal range.",
+        "Mild": "You have a mild hearing loss \u2014 most noticeable in quiet or reverberant rooms.",
+        "Moderate": "You have a moderate hearing loss affecting everyday conversation.",
+        "Moderately Severe": "You have a moderately severe hearing loss. Unaided conversation requires significant effort.",
+        "Severe": "You have a severe hearing loss. Unaided speech understanding is substantially compromised.",
+        "Profound": "You have a profound hearing loss. Unaided communication is extremely limited.",
+      }[overallSeverity] || null;
+
+      const clarityGapCopy = (() => {
+        if(worseCCT==null || worseCCT >= 90) return null;
+        const deficit = 100 - worseCCT;
+        if(worseCCT >= 75) return "Even at a comfortable volume, your ability to understand speech clearly is mildly reduced.";
+        if(worseCCT >= 60) return `At a level where someone with normal hearing scores 100%, you scored ${worseCCT}%. That ${deficit}-point gap is the difference between hearing and understanding.`;
+        return "Your word recognition deficit is significant. You are likely missing large portions of conversation even when sound is loud enough to hear.";
+      })();
+
+      const missingCopy = (() => {
+        if(!hasThresholds) return null;
+        const n = highFreqInaudible.length;
+        if(n >= 5) return "The sounds you\u2019re missing most \u2014 S, F, TH, SH \u2014 are the consonants that define word endings and questions. Without them, speech sounds muffled rather than quiet.";
+        if(n >= 3) return "Several high-frequency consonants are in your inaudible range. This explains why some words sound unclear even when the volume seems fine.";
+        if(n >= 1) return "A small number of high-frequency sounds fall just outside your hearing range \u2014 likely subtle, but present.";
+        return null;
+      })();
+
       return (
         <>
-          {/* ── Audiogram Summary ── */}
-          {(rPTA!=null||lPTA!=null) && (
+          {/* ── Audiogram with Speech Banana ── */}
+          {hasThresholds && (
             <div className="card">
               <div className="card-title">Your Audiogram</div>
-              <div style={{background:"#fafafa",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 8px",marginBottom:14}}>
-                <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false}/>
+              {/* Phoneme dim ear toggle */}
+              <div style={{display:"flex",gap:6,marginBottom:12}}>
+                {["left","both","right"].map(mode=>(
+                  <button key={mode} onClick={()=>setPhonemeDimMode(mode)}
+                    style={{padding:"5px 14px",borderRadius:6,fontSize:11,fontWeight:600,cursor:"pointer",
+                      border:phonemeDimMode===mode?"2px solid #6366f1":"1px solid #d1d5db",
+                      background:phonemeDimMode===mode?"#eef2ff":"#fff",
+                      color:phonemeDimMode===mode?"#4f46e5":mode==="right"?"#dc2626":mode==="left"?"#2563eb":"#374151"}}>
+                    {mode==="left"?"Left":mode==="right"?"Right":"Both"}
+                  </button>
+                ))}
+                <span style={{fontSize:11,color:"#9ca3af",alignSelf:"center",marginLeft:4}}>Phoneme dimming ear</span>
               </div>
-              <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-                {rPTA!=null&&(
+              <div style={{background:"#fafafa",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 8px",marginBottom:14}}>
+                <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false} showBanana={true} phonemeDimMode={phonemeDimMode}/>
+              </div>
+
+              {/* ── Severity per ear ── */}
+              <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
+                {rSeverity&&(
                   <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"10px 16px"}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:2}}>Right Ear — PTA</div>
-                    <div style={{fontSize:22,fontWeight:800,color:"#0a1628"}}>{rPTA} <span style={{fontSize:12,color:"#9ca3af",fontWeight:400}}>dB HL</span></div>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:2}}>Right Ear</div>
+                    <div style={{fontSize:16,fontWeight:800,color:"#0a1628"}}>{rSeverity}</div>
                   </div>
                 )}
-                {lPTA!=null&&(
+                {lSeverity&&(
                   <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 16px"}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:2}}>Left Ear — PTA</div>
-                    <div style={{fontSize:22,fontWeight:800,color:"#0a1628"}}>{lPTA} <span style={{fontSize:12,color:"#9ca3af",fontWeight:400}}>dB HL</span></div>
-                  </div>
-                )}
-                {(aud.unaidedR!=null||aud.unaidedL!=null)&&(
-                  <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 16px"}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>CCT Unaided</div>
-                    {aud.unaidedR!=null&&<div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>R: {aud.unaidedR}%</div>}
-                    {aud.unaidedL!=null&&<div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>L: {aud.unaidedL}%</div>}
-                  </div>
-                )}
-                {(aud.aidedR!=null||aud.aidedL!=null)&&(
-                  <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:8,padding:"10px 16px"}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#16a34a",marginBottom:2}}>WRS @ MCL</div>
-                    {aud.aidedR!=null&&<div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>R: {aud.aidedR}%</div>}
-                    {aud.aidedL!=null&&<div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>L: {aud.aidedL}%</div>}
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:2}}>Left Ear</div>
+                    <div style={{fontSize:16,fontWeight:800,color:"#0a1628"}}>{lSeverity}</div>
                   </div>
                 )}
                 {aud.sinBin!=null&&(
                   <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 16px"}}>
                     <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>QuickSIN SNR Loss</div>
-                    <div style={{fontSize:22,fontWeight:800,color:"#0a1628"}}>{aud.sinBin} <span style={{fontSize:12,color:"#9ca3af",fontWeight:400}}>dB</span></div>
+                    <div style={{fontSize:18,fontWeight:800,color:"#0a1628"}}>{aud.sinBin} <span style={{fontSize:11,color:"#9ca3af",fontWeight:400}}>dB</span></div>
                     <div style={{fontSize:11,fontWeight:600,marginTop:2,
                       color:aud.sinBin<=2?"#16a34a":aud.sinBin<=7?"#ca8a04":aud.sinBin<=15?"#ea580c":"#dc2626"}}>
                       {aud.sinBin<=2?"Near-normal":aud.sinBin<=7?"Mild":aud.sinBin<=15?"Moderate":"Severe"} difficulty in noise
@@ -2815,58 +2982,91 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   </div>
                 )}
               </div>
+
+              {/* ── CCT + WRS @ MCL Scorecard (Change 3) ── */}
+              {(cctR!=null||cctL!=null||aud.wrMclR!=null||aud.wrMclL!=null) && (
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                  {/* Right ear */}
+                  <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:10,padding:"14px 16px"}}>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:10}}>Right Ear</div>
+                    <div style={{marginBottom:10}}>
+                      <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>CCT Score</div>
+                      <div style={{fontSize:22,fontWeight:800,color:cctColor(cctR)}}>{cctR!=null?`${cctR}%`:"\u2014"}</div>
+                      {cctDefR!=null&&cctDefR>0&&(
+                        <div style={{fontSize:12,fontWeight:700,color:"#dc2626",marginTop:2}}>{cctDefR} pts below normal</div>
+                      )}
+                      <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>California Consonant Test @ 45 dB</div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>WRS @ MCL</div>
+                      <div style={{fontSize:22,fontWeight:800,color:"#0a1628"}}>{aud.wrMclR!=null?`${aud.wrMclR}%`:"\u2014"}</div>
+                      <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>Word recognition at comfortable volume</div>
+                    </div>
+                  </div>
+                  {/* Left ear */}
+                  <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:10,padding:"14px 16px"}}>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:10}}>Left Ear</div>
+                    <div style={{marginBottom:10}}>
+                      <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>CCT Score</div>
+                      <div style={{fontSize:22,fontWeight:800,color:cctColor(cctL)}}>{cctL!=null?`${cctL}%`:"\u2014"}</div>
+                      {cctDefL!=null&&cctDefL>0&&(
+                        <div style={{fontSize:12,fontWeight:700,color:"#dc2626",marginTop:2}}>{cctDefL} pts below normal</div>
+                      )}
+                      <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>California Consonant Test @ 45 dB</div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>WRS @ MCL</div>
+                      <div style={{fontSize:22,fontWeight:800,color:"#0a1628"}}>{aud.wrMclL!=null?`${aud.wrMclL}%`:"\u2014"}</div>
+                      <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>Word recognition at comfortable volume</div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
 
-          {/* ── Counseling Narrative ── */}
-          {sections && sections.length > 0 && (
+          {/* ── Dynamic Copy (Change 5) ── */}
+          {hasAnyData && (
             <div className="card">
               <div className="card-title">Understanding Your Results</div>
-              <div style={{fontSize:12,color:"#9ca3af",marginBottom:18}}>Walk through this with your patient — each section explains one aspect of their hearing profile in plain language.</div>
-              {sections.map((s,i)=>(
-                <div key={i} style={{marginBottom:i<sections.length-1?22:0,paddingBottom:i<sections.length-1?22:0,borderBottom:i<sections.length-1?"1px solid #f3f4f6":"none"}}>
-                  <div style={{fontSize:13,fontWeight:700,color:"#0a1628",marginBottom:8,display:"flex",alignItems:"flex-start",gap:10}}>
-                    <span style={{fontSize:18,lineHeight:1}}>{["🎯","💬","✅","🔊"][i]||"📋"}</span>
-                    <span>{s.heading}</span>
+
+              {/* Section A — Complaint anchor */}
+              {chiefComplaint && (
+                <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"12px 16px",marginBottom:16}}>
+                  <div style={{fontSize:13,color:"#374151",fontStyle:"italic",lineHeight:1.6}}>
+                    You came in today because: {chiefComplaint}
                   </div>
-                  <div style={{fontSize:13,color:"#374151",lineHeight:1.8,paddingLeft:28}}>{s.body}</div>
                 </div>
-              ))}
+              )}
+
+              {/* Section B — One-sentence finding */}
+              {findingSentence && (
+                <div style={{fontSize:14,color:"#0a1628",fontWeight:600,lineHeight:1.7,marginBottom:16}}>
+                  {findingSentence}
+                </div>
+              )}
+
+              {/* Section C — The clarity gap */}
+              {clarityGapCopy && (
+                <div style={{fontSize:13,color:"#374151",lineHeight:1.75,marginBottom:16}}>
+                  {clarityGapCopy}
+                </div>
+              )}
+
+              {/* Section D — What you're missing */}
+              {missingCopy && (
+                <div style={{fontSize:13,color:"#374151",lineHeight:1.75,marginBottom:16}}>
+                  {missingCopy}
+                </div>
+              )}
+
+              {/* Section E — Bridge line */}
+              <div style={{fontSize:13,color:"#6b7280",fontWeight:500,lineHeight:1.7,paddingTop:8,borderTop:"1px solid #f3f4f6"}}>
+                Below, you'll see how treatment addresses each of these gaps.
+              </div>
             </div>
           )}
-
-
-          {/* ── Why Treatment Matters ── */}
-          <div className="card">
-            <div className="card-title">Why This Matters</div>
-            <div style={{fontSize:12,color:"#6b7280",marginBottom:18,lineHeight:1.65}}>
-              Evidence-based outcomes for patients who treat their hearing loss — framed around quality of life, not fear.
-            </div>
-            {[
-              {icon:"🗣️", color:"#0a1628", title:"Relationships & connection",
-               body:"Communication difficulty strains relationships in ways patients often don't name directly. Spouses, children, and colleagues consistently report higher satisfaction and less frustration after treatment begins. For most patients, this is the most immediate and tangible benefit they notice."},
-              {icon:"🧠", color:"#4f46e5", title:"Reducing cognitive load",
-               body:"Untreated hearing loss forces the brain to divert resources away from memory and comprehension just to decode sound. Research consistently shows that hearing aid users demonstrate better working memory performance and experience less cognitive fatigue during conversation."},
-              {icon:"😴", color:"#0891b2", title:"Listening fatigue",
-               body:"Listening fatigue is real, measurable, and often underreported. Patients describe it as a kind of exhaustion that sneaks up on them — especially after crowded environments, work meetings, or social events. Correcting the input signal reduces this burden substantially."},
-              {icon:"🔈", color:"#059669", title:"Auditory plasticity — the case for acting now",
-               body:"Hearing pathways that go unstimulated over time become less efficient. This is why fitting sooner rather than later consistently produces better long-term outcomes, even in patients who feel they're managing fine. The brain adapts to what it receives — give it more to work with."},
-              {icon:"🧬", color:"#dc2626", title:"Cognitive health — one piece of a larger picture",
-               body:"Large-scale studies, including the Lancet Commission on Dementia Prevention, have identified untreated hearing loss as one of the largest modifiable risk factors for cognitive decline in midlife. This doesn't mean hearing loss causes dementia — it means treating it is one of the more impactful preventive steps available. Worth knowing, not worth catastrophizing."},
-            ].map(r=>(
-              <div key={r.title} style={{display:"flex",gap:14,marginBottom:18,paddingBottom:18,borderBottom:"1px solid #f3f4f6"}}>
-                <span style={{fontSize:22,flexShrink:0,lineHeight:1.3}}>{r.icon}</span>
-                <div>
-                  <div style={{fontSize:13,fontWeight:700,color:r.color,marginBottom:5}}>{r.title}</div>
-                  <div style={{fontSize:13,color:"#374151",lineHeight:1.75}}>{r.body}</div>
-                </div>
-              </div>
-            ))}
-            <div style={{fontSize:11,color:"#9ca3af",fontStyle:"italic",marginTop:4}}>
-              Sources: Lancet Commission on Dementia Prevention (2024); JAMA; Journal of the American Academy of Audiology; Hearing Health Foundation
-            </div>
-          </div>
 
 
           {!hasAnyData && (
@@ -2950,12 +3150,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
                         <div className="plan-row-top">
                           <div>
                             <div className="plan-row-name">{fam.family}</div>
-                            {fam.notes && <div className="plan-row-tpa">{fam.notes}</div>}
-                          </div>
-                          <div style={{display:"flex",gap:4,flexWrap:"wrap",justifyContent:"flex-end"}}>
-                            {fam.techLevels.slice(0,4).map(t=>(
-                              <span key={t} style={{fontSize:10,background:"#f3f4f6",border:"1px solid #e5e7eb",borderRadius:4,padding:"2px 5px",color:"#6b7280"}}>{t}</span>
-                            ))}
                           </div>
                         </div>
                       </div>
@@ -2977,7 +3171,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
               {selectedFamily && (s.variant || !variantRequired) && (
                 <div className="field" style={{marginBottom:16}}><label>Technology Level</label>
                   <div className="radio-group">
-                    {selectedFamily.techLevels.map(t=>(
+                    {[...selectedFamily.techLevels].sort((a,b)=>{
+                      const na=parseFloat(a),nb=parseFloat(b);
+                      return(!isNaN(na)&&!isNaN(nb))?na-nb:a.localeCompare(b);
+                    }).map(t=>(
                       <div key={t} className={`radio-pill ${s.techLevel===t?"active":""}`} onClick={()=>updSide(side,"techLevel",t)}>
                         <div className="radio-pill-label">{t}</div>
                       </div>
@@ -3758,12 +3955,19 @@ export default function ProviderCRM({ staffId, clinicId }) {
         if (isTH && (!d.techLevel || !d.thModel)) return (
           <div className="review-row"><span className="review-key">{label}</span><span className="review-val" style={{color:"#9ca3af"}}>Not configured</span></div>
         );
-        const pwrLabel = (RECEIVER_POWERS[d.manufacturer]||[]).find(p=>p.id===d.receiverPower)?.label||"—";
-        const isEm = (RECEIVER_POWERS[d.manufacturer]||[]).find(p=>p.id===d.receiverPower)?.earmold;
+        const pwrLabel = isTH
+          ? ((TH_GAIN_MATRIX[`${d.thModel}|${d.style}`]||[]).find(g=>g.id===d.gainMatrix)?.label || d.gainMatrix || "—")
+          : ((RECEIVER_POWERS[d.manufacturer]||[]).find(p=>p.id===d.receiverPower)?.label || "—");
+        const isEm = isTH
+          ? ((TH_GAIN_MATRIX[`${d.thModel}|${d.style}`]||[]).find(g=>g.id===d.gainMatrix)?.earmold || false)
+          : ((RECEIVER_POWERS[d.manufacturer]||[]).find(p=>p.id===d.receiverPower)?.earmold || false);
+        const thDome = isEm ? "Custom Earmold" : (d.domeCategory && d.domeSize ? `${d.domeCategory} ${d.domeSize}` : d.domeCategory || d.dome || "—");
         const styleLabel = BODY_STYLES.find(s=>s.id===d.style)?.label || d.style || "—";
-        const thGen = fam?.generation || d.generation || "—";
+        const thMod = TH_MODELS.find(m => m.id === d.thModel);
+        const thGen = fam?.generation || d.generation || "";
         const thSeries = fam?.thSeries || "";
-        const isLi = fam?.rechargeable || false;
+        const isLi = isTH ? (thMod?.li || false) : (fam?.rechargeable || false);
+        const thHasReceiver = ["ric","ric_bct","sr"].includes(d.style);
         const planTierPrice = INSURANCE_PLANS.find(p=>p.carrier===form.carrier&&p.planGroup===form.planGroup)
           ?.tiers?.find(t=>t.label===d.techLevel)?.price ?? null;
         return (
@@ -3773,21 +3977,26 @@ export default function ProviderCRM({ staffId, clinicId }) {
             </div>
             {[
               [d.manufacturer, "Manufacturer"],
-              [isTH ? `${thGen} · TruHearing Select` : d.generation, "Platform"],
-              [isTH ? (fam?.family || "TruHearing Select") : (fam?.family||""), "Model Family"],
+              [isTH ? (thGen ? `${thGen} TruHearing Select` : "TruHearing Select") : d.generation, "Platform"],
+              [isTH ? (thMod?.label || "TruHearing Select") : (fam?.family||""), "Model Family"],
               ...(isTH ? [
                 [thSeries ? `${thSeries} · ${d.techLevel}` : d.techLevel, "Series / Tier"],
                 [styleLabel, "Body Style"],
                 ...(d.variant ? [[d.variant, "Variant / Style"]] : []),
                 [d.isCROS ? "CROS Transmitter" : "Standard", "CROS"],
-                [isLi ? "Rechargeable (Li-Ion) ♻" : (d.battery||"—"), "Battery"],
+                [isLi ? "Rechargeable (Li-Ion)" : (d.battery||"—"), "Battery"],
+                ...(thHasReceiver ? [
+                  [d.receiverLength||"—", "Receiver Length"],
+                  [pwrLabel, "Receiver Power"],
+                  [thDome, "Dome / Coupling"],
+                ] : []),
               ] : [
                 [d.variant||"—", "Variant"],
                 [d.color||"N/A", "Color"],
                 [d.battery||"N/A", "Battery"],
               ]),
               ...(isTH ? [] : [[d.techLevel, "Tech Level"]]),
-              ...(d.style==="ric" ? [
+              ...(!isTH && d.style==="ric" ? [
                 [d.receiverLength||"—", "Receiver Length"],
                 [pwrLabel, "Receiver Power"],
                 [isEm?"Custom Earmold":(d.dome||"—"), "Dome / Coupling"],
@@ -3827,9 +4036,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
           </div>
           <div className="review-section">
             <div className="review-label">Devices</div>
-            <ReviewSide side="left" label="👂 Left Ear" />
-            <div style={{height:8}} />
-            <ReviewSide side="right" label="Right Ear 👂" />
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+              <div><ReviewSide side="left" label="👂 Left Ear" /></div>
+              <div><ReviewSide side="right" label="Right Ear 👂" /></div>
+            </div>
           </div>
           {wizardPaSigned && (
             <div style={{background:"#ecfdf5",border:"1px solid #bbf7d0",borderRadius:8,padding:"12px 16px",marginTop:12,display:"flex",alignItems:"center",gap:10}}>

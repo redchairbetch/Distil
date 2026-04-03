@@ -196,7 +196,7 @@ export function generatePurchaseAgreement({
   doc.text(cpMeta.label, M + 70, y)
 
   if (cpMeta.price) {
-    doc.text(fmt$(cpMeta.price), PAGE_W - M, y, { align: 'right' })
+    doc.text(fmt$(cpMeta.price), colX[5] + 4, y)
   }
 
   y += 10
