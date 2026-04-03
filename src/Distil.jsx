@@ -2,6 +2,24 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import { parseMedRxPdf } from "./parsers/medrxParser.js";
 
+// ── Body style images ──
+import imgRIC from "./assets/body-styles/RIC.png";
+import imgBTE from "./assets/body-styles/bte.png";
+import imgITE from "./assets/body-styles/ITE.png";
+import imgITC from "./assets/body-styles/ITC.png";
+import imgCIC from "./assets/body-styles/cic.png";
+import imgIIC from "./assets/body-styles/IIC.png";
+
+// ── Manufacturer logos ──
+import logoOticon from "./assets/logos/Oticon.png";
+import logoPhonak from "./assets/logos/Phonak.png";
+import logoResound from "./assets/logos/Resound.png";
+import logoRexton from "./assets/logos/Rexton.png";
+import logoSignia from "./assets/logos/Signia.png";
+import logoStarkey from "./assets/logos/Starkey.png";
+import logoTruHearing from "./assets/logos/TruHearing.png";
+import logoWidex from "./assets/logos/Widex.png";
+
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.mjs",
   import.meta.url
@@ -152,6 +170,122 @@ const BODY_STYLES = [
   { id:"iic", label:"IIC", desc:"Invisible-in-canal", hasReceiver:false, hasColor:false },
 ];
 const SKIN_TONES = ["Light Beige","Medium Beige","Medium-Dark Beige","Dark Beige","Invisible Matte"];
+
+
+// ── BODY STYLE IMAGE LOOKUP ──────────────────────────────────────────────────
+const BODY_STYLE_IMG = { ric:imgRIC, bte:imgBTE, ite:imgITE, itc:imgITC, cic:imgCIC, iic:imgIIC };
+
+// ── MANUFACTURER LOGO LOOKUP ─────────────────────────────────────────────────
+const MFR_LOGO = {
+  "Oticon":logoOticon, "Phonak":logoPhonak, "Resound":logoResound, "ReSound":logoResound,
+  "Rexton":logoRexton, "Signia":logoSignia, "Starkey":logoStarkey,
+  "TruHearing":logoTruHearing, "Widex":logoWidex,
+};
+
+
+// ── COLOR HEX MAP ────────────────────────────────────────────────────────────
+// Maps hearing aid color names → hex values for visual swatches
+const COLOR_HEX_MAP = {
+  // ── Neutrals (shared across many brands) ──
+  "Black":            "#1a1a1a",
+  "Graphite":         "#4a4a4a",
+  "Silver":           "#b0b0b0",
+  "Beige":            "#d4b896",
+  "Dark Brown":       "#4a2c17",
+  "Deep Brown":       "#3d1f0e",
+  "Sandy Brown":      "#c4a47a",
+  "Dark Champagne":   "#b89f7a",
+  "Champagne":        "#d4c5a0",
+  "Mocha":            "#6b4226",
+  "Brown":            "#6b3e26",
+  "Chestnut":         "#7b3f00",
+  "Tan":              "#c8a882",
+
+  // ── Signia specific ──
+  "Pearl White":      "#f0ece4",
+  "Fine Gold":        "#c5a55a",
+  "Rose Gold":        "#c49a8a",
+  "Galactic Blue":    "#2a4b7c",
+  "Pearl Pink":       "#e8c4c4",
+  "Sporty Red":       "#c0392b",
+  "Turquoise":        "#40b5ad",
+  "Cosmic Blue":      "#1a3a5c",
+  "Snow White":       "#f5f0ea",
+
+  // ── Signia multi-tone (primary color used) ──
+  "Black/Black Gloss":"#1a1a1a",
+  "Black/Graphite":   "#1a1a1a",
+  "Black/Silver":     "#1a1a1a",
+  "Black/Chrome":     "#1a1a1a",
+  "Black/White":      "#1a1a1a",
+  "Black/Champagne":  "#1a1a1a",
+  "Cosmic Blue/Rose Gold":"#1a3a5c",
+  "Snow White/Rose Gold":"#f5f0ea",
+  "Snow White/Silver":"#f5f0ea",
+  "Snow White/Snow White Gloss":"#f5f0ea",
+  "White/White":      "#f5f0ea",
+  "White/Champagne":  "#f5f0ea",
+  "Sterling Silver":  "#c0c0c0",
+  "White":            "#f5f0ea",
+
+  // ── Oticon specific ──
+  "Steel Blue":       "#4682b4",
+  "Dust Rose":        "#c4918a",
+  "Cobalt Black":     "#1c1c2e",
+  "Midnight Black":   "#1a1a2e",
+  "Terracotta":       "#c67044",
+  "Silver Grey":      "#a8a8a8",
+  "Steel Grey":       "#6e6e6e",
+  "Chroma Beige":     "#c8b898",
+
+  // ── Phonak specific ──
+  "Sand Beige":       "#d4c4a0",
+  "Sandalwood":       "#a67b5b",
+  "Slate":            "#6e7b8b",
+  "Khaki":            "#b8a88a",
+  "Anthracite":       "#383838",
+  "Cinnamon":         "#8b4513",
+
+  // ── ReSound specific ──
+  "Warm Beige":       "#d4b88c",
+  "Dark Granite":     "#4a4a50",
+  "Sterling":         "#b8b8c0",
+
+  // ── Starkey specific ──
+  "Carbon Black":     "#1e1e1e",
+  "Sandstone":        "#c4b090",
+  "Pewter":           "#8e8e8e",
+  "Pearl":            "#e8e0d4",
+  "Dark Silver":      "#808088",
+  "Brushed Titanium": "#9a9a9a",
+  "Ivory":            "#eae0cc",
+
+  // ── Widex specific ──
+
+  // ── Rexton (shares Signia palette mostly) ──
+
+  // ── TruHearing specific ──
+  "Granite":          "#6b6b6b",
+
+  // ── Skin tones (ITE/ITC/CIC/IIC) ──
+  "Light Beige":      "#e8d4b8",
+  "Medium Beige":     "#cdb08a",
+  "Medium-Dark Beige":"#b08c60",
+  "Dark Beige":       "#8c6840",
+  "Invisible Matte":  "#c4a880",
+
+  // ── TruHearing faceplate/shell ──
+  "Red/Blue":         "#c0392b",
+};
+
+// Extract the secondary color from multi-tone names like "Black/Silver"
+function getMultiToneColors(name){
+  if(!name.includes("/"))return null;
+  const parts=name.split("/").map(s=>s.trim());
+  const c1=COLOR_HEX_MAP[parts[0]]||"#888";
+  const c2=COLOR_HEX_MAP[parts[1]]||"#888";
+  return[c1,c2];
+}
 
 
 // ── PRODUCT CATALOG SEED ──────────────────────────────────────────────────────
@@ -2053,7 +2187,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     .style-desc { font-size: 10px; color: #9ca3af; margin-top: 3px; line-height: 1.3; }
     .color-swatches { display: flex; gap: 8px; flex-wrap: wrap; }
     .color-swatch { padding: 6px 14px; border-radius: 20px; border: 2px solid #e5e7eb; font-size: 12px; cursor: pointer; transition: all 0.15s; }
-    .color-swatch.active { border-color: #0a1628; background: #0a1628; color: white; }
+    .color-swatch.active { border-color: #0a1628; background: #f0f4f8; color: #0a1628; font-weight: 700; box-shadow: 0 0 0 1px #0a1628; }
     .appt-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
     .appt-row { display: flex; gap: 8px; align-items: center; background: #f9fafb; border-radius: 8px; padding: 10px 12px; }
     .appt-row span { font-size: 12px; color: #374151; }
@@ -3103,6 +3237,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   {BODY_STYLES.map(bs=>(
                     <div key={bs.id} className={`style-card ${s.style===bs.id?"active":""}`}
                       onClick={()=>resetSide(side,{style:bs.id})}>
+                      {BODY_STYLE_IMG[bs.id] && (
+                        <img src={BODY_STYLE_IMG[bs.id]} alt={bs.label}
+                          style={{display:"block",margin:"0 auto 6px",width:56,height:56,objectFit:"contain",opacity:s.style===bs.id?1:0.5}} />
+                      )}
                       <div className="style-id">{bs.label}</div>
                       <div className="style-desc">{bs.desc}</div>
                     </div>
@@ -3119,7 +3257,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     {availMfrs.map(m=>(
                       <div key={m} className={`radio-pill ${s.manufacturer===m?"active":""}`}
                         onClick={()=>setForm(f=>({...f,[side]:{...f[side],manufacturer:m,generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:""}}))}>
-                        <div className="radio-pill-label">{m}</div>
+                        {MFR_LOGO[m]
+                          ? <img src={MFR_LOGO[m]} alt={m} style={{height:18,objectFit:"contain",display:"block"}} />
+                          : <div className="radio-pill-label">{m}</div>}
                       </div>
                     ))}
                   </div>
@@ -3242,7 +3382,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 <div className="field" style={{marginBottom:16}}><label>Color</label>
                   <div className="color-swatches">
                     {TH_COLORS.ric_bte.map(c=>(
-                      <div key={c} className={`color-swatch ${s.color===c?"active":""}`} onClick={()=>updSide(side,"color",c)}>{c}</div>
+                      <div key={c} className={`color-swatch ${s.color===c?"active":""}`} onClick={()=>updSide(side,"color",c)} style={{display:"flex",alignItems:"center",gap:6}}>
+                        {(()=>{const mt=getMultiToneColors(c);const hex=COLOR_HEX_MAP[c];if(mt)return(
+                          <svg width="16" height="16" viewBox="0 0 16 16" style={{flexShrink:0}}><clipPath id={`mt${side}${c.replace(/\W/g,"")}`}><circle cx="8" cy="8" r="7"/></clipPath><g clipPath={`url(#mt${side}${c.replace(/\W/g,"")})`}><rect x="0" y="0" width="8" height="16" fill={mt[0]}/><rect x="8" y="0" width="8" height="16" fill={mt[1]}/></g><circle cx="8" cy="8" r="7" fill="none" stroke="#d1d5db" strokeWidth="1"/></svg>
+                        );if(hex)return(<span style={{display:"inline-block",width:16,height:16,borderRadius:"50%",background:hex,border:"1px solid #d1d5db",flexShrink:0}}/>);return null;})()}
+                        {c}
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -3251,7 +3396,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 <div className="field" style={{marginBottom:16}}><label>Color</label>
                   <div className="color-swatches">
                     {TH_COLORS.slim_ric.map(c=>(
-                      <div key={c} className={`color-swatch ${s.color===c?"active":""}`} onClick={()=>updSide(side,"color",c)}>{c}</div>
+                      <div key={c} className={`color-swatch ${s.color===c?"active":""}`} onClick={()=>updSide(side,"color",c)} style={{display:"flex",alignItems:"center",gap:6}}>
+                        {(()=>{const mt=getMultiToneColors(c);const hex=COLOR_HEX_MAP[c];if(mt)return(
+                          <svg width="16" height="16" viewBox="0 0 16 16" style={{flexShrink:0}}><clipPath id={`mt${side}${c.replace(/\W/g,"")}`}><circle cx="8" cy="8" r="7"/></clipPath><g clipPath={`url(#mt${side}${c.replace(/\W/g,"")})`}><rect x="0" y="0" width="8" height="16" fill={mt[0]}/><rect x="8" y="0" width="8" height="16" fill={mt[1]}/></g><circle cx="8" cy="8" r="7" fill="none" stroke="#d1d5db" strokeWidth="1"/></svg>
+                        );if(hex)return(<span style={{display:"inline-block",width:16,height:16,borderRadius:"50%",background:hex,border:"1px solid #d1d5db",flexShrink:0}}/>);return null;})()}
+                        {c}
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -3356,7 +3506,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 <div className="field" style={{marginBottom:16}}><label>Color</label>
                   <div className="color-swatches">
                     {availColors.map(c=>(
-                      <div key={c} className={`color-swatch ${s.color===c?"active":""}`} onClick={()=>updSide(side,"color",c)}>{c}</div>
+                      <div key={c} className={`color-swatch ${s.color===c?"active":""}`} onClick={()=>updSide(side,"color",c)} style={{display:"flex",alignItems:"center",gap:6}}>
+                        {(()=>{const mt=getMultiToneColors(c);const hex=COLOR_HEX_MAP[c];if(mt)return(
+                          <svg width="16" height="16" viewBox="0 0 16 16" style={{flexShrink:0}}><clipPath id={`mt${side}${c.replace(/\W/g,"")}`}><circle cx="8" cy="8" r="7"/></clipPath><g clipPath={`url(#mt${side}${c.replace(/\W/g,"")})`}><rect x="0" y="0" width="8" height="16" fill={mt[0]}/><rect x="8" y="0" width="8" height="16" fill={mt[1]}/></g><circle cx="8" cy="8" r="7" fill="none" stroke="#d1d5db" strokeWidth="1"/></svg>
+                        );if(hex)return(<span style={{display:"inline-block",width:16,height:16,borderRadius:"50%",background:hex,border:"1px solid #d1d5db",flexShrink:0}}/>);return null;})()}
+                        {c}
+                      </div>
                     ))}
                   </div>
                 </div>
