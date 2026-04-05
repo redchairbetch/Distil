@@ -1483,7 +1483,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
       });
     } catch (err) {
       console.error("PDF import error:", err);
-      alert("Failed to read PDF. Make sure it's a valid MedRx report.");
+      alert("Failed to read PDF. Make sure it's a valid audiometry report.");
     }
   };
 
