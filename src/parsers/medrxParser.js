@@ -70,11 +70,6 @@ function parseWrScore(line) {
 export function parseMedRxPdf(text) {
   const warnings = [];
 
-  // Validate this is a MedRx report
-  if (!text.includes('MedRx')) {
-    return { success: false, error: 'This does not appear to be a MedRx report. The PDF text does not contain the MedRx identifier.' };
-  }
-
   // Split text into lines, then expand combined Right/Left lines.
   // MedRx PDFs render both ears side-by-side at the same y-position,
   // producing: "Right 125 250 ... 8k Left 125 250 ... 8k"
