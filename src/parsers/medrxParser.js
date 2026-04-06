@@ -70,8 +70,11 @@ function parseWrScore(line) {
 export function parseMedRxPdf(text) {
   const warnings = [];
 
-  // Validate this is a MedRx report
-  if (!text.includes('MedRx')) {
+  // Relaxed validation: accept if text contains "MedRx" OR "Avant" OR "AUDX"
+  // (clinic logos/headers can push the "MedRx" token onto a different line
+  // or merge it with other text, so we check multiple identifiers)
+  const isMedRx = /MedRx|Avant|AUDX/i.test(text);
+  if (!isMedRx) {
     return { success: false, error: 'This does not appear to be a MedRx report. The PDF text does not contain the MedRx identifier.' };
   }
 
@@ -80,7 +83,30 @@ export function parseMedRxPdf(text) {
   // producing: "Right 125 250 ... 8k Left 125 250 ... 8k"
   // followed by: "AC 40 20 ... 75 AC 45 25 ... 75"
   // We need to split AND interleave: Right header, Right AC, Left header, Left AC
-  const rawLines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  //
+  // Pre-processing: strip common non-data prefixes that clinic logos/headers
+  // can inject onto audiometric data lines (e.g. "My Hearing Centers Right 125...")
+  const rawLines = text.split('\n').map(l => {
+    let s = l.trim();
+    // If a line contains "Right <digits>" or "Left <digits>" but doesn't START with it,
+    // extract from the Right/Left token onward (logo text got prepended)
+    const earMatch = s.match(/^.+?\b((?:Right|Left)\s+\d)/i);
+    if (earMatch && earMatch.index === 0 && !s.startsWith(earMatch[1])) {
+      s = s.slice(s.indexOf(earMatch[1]));
+    }
+    // Same for AC/BC rows: strip anything before the first "AC" or "BC" token
+    if (!/^(AC|BC)\b/i.test(s)) {
+      const acBcMatch = s.match(/\b(AC|BC)\s+[-\d]/i);
+      if (acBcMatch) {
+        const prefix = s.slice(0, acBcMatch.index).trim();
+        // Only strip if the prefix doesn't look like data (contains letters, not "AC"/"BC")
+        if (prefix && !/^(Right|Left|AC|BC)\b/i.test(prefix) && /[a-zA-Z]/.test(prefix)) {
+          s = s.slice(acBcMatch.index);
+        }
+      }
+    }
+    return s;
+  }).filter(Boolean);
   const lines = [];
 
   /** Try to split a line with two AC or BC tokens: "AC ... AC ..." → [first, second] */
@@ -188,13 +214,17 @@ export function parseMedRxPdf(text) {
 
   // Parse Word Recognition scores
   // Look for lines like "Left 100% at 70dB" or "Right 96% at 65dB" in the WR section
+  // Try multiple section header patterns — logo text can merge with or split the header
   let wrMclR = null, wrMclL = null;
-  const wrSectionIdx = lines.findIndex(l => /\bSRT\b/.test(l) && /\bWR\b/.test(l));
+  let wrSectionIdx = lines.findIndex(l => /\bSRT\b/.test(l) && /\bWR\b/.test(l));
+  if (wrSectionIdx === -1) wrSectionIdx = lines.findIndex(l => /\bWR\b/.test(l) && /\b(SRT|Speech)\b/i.test(l));
+  if (wrSectionIdx === -1) wrSectionIdx = lines.findIndex(l => /\bSRT\b/.test(l));
   if (wrSectionIdx !== -1) {
-    for (let i = wrSectionIdx + 1; i < Math.min(wrSectionIdx + 10, lines.length); i++) {
+    for (let i = wrSectionIdx + 1; i < Math.min(wrSectionIdx + 15, lines.length); i++) {
       const l = lines[i];
-      if (/^Right\b/i.test(l)) wrMclR = parseWrScore(l);
-      if (/^Left\b/i.test(l))  wrMclL = parseWrScore(l);
+      // Match "Right" anywhere in line (logo text may prefix), but only if it has a % score
+      if (/\bRight\b/i.test(l) && /\d+\s*%/.test(l)) wrMclR = wrMclR ?? parseWrScore(l);
+      if (/\bLeft\b/i.test(l) && /\d+\s*%/.test(l))  wrMclL = wrMclL ?? parseWrScore(l);
       // Stop if we hit the next section
       if (/QuickSIN/i.test(l)) break;
     }

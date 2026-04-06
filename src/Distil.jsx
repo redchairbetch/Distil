@@ -1175,24 +1175,47 @@ export default function ProviderCRM({ staffId, clinicId }) {
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const content = await page.getTextContent();
-        // Group text items by y-position to reconstruct lines
-        const lineMap = new Map();
+        // Group text items by y-position to reconstruct lines.
+        // Use tolerance-based bucketing: items within ±2 PDF units share a line.
+        // Math.round alone (±0.5) is too tight — clinic logos or header images
+        // can shift y-coords by 1-2 units, splitting what should be one line.
+        const allItems = [];
         for (const item of content.items) {
           if (!item.str.trim()) continue;
-          // y-coordinate is in item.transform[5], round to group nearby items
-          const y = Math.round(item.transform[5]);
-          if (!lineMap.has(y)) lineMap.set(y, []);
-          lineMap.get(y).push({ x: item.transform[4], str: item.str });
+          allItems.push({ x: item.transform[4], y: item.transform[5], str: item.str });
         }
-        // Sort lines top-to-bottom (higher y = higher on page in PDF coords)
-        const sortedYs = [...lineMap.keys()].sort((a, b) => b - a);
-        for (const y of sortedYs) {
-          // Sort items left-to-right within each line
-          const items = lineMap.get(y).sort((a, b) => a.x - b.x);
+        // Sort by y descending (top of page first), then bucket nearby y-values
+        allItems.sort((a, b) => b.y - a.y);
+        const lineBuckets = []; // [{y, items}]
+        const Y_TOLERANCE = 2;
+        for (const item of allItems) {
+          const bucket = lineBuckets.find(b => Math.abs(b.y - item.y) <= Y_TOLERANCE);
+          if (bucket) {
+            bucket.items.push(item);
+          } else {
+            lineBuckets.push({ y: item.y, items: [item] });
+          }
+        }
+        // Sort buckets top-to-bottom, items left-to-right within each
+        lineBuckets.sort((a, b) => b.y - a.y);
+        for (const bucket of lineBuckets) {
+          const items = bucket.items.sort((a, b) => a.x - b.x);
           fullText += items.map(it => it.str).join(" ") + "\n";
         }
       }
+      // Debug: log extracted text so we can inspect what the parser receives
+      console.log("── MedRx PDF extracted text ──\n" + fullText);
       const result = parseMedRxPdf(fullText);
+      console.log("── MedRx parse result ──", JSON.stringify({
+        success: result.success,
+        error: result.error,
+        rightT: result.data?.rightT,
+        leftT: result.data?.leftT,
+        wrMclR: result.data?.wrMclR,
+        wrMclL: result.data?.wrMclL,
+        sinBin: result.data?.sinBin,
+        warnings: result.warnings,
+      }, null, 2));
       if (!result.success) {
         alert(result.error);
         return;
