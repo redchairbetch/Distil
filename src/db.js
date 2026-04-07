@@ -217,6 +217,8 @@ function assemblePatient(row) {
       sinBin:   audiogram?.sin_score         ?? null,
     },
 
+    patientStatus: row.patient_status || 'prospect',
+
     appointments: appts.map(a => ({
       date: a.appointment_date,
       type: a.appointment_type,
@@ -295,6 +297,7 @@ export async function savePatient(patient, staffId, clinicId) {
       address:   patient.address   || null,
       pay_type:  patient.payType,
       notes:     patient.notes     || null,
+      patient_status: patient.patientStatus || 'prospect',
     })
     .select()
     .single()
@@ -1452,4 +1455,66 @@ export async function loadPricingReveal(clinicId, patientId) {
     savingsPerAid,
     savingsPct,
   }
+}
+
+
+// ============================================================
+// TNS OUTCOMES
+// ============================================================
+
+export async function loadTnsOutcomes() {
+  const { data, error } = await supabase
+    .from('tns_outcomes')
+    .select('patient_id, outcome_reason')
+  if (error) { console.error('loadTnsOutcomes:', error); return [] }
+  return data
+}
+
+export async function updatePatientStatus(patientId, status) {
+  const { error } = await supabase
+    .from('patients')
+    .update({ patient_status: status, status_updated_at: new Date().toISOString() })
+    .eq('id', patientId)
+  if (error) throw error
+}
+
+export async function saveTnsOutcome(patientId, clinicId, staffId, reason, notes, griefStage) {
+  const { error } = await supabase.from('tns_outcomes').insert({
+    patient_id:     patientId,
+    clinic_id:      clinicId,
+    logged_by:      staffId,
+    outcome_reason: reason,
+    outcome_notes:  notes || null,
+    grief_stage:    griefStage || null,
+  })
+  if (error) throw error
+}
+
+export async function enrollTnsNurture(patientId, clinicId, campaignType, notes) {
+  const { error } = await supabase.from('nurture_enrollment').insert({
+    patient_id:    patientId,
+    clinic_id:     clinicId,
+    campaign_type: campaignType,
+    notes:         notes || null,
+  })
+  if (error) throw error
+}
+
+export async function convertTnsToActive(patientId, warrantyYears = 3) {
+  const fittingDate = new Date().toISOString().split('T')[0]
+  const expiry = new Date()
+  expiry.setFullYear(expiry.getFullYear() + warrantyYears)
+  const warrantyExpiry = expiry.toISOString().split('T')[0]
+
+  const { error: pErr } = await supabase.from('patients').update({
+    patient_status: 'active',
+    status_updated_at: new Date().toISOString(),
+  }).eq('id', patientId)
+  if (pErr) throw pErr
+
+  const { error: fErr } = await supabase.from('device_fittings').update({
+    fitting_date: fittingDate,
+    warranty_expiry: warrantyExpiry,
+  }).eq('patient_id', patientId)
+  if (fErr) throw fErr
 }
