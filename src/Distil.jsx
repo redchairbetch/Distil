@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import { parseMedRxPdf } from "./parsers/medrxParser.js";
 
@@ -54,6 +54,11 @@ import {
   updatePatientCampaign,
   updateDeliveryDate,
   loadStaffProfile,
+  loadTnsOutcomes,
+  saveTnsOutcome,
+  updatePatientStatus,
+  enrollTnsNurture,
+  convertTnsToActive,
 } from "./db.js";
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 import { downloadQuote } from "./generateQuote.js";
@@ -914,6 +919,79 @@ const CARE_PLANS = [
 ];
 const VISIT_TYPES = ["New Fitting","2-Week Follow-Up","4-Week Follow-Up","Quarterly Clean & Check","Annual Exam","Triage / Adjustment","Repair Appointment","Other"];
 
+const GRIEF_STAGES = [
+  {
+    id: "denial", label: "Denial", emoji: "\u{1F648}",
+    subtitle: "\"My hearing is fine \u2014 I don't need help.\"",
+    color: "#6366f1", bg: "#eef2ff", campaignType: "tns_denial",
+    reasons: [
+      { id: "pain_not_acute_enough", label: "Hearing Loss Not Bothersome Enough", emoji: "\u{1F4CA}" },
+      { id: "needs_more_research",   label: "Wants to Do More Research",         emoji: "\u{1F50D}" },
+    ],
+  },
+  {
+    id: "anger", label: "Anger", emoji: "\u{1F624}",
+    subtitle: "\"I've tried before \u2014 it didn't work.\"",
+    color: "#dc2626", bg: "#fef2f2", campaignType: "tns_skeptic",
+    reasons: [
+      { id: "prior_bad_experience", label: "Prior Bad Experience with Hearing Aids", emoji: "\u{26A0}\u{FE0F}" },
+    ],
+  },
+  {
+    id: "bargaining", label: "Bargaining", emoji: "\u{1F91D}",
+    subtitle: "\"If only the price were lower or my spouse agreed...\"",
+    color: "#d97706", bg: "#fffbeb", campaignType: "tns_cost",
+    reasons: [
+      { id: "cost_barrier",         label: "Cost / Affordability Barrier",   emoji: "\u{1F4B0}", campaignType: "tns_cost" },
+      { id: "insurance_confusion",  label: "Insurance / Coverage Confusion", emoji: "\u{1F4CB}", campaignType: "tns_cost" },
+      { id: "needs_spouse_consult", label: "Needs Spouse / Family Input",    emoji: "\u{1F465}", campaignType: "tns_general" },
+    ],
+  },
+  {
+    id: "depression", label: "Depression", emoji: "\u{1F614}",
+    subtitle: "\"I know I need help, but I'm just not ready.\"",
+    color: "#4b5563", bg: "#f3f4f6", campaignType: "tns_emotional",
+    reasons: [
+      { id: "not_ready_emotionally", label: "Not Emotionally Ready", emoji: "\u{1F4AD}" },
+    ],
+  },
+  {
+    id: "acceptance", label: "Acceptance", emoji: "\u{1F54A}\u{FE0F}",
+    subtitle: "\"I understand \u2014 I just need time to process.\"",
+    color: "#059669", bg: "#ecfdf5", campaignType: "tns_general",
+    reasons: [
+      { id: "other", label: "Processing / Other Reason", emoji: "\u{1F4AC}" },
+    ],
+  },
+];
+
+const summarizeAudiogram = (p) => {
+  if (!p.audiology) return null;
+  const { rightT, leftT } = p.audiology;
+  const avgThreshold = (ear) => {
+    if (!ear) return null;
+    const freqs = [1000, 2000, 4000];
+    const vals = freqs.map(f => ear[f]).filter(v => v != null);
+    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+  };
+  const classify = (avg) => {
+    if (avg === null) return "\u2014";
+    if (avg <= 25) return "Normal";
+    if (avg <= 40) return "Mild";
+    if (avg <= 55) return "Moderate";
+    if (avg <= 70) return "Mod-Severe";
+    if (avg <= 90) return "Severe";
+    return "Profound";
+  };
+  const rAvg = avgThreshold(rightT);
+  const lAvg = avgThreshold(leftT);
+  const wrsR = p.audiology.unaidedR ? `${p.audiology.unaidedR}%` : "\u2014";
+  const wrsL = p.audiology.unaidedL ? `${p.audiology.unaidedL}%` : "\u2014";
+  return {
+    severity: `${classify(rAvg)} R \u00B7 ${classify(lAvg)} L`,
+    wrs: `WRS ${wrsR} R / ${wrsL} L`,
+  };
+};
 
 function genId() { return crypto.randomUUID(); }
 function fmtDate(d) { return new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); }
@@ -1363,6 +1441,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [showIntakeQueue, setShowIntakeQueue] = useState(false);
   const seenIntakeIds = useRef(new Set());
 
+  // ── TNS queue state ───────────────────────────────────────────────
+  const [tnsQueue, setTnsQueue] = useState([]);
+  const [tnsExpanded, setTnsExpanded] = useState(true);
+  const [tnsReasoning, setTnsReasoning] = useState(null); // patient id currently being tagged
+  const [tnsGriefStage, setTnsGriefStage] = useState(null); // selected grief stage id
+  const [tnsNote, setTnsNote] = useState("");
 
   // Insurance plans from Supabase + retail anchors for pricing reveal
   const [insurancePlans, setInsurancePlans] = useState([]);
@@ -1575,6 +1659,33 @@ export default function ProviderCRM({ staffId, clinicId }) {
     setPatients(p);
   };
 
+  // ── TNS queue: derive from patients + tns_outcomes ────────────────────────
+  useEffect(() => {
+    const loadTnsQueue = async () => {
+      try {
+        const outcomes = await loadTnsOutcomes();
+        const taggedIds = new Set(outcomes.map(o => o.patient_id));
+        const pending = patients.filter(
+          p => p.patientStatus === "tns" && !taggedIds.has(p.id)
+        );
+        setTnsQueue(pending);
+      } catch {}
+    };
+    loadTnsQueue();
+  }, [patients]);
+
+  const saveTnsReason = async (patientId, reason, griefStage, campaignType) => {
+    try {
+      await saveTnsOutcome(patientId, clinicId, staffId, reason, tnsNote, griefStage);
+      await enrollTnsNurture(patientId, clinicId, campaignType, tnsNote);
+      setTnsQueue(q => q.filter(p => p.id !== patientId));
+      setTnsReasoning(null);
+      setTnsGriefStage(null);
+      setTnsNote("");
+    } catch (e) {
+      console.error("saveTnsReason:", e);
+    }
+  };
 
   // ── Patient detail edit handlers ──────────────────────────────────────────
 
@@ -1901,7 +2012,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     downloadQuote({
       patient: { name: [form.firstName, form.lastName].filter(Boolean).join(" "), phone: form.phone },
       devices: { fittingType, left: leftRec, right: rightRec },
-      pricePerAid: form.tierPrice || 0,
+      pricePerAid: form.payType === "private" ? 2750 : (form.tierPrice || 0),
       selectedCarePlan: form.carePlan || "complete",
       payType: form.payType,
       tpa: form.tpa,
@@ -1957,6 +2068,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
       carePlan: form.payType === "insurance" ? form.carePlan : null,
       appointments: form.appointments,
       notes: form.notes,
+      patientStatus: wizardPaSigned ? "active" : "tns",
     };
     try {
       await savePatient(patient, staffId, clinicId);
@@ -2070,19 +2182,24 @@ export default function ProviderCRM({ staffId, clinicId }) {
     setSeeding(false);
   };
 
-  const statsData = useMemo(() => ({
-    total: patients.length,
-    fittingsThisMonth: patients.filter(p => {
-      const d = new Date(p.devices?.fittingDate||0);
-      const now = new Date();
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    }).length,
-    warrantiesExpiring: patients.filter(p => {
-      const days = daysUntil(p.devices?.warrantyExpiry||"");
-      return days >= 0 && days <= 90;
-    }).length,
-    upcomingAppts: patients.reduce((acc,p) => acc + (p.appointments||[]).filter(a => daysUntil(a.date) >= 0).length, 0),
-  }), [patients]);
+  const statsData = useMemo(() => {
+    const active = patients.filter(p => p.patientStatus !== "tns");
+    const tnsCount = patients.length - active.length;
+    return {
+      total: patients.length,
+      tnsCount,
+      fittingsThisMonth: active.filter(p => {
+        const d = new Date(p.devices?.fittingDate||0);
+        const now = new Date();
+        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      }).length,
+      warrantiesExpiring: active.filter(p => {
+        const days = daysUntil(p.devices?.warrantyExpiry||"");
+        return days >= 0 && days <= 90;
+      }).length,
+      upcomingAppts: active.reduce((acc,p) => acc + (p.appointments||[]).filter(a => daysUntil(a.date) >= 0).length, 0),
+    };
+  }, [patients]);
 
 
   // ── STYLES ────────────────────────────────────────────────────────────────
@@ -2377,10 +2494,15 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   // ── DASHBOARD ─────────────────────────────────────────────────────────────
   const [tableSearch, setTableSearch] = useState("");
-  const filteredPatients = patients.filter(p =>
-    p.name?.toLowerCase().includes(tableSearch.toLowerCase()) ||
-    p.devices?.manufacturer?.toLowerCase().includes(tableSearch.toLowerCase())
-  );
+  const [statusFilter, setStatusFilter] = useState("all"); // "all" | "active" | "tns"
+  const filteredPatients = patients.filter(p => {
+    const matchesSearch = p.name?.toLowerCase().includes(tableSearch.toLowerCase()) ||
+      p.devices?.manufacturer?.toLowerCase().includes(tableSearch.toLowerCase());
+    if (!matchesSearch) return false;
+    if (statusFilter === "active") return p.patientStatus !== "tns";
+    if (statusFilter === "tns") return p.patientStatus === "tns";
+    return true;
+  });
 
 
   const renderDashboard = () => (
@@ -2405,7 +2527,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           <div className="stat-card highlight">
             <div className="stat-icon">👥</div>
             <div className="stat-val">{statsData.total}</div>
-            <div className="stat-label">Total Patients</div>
+            <div className="stat-label">Total Patients{statsData.tnsCount > 0 && <span style={{fontSize:10,color:"#d97706",fontWeight:400}}> ({statsData.tnsCount} TNS)</span>}</div>
           </div>
           <div className="stat-card">
             <div className="stat-icon">🎧</div>
@@ -2424,11 +2546,213 @@ export default function ProviderCRM({ staffId, clinicId }) {
           </div>
         </div>
 
+        {/* ── TNS Pending Follow-ups Queue ─────────────────────────────── */}
+        {tnsQueue.length > 0 && (
+          <div className="table-card" style={{ marginBottom: 16, borderLeft: "4px solid #f59e0b" }}>
+            <div
+              className="table-header"
+              style={{ cursor: "pointer" }}
+              onClick={() => setTnsExpanded(e => !e)}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div className="table-title" style={{ color: "#b45309" }}>
+                  {"\u{1F552}"} Pending Follow-ups
+                </div>
+                <span style={{
+                  background: "#fef3c7", color: "#92400e",
+                  borderRadius: 99, padding: "2px 10px",
+                  fontSize: 12, fontWeight: 700
+                }}>
+                  {tnsQueue.length}
+                </span>
+              </div>
+              <span style={{ fontSize: 12, color: "#9ca3af" }}>
+                {tnsExpanded ? "\u25B2 Collapse" : "\u25BC Expand"}
+              </span>
+            </div>
+
+            {tnsExpanded && (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Patient</th>
+                    <th>Audiometric Summary</th>
+                    <th>Insurance</th>
+                    <th>Quote Amount</th>
+                    <th>Date</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tnsQueue.map(p => {
+                    const audio = summarizeAudiogram(p);
+                    const isTagging = tnsReasoning === p.id;
+                    return (
+                      <React.Fragment key={p.id}>
+                        <tr style={{ background: isTagging ? "#fffbeb" : "white" }}>
+                          <td>
+                            <div className="patient-name">{p.name}</div>
+                            <div style={{ fontSize: 11, color: "#9ca3af" }}>{p.phone}</div>
+                          </td>
+                          <td>
+                            {audio ? (
+                              <>
+                                <div style={{ fontSize: 12, fontWeight: 500, color: "#374151" }}>
+                                  {audio.severity}
+                                </div>
+                                <div style={{ fontSize: 11, color: "#9ca3af" }}>{audio.wrs}</div>
+                              </>
+                            ) : (
+                              <span style={{ fontSize: 12, color: "#9ca3af" }}>No audiogram</span>
+                            )}
+                          </td>
+                          <td>
+                            <span className={`badge ${p.payType === "insurance" ? "insurance" : "private"}`}>
+                              {p.payType === "insurance" ? p.insurance?.carrier || "Insurance" : "Private Pay"}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>
+                              {"\u2014"}
+                            </div>
+                          </td>
+                          <td style={{ fontSize: 12, color: "#6b7280" }}>
+                            {fmtDate(p.createdAt)}
+                          </td>
+                          <td>
+                            <button
+                              className="btn-primary green"
+                              style={{
+                                fontSize: 12,
+                                padding: "6px 14px",
+                                background: isTagging ? "#f59e0b" : undefined
+                              }}
+                              onClick={() => {
+                                setTnsReasoning(isTagging ? null : p.id);
+                                setTnsGriefStage(null);
+                                setTnsNote("");
+                              }}
+                            >
+                              {isTagging ? "Cancel" : "Tag Reason"}
+                            </button>
+                          </td>
+                        </tr>
+
+                        {isTagging && (
+                          <tr key={`${p.id}-reasons`}>
+                            <td colSpan={6} style={{ background: "#fffbeb", padding: "16px 20px" }}>
+                              {tnsGriefStage === null ? (
+                                <>
+                                  <div style={{ fontSize: 13, fontWeight: 600, color: "#92400e", marginBottom: 12 }}>
+                                    Where is {p.name.split(" ")[0]} in their hearing journey?
+                                  </div>
+                                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10 }}>
+                                    {GRIEF_STAGES.map(stage => (
+                                      <div
+                                        key={stage.id}
+                                        onClick={() => setTnsGriefStage(stage.id)}
+                                        style={{
+                                          border: `2px solid ${stage.color}30`,
+                                          borderRadius: 10, padding: "14px 12px", cursor: "pointer",
+                                          background: stage.bg, textAlign: "center",
+                                          transition: "all 0.15s",
+                                        }}
+                                        onMouseEnter={e => { e.currentTarget.style.borderColor = stage.color; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                                        onMouseLeave={e => { e.currentTarget.style.borderColor = `${stage.color}30`; e.currentTarget.style.transform = "none"; }}
+                                      >
+                                        <div style={{ fontSize: 28, marginBottom: 4 }}>{stage.emoji}</div>
+                                        <div style={{ fontSize: 13, fontWeight: 700, color: stage.color }}>{stage.label}</div>
+                                        <div style={{ fontSize: 10, color: "#6b7280", marginTop: 4, fontStyle: "italic", lineHeight: 1.3 }}>{stage.subtitle}</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </>
+                              ) : (() => {
+                                const activeStage = GRIEF_STAGES.find(s => s.id === tnsGriefStage);
+                                return (
+                                  <>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                                      <button
+                                        onClick={() => setTnsGriefStage(null)}
+                                        style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "#6b7280", padding: 0 }}
+                                      >
+                                        {"\u2190"} Back
+                                      </button>
+                                      <span style={{ fontSize: 13, fontWeight: 600, color: activeStage.color }}>
+                                        {activeStage.emoji} {activeStage.label} {"\u2014"} Select specific reason
+                                      </span>
+                                    </div>
+                                    <div style={{
+                                      display: "grid",
+                                      gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+                                      gap: 8, marginBottom: 12,
+                                    }}>
+                                      {activeStage.reasons.map(r => (
+                                        <button
+                                          key={r.id}
+                                          onClick={() => saveTnsReason(p.id, r.id, activeStage.id, r.campaignType || activeStage.campaignType)}
+                                          style={{
+                                            display: "flex", alignItems: "center", gap: 8,
+                                            padding: "10px 14px",
+                                            background: "white", border: `1.5px solid ${activeStage.color}30`,
+                                            borderRadius: 8, cursor: "pointer",
+                                            fontSize: 13, fontWeight: 500, color: "#374151",
+                                            textAlign: "left", transition: "all 0.15s",
+                                          }}
+                                          onMouseEnter={e => {
+                                            e.currentTarget.style.borderColor = activeStage.color;
+                                            e.currentTarget.style.background = activeStage.bg;
+                                          }}
+                                          onMouseLeave={e => {
+                                            e.currentTarget.style.borderColor = `${activeStage.color}30`;
+                                            e.currentTarget.style.background = "white";
+                                          }}
+                                        >
+                                          <span style={{ fontSize: 18 }}>{r.emoji}</span>
+                                          {r.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <input
+                                      placeholder="Optional note \u2014 e.g. 'Husband skeptical, follow up in 2 weeks'"
+                                      value={tnsNote}
+                                      onChange={e => setTnsNote(e.target.value)}
+                                      style={{
+                                        width: "100%", padding: "8px 12px",
+                                        border: `1.5px solid ${activeStage.color}30`, borderRadius: 8,
+                                        fontSize: 13, color: "#374151", boxSizing: "border-box",
+                                      }}
+                                    />
+                                  </>
+                                );
+                              })()}
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
 
         <div className="table-card">
           <div className="table-header">
-            <div className="table-title">All Patients</div>
-            <input className="search-input" placeholder="Search patients…" value={tableSearch} onChange={e => setTableSearch(e.target.value)} />
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <div className="table-title">Patients</div>
+              <div style={{display:"flex",gap:4}}>
+                {[["all","All"],["active","Active"],["tns","TNS"]].map(([val,label])=>(
+                  <button key={val} onClick={()=>setStatusFilter(val)} style={{
+                    padding:"3px 10px",fontSize:11,fontWeight:600,borderRadius:99,border:"none",cursor:"pointer",
+                    background: statusFilter===val ? (val==="tns"?"#fef3c7":"#dcfce7") : "#f3f4f6",
+                    color: statusFilter===val ? (val==="tns"?"#92400e":"#15803d") : "#6b7280",
+                  }}>{label}</button>
+                ))}
+              </div>
+            </div>
+            <input className="search-input" placeholder="Search patients\u2026" value={tableSearch} onChange={e => setTableSearch(e.target.value)} />
           </div>
           {filteredPatients.length === 0 ? (
             <div className="empty-state">
@@ -2445,14 +2769,18 @@ export default function ProviderCRM({ staffId, clinicId }) {
               </thead>
               <tbody>
                 {filteredPatients.map(p => {
+                  const isTns = p.patientStatus === "tns";
                   const days = daysUntil(p.devices?.warrantyExpiry||"");
                   const total = p.carePlan === "complete" ? 4 * 365 : 3 * 365;
                   const pct = Math.max(0, Math.min(100, (days / total) * 100));
                   const fillClass = days < 90 ? "exp" : days < 360 ? "warn" : "";
                   return (
-                    <tr key={p.id} onClick={() => { setSelectedPatient(p); setView("patient"); }}>
+                    <tr key={p.id} onClick={() => { setSelectedPatient(p); setView("patient"); }} style={isTns ? {borderLeft:"3px solid #f59e0b"} : undefined}>
                       <td>
-                        <div className="patient-name">{p.name}</div>
+                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <div className="patient-name">{p.name}</div>
+                          {isTns && <span style={{background:"#fef3c7",color:"#92400e",borderRadius:99,padding:"1px 7px",fontSize:10,fontWeight:700}}>TNS</span>}
+                        </div>
                         <div style={{fontSize:11,color:"#9ca3af"}}>{p.phone}</div>
                       </td>
                       <td>
@@ -2465,15 +2793,29 @@ export default function ProviderCRM({ staffId, clinicId }) {
                         </span>
                       </td>
                       <td>
-                        <span className={`badge ${p.carePlan}`}>{CARE_PLANS.find(c=>c.id===p.carePlan)?.label||p.carePlan}</span>
+                        {isTns
+                          ? <span style={{fontSize:12,color:"#9ca3af",fontStyle:"italic"}}>Quoted</span>
+                          : <span className={`badge ${p.carePlan}`}>{CARE_PLANS.find(c=>c.id===p.carePlan)?.label||p.carePlan}</span>
+                        }
                       </td>
                       <td>
-                        <div style={{fontSize:12,color: days<90?"#ef4444":days<360?"#f59e0b":"#16a34a",fontWeight:600}}>
-                          {days < 0 ? "Expired" : `${days}d left`}
-                        </div>
-                        <div className="warranty-bar"><div className={`warranty-fill ${fillClass}`} style={{width:`${pct}%`}} /></div>
+                        {isTns ? (
+                          <div style={{fontSize:12,color:"#d97706",fontWeight:600}}>Quoted</div>
+                        ) : (
+                          <>
+                            <div style={{fontSize:12,color: days<90?"#ef4444":days<360?"#f59e0b":"#16a34a",fontWeight:600}}>
+                              {days < 0 ? "Expired" : `${days}d left`}
+                            </div>
+                            <div className="warranty-bar"><div className={`warranty-fill ${fillClass}`} style={{width:`${pct}%`}} /></div>
+                          </>
+                        )}
                       </td>
-                      <td style={{fontSize:12,color:"#6b7280"}}>{fmtDate(p.devices?.fittingDate||p.createdAt)}</td>
+                      <td style={{fontSize:12,color:"#6b7280"}}>
+                        {isTns
+                          ? <span style={{color:"#d97706"}}>Quote {fmtDate(p.createdAt)}</span>
+                          : fmtDate(p.devices?.fittingDate||p.createdAt)
+                        }
+                      </td>
                     </tr>
                   );
                 })}
@@ -3909,6 +4251,29 @@ export default function ProviderCRM({ staffId, clinicId }) {
               <div key={i} style={{display:"flex",gap:10,fontSize:13,color:"#374151"}}><span style={{color:"#16a34a"}}>✓</span>{i}</div>
             ))}
           </div>
+          {/* ── Fork: Sign PA / Generate Quote / Continue ────────── */}
+          <div style={{marginTop:24,display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
+            <div style={{display:"flex",gap:12,width:"100%",justifyContent:"center"}}>
+              <button
+                style={{background:"#15803d",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:8}}
+                onClick={()=>{ setPaSignatureName(""); setPaStep("review"); setShowWizardPaModal(true); }}
+              >
+                <span style={{fontSize:16}}>📝</span> Sign Purchase Agreement
+              </button>
+              <button
+                style={{background:"#1e40af",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:8}}
+                onClick={handleGenerateQuote}
+              >
+                <span style={{fontSize:16}}>📄</span> Generate Quote
+              </button>
+            </div>
+            <button
+              style={{background:"none",border:"none",color:"#9ca3af",fontFamily:"'Sora',sans-serif",fontSize:12,cursor:"pointer",padding:"4px 12px"}}
+              onClick={()=>setStep(5)}
+            >
+              Continue to review →
+            </button>
+          </div>
         </div>
       );
 
@@ -4427,7 +4792,24 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div className="topbar-sub">Patient ID: {p.id.slice(0,8).toUpperCase()} · {p.location} · Added {fmtDate(p.createdAt)}</div>
           </div>
           <div style={{display:"flex",gap:10,alignItems:"center"}}>
-            {p.devices && p.carePlan && (
+            {p.patientStatus === "tns" ? (
+              <span style={{background:"#fef3c7",color:"#92400e",borderRadius:99,padding:"4px 12px",fontSize:11,fontWeight:700}}>TNS</span>
+            ) : p.patientStatus !== "tns" && (
+              <button
+                className="btn-ghost"
+                style={{fontSize:11,color:"#b45309"}}
+                onClick={async () => {
+                  try {
+                    await updatePatientStatus(p.id, "tns");
+                    setSelectedPatient({...p, patientStatus: "tns"});
+                    await refreshPatients();
+                  } catch (e) { console.error("mark TNS:", e); }
+                }}
+              >
+                Mark as TNS
+              </button>
+            )}
+            {p.devices && (p.carePlan || p.payType === "private") && (
               <button
                 style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
                 onClick={() => { setPaSignatureName(""); setPaDeliveryName(""); setPaDeliveryDate(""); setPaStep("sign"); setShowPurchaseAgreement(true); }}
@@ -4435,7 +4817,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 <span style={{fontSize:14}}>📄</span> Purchase Agreement
               </button>
             )}
-            <button className="btn-ghost" onClick={()=>setView("dashboard")}>← Back</button>
+            <button className="btn-ghost" onClick={()=>setView("dashboard")}>{"\u2190"} Back</button>
           </div>
         </div>
 
@@ -4445,8 +4827,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
           const hasDevices = p.devices?.left || p.devices?.right;
           const canGenerate = paSignatureName.trim().length > 2;
 
-          const handleGeneratePDF = (includeDelivery = false) => {
-            const pricePerAid = p.insurance?.tierPrice || 0;
+          const handleGeneratePDF = async (includeDelivery = false) => {
+            const pricePerAid = p.payType === "private" ? 2750 : (p.insurance?.tierPrice || 0);
             downloadPurchaseAgreement({
               patient: { name: p.name, address: p.address, phone: p.phone, dob: p.dob },
               devices: {
@@ -4466,8 +4848,26 @@ export default function ProviderCRM({ staffId, clinicId }) {
               patientSignatureDate: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
               deliverySignature: includeDelivery ? paDeliveryName.trim() || null : null,
               deliveryDate: includeDelivery ? paDeliveryDate || null : null,
-              signatureImageBase64: null, // Will be populated once signature is uploaded to Supabase Storage
+              signatureImageBase64: null,
             });
+            // Convert TNS patient to active when PA is signed
+            if (p.patientStatus === "tns") {
+              try {
+                const years = p.payType === "insurance" && p.carePlan === "complete" ? 4 : 3;
+                await convertTnsToActive(p.id, years);
+                const fittingDate = new Date().toISOString().split("T")[0];
+                const expiry = new Date();
+                expiry.setFullYear(expiry.getFullYear() + years);
+                const warrantyExpiry = expiry.toISOString().split("T")[0];
+                const updated = {
+                  ...p,
+                  patientStatus: "active",
+                  devices: { ...p.devices, fittingDate, warrantyExpiry },
+                };
+                setSelectedPatient(updated);
+                await refreshPatients();
+              } catch (e) { console.error("convertTnsToActive:", e); }
+            }
             setShowPurchaseAgreement(false);
           };
 
@@ -4604,6 +5004,18 @@ export default function ProviderCRM({ staffId, clinicId }) {
         })()}
 
         <div className="content">
+          {p.patientStatus === "tns" && (
+            <div style={{
+              background:"#fffbeb",border:"1px solid #fde68a",borderRadius:10,
+              padding:"12px 16px",marginBottom:16,display:"flex",alignItems:"center",gap:10
+            }}>
+              <span style={{fontSize:18}}>{"\u{1F4CB}"}</span>
+              <div>
+                <div style={{fontSize:13,fontWeight:600,color:"#92400e"}}>Quote Only {"\u2014"} No Purchase Agreement Signed</div>
+                <div style={{fontSize:11,color:"#b45309"}}>This patient received a quote but has not committed. Devices shown are quoted, not fitted.</div>
+              </div>
+            </div>
+          )}
           <div className="qr-prompt">
             <div className="qr-title">Patient App QR Code</div>
             <div className="qr-sub">Patient scans this to load their profile in the Aided companion app</div>
@@ -4753,7 +5165,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
             {/* ── DEVICE SPECIFICATIONS ────────────────────────────────────── */}
             <div className="detail-card full">
               <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
-                <div className="detail-card-title" style={{marginBottom:0}}>Device Specifications</div>
+                <div className="detail-card-title" style={{marginBottom:0}}>{p.patientStatus === "tns" ? "Quoted Devices" : "Device Specifications"}</div>
                 {/* TODO: restrict to provider, admin once checkRole is enforced */}
                 {editSection !== "devices" && checkRole(null, ["provider","admin"]) && (
                   <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={startEditDevices}>Edit</button>
@@ -5818,7 +6230,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                               downloadPurchaseAgreement({
                                 patient:{name:pName,address:form.address,phone:form.phone,dob:form.dob},
                                 devices:{fittingType:fType,left:leftRec,right:rightRec},
-                                carePlan:cpId, pricePerAid:form.tierPrice||0,
+                                carePlan:cpId, pricePerAid:form.payType==="private"?2750:(form.tierPrice||0),
                                 clinic:clinicObj,
                                 provider:{fullName:provName,activeLicense:provLic,signatureUrl:staffProfile?.signatureUrl||null},
                                 patientSignature:paSignatureName.trim(), patientSignatureDate:sigDate,
