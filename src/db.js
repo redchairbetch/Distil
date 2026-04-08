@@ -215,6 +215,10 @@ function assemblePatient(row) {
       wrMclR:   audiogram?.wr_mcl_right      ?? null,
       wrMclL:   audiogram?.wr_mcl_left       ?? null,
       sinBin:   audiogram?.sin_score         ?? null,
+      cctR:     audiogram?.cct_right         ?? null,
+      cctL:     audiogram?.cct_left          ?? null,
+      cctLevelR: audiogram?.cct_level_right  ?? null,
+      cctLevelL: audiogram?.cct_level_left   ?? null,
     },
 
     patientStatus: row.patient_status || 'prospect',
@@ -372,6 +376,7 @@ export async function savePatient(patient, staffId, clinicId) {
                          Object.keys(a.rightBC || {}).length > 0 ||
                          Object.keys(a.leftBC  || {}).length > 0 ||
                          a.unaidedR != null || a.unaidedL != null ||
+                         a.cctR != null || a.cctL != null ||
                          a.tinnitusRight || a.tinnitusLeft
 
     if (hasAudioData) {
@@ -390,6 +395,11 @@ export async function savePatient(patient, staffId, clinicId) {
           sin_score:         a.sinBin   ?? null,
           tinnitus_right:    a.tinnitusRight ?? false,
           tinnitus_left:     a.tinnitusLeft  ?? false,
+          cct_right:         a.cctR     ?? null,
+          cct_left:          a.cctL     ?? null,
+          cct_level_right:   a.cctLevelR ?? null,
+          cct_level_left:    a.cctLevelL ?? null,
+          source_type:       a._sourceType || 'manual',
         })
         .select()
         .single()

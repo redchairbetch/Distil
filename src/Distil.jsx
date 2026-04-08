@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import { parseMedRxPdf } from "./parsers/medrxParser.js";
+import { parseNHAX } from "./parsers/nhaxParser.js";
 
 // ── Body style images ──
 import imgRIC from "./assets/body-styles/RIC.png";
@@ -1496,7 +1497,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     carrier:"", planGroup:"", tpa:"", tier:"", tierPrice:null,
     left: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, thModel:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""},
     right: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, thModel:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""},
-    audiology: { rightT:{}, leftT:{}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:null, unaidedL:null, aidedR:null, aidedL:null, wrMclR:null, wrMclL:null, sinBin:null },
+    audiology: { rightT:{}, leftT:{}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:null, unaidedL:null, aidedR:null, aidedL:null, wrMclR:null, wrMclL:null, sinBin:null, cctR:null, cctL:null, cctLevelR:null, cctLevelL:null },
     carePlan:"",
     appointments:[],
     notes:"",
@@ -1514,40 +1515,51 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [pdfDragOver, setPdfDragOver] = useState(false);
   const pdfInputRef = useRef(null);
 
-  const handlePdfImport = async (file) => {
-    if (!file || file.type !== "application/pdf") {
-      alert("Please upload a PDF file.");
+  const handleAudioImport = async (file) => {
+    if (!file) return;
+    const ext = file.name.split(".").pop().toLowerCase();
+    const isPdf = ext === "pdf" || file.type === "application/pdf";
+    const isNhax = ext === "nhax";
+
+    if (!isPdf && !isNhax) {
+      alert("Please upload a MedRx PDF or Noah NHAX file.");
       return;
     }
+
     try {
       const arrayBuf = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
-      let fullText = "";
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        // Group text items by y-position to reconstruct lines
-        const lineMap = new Map();
-        for (const item of content.items) {
-          if (!item.str.trim()) continue;
-          // y-coordinate is in item.transform[5], round to group nearby items
-          const y = Math.round(item.transform[5]);
-          if (!lineMap.has(y)) lineMap.set(y, []);
-          lineMap.get(y).push({ x: item.transform[4], str: item.str });
+      let result;
+
+      if (isNhax) {
+        result = await parseNHAX(arrayBuf);
+      } else {
+        // Existing MedRx PDF parsing
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
+        let fullText = "";
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          const lineMap = new Map();
+          for (const item of content.items) {
+            if (!item.str.trim()) continue;
+            const y = Math.round(item.transform[5]);
+            if (!lineMap.has(y)) lineMap.set(y, []);
+            lineMap.get(y).push({ x: item.transform[4], str: item.str });
+          }
+          const sortedYs = [...lineMap.keys()].sort((a, b) => b - a);
+          for (const y of sortedYs) {
+            const items = lineMap.get(y).sort((a, b) => a.x - b.x);
+            fullText += items.map(it => it.str).join(" ") + "\n";
+          }
         }
-        // Sort lines top-to-bottom (higher y = higher on page in PDF coords)
-        const sortedYs = [...lineMap.keys()].sort((a, b) => b - a);
-        for (const y of sortedYs) {
-          // Sort items left-to-right within each line
-          const items = lineMap.get(y).sort((a, b) => a.x - b.x);
-          fullText += items.map(it => it.str).join(" ") + "\n";
-        }
+        result = parseMedRxPdf(fullText);
       }
-      const result = parseMedRxPdf(fullText);
+
       if (!result.success) {
         alert(result.error);
         return;
       }
+
       // Merge parsed data into form.audiology — parsed values win, nulls don't overwrite
       const merged = { ...form.audiology };
       const d = result.data;
@@ -1558,16 +1570,31 @@ export default function ProviderCRM({ staffId, clinicId }) {
       if (d.wrMclR != null) merged.wrMclR = d.wrMclR;
       if (d.wrMclL != null) merged.wrMclL = d.wrMclL;
       if (d.sinBin != null) merged.sinBin = d.sinBin;
+      if (d.cctR != null)   merged.cctR = d.cctR;
+      if (d.cctL != null)   merged.cctL = d.cctL;
+      if (d.cctLevelR != null) merged.cctLevelR = d.cctLevelR;
+      if (d.cctLevelL != null) merged.cctLevelL = d.cctLevelL;
+      // Tag source type for db save
+      merged._sourceType = isNhax ? "nhax" : "medrx_pdf";
       upd("audiology", merged);
-      setPdfImport({
+
+      const importInfo = {
         fields: result.importedFields,
         warnings: result.warnings,
         patientName: result.patientName,
         testDate: result.testDate,
-      });
+        sourceType: isNhax ? "nhax" : "medrx_pdf",
+      };
+      // Attach NHAX metadata for richer import banner
+      if (isNhax && d._nhaxMeta) {
+        importInfo.nhaxMeta = d._nhaxMeta;
+      }
+      setPdfImport(importInfo);
     } catch (err) {
-      console.error("PDF import error:", err);
-      alert("Failed to read PDF. Make sure it's a valid audiometry report.");
+      console.error("Audio import error:", err);
+      alert(isNhax
+        ? "Failed to parse Noah NHAX file. Make sure it's a valid Noah export."
+        : "Failed to read PDF. Make sure it's a valid audiometry report.");
     }
   };
 
@@ -3076,7 +3103,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           <div
             onDragOver={e => { e.preventDefault(); setPdfDragOver(true); }}
             onDragLeave={() => setPdfDragOver(false)}
-            onDrop={e => { e.preventDefault(); setPdfDragOver(false); handlePdfImport(e.dataTransfer.files[0]); }}
+            onDrop={e => { e.preventDefault(); setPdfDragOver(false); handleAudioImport(e.dataTransfer.files[0]); }}
             onClick={() => pdfInputRef.current?.click()}
             style={{
               border: pdfImport ? "2px solid #f59e0b" : pdfDragOver ? "2px solid #6366f1" : "2px dashed #d1d5db",
@@ -3089,13 +3116,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
               transition: "all 0.15s",
             }}
           >
-            <input ref={pdfInputRef} type="file" accept=".pdf" style={{display:"none"}}
-              onChange={e => { handlePdfImport(e.target.files[0]); e.target.value = ""; }} />
+            <input ref={pdfInputRef} type="file" accept=".pdf,.nhax" style={{display:"none"}}
+              onChange={e => { handleAudioImport(e.target.files[0]); e.target.value = ""; }} />
             {pdfImport ? (
               <div style={{textAlign:"left"}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                   <span style={{fontSize:14,fontWeight:700,color:"#92400e"}}>
-                    MedRx Report Imported
+                    {pdfImport.sourceType === "nhax" ? "Noah Export Imported" : "MedRx Report Imported"}
                   </span>
                   <button onClick={e => { e.stopPropagation(); clearPdfImport(); }}
                     style={{padding:"4px 12px",borderRadius:6,border:"1px solid #d1d5db",background:"#fff",fontSize:11,fontWeight:600,cursor:"pointer",color:"#6b7280"}}>
@@ -3107,6 +3134,24 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   {pdfImport.testDate && <span><strong>Test Date:</strong> {pdfImport.testDate} &nbsp; </span>}
                   <strong>{pdfImport.fields?.size || 0}</strong> fields imported
                 </div>
+                {/* NHAX-specific summary: PTA, CCT scores */}
+                {pdfImport.nhaxMeta && (
+                  <div style={{marginTop:8,fontSize:12,color:"#374151",lineHeight:1.8}}>
+                    <div style={{display:"flex",gap:24,flexWrap:"wrap"}}>
+                      <span><strong>L:</strong> PTA {pdfImport.nhaxMeta.ptaLeft ?? "—"} dB
+                        {form.audiology.cctL != null && <> | CCT {form.audiology.cctL}% @ {form.audiology.cctLevelL}dB</>}
+                        {form.audiology.wrMclL != null && <> | WRS {form.audiology.wrMclL}%</>}
+                      </span>
+                      <span><strong>R:</strong> PTA {pdfImport.nhaxMeta.ptaRight ?? "—"} dB
+                        {form.audiology.cctR != null && <> | CCT {form.audiology.cctR}% @ {form.audiology.cctLevelR}dB</>}
+                        {form.audiology.wrMclR != null && <> | WRS {form.audiology.wrMclR}%</>}
+                      </span>
+                    </div>
+                    {pdfImport.nhaxMeta.device && (
+                      <div style={{fontSize:11,color:"#9ca3af",marginTop:2}}>Device: {pdfImport.nhaxMeta.device}</div>
+                    )}
+                  </div>
+                )}
                 {pdfImport.warnings?.length > 0 && (
                   <div style={{marginTop:8,fontSize:11,color:"#b45309",lineHeight:1.5}}>
                     {pdfImport.warnings.map((w, i) => <div key={i}>&#9888; {w}</div>)}
@@ -3116,10 +3161,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
             ) : (
               <>
                 <div style={{fontSize:13,fontWeight:600,color:pdfDragOver?"#4f46e5":"#9ca3af",marginBottom:4}}>
-                  Drop MedRx PDF here or click to upload
+                  Drop audiogram file here or click to upload
                 </div>
                 <div style={{fontSize:11,color:"#d1d5db"}}>
-                  Auto-fills audiogram, WR scores, and QuickSIN
+                  Supports MedRx PDF and Noah NHAX exports
                 </div>
               </>
             )}
@@ -3264,8 +3309,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div style={{fontSize:12,color:"#6b7280",marginBottom:14,lineHeight:1.6}}>
               Word recognition tested at the patient's <strong>most comfortable level (MCL)</strong>.
               {pdfImport?.fields?.has("wrMclR") || pdfImport?.fields?.has("wrMclL")
-                ? <span style={{color:"#b45309",fontWeight:600}}> Imported from MedRx report.</span>
-                : " Enter manually or import from a MedRx PDF above."}
+                ? <span style={{color:"#b45309",fontWeight:600}}> Imported from {pdfImport.sourceType === "nhax" ? "Noah export" : "MedRx report"}.</span>
+                : " Enter manually or import from a file above."}
             </div>
             <div className="field-grid">
               <div className="field">
@@ -3290,6 +3335,49 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   {form.audiology.wrMclL!=null&&form.audiology.wrMclL<100&&(
                     <span style={{fontSize:11,fontWeight:700,color:"#6b7280"}}>
                       {100-form.audiology.wrMclL}% deficit at MCL
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+
+          {/* ── CCT (California Consonant Test) ── */}
+          <div className="card" style={pdfImport?.fields?.has("cctR") || pdfImport?.fields?.has("cctL") ? {border:"1.5px solid #f59e0b",background:"#fffbeb"} : {}}>
+            <div className="card-title">California Consonant Test (CCT)</div>
+            <div style={{fontSize:12,color:"#6b7280",marginBottom:14,lineHeight:1.6}}>
+              25-word consonant recognition at <strong>45 dB</strong>. Measures clarity, not volume — the best
+              predictor of real-world benefit from amplification.
+              {pdfImport?.fields?.has("cctR") || pdfImport?.fields?.has("cctL")
+                ? <span style={{color:"#b45309",fontWeight:600}}> Imported from Noah export.</span>
+                : " Enter manually or import from a Noah NHAX file above."}
+            </div>
+            <div className="field-grid">
+              <div className="field">
+                <label>Right Ear Score (%)</label>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <input type="number" min="0" max="100" step="4" placeholder="e.g. 44"
+                    value={form.audiology.cctR??""} style={{width:90,...importHighlight("cctR")}}
+                    onChange={e=>updAud("cctR",e.target.value===""?null:Number(e.target.value))}/>
+                  {form.audiology.cctR!=null&&(
+                    <span style={{fontSize:11,fontWeight:700,
+                      color:form.audiology.cctR>=70?"#16a34a":form.audiology.cctR>=50?"#ca8a04":"#dc2626"}}>
+                      {form.audiology.cctR>=70?"Good":form.audiology.cctR>=50?"Reduced":"Poor"} consonant clarity
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="field">
+                <label>Left Ear Score (%)</label>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <input type="number" min="0" max="100" step="4" placeholder="e.g. 52"
+                    value={form.audiology.cctL??""} style={{width:90,...importHighlight("cctL")}}
+                    onChange={e=>updAud("cctL",e.target.value===""?null:Number(e.target.value))}/>
+                  {form.audiology.cctL!=null&&(
+                    <span style={{fontSize:11,fontWeight:700,
+                      color:form.audiology.cctL>=70?"#16a34a":form.audiology.cctL>=50?"#ca8a04":"#dc2626"}}>
+                      {form.audiology.cctL>=70?"Good":form.audiology.cctL>=50?"Reduced":"Poor"} consonant clarity
                     </span>
                   )}
                 </div>
@@ -3339,7 +3427,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
       const rPTA = getPTA(aud.rightT);
       const lPTA = getPTA(aud.leftT);
       const hasThresholds = rPTA!=null || lPTA!=null;
-      const hasAnyData = hasThresholds || aud.unaidedR!=null || aud.unaidedL!=null || aud.wrMclR!=null || aud.wrMclL!=null || aud.sinBin!=null;
+      const hasAnyData = hasThresholds || aud.unaidedR!=null || aud.unaidedL!=null || aud.cctR!=null || aud.cctL!=null || aud.wrMclR!=null || aud.wrMclL!=null || aud.sinBin!=null;
 
       // ── Worst-threshold severity (Change 4) ──
       const rSeverity = getWorstThresholdSeverity(aud.rightT);
@@ -3349,8 +3437,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
         ? (severityRank(rSeverity) >= severityRank(lSeverity) ? rSeverity : lSeverity)
         : (rSeverity || lSeverity);
 
-      // ── CCT scores ──
-      const cctR = aud.unaidedR, cctL = aud.unaidedL;
+      // ── CCT scores — prefer dedicated cctR/cctL from NHAX, fall back to unaided WRS ──
+      const cctR = aud.cctR ?? aud.unaidedR, cctL = aud.cctL ?? aud.unaidedL;
       const cctDefR = cctR!=null ? 100-cctR : null;
       const cctDefL = cctL!=null ? 100-cctL : null;
       const worseCCT = (cctR!=null && cctL!=null) ? Math.min(cctR, cctL) : (cctR ?? cctL);
@@ -5362,7 +5450,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
               )}
             </div>
             {/* ── AUDIOGRAM & EDUCATION PANEL ── */}
-            {p.audiology && (getPTA(p.audiology.rightT)!=null || getPTA(p.audiology.leftT)!=null || p.audiology.unaidedR!=null || p.audiology.sinBin!=null) && (() => {
+            {p.audiology && (getPTA(p.audiology.rightT)!=null || getPTA(p.audiology.leftT)!=null || p.audiology.unaidedR!=null || p.audiology.cctR!=null || p.audiology.cctL!=null || p.audiology.sinBin!=null) && (() => {
               const aud = p.audiology;
               const sections = generateCounseling(aud);
               const rPTA = getPTA(aud.rightT);
@@ -5401,6 +5489,21 @@ export default function ProviderCRM({ staffId, clinicId }) {
                             <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#16a34a",marginBottom:2}}>WR @ MCL</div>
                             {aud.wrMclR!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>R: {aud.wrMclR}%</div>}
                             {aud.wrMclL!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>L: {aud.wrMclL}%</div>}
+                          </div>
+                        )}
+                        {(aud.cctR!=null||aud.cctL!=null)&&(
+                          <div style={{background:"#fdf4ff",border:"1px solid #e9d5ff",borderRadius:8,padding:"10px 12px"}}>
+                            <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#7c3aed",marginBottom:2}}>CCT @ 45dB</div>
+                            {aud.cctR!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>R: {aud.cctR}%
+                              <span style={{fontSize:10,fontWeight:400,color:aud.cctR>=70?"#16a34a":aud.cctR>=50?"#ca8a04":"#dc2626",marginLeft:6}}>
+                                {aud.cctR>=70?"Good":aud.cctR>=50?"Reduced":"Poor"}
+                              </span>
+                            </div>}
+                            {aud.cctL!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>L: {aud.cctL}%
+                              <span style={{fontSize:10,fontWeight:400,color:aud.cctL>=70?"#16a34a":aud.cctL>=50?"#ca8a04":"#dc2626",marginLeft:6}}>
+                                {aud.cctL>=70?"Good":aud.cctL>=50?"Reduced":"Poor"}
+                              </span>
+                            </div>}
                           </div>
                         )}
                         {(aud.aidedR!=null||aud.aidedL!=null)&&(
