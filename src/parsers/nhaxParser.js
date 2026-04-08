@@ -155,18 +155,18 @@ function parseToneSection(dv, startOffset, maxEntries) {
 
 /**
  * Find pure tone sections by scanning for clusters of valid frequency data.
- * In validated files: first section at ~offset 206 (left ear), second at ~652 (right ear).
- * We scan to handle slight offset variations across files.
+ * HIMSA format stores up to 4 sections in order: Left AC, Right AC, Left BC, Right BC.
+ * AC sections typically have 10 entries (250-8000 Hz), BC has 3-4 (500-4000 Hz).
  */
 function findPureToneSections(dv, length) {
   const sections = [];
   const targetFreqs = new Set([125, 250, 500, 750, 1000, 1500, 2000, 3000, 4000, 6000, 8000]);
 
-  for (let start = 100; start < Math.min(2000, length - 80); start += 2) {
+  for (let start = 100; start < Math.min(2000, length - 30); start += 2) {
     const freq = u16(dv, start);
     if (!targetFreqs.has(freq)) continue;
 
-    // Check for at least 4 consecutive valid 10-byte frequency groups
+    // Count consecutive valid 10-byte frequency groups
     let validCount = 0;
     for (let probe = start; probe + 9 < Math.min(start + 200, length); probe += 10) {
       const f = u16(dv, probe);
@@ -174,7 +174,7 @@ function findPureToneSections(dv, length) {
       else break;
     }
 
-    if (validCount >= 4) {
+    if (validCount >= 3) {
       const section = parseToneSection(dv, start, validCount);
       if (Object.keys(section.thresholds).length >= 3) {
         sections.push(section);
@@ -279,6 +279,52 @@ function calcHFA(thresholds) {
   return Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
 }
 
+// ── QuickSIN extraction from PrivateData ───────────────────────
+
+/**
+ * Extract QuickSIN SNR Loss from MedRx PrivateData.
+ * The PrivateData contains a zlib-compressed binary blob with device metadata.
+ * QuickSIN SNR Loss is stored as a float64 at byte offset 132 in the decompressed data.
+ * Validated against two patient files: Cindy Yantis (4.5 dB), Verona Hartz (5.5 dB).
+ */
+function extractQuickSIN(xmlStr) {
+  const privMatches = [...xmlStr.matchAll(/<PrivateData>([\s\S]*?)<\/PrivateData>/g)];
+  if (privMatches.length === 0) return null;
+
+  // Use the last PrivateData block (most recent session)
+  const privB64 = privMatches[privMatches.length - 1][1].trim();
+  let privBytes;
+  try {
+    const binaryStr = atob(privB64);
+    privBytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) privBytes[i] = binaryStr.charCodeAt(i);
+  } catch { return null; }
+
+  // Find and decompress the inner zlib stream (starts ~10 bytes in)
+  let inner = null;
+  for (let i = 0; i < privBytes.length - 1; i++) {
+    if (privBytes[i] !== 0x78) continue;
+    const next = privBytes[i + 1];
+    if (next !== 0x01 && next !== 0x9c && next !== 0xda) continue;
+    try { inner = pako.inflate(privBytes.subarray(i)); break; } catch {
+      try { inner = pako.inflateRaw(privBytes.subarray(i + 2)); break; } catch {}
+    }
+  }
+  if (!inner || inner.length < 140) return null;
+
+  // QuickSIN SNR Loss is a float64 at offset 132
+  try {
+    const dv = new DataView(inner.buffer, inner.byteOffset, inner.byteLength);
+    const snr = dv.getFloat64(132, true);
+    // Validate: SNR Loss should be 0-30 dB and a clean half-dB value
+    if (Number.isFinite(snr) && snr >= 0 && snr <= 30) {
+      return Math.round(snr * 2) / 2; // round to nearest 0.5
+    }
+  } catch {}
+
+  return null;
+}
+
 // ── Main entry point ───────────────────────────────────────────
 
 /**
@@ -333,11 +379,14 @@ export async function parseNHAX(fileBuffer) {
   const dv = new DataView(publicBinary.buffer, publicBinary.byteOffset, publicBinary.byteLength);
   const len = publicBinary.length;
 
-  // 6. Parse pure tone audiometry (first section = left, second = right)
+  // 6. Parse pure tone audiometry
+  // HIMSA stores up to 4 sections: Left AC, Right AC, Left BC, Right BC
   const toneSections = findPureToneSections(dv, len);
 
   let leftT = {}, rightT = {};
   let leftMask = {}, rightMask = {};
+  let leftBC = {}, rightBC = {};
+  let leftBCMask = {}, rightBCMask = {};
 
   if (toneSections.length >= 2) {
     leftT = toneSections[0].thresholds;
@@ -350,10 +399,25 @@ export async function parseNHAX(fileBuffer) {
     warnings.push("Only one ear's tone data found — assigned to left ear. Verify manually.");
   }
 
-  // 7. Parse speech audiometry
+  // Sections 3 and 4 are bone conduction (fewer frequencies, typically 500-4000 Hz)
+  if (toneSections.length >= 4) {
+    leftBC = toneSections[2].thresholds;
+    leftBCMask = toneSections[2].masks;
+    rightBC = toneSections[3].thresholds;
+    rightBCMask = toneSections[3].masks;
+  } else if (toneSections.length === 3) {
+    leftBC = toneSections[2].thresholds;
+    leftBCMask = toneSections[2].masks;
+    warnings.push("Only one ear's bone conduction data found — assigned to left ear.");
+  }
+
+  // 7. Extract QuickSIN from PrivateData (MedRx proprietary format)
+  const sinBin = extractQuickSIN(xmlStr);
+
+  // 8. Parse speech audiometry
   const speech = parseSpeechData(dv, len);
 
-  // 8. Build output
+  // 9. Build output
   const wrMclR = speech.right.wrs?.score ?? null;
   const wrMclL = speech.left.wrs?.score ?? null;
   const cctR = speech.right.cct?.score ?? null;
@@ -389,10 +453,13 @@ export async function parseNHAX(fileBuffer) {
   const importedFields = new Set();
   Object.keys(rightT).forEach(f => importedFields.add(`rightT.${f}`));
   Object.keys(leftT).forEach(f => importedFields.add(`leftT.${f}`));
+  Object.keys(rightBC).forEach(f => importedFields.add(`rightBC.${f}`));
+  Object.keys(leftBC).forEach(f => importedFields.add(`leftBC.${f}`));
   if (wrMclR != null) importedFields.add("wrMclR");
   if (wrMclL != null) importedFields.add("wrMclL");
   if (cctR != null) importedFields.add("cctR");
   if (cctL != null) importedFields.add("cctL");
+  if (sinBin != null) importedFields.add("sinBin");
 
   const patientName = [patient.lastName, patient.firstName].filter(Boolean).join(", ");
 
@@ -409,11 +476,11 @@ export async function parseNHAX(fileBuffer) {
     success: true,
     data: {
       rightT, leftT,
-      rightBC: {}, leftBC: {},
+      rightBC, leftBC,
       rightMask, leftMask,
-      rightBCMask: {}, leftBCMask: {},
+      rightBCMask, leftBCMask,
       wrMclR, wrMclL,
-      sinBin: null,
+      sinBin,
       cctR, cctL, cctLevelR, cctLevelL,
       _nhaxMeta: {
         ptaLeft, ptaRight, hfaLeft, hfaRight,
