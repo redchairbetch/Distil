@@ -425,7 +425,7 @@ export async function parseNHAX(fileBuffer) {
         device: latestAction.device || null,
         sessionCount: actions.length,
       },
-      unaidedR: null, unaidedL: null,
+      unaidedR: cctR, unaidedL: cctL,
       aidedR: null, aidedL: null,
       tinnitusRight: null, tinnitusLeft: null,
     },

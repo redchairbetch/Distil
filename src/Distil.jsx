@@ -3261,24 +3261,27 @@ export default function ProviderCRM({ staffId, clinicId }) {
           </div>
 
 
-          {/* ── CCT Unaided ── */}
-          <div className="card">
+          {/* ── CCT / Unaided Speech Discrimination ── */}
+          <div className="card" style={pdfImport?.fields?.has("cctR") || pdfImport?.fields?.has("cctL") ? {border:"1.5px solid #f59e0b",background:"#fffbeb"} : {}}>
             <div className="card-title">Unaided Speech Discrimination</div>
             <div style={{fontSize:12,color:"#6b7280",marginBottom:14,lineHeight:1.6}}>
-              California Consonant Test at <strong>45 dB</strong> — monaurally. 45 dB is the softest level
-              at which a listener with normal hearing scores 100%. This is the audiological equivalent
-              of the 20/20 line.
+              California Consonant Test at <strong>45 dB</strong> — monaurally. This measures clarity, not
+              volume — the best predictor of real-world benefit from amplification.
+              {pdfImport?.fields?.has("cctR") || pdfImport?.fields?.has("cctL")
+                ? <span style={{color:"#b45309",fontWeight:600}}> Imported from Noah export.</span>
+                : ""}
             </div>
             <div className="field-grid">
               <div className="field">
                 <label>Right Ear Score (%)</label>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <input type="number" min="0" max="100" step="2" placeholder="e.g. 72"
-                    value={form.audiology.unaidedR??""} style={{width:90}}
+                    value={form.audiology.unaidedR??""} style={{width:90,...importHighlight("cctR")}}
                     onChange={e=>updAud("unaidedR",e.target.value===""?null:Number(e.target.value))}/>
                   {form.audiology.unaidedR!=null&&(
-                    <span style={{fontSize:11,fontWeight:700,color:"#6b7280"}}>
-                      {100-form.audiology.unaidedR}% below normal hearing
+                    <span style={{fontSize:11,fontWeight:700,
+                      color:form.audiology.unaidedR>=70?"#16a34a":form.audiology.unaidedR>=50?"#ca8a04":"#dc2626"}}>
+                      {form.audiology.unaidedR>=70?"Good":form.audiology.unaidedR>=50?"Reduced":"Poor"} consonant clarity
                     </span>
                   )}
                 </div>
@@ -3287,11 +3290,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 <label>Left Ear Score (%)</label>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   <input type="number" min="0" max="100" step="2" placeholder="e.g. 64"
-                    value={form.audiology.unaidedL??""} style={{width:90}}
+                    value={form.audiology.unaidedL??""} style={{width:90,...importHighlight("cctL")}}
                     onChange={e=>updAud("unaidedL",e.target.value===""?null:Number(e.target.value))}/>
                   {form.audiology.unaidedL!=null&&(
-                    <span style={{fontSize:11,fontWeight:700,color:"#6b7280"}}>
-                      {100-form.audiology.unaidedL}% below normal hearing
+                    <span style={{fontSize:11,fontWeight:700,
+                      color:form.audiology.unaidedL>=70?"#16a34a":form.audiology.unaidedL>=50?"#ca8a04":"#dc2626"}}>
+                      {form.audiology.unaidedL>=70?"Good":form.audiology.unaidedL>=50?"Reduced":"Poor"} consonant clarity
                     </span>
                   )}
                 </div>
@@ -3335,49 +3339,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   {form.audiology.wrMclL!=null&&form.audiology.wrMclL<100&&(
                     <span style={{fontSize:11,fontWeight:700,color:"#6b7280"}}>
                       {100-form.audiology.wrMclL}% deficit at MCL
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-
-          {/* ── CCT (California Consonant Test) ── */}
-          <div className="card" style={pdfImport?.fields?.has("cctR") || pdfImport?.fields?.has("cctL") ? {border:"1.5px solid #f59e0b",background:"#fffbeb"} : {}}>
-            <div className="card-title">California Consonant Test (CCT)</div>
-            <div style={{fontSize:12,color:"#6b7280",marginBottom:14,lineHeight:1.6}}>
-              25-word consonant recognition at <strong>45 dB</strong>. Measures clarity, not volume — the best
-              predictor of real-world benefit from amplification.
-              {pdfImport?.fields?.has("cctR") || pdfImport?.fields?.has("cctL")
-                ? <span style={{color:"#b45309",fontWeight:600}}> Imported from Noah export.</span>
-                : " Enter manually or import from a Noah NHAX file above."}
-            </div>
-            <div className="field-grid">
-              <div className="field">
-                <label>Right Ear Score (%)</label>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <input type="number" min="0" max="100" step="4" placeholder="e.g. 44"
-                    value={form.audiology.cctR??""} style={{width:90,...importHighlight("cctR")}}
-                    onChange={e=>updAud("cctR",e.target.value===""?null:Number(e.target.value))}/>
-                  {form.audiology.cctR!=null&&(
-                    <span style={{fontSize:11,fontWeight:700,
-                      color:form.audiology.cctR>=70?"#16a34a":form.audiology.cctR>=50?"#ca8a04":"#dc2626"}}>
-                      {form.audiology.cctR>=70?"Good":form.audiology.cctR>=50?"Reduced":"Poor"} consonant clarity
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="field">
-                <label>Left Ear Score (%)</label>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <input type="number" min="0" max="100" step="4" placeholder="e.g. 52"
-                    value={form.audiology.cctL??""} style={{width:90,...importHighlight("cctL")}}
-                    onChange={e=>updAud("cctL",e.target.value===""?null:Number(e.target.value))}/>
-                  {form.audiology.cctL!=null&&(
-                    <span style={{fontSize:11,fontWeight:700,
-                      color:form.audiology.cctL>=70?"#16a34a":form.audiology.cctL>=50?"#ca8a04":"#dc2626"}}>
-                      {form.audiology.cctL>=70?"Good":form.audiology.cctL>=50?"Reduced":"Poor"} consonant clarity
                     </span>
                   )}
                 </div>
