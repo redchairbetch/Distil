@@ -1482,6 +1482,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [showWizardPaModal, setShowWizardPaModal] = useState(false);
   const [wizardPaSigned, setWizardPaSigned] = useState(false);
   const [wizardPaSignatureDate, setWizardPaSignatureDate] = useState(null);
+  const [showBudgetOption, setShowBudgetOption] = useState(false);
 
   // Product catalog state
   const [catalog, setCatalog] = useState(CATALOG_DEFAULT);
@@ -2247,7 +2248,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   // ── STYLES ────────────────────────────────────────────────────────────────
   const styles = `
-    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Sora', sans-serif; background: #f0f2f5; }
     .app { display: flex; height: 100vh; overflow: hidden; }
@@ -4234,117 +4235,31 @@ export default function ProviderCRM({ staffId, clinicId }) {
         );
       };
 
-      // Comparison table data
-      const PLAN_COMPARE = [
-        {
-          category: "Cost",
-          paygo:    isTruHearing ? "$975 est." : isUHCH ? "$1,235 est." : "$65 / visit",
-          punch:    "$575",
-          complete: "$1,250",
-        },
-        {
-          category: "Office Visits",
-          paygo:    "Billed per visit · $65 each",
-          punch:    "All visits · 4-year period",
-          complete: "Unlimited · 5-year period",
-        },
-        {
-          category: "Cleanings",
-          paygo:    isTruHearingTPA ? "Yr 1 covered by plan" : "$65 each",
-          punch:    "All included · 4-year period",
-          complete: "Unlimited · 5-year period",
-        },
-        {
-          category: "Adjustments & Triage",
-          paygo:    isTruHearingTPA ? "Yr 1 covered by plan" : "$65 each",
-          punch:    "All included · 4-year period",
-          complete: "Unlimited · 5-year period",
-        },
-        {
-          category: "Warranty",
-          paygo:    "3 years · Yr 4 repair $250/aid",
-          punch:    "3 years · Yr 4 repair $250/aid",
-          complete: "5 years · repairs covered",
-        },
-        {
-          category: "Loss & Damage",
-          paygo:    "$275 / aid deductible · 3 years",
-          punch:    "$275 / aid deductible · 3 years",
-          complete: "$275 / aid deductible · 5 years",
-        },
-      ];
+      // Warranty timeline helper for the care plan cards
+      const WarrantyTimeline = ({ years }) => (
+        <div style={{display:"flex",gap:4,marginTop:10}}>
+          {[1,2,3,4,5].map(y => {
+            const covered = y <= years;
+            return (
+              <div key={y} style={{flex:1,textAlign:"center"}}>
+                <div style={{
+                  height:32,borderRadius:8,
+                  background: covered ? "linear-gradient(135deg,#2d9d6a 0%,#1a6847 100%)" : "#f3f4f6",
+                  border: covered ? "none" : "1.5px solid #e5e7eb",
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:11,fontWeight:700,color: covered ? "#fff" : "#d1d5db",
+                  transition:"all 0.3s ease",
+                }}>{covered ? "✓" : ""}</div>
+                <div style={{fontSize:10,color: covered?"#1a6847":"#9ca3af",marginTop:4,fontWeight: covered?600:400,fontFamily:"'DM Sans',sans-serif"}}>Year {y}</div>
+              </div>
+            );
+          })}
+        </div>
+      );
 
-      const LIFECYCLE_VISITS = 20;
-      const paygo4yr = isTruHearing ? 975 : isUHCH ? 1235 : LIFECYCLE_VISITS * 65;
-      const savingsVsPaygo = (id) => {
-        if (id === "paygo") return null;
-        const s = paygo4yr - cpCostFor(id);
-        return s > 0 ? s : 0;
-      };
-      const planCovData = {
-        paygo:    {v1:"oop",v2:"oop",v3:"oop",v4:"oop",v5:"oop",v6:"oop",v7:"oop",v8:"oop",v9:"oop"},
-        punch:    {v1:"inc",v2:"inc",v3:"inc",v4:"inc",v5:"inc",v6:"inc",v7:"inc",v8:"inc",v9:"oop"},
-        complete: {v1:"inc",v2:"inc",v3:"inc",v4:"inc",v5:"inc",v6:"inc",v7:"inc",v8:"inc",v9:"inc"},
-      };
-      const dFill   = {inc:"#16a34a",par:"#d97706",oop:"transparent",cred:"#7c3aed"};
-      const dStroke = {inc:"#15803d",par:"#b45309",oop:"#d1d5db",    cred:"#6d28d9"};
-      const JourneyViz = () => {
-        const activePlan = form.carePlan || "complete";
-        const cov = planCovData[activePlan] || planCovData.complete;
-        const vizDots = [
-          {id:"v1",cx:88, cy:145},{id:"v2",cx:147,cy:130},{id:"v3",cx:198,cy:100},
-          {id:"v4",cx:260,cy:57,star:true},{id:"v5",cx:318,cy:54},{id:"v6",cx:363,cy:54},
-          {id:"v7",cx:408,cy:53},{id:"v8",cx:460,cy:53},{id:"v9",cx:565,cy:32},
-        ];
-        return (
-          <div style={{background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:12,padding:"14px 16px 10px",marginBottom:16}}>
-            <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:3}}>Hearing journey · 4-year lifecycle</div>
-            <div style={{fontSize:12,color:"#6b7280",marginBottom:8,lineHeight:1.5}}>Each dot is a clinic visit. Color shows what your selected care plan covers.</div>
-            <svg viewBox="0 0 680 215" width="100%" style={{display:"block"}}>
-              <line x1="72" y1="145" x2="640" y2="145" stroke="#e5e7eb" strokeWidth="0.5" strokeDasharray="3 6"/>
-              <line x1="72" y1="55"  x2="640" y2="55"  stroke="#e5e7eb" strokeWidth="0.5" strokeDasharray="3 6"/>
-              <text x="68" y="145" textAnchor="end" dominantBaseline="central" style={{fontSize:11,fill:"#9ca3af"}}>First fit</text>
-              <text x="68" y="55"  textAnchor="end" dominantBaseline="central" style={{fontSize:11,fill:"#9ca3af"}}>At target</text>
-              {[118,288,508].map(x=>(<line key={x} x1={x} y1="22" x2={x} y2="175" stroke="#e5e7eb" strokeWidth="0.5" strokeDasharray="3 5"/>))}
-              <rect x="508" y="22" width="130" height="153" fill="#fef9c3" opacity="0.5"/>
-              <text x="573" y="16" textAnchor="middle" style={{fontSize:11,fill:"#92400e",opacity:0.8}}>upgrade window</text>
-              {/* Warranty cliff: 3-yr standard ends at x≈508, CC+ extends to x≈548 (yr 4) */}
-              <line x1="508" y1="22" x2="508" y2="155" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="4 3" opacity="0.55"/>
-              <line x1="548" y1="22" x2="548" y2="155" stroke="#1d4ed8" strokeWidth="1.5" strokeDasharray="4 3" opacity={form.carePlan === "complete" ? "0.7" : "0.2"}/>
-              {/* Warranty labels */}
-              <text x="508" y="11" textAnchor="middle" style={{fontSize:9,fill:"#dc2626",opacity:0.85,fontWeight:600}}>3-yr</text>
-              <text x="548" y="11" textAnchor="middle" style={{fontSize:9,fill:"#1d4ed8",opacity: form.carePlan === "complete" ? 0.9 : 0.35,fontWeight:600}}>CC+ yr 4</text>
-              <path d="M 88,145 C 113,138 130,134 147,130 C 164,126 180,112 198,100 C 215,88 240,65 260,57 C 278,51 302,53 358,54 C 383,54 430,53 458,53 L 508,53 C 526,53 538,47 553,40 C 564,33 583,32 628,32" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-              <line x1="72" y1="175" x2="640" y2="175" stroke="#e5e7eb" strokeWidth="0.5"/>
-              {vizDots.map(d=>(
-                <g key={d.id}>
-                  <circle cx={d.cx} cy={d.cy} r={d.star?9:7} fill={dFill[cov[d.id]]} stroke={dStroke[cov[d.id]]} strokeWidth="2" style={{transition:"fill 0.25s,stroke 0.25s"}}/>
-                  {d.star && <text x={d.cx} y={d.cy} textAnchor="middle" dominantBaseline="central" style={{fontSize:10,fill:"white",pointerEvents:"none",fontWeight:500}}>★</text>}
-                </g>
-              ))}
-              {[{x:93,l:"First fit",s:"Day 1"},{x:203,l:"Adaptation",s:"Wks 1–8"},{x:398,l:"Maintenance",s:"Quarterly"},{x:573,l:"Next chapter",s:"Yr 3–6"}].map(p=>(
-                <g key={p.x}>
-                  <text x={p.x} y="190" textAnchor="middle" style={{fontSize:12,fontWeight:500,fill:"#374151"}}>{p.l}</text>
-                  <text x={p.x} y="205" textAnchor="middle" style={{fontSize:11,fill:"#9ca3af"}}>{p.s}</text>
-                </g>
-              ))}
-            </svg>
-            <div style={{display:"flex",gap:12,flexWrap:"wrap",marginTop:6}}>
-              {[{c:"#16a34a",l:"Included"},{c:"#d97706",l:"Partial"},{c:"transparent",b:"#d1d5db",l:"Out of pocket"},{c:"#7c3aed",l:"Upgrade credit"}].map(item=>(
-                <span key={item.l} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"#6b7280"}}>
-                  <svg width="11" height="11"><circle cx="5.5" cy="5.5" r="4.5" fill={item.c} stroke={item.b||item.c} strokeWidth={item.b?"1.5":"1"}/></svg>
-                  {item.l}
-                </span>
-              ))}
-            </div>
-          </div>
-        );
-      };
-      const planCols = [
-        {id:"paygo",   label:"Pay-As-You-Go",         color:"#6b7280", bg:"#f9fafb"},
-        {id:"punch",   label:"Treatment Punch Card",   color:"#0c4a6e", bg:"#e0f2fe"},
-        {id:"complete",label:"Complete Care+",         color:"#15803d", bg:"#dcfce7"},
-      ];
+      // Pay-As-You-Go price label (TPA-aware)
+      const paygoPriceLabel = isTruHearing ? "$975 est." : isUHCH ? "$1,235 est." : "$65/visit";
+      const paygoSubLabel   = isTruHearingTPA ? "est. over 4 yrs" : "per visit";
 
       if (form.payType === "private") return (
         <div className="card">
@@ -4398,104 +4313,191 @@ export default function ProviderCRM({ staffId, clinicId }) {
           {/* Device summary */}
           <DeviceSummary />
 
-          {/* Plan cards */}
+          {/* Plan selector — recommendation-first design */}
           <div className="card">
-            <div className="card-title">Choose a Care Plan</div>
-            <JourneyViz />
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:24}}>
-              {planCols.map(col => {
-                const cp = CARE_PLANS.find(c => c.id === col.id);
-                const cpCost = cpCostFor(col.id);
-                const isSelected = form.carePlan === col.id;
-                const savings = savingsVsPaygo(col.id);
-                return (
-                  <div key={col.id}
-                    onClick={()=>upd("carePlan", col.id)}
-                    style={{
-                      border: isSelected ? `2px solid ${col.color}` : "2px solid #e5e7eb",
-                      borderRadius:12, padding:"14px 12px", cursor:"pointer",
-                      background: isSelected ? col.bg : "white",
-                      transition:"all 0.15s", position:"relative",
-                      display:"flex", flexDirection:"column",
-                    }}>
-                    {col.id === "complete" && (
-                      <div style={{fontSize:10,fontWeight:700,color:"#15803d",background:"#dcfce7",borderRadius:6,padding:"2px 8px",display:"inline-block",marginBottom:5,letterSpacing:0.3,alignSelf:"flex-start"}}>Most comprehensive</div>
-                    )}
-                    <div style={{fontSize:11,fontWeight:700,color:col.color,marginBottom:4,lineHeight:1.3}}>{cp.label}</div>
-                    <div style={{fontSize:22,fontWeight:800,color:"#0a1628",lineHeight:1}}>
-                      {col.id === "paygo"
-                        ? (isTruHearing ? "$975" : isUHCH ? "$1,235" : "$65")
-                        : `$${cpCost.toLocaleString()}`}
-                    </div>
-                    <div style={{fontSize:10,color:"#9ca3af",marginTop:2}}>
-                      {col.id === "paygo"
-                        ? (isTruHearingTPA ? "est. over 4 yrs" : "per visit")
-                        : "one-time"}
-                    </div>
-                    {savings !== null && savings > 0 && col.id !== "complete" && (
-                      <div style={{marginTop:7,fontSize:10,fontWeight:700,color:"#15803d",background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:6,padding:"3px 7px",display:"inline-block",alignSelf:"flex-start"}}>
-                        Save ${savings.toLocaleString()} vs pay-as-you-go
-                      </div>
-                    )}
-                    {col.id === "complete" && (() => {
-                      const repairVal = aidCount * 250;
-                      const visitSavings = savings > 0 ? savings : 0;
-                      const totalVal = visitSavings + repairVal;
-                      return (
-                        <div style={{marginTop:7,display:"flex",flexDirection:"column",gap:4}}>
-                          {visitSavings > 0 && (
-                            <div style={{fontSize:10,fontWeight:700,color:"#15803d",background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:6,padding:"3px 7px",display:"inline-block",alignSelf:"flex-start"}}>
-                              Save ${visitSavings.toLocaleString()} on visits
-                            </div>
-                          )}
-                          <div style={{fontSize:10,fontWeight:700,color:"#1d4ed8",background:"#dbeafe",border:"1px solid #bfdbfe",borderRadius:6,padding:"3px 7px",display:"inline-block",alignSelf:"flex-start"}}>
-                            +${repairVal.toLocaleString()} yr 4 repair protection
-                          </div>
-                          {totalVal > 0 && (
-                            <div style={{fontSize:10,color:"#6b7280",marginTop:1}}>
-                              Up to ${totalVal.toLocaleString()} total value
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
-                    {isSelected && <div style={{marginTop:8,fontSize:11,fontWeight:700,color:col.color}}>&#10003; Selected</div>}
-                  </div>
-                );
-              })}
+            <div style={{marginBottom:20,fontFamily:"'DM Sans',sans-serif"}}>
+              <h2 style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:24,fontWeight:700,color:"#111827",margin:0,letterSpacing:"-0.02em"}}>Your Care Plan</h2>
+              <p style={{color:"#6b7280",fontSize:13,margin:"6px 0 0",lineHeight:1.5}}>Our recommendation for protecting your investment over the next five years.</p>
             </div>
 
-            {/* Comparison table */}
-            <div style={{overflowX:"auto"}}>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                <thead>
-                  <tr style={{background:"#f9fafb"}}>
-                    <th style={{padding:"10px 12px",textAlign:"left",fontWeight:700,color:"#6b7280",fontSize:11,letterSpacing:1,textTransform:"uppercase",borderBottom:"2px solid #e5e7eb",width:"28%"}}>Feature</th>
-                    {planCols.map(col=>(
-                      <th key={col.id} style={{padding:"10px 12px",textAlign:"center",fontWeight:700,color:col.color,fontSize:11,letterSpacing:0.5,borderBottom:`2px solid ${form.carePlan===col.id?col.color:"#e5e7eb"}`,background:form.carePlan===col.id?col.bg:"#f9fafb"}}>
-                        {col.label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {PLAN_COMPARE.map((row, i) => (
-                    <tr key={row.category} style={{background:i%2===0?"white":"#fafafa"}}>
-                      <td style={{padding:"9px 12px",fontWeight:600,color:"#374151",borderBottom:"1px solid #f3f4f6"}}>{row.category}</td>
-                      {planCols.map(col=>(
-                        <td key={col.id} style={{
-                          padding:"9px 12px",textAlign:"center",color:"#374151",
-                          borderBottom:"1px solid #f3f4f6",lineHeight:1.4,
-                          background:form.carePlan===col.id?col.bg:undefined,
-                          fontWeight:form.carePlan===col.id?600:400,
-                        }}>
-                          {row[col.id]}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            {/* ===== COMPLETE CARE+ — The Recommendation ===== */}
+            <div
+              onClick={()=>upd("carePlan","complete")}
+              style={{
+                background: form.carePlan==="complete"
+                  ? "linear-gradient(135deg,#f0faf4 0%,#e6f4ed 100%)"
+                  : "#fafbfc",
+                border: form.carePlan==="complete" ? "2px solid #2d9d6a" : "2px solid #e5e7eb",
+                borderRadius:16, padding:"24px 24px 22px", cursor:"pointer",
+                transition:"all 0.25s ease", position:"relative",
+                boxShadow: form.carePlan==="complete" ? "0 4px 24px rgba(26,104,71,0.10)" : "0 1px 3px rgba(0,0,0,0.04)",
+                fontFamily:"'DM Sans',sans-serif",
+                marginTop:12,
+              }}
+            >
+              {/* Badge */}
+              <div style={{position:"absolute",top:-11,left:24,background:"#1a6847",color:"#fff",fontSize:11,fontWeight:600,padding:"4px 14px",borderRadius:20,letterSpacing:"0.04em",textTransform:"uppercase"}}>Recommended</div>
+
+              {/* Title row */}
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginTop:4}}>
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1a6847" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+                    <h3 style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:22,fontWeight:700,color:"#111827",margin:0}}>Complete Care+</h3>
+                  </div>
+                </div>
+                <div style={{textAlign:"right",flexShrink:0,marginLeft:16}}>
+                  <div style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:30,fontWeight:700,color:"#1a6847",lineHeight:1}}>$1,250</div>
+                  <div style={{fontSize:12,color:"#6b7280",marginTop:3}}>over 5 years</div>
+                </div>
+              </div>
+
+              {/* Annualized callout */}
+              <div style={{marginTop:14,padding:"8px 14px",background:"rgba(45,157,106,0.08)",borderRadius:10,display:"inline-block"}}>
+                <span style={{fontSize:13,fontWeight:600,color:"#1a6847"}}>$250/year</span>
+                <span style={{fontSize:13,color:"#4b5563"}}> for complete peace of mind</span>
+              </div>
+
+              {/* Feature list */}
+              <div style={{marginTop:16,display:"flex",flexDirection:"column",gap:8}}>
+                {[
+                  "Unlimited cleanings and appointments",
+                  "Repairs fully covered through year 4",
+                  "Loss & Damage protection for 4 years",
+                  "Year 1 visits included at no extra cost",
+                ].map(f => (
+                  <div key={f} style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:"#374151",lineHeight:1.4}}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2d9d6a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    {f}
+                  </div>
+                ))}
+              </div>
+
+              {/* Warranty timeline */}
+              <div style={{marginTop:18}}>
+                <div style={{fontSize:11,color:"#6b7280",fontWeight:500,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}}>Warranty & Repair Coverage</div>
+                <WarrantyTimeline years={4} />
+                <div style={{fontSize:11,color:"#9ca3af",marginTop:6,lineHeight:1.5}}>Only year 5 falls outside warranty. Out-of-warranty repairs: $310/aid.</div>
+              </div>
+
+              {/* PAYG anchor line */}
+              <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid rgba(0,0,0,0.06)",fontSize:12,color:"#6b7280",lineHeight:1.55}}>
+                Patients who pay per visit typically spend <span style={{fontWeight:700,color:"#92400e"}}>$1,300+</span> over five years with shorter warranty coverage and $65 copays per appointment.
+              </div>
+
+              {/* Radio indicator */}
+              <div style={{position:"absolute",top:28,right:24,width:20,height:20,borderRadius:"50%",border:form.carePlan==="complete"?"2px solid #2d9d6a":"2px solid #d1d5db",display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.2s ease"}}>
+                {form.carePlan==="complete" && <div style={{width:10,height:10,borderRadius:"50%",background:"#2d9d6a"}}/>}
+              </div>
+            </div>
+
+            {/* ===== Budget disclosure toggle ===== */}
+            <button
+              onClick={()=>setShowBudgetOption(!showBudgetOption)}
+              style={{width:"100%",marginTop:16,background:"none",border:"none",padding:"10px 0",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,fontSize:13,color:"#9ca3af",fontFamily:"'DM Sans',sans-serif",transition:"color 0.2s ease"}}
+            >
+              <span>Need a different option?</span>
+              <div style={{transform:showBudgetOption?"rotate(180deg)":"rotate(0deg)",transition:"transform 0.25s ease",display:"inline-flex"}}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              </div>
+            </button>
+
+            {/* ===== PUNCH CARD + PAY-AS-YOU-GO — Collapsible fallback ===== */}
+            <div style={{maxHeight:showBudgetOption?800:0,overflow:"hidden",transition:"max-height 0.35s cubic-bezier(0.16,1,0.3,1)"}}>
+              {/* Punch Card */}
+              <div
+                onClick={()=>upd("carePlan","punch")}
+                style={{
+                  background: form.carePlan==="punch" ? "#f8f9fb" : "#fff",
+                  border: form.carePlan==="punch" ? "2px solid #6b7280" : "1.5px solid #e5e7eb",
+                  borderRadius:14, padding:"18px 20px 16px", cursor:"pointer",
+                  transition:"all 0.2s ease", position:"relative",
+                  fontFamily:"'DM Sans',sans-serif",
+                  marginTop:8,
+                }}
+              >
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                  <div>
+                    <h4 style={{fontSize:16,fontWeight:600,color:"#374151",margin:0,fontFamily:"'DM Sans',sans-serif"}}>Treatment Punch Card</h4>
+                    <p style={{fontSize:12,color:"#6b7280",margin:"4px 0 0",lineHeight:1.5}}>Structured visits at a lower price point.</p>
+                  </div>
+                  <div style={{textAlign:"right",flexShrink:0,marginLeft:16}}>
+                    <div style={{fontSize:22,fontWeight:700,color:"#374151",fontFamily:"'Fraunces',Georgia,serif"}}>$575</div>
+                    <div style={{fontSize:11,color:"#9ca3af"}}>over 5 years</div>
+                  </div>
+                </div>
+
+                <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:5}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#6b7280"}}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    3 cleanings + 2 service visits per year
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#92400e"}}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                    Standard 3-year warranty only
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#92400e"}}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                    Out-of-warranty repairs: $250/aid year 4, $310/aid year 5
+                  </div>
+                </div>
+
+                <WarrantyTimeline years={3} />
+
+                <div style={{position:"absolute",top:20,right:20,width:18,height:18,borderRadius:"50%",border:form.carePlan==="punch"?"2px solid #6b7280":"2px solid #d1d5db",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {form.carePlan==="punch" && <div style={{width:9,height:9,borderRadius:"50%",background:"#6b7280"}}/>}
+                </div>
+              </div>
+
+              {/* Pay-As-You-Go */}
+              <div
+                onClick={()=>upd("carePlan","paygo")}
+                style={{
+                  background: form.carePlan==="paygo" ? "#f8f9fb" : "#fff",
+                  border: form.carePlan==="paygo" ? "2px solid #6b7280" : "1.5px solid #e5e7eb",
+                  borderRadius:14, padding:"18px 20px 16px", cursor:"pointer",
+                  transition:"all 0.2s ease", position:"relative",
+                  fontFamily:"'DM Sans',sans-serif",
+                  marginTop:10,
+                }}
+              >
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                  <div>
+                    <h4 style={{fontSize:16,fontWeight:600,color:"#374151",margin:0,fontFamily:"'DM Sans',sans-serif"}}>Pay-As-You-Go</h4>
+                    <p style={{fontSize:12,color:"#6b7280",margin:"4px 0 0",lineHeight:1.5}}>{isTruHearingTPA ? "Year 1 visits covered by plan. Per-visit billing after." : "No upfront plan cost. Billed per visit."}</p>
+                  </div>
+                  <div style={{textAlign:"right",flexShrink:0,marginLeft:16}}>
+                    <div style={{fontSize:22,fontWeight:700,color:"#374151",fontFamily:"'Fraunces',Georgia,serif"}}>{paygoPriceLabel}</div>
+                    <div style={{fontSize:11,color:"#9ca3af"}}>{paygoSubLabel}</div>
+                  </div>
+                </div>
+
+                <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:5}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#92400e"}}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                    $65 copay per cleaning, adjustment, and follow-up
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#92400e"}}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                    Standard 3-year warranty only
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#92400e"}}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                    Out-of-warranty repairs: $250/aid year 4, $310/aid year 5
+                  </div>
+                </div>
+
+                <WarrantyTimeline years={3} />
+
+                <div style={{position:"absolute",top:20,right:20,width:18,height:18,borderRadius:"50%",border:form.carePlan==="paygo"?"2px solid #6b7280":"2px solid #d1d5db",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {form.carePlan==="paygo" && <div style={{width:9,height:9,borderRadius:"50%",background:"#6b7280"}}/>}
+                </div>
+              </div>
+            </div>
+
+            {/* Footnote */}
+            <div style={{marginTop:18,padding:"10px 16px",background:"#f9fafb",borderRadius:10,fontSize:11,color:"#9ca3af",lineHeight:1.6,fontFamily:"'DM Sans',sans-serif"}}>
+              All plans include a one-time Loss & Damage replacement per device ($275/device). Most manufacturers will not service devices older than six years.
             </div>
 
             {/* Total investment */}
