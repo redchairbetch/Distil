@@ -732,6 +732,22 @@ const TH_STYLES = [
   { id:"sr",     label:"SR (Slim RIC)" },
 ];
 
+// Body-style categories for the TH card picker. Borrows private-pay imagery
+// (BODY_STYLE_IMG). IF uses the IIC image. Each category maps to one or more
+// specific TH_STYLES ids — when multiple, a Variant sub-picker appears after Model.
+const TH_BODY_STYLES = [
+  { id:"ric", label:"RIC", desc:"Receiver-in-canal · Most popular", img:imgRIC, thStyleIds:["ric","ric_bct","sr"] },
+  { id:"bte", label:"BTE", desc:"Behind-the-ear · Maximum power",    img:imgBTE, thStyleIds:["s_bte","p_bte","sp_bte"] },
+  { id:"ite", label:"ITE", desc:"In-the-ear · Full / half shell",    img:imgITE, thStyleIds:["hs","fs"] },
+  { id:"itc", label:"ITC", desc:"In-the-canal · Half shell",         img:imgITC, thStyleIds:["itc"] },
+  { id:"cic", label:"CIC", desc:"Completely-in-canal",                img:imgCIC, thStyleIds:["cic"] },
+  { id:"iic", label:"IIC", desc:"Invisible-in-canal",                 img:imgIIC, thStyleIds:["iic"] },
+  { id:"if",  label:"IF",  desc:"Instant Fit",                        img:imgIIC, thStyleIds:["if"] },
+];
+const TH_STYLE_TO_BODY = Object.fromEntries(
+  TH_BODY_STYLES.flatMap(b => b.thStyleIds.map(sid => [sid, b.id]))
+);
+
 const TH_MODELS = [
   { id:"th7",   label:"TruHearing 7",    li:false },
   { id:"th7li", label:"TruHearing 7 Li", li:true },
@@ -1486,7 +1502,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const EMPTY_SIDE = () => ({
     style:"", manufacturer:"", generation:"", familyId:"", variant:"",
     techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false,
-    thModel:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""
+    thModel:"", thBodyStyle:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""
   });
 
 
@@ -1495,8 +1511,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
     firstName:"", lastName:"", dob:"", phone:"", email:"", address:"",
     payType:"insurance",
     carrier:"", planGroup:"", tpa:"", tier:"", tierPrice:null,
-    left: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, thModel:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""},
-    right: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, thModel:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""},
+    left: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, thModel:"", thBodyStyle:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""},
+    right: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, thModel:"", thBodyStyle:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""},
     audiology: { rightT:{}, leftT:{}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:null, unaidedL:null, aidedR:null, aidedL:null, wrMclR:null, wrMclL:null, sinBin:null, cctR:null, cctL:null, cctLevelR:null, cctLevelL:null },
     carePlan:"",
     appointments:[],
@@ -2888,14 +2904,27 @@ export default function ProviderCRM({ staffId, clinicId }) {
     // ── TruHearing cascade derived values ──
     const tierLabels = privateLabelTiers.map(t => t.label);
 
-    // Models available for selected tech level
-    const thAvailModels = sd.techLevel
-      ? TH_MODELS.filter(m => TH_AVAILABILITY[`${m.id}|${sd.techLevel}`]?.length > 0)
+    // Body-style categories available for the selected tech tier (tier-only scope).
+    // A category is shown if at least one (model × specific style) in TH_AVAILABILITY maps to it.
+    const thAvailBodyStyles = sd.techLevel
+      ? TH_BODY_STYLES.filter(b =>
+          TH_MODELS.some(m =>
+            (TH_AVAILABILITY[`${m.id}|${sd.techLevel}`] || []).some(sid => TH_STYLE_TO_BODY[sid] === b.id)
+          )
+        )
       : [];
 
-    // Styles available for selected model+techLevel
-    const thAvailStyles = sd.thModel && sd.techLevel
+    // Models available for selected tier + body-style category
+    const thAvailModels = sd.techLevel && sd.thBodyStyle
+      ? TH_MODELS.filter(m =>
+          (TH_AVAILABILITY[`${m.id}|${sd.techLevel}`] || []).some(sid => TH_STYLE_TO_BODY[sid] === sd.thBodyStyle)
+        )
+      : [];
+
+    // Specific TH style variants available for the selected model+tier+body-style
+    const thAvailVariants = sd.thModel && sd.techLevel && sd.thBodyStyle
       ? (TH_AVAILABILITY[`${sd.thModel}|${sd.techLevel}`] || [])
+          .filter(sid => TH_STYLE_TO_BODY[sid] === sd.thBodyStyle)
           .map(sid => TH_STYLES.find(s => s.id === sid)).filter(Boolean)
       : [];
 
@@ -2926,7 +2955,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     const thTierPrice = privateLabelTiers.find(t => t.label === sd.techLevel)?.price ?? 0;
     return { availMfrs, availGens, availFamilies, selectedFamily, availColors, availBatteries,
       availPowers, availDomes, selectedPower, requiresEarmold, variantRequired, hasCROSVariant,
-      thAvailModels, thAvailStyles, thGainOptions, thColorCategory, thBattery, thIsLi,
+      thAvailBodyStyles, thAvailModels, thAvailVariants, thGainOptions, thColorCategory, thBattery, thIsLi,
       thRequiresEarmold, thHasReceiver, thTierPrice };
   };
   const leftDerived = getSideDerived(form.left);
@@ -3734,25 +3763,55 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 </div>
               </div>
 
-              {/* 2. Model */}
-              {s.techLevel && d.thAvailModels.length > 0 && (
-                <div className="field" style={{marginBottom:16}}><label>Model</label>
-                  <div className="radio-group" style={{flexWrap:"wrap"}}>
-                    {d.thAvailModels.map(m=>(
-                      <div key={m.id} className={`radio-pill ${s.thModel===m.id?"active":""}`}
-                        onClick={()=>setForm(f=>({...f,[side]:{...f[side], thModel:m.id, style:"", color:"", faceplateColor:"", shellColor:"", gainMatrix:"", battery:"", receiverLength:"", receiverPower:"", dome:"", domeCategory:"", domeSize:"", familyId:"", variant:"", generation:""}}))}>
-                        <div className="radio-pill-label">{m.label}</div>
+              {/* 2. Body Style (card grid — mirrors private-pay imagery) */}
+              {s.techLevel && d.thAvailBodyStyles.length > 0 && (
+                <div className="field" style={{marginBottom:16}}><label>Body Style</label>
+                  <div className="style-grid">
+                    {d.thAvailBodyStyles.map(bs=>(
+                      <div key={bs.id} className={`style-card ${s.thBodyStyle===bs.id?"active":""}`}
+                        onClick={()=>setForm(f=>({...f,[side]:{...f[side], thBodyStyle:bs.id, thModel:"", style:"", color:"", faceplateColor:"", shellColor:"", gainMatrix:"", battery:"", receiverLength:"", receiverPower:"", dome:"", domeCategory:"", domeSize:""}}))}>
+                        {bs.img && (
+                          <img src={bs.img} alt={bs.label}
+                            style={{display:"block",margin:"0 auto 6px",width:56,height:56,objectFit:"contain",opacity:s.thBodyStyle===bs.id?1:0.5}} />
+                        )}
+                        <div className="style-id">{bs.label}</div>
+                        <div className="style-desc">{bs.desc}</div>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* 3. Style */}
-              {s.thModel && d.thAvailStyles.length > 0 && (
-                <div className="field" style={{marginBottom:16}}><label>Style</label>
+              {/* 3. Model */}
+              {s.thBodyStyle && d.thAvailModels.length > 0 && (
+                <div className="field" style={{marginBottom:16}}><label>Model</label>
                   <div className="radio-group" style={{flexWrap:"wrap"}}>
-                    {d.thAvailStyles.map(st=>{
+                    {d.thAvailModels.map(m=>{
+                      // If this model+body-style resolves to exactly one specific TH style,
+                      // auto-select it (battery/gain/shell too) so no variant sub-picker is needed.
+                      const variantIds = (TH_AVAILABILITY[`${m.id}|${s.techLevel}`] || [])
+                        .filter(sid => TH_STYLE_TO_BODY[sid] === s.thBodyStyle);
+                      const autoStyle = variantIds.length === 1 ? variantIds[0] : "";
+                      const autoBattery = autoStyle ? (TH_BATTERY[`${m.id}|${autoStyle}`] || "") : "";
+                      const autoGainOpts = autoStyle ? (TH_GAIN_MATRIX[`${m.id}|${autoStyle}`] || []) : [];
+                      const autoGain = autoGainOpts.length === 1 ? autoGainOpts[0].id : "";
+                      const autoShell = autoStyle === "if" ? "Red/Blue" : "";
+                      return (
+                        <div key={m.id} className={`radio-pill ${s.thModel===m.id?"active":""}`}
+                          onClick={()=>setForm(f=>({...f,[side]:{...f[side], thModel:m.id, style:autoStyle, color:"", faceplateColor:"", shellColor:autoShell, gainMatrix:autoGain, battery:autoBattery, receiverLength:"", receiverPower:"", dome:"", domeCategory:"", domeSize:"", familyId:"", variant:"", generation:""}}))}>
+                          <div className="radio-pill-label">{m.label}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* 4. Variant — only shown when one body-style category maps to multiple specific TH styles (e.g. BTE → S/P/SP, RIC → RIC/RIC+BCT/SR, ITE → HS/FS) */}
+              {s.thModel && d.thAvailVariants.length > 1 && (
+                <div className="field" style={{marginBottom:16}}><label>Variant</label>
+                  <div className="radio-group" style={{flexWrap:"wrap"}}>
+                    {d.thAvailVariants.map(st=>{
                       const autoBattery = TH_BATTERY[`${s.thModel}|${st.id}`] || "";
                       const autoGainOptions = TH_GAIN_MATRIX[`${s.thModel}|${st.id}`] || [];
                       const autoGain = autoGainOptions.length === 1 ? autoGainOptions[0].id : "";
