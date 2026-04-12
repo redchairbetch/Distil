@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-
-const storage = window.storage;
+import { supabase } from './supabase.js'
 
 // ── DEMO PATIENT (shown when no real data exists yet) ─────────────────────────
 const DEMO = {
@@ -50,6 +49,79 @@ const TROUBLESHOOT_TIPS = [
   { q:"Bluetooth not connecting", a:"Open your phone's Bluetooth settings and forget the device. Power cycle the hearing aid, then re-pair. Stay within 30 feet of your phone." },
 ];
 
+// ── Achievement badge display map ────────────────────────────────────────────
+const ACHIEVEMENT_DISPLAY = {
+  first_fitting:         { emoji: '🎧', label: 'First Fitting' },
+  one_year_anniversary:  { emoji: '🎂', label: '1 Year Strong' },
+  three_year_anniversary:{ emoji: '🏆', label: '3 Year Veteran' },
+  five_year_anniversary: { emoji: '⭐', label: '5 Year Champion' },
+  six_year_survivor:     { emoji: '🦴', label: 'Stubborn Survivor' },
+  care_plan_streak_6:    { emoji: '🔥', label: '6-Month Streak' },
+  care_plan_streak_12:   { emoji: '💎', label: 'Full Year Streak' },
+  lima_charlie_donor:    { emoji: '🎖️', label: 'Lima Charlie Donor' },
+  early_upgrader:        { emoji: '⚡', label: 'Early Upgrader' },
+  serial_upgrader:       { emoji: '🚀', label: 'Serial Upgrader' },
+  two_sets_one_year:     { emoji: '😅', label: 'Overachiever' },
+  hearing_champion:      { emoji: '👑', label: 'Hearing Champion' },
+};
+
+// ── Map Supabase patient join to the flat shape Aided's render functions expect ──
+function mapSupabasePatientToAidedShape(data) {
+  // Find the most recent active fitting
+  const fitting = (data.device_fittings || [])
+    .sort((a, b) => new Date(b.fitting_date || 0) - new Date(a.fitting_date || 0))[0];
+
+  // Get device sides from the fitting
+  const sides = fitting?.device_sides || [];
+  const left = sides.find(s => s.side === 'left') || {};
+  const right = sides.find(s => s.side === 'right') || {};
+  // Use left side as primary for display (bilateral assumption)
+  const primary = left.id ? left : right;
+
+  // Find insurance coverage
+  const coverage = (data.insurance_coverage || [])[0];
+
+  // Map appointments to expected shape
+  const appointments = (data.appointments || []).map(a => ({
+    date: a.appointment_date || a.date,
+    type: a.appointment_type || a.type || 'Appointment',
+  }));
+
+  return {
+    id: data.id,
+    name: [data.first_name, data.last_name].filter(Boolean).join(' ') || data.name || 'Patient',
+    dob: data.date_of_birth || data.dob,
+    phone: data.phone,
+    location: data.clinic_name || '',
+    payType: coverage ? 'insurance' : (data.pay_type || 'private'),
+    insurance: coverage ? {
+      carrier: coverage.carrier || coverage.insurance_carrier,
+      planGroup: coverage.plan_group || coverage.plan_name,
+      tpa: coverage.tpa,
+      tier: coverage.tier,
+      tierPrice: coverage.tier_price || coverage.copay,
+    } : null,
+    devices: fitting ? {
+      manufacturer: fitting.manufacturer || primary.manufacturer,
+      model: fitting.model || primary.model,
+      style: fitting.style || primary.style || 'ric',
+      color: primary.color || fitting.color,
+      battery: primary.battery_type || fitting.battery_type || 'Rechargeable',
+      receiver: primary.receiver || fitting.receiver,
+      dome: primary.dome || fitting.dome,
+      fittingDate: fitting.fitting_date,
+      warrantyExpiry: fitting.warranty_expiry || fitting.warranty_end,
+      serialLeft: left.serial_number || '',
+      serialRight: right.serial_number || '',
+    } : DEMO.devices, // Fallback to demo devices if no fitting found
+    carePlan: fitting?.care_plan || data.care_plan || 'complete',
+    appointments,
+    notes: data.notes,
+    createdAt: data.created_at,
+    clinic_id: data.clinic_id,
+  };
+}
+
 export default function PatientApp() {
   const [patient, setPatient] = useState(null);
   const [clinicName, setClinicName] = useState("My Hearing Centers");
@@ -63,25 +135,54 @@ export default function PatientApp() {
   const [expandedTip, setExpandedTip] = useState(null);
   const [punchUsed, setPunchUsed] = useState({ cleanings: 0, appointments: 0 });
   const [punchConfirm, setPunchConfirm] = useState(null); // "cleaning" | "appointment" | null
+  const [achievements, setAchievements] = useState([]);
   const messagesEndRef = useRef(null);
 
-  // Load punch card state from patient-specific storage key
+  // Load punch card state from Supabase (or skip for demo patient)
   useEffect(() => {
-    if (!patient) return;
+    if (!patient || patient.id === 'DEMO01') return;
     (async () => {
       try {
-        // Prefer patient-specific key (written by CRM), fall back to legacy key
-        const saved = await storage.get(`punch:${patient.id}`);
-        if (saved?.value) { setPunchUsed(JSON.parse(saved.value)); return; }
-        const legacy = await storage.get("punch_card_used");
-        if (legacy?.value) setPunchUsed(JSON.parse(legacy.value));
+        const { data } = await supabase
+          .from('punch_card_usage')
+          .select('cleanings, appointments')
+          .eq('patient_id', patient.id)
+          .single();
+        if (data) {
+          setPunchUsed({ cleanings: data.cleanings, appointments: data.appointments });
+        }
+      } catch {}
+    })();
+  }, [patient?.id]);
+
+  // Load achievements from Supabase (skip for demo patient)
+  useEffect(() => {
+    if (!patient || patient.id === 'DEMO01') { setAchievements([]); return; }
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('patient_achievements')
+          .select('achievement, earned_at')
+          .eq('patient_id', patient.id)
+          .order('earned_at', { ascending: true });
+        if (data?.length) setAchievements(data);
       } catch {}
     })();
   }, [patient?.id]);
 
   const savePunch = async (next) => {
     setPunchUsed(next);
-    try { await storage.set("punch_card_used", JSON.stringify(next)); } catch {}
+    if (!patient || patient.id === 'DEMO01') return; // Don't persist demo data
+    try {
+      await supabase.from('punch_card_usage').upsert({
+        patient_id: patient.id,
+        cleanings: next.cleanings,
+        appointments: next.appointments,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'patient_id' });
+    } catch (err) {
+      console.warn('Punch card save failed:', err);
+    }
   };
 
   const usePunch = async (type) => {
@@ -101,29 +202,48 @@ export default function PatientApp() {
   };
 
   useEffect(() => {
-    // Always render immediately with demo data — update if real storage data loads
+    // Always render immediately with demo data — update if real Supabase session exists
     setPatient(DEMO);
     (async () => {
       try {
-        // Load clinic name from Distil settings
-        const cn = await storage.get("clinic_name");
-        if (cn?.value) setClinicName(cn.value);
-        else {
-          const cs = await storage.get("clinic_settings");
-          if (cs?.value) setClinicName(JSON.parse(cs.value).name || "My Hearing Centers");
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData?.session?.user) {
+          const patientId = sessionData.session.user.id;
+
+          const { data: patientData } = await supabase
+            .from('patients')
+            .select(`
+              *,
+              insurance_coverage(*),
+              device_fittings(
+                *,
+                device_sides(*)
+              ),
+              appointments(*)
+            `)
+            .eq('id', patientId)
+            .single();
+
+          if (patientData) {
+            // Load clinic name from clinics table using patient's clinic_id
+            if (patientData.clinic_id) {
+              const { data: clinic } = await supabase
+                .from('clinics')
+                .select('name')
+                .eq('id', patientData.clinic_id)
+                .single();
+              if (clinic?.name) setClinicName(clinic.name);
+            }
+
+            const mapped = mapSupabasePatientToAidedShape(patientData);
+            setPatient(mapped);
+            return;
+          }
         }
-        const activeId = await storage.get("active_patient_id");
-        if (activeId?.value) {
-          const data = await storage.get(`patient:${activeId.value}`);
-          if (data?.value) { setPatient(JSON.parse(data.value)); return; }
-        }
-        // Fall back to most recent patient in storage
-        const keys = await storage.list("patient:");
-        if (keys?.keys?.length > 0) {
-          const last = await storage.get(keys.keys[0]);
-          if (last?.value) { setPatient(JSON.parse(last.value)); }
-        }
-      } catch {}
+        // No session or no patient found — stay on DEMO
+      } catch (err) {
+        console.warn('Patient load failed, using demo:', err);
+      }
     })();
   }, []);
 
@@ -395,6 +515,29 @@ export default function PatientApp() {
             </div>
           )}
         </div>
+
+        {/* Achievements — only show if the patient has earned any */}
+        {achievements.length > 0 && (
+          <div className="section">
+            <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>Achievements</div>
+            <div style={{display:"flex",gap:12,overflowX:"auto",paddingBottom:4,WebkitOverflowScrolling:"touch"}}>
+              {achievements.map((a, i) => {
+                const display = ACHIEVEMENT_DISPLAY[a.achievement];
+                if (!display) return null;
+                return (
+                  <div key={i} style={{
+                    minWidth:100,flexShrink:0,background:"white",borderRadius:14,padding:"14px 12px",
+                    textAlign:"center",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"
+                  }}>
+                    <div style={{fontSize:28,marginBottom:6}}>{display.emoji}</div>
+                    <div style={{fontSize:12,fontWeight:700,color:"#0a1628",marginBottom:4}}>{display.label}</div>
+                    <div style={{fontSize:10,color:"#9ca3af"}}>{fmtDate(a.earned_at)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </>
   );
