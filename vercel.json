@@ -2,21 +2,5 @@
   "installCommand": "npm ci",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
-  ],
-  "projects": [
-    {
-      "name": "distil",
-      "rootDirectory": ".",
-      "buildCommand": "vite build",
-      "outputDirectory": "dist",
-      "framework": "vite"
-    },
-    {
-      "name": "aided",
-      "rootDirectory": "aided",
-      "buildCommand": "vite build",
-      "outputDirectory": "dist",
-      "framework": "vite"
-    }
   ]
 }
