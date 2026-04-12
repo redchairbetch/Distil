@@ -155,8 +155,8 @@ const INSURANCE_PLANS = [
   { carrier:"SCAN", planGroup:"Prefix 40010939801", tpa:"TruHearing", tiers:[{label:"Advanced",price:450}, {label:"Premium",price:750}] },
   { carrier:"SCAN", planGroup:"SCAN Classic HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:550}, {label:"Premium",price:850}] },
   { carrier:"SCAN", planGroup:"SCAN Venture HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:550}, {label:"Premium",price:850}] },
-  { carrier:"Select Health Advantage", planGroup:"All Plans", tpa:"TruHearing", tiers:[{label:"Standard",price:99}, {label:"Advanced",price:399}, {label:"Premium",price:699}] },
-  { carrier:"Select Health", planGroup:"Medicare + Kroger HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  { carrier:"Select Health Advantage", planGroup:"Medicare Advantage", tpa:"TruHearing", tiers:[{label:"Standard",price:99}, {label:"Advanced",price:399}, {label:"Premium",price:699}] },
+  { carrier:"Select Health", planGroup:"Medicare Kroger HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
   { carrier:"Select Health", planGroup:"Medicare Choice PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
   { carrier:"Select Health", planGroup:"Medicare Essential HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
   { carrier:"Select Health", planGroup:"Medicare Classic HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
@@ -4176,11 +4176,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
       const aidBase = form.tierPrice != null ? form.tierPrice * aidCount : null;
       const aidTotal = aidBase;
       const isTruHearing = form.tpa === "TruHearing";
-      const isUHCH = form.tpa === "United Healthcare Hearing";
-      const isTruHearingTPA = isTruHearing || isUHCH;
+      const isTruHearingTPA = isTruHearing;
 
       const cpCostFor = (id) =>
-        id === "paygo"    ? (isTruHearing ? 975 : isUHCH ? 1235 : 0)
+        id === "paygo"    ? (isTruHearing ? 975 : 0)
         : id === "punch"  ? 575
         : 1250;
 
@@ -4258,7 +4257,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
       );
 
       // Pay-As-You-Go price label (TPA-aware)
-      const paygoPriceLabel = isTruHearing ? "$975 est." : isUHCH ? "$1,235 est." : "$65/visit";
+      const paygoPriceLabel = isTruHearing ? "$975 est." : "$65/visit";
       const paygoSubLabel   = isTruHearingTPA ? "est. over 4 yrs" : "per visit";
 
       if (form.payType === "private") return (
@@ -4335,8 +4334,11 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 marginTop:12,
               }}
             >
-              {/* Badge */}
-              <div style={{position:"absolute",top:-11,left:24,background:"#1a6847",color:"#fff",fontSize:11,fontWeight:600,padding:"4px 14px",borderRadius:20,letterSpacing:"0.04em",textTransform:"uppercase"}}>Recommended</div>
+              {/* Badges */}
+              <div style={{position:"absolute",top:-11,left:24,display:"flex",gap:6}}>
+                <div style={{background:"#1a6847",color:"#fff",fontSize:11,fontWeight:600,padding:"4px 14px",borderRadius:20,letterSpacing:"0.04em",textTransform:"uppercase"}}>Recommended</div>
+                <div style={{background:"#0e7490",color:"#fff",fontSize:11,fontWeight:600,padding:"4px 14px",borderRadius:20,letterSpacing:"0.04em",textTransform:"uppercase"}}>Most Coverage</div>
+              </div>
 
               {/* Title row */}
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginTop:4}}>
@@ -4410,12 +4412,14 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 style={{
                   background: form.carePlan==="punch" ? "#f8f9fb" : "#fff",
                   border: form.carePlan==="punch" ? "2px solid #6b7280" : "1.5px solid #e5e7eb",
-                  borderRadius:14, padding:"18px 20px 16px", cursor:"pointer",
+                  borderRadius:14, padding:"24px 20px 16px", cursor:"pointer",
                   transition:"all 0.2s ease", position:"relative",
                   fontFamily:"'DM Sans',sans-serif",
-                  marginTop:8,
+                  marginTop:14,
                 }}
               >
+                {/* Badge */}
+                <div style={{position:"absolute",top:-11,left:20,background:"#b45309",color:"#fff",fontSize:11,fontWeight:600,padding:"4px 14px",borderRadius:20,letterSpacing:"0.04em",textTransform:"uppercase"}}>Most Savings</div>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                   <div>
                     <h4 style={{fontSize:16,fontWeight:600,color:"#374151",margin:0,fontFamily:"'DM Sans',sans-serif"}}>Treatment Punch Card</h4>
@@ -4516,7 +4520,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       <span>{selectedPlan?.label}</span>
                       <span style={{fontWeight:600}}>
                         {form.carePlan==="paygo"
-                          ? (isTruHearing?"$975 est.":isUHCH?"$1,235 est.":"$65/visit")
+                          ? (isTruHearing?"$975 est.":"$65/visit")
                           : `$${cpCost.toLocaleString()}`}
                       </span>
                     </div>
@@ -4528,7 +4532,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     {aidCount===1 && <div style={{fontSize:10,color:"rgba(255,255,255,0.3)",marginTop:2}}>One ear · configure second to update</div>}
                     {form.carePlan==="paygo" && (
                       <div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginTop:2}}>
-                        {isTruHearing?"est. · yr 1 covered, 15 visits yrs 2–4":isUHCH?"est. · first 3 mo. covered, 19 visits remaining":"care plan billed per visit"}
+                        {isTruHearing?"est. · yr 1 covered, 15 visits yrs 2–4":"care plan billed per visit"}
                       </div>
                     )}
                   </div>
@@ -4546,7 +4550,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
             {/* ── Fork: Sign PA / Generate Quote / Continue ────────── */}
             <div style={{marginTop:24,display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
-              <div style={{display:"flex",gap:12,width:"100%",justifyContent:"center"}}>
+              <div style={{display:"flex",gap:12,width:"100%",justifyContent:"center",flexWrap:"wrap"}}>
                 <button
                   disabled={!(form.payType === "private" || !!form.carePlan)}
                   style={{background:"#15803d",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",opacity:(form.payType === "private" || !!form.carePlan)?1:0.4,display:"flex",alignItems:"center",gap:8}}
@@ -4562,6 +4566,17 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   <span style={{fontSize:16}}>📄</span> Generate Quote
                 </button>
               </div>
+              {isTruHearingTPA && (
+                <a
+                  href="https://echo.truhearing.com/#/auth/login"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{display:"flex",alignItems:"center",gap:8,background:"#7c3aed",color:"white",border:"none",borderRadius:8,padding:"10px 22px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",textDecoration:"none"}}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                  TruHearing Provider Login
+                </a>
+              )}
               <button
                 disabled={!(form.payType === "private" || !!form.carePlan)}
                 style={{background:"none",border:"none",color:"#9ca3af",fontFamily:"'Sora',sans-serif",fontSize:12,cursor:"pointer",padding:"4px 12px",opacity:(form.payType === "private" || !!form.carePlan)?1:0.4}}
