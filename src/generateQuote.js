@@ -153,8 +153,7 @@ export function generateQuote({
 
   // TPA-specific PAYG cost for savings calc
   const isTruHearing = (tpa || '').toLowerCase().includes('truhearing')
-  const isUHCH = (tpa || '').toLowerCase().includes('uhc')
-  const paygo4yr = isTruHearing ? 975 : isUHCH ? 1235 : 20 * 65
+  const paygo4yr = isTruHearing ? 975 : 20 * 65
 
   let y = MARGIN
 
@@ -443,9 +442,7 @@ export function generateQuote({
     doc.setFontSize(7.5)
     doc.text(isTruHearing
       ? 'Based on TruHearing Select visit bundling over the warranty period.'
-      : isUHCH
-        ? 'Based on UnitedHealthcare Hearing visit bundling over the warranty period.'
-        : 'Based on ~5 visits/year at $65/visit over a 4-year lifecycle.',
+      : 'Based on ~5 visits/year at $65/visit over a 4-year lifecycle.',
       MARGIN + 8, y)
     y += 20
   }
