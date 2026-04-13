@@ -5227,10 +5227,38 @@ export default function ProviderCRM({ staffId, clinicId }) {
             )}
             {p.devices && (p.carePlan || p.payType === "private") && (
               <button
+                style={{background:"#f0fdf4",color:"#15803d",border:"1px solid #86efac",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
+                onClick={() => {
+                  const isCROS = [p.devices?.left, p.devices?.right].some(r => r?.variant?.toLowerCase().includes("cros"));
+                  const hasLeft = !!p.devices?.left;
+                  const hasRight = !!p.devices?.right;
+                  const fittingType = hasLeft && hasRight ? (isCROS ? "cros_bicros" : "bilateral") : hasLeft ? "monaural_left" : "monaural_right";
+                  const counselingSections = p.audiology ? generateCounseling(p.audiology) : null;
+                  downloadQuote({
+                    patient: { name: p.name, phone: p.phone },
+                    devices: { fittingType, left: p.devices?.left || null, right: p.devices?.right || null },
+                    pricePerAid: p.payType === "private" ? 2750 : (p.insurance?.tierPrice || 0),
+                    selectedCarePlan: p.carePlan || "complete",
+                    payType: p.payType,
+                    tpa: p.insurance?.tpa,
+                    carrier: p.insurance?.carrier,
+                    audiology: p.audiology,
+                    counselingSections,
+                    clinic: staffProfile?.clinic || clinic,
+                    provider: { fullName: staffProfile?.fullName || "Provider", activeLicense: staffProfile?.activeLicense || "" },
+                  });
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                Generate Quote
+              </button>
+            )}
+            {p.devices && (p.carePlan || p.payType === "private") && (
+              <button
                 style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
                 onClick={() => { setPaSignatureName(""); setPaDeliveryName(""); setPaDeliveryDate(""); setPaStep("sign"); setShowPurchaseAgreement(true); }}
               >
-                <span style={{fontSize:14}}>📄</span> Purchase Agreement
+                <span style={{fontSize:14}}>📄</span> Generate Purchase Agreement
               </button>
             )}
             <button className="btn-ghost" onClick={()=>setView("dashboard")}>{"\u2190"} Back</button>
