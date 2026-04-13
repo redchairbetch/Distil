@@ -43,6 +43,7 @@ import {
   enrollPatientInCampaign,
   loadPatientCampaigns,
   seedDefaultCampaign,
+  seedTNSCampaign,
   backfillCampaignEnrollment,
   loadInsurancePlans,
   resolveInsurancePlanId,
@@ -5099,6 +5100,11 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 if (result) alert("Default campaign seeded! Check the Campaigns view.");
                 else alert("Campaign already exists or error occurred.");
               }}>Seed Default Campaign</button>
+              <button className="btn-primary" onClick={async ()=>{
+                const result = await seedTNSCampaign(clinicId, staffId);
+                if (result) alert("TNS campaign seeded! Check the Campaigns view.");
+                else alert("TNS campaign already exists or error occurred.");
+              }}>Seed TNS Campaign</button>
               <button className="btn-ghost" onClick={async ()=>{
                 const result = await backfillCampaignEnrollment(clinicId, staffId);
                 alert(`Backfill complete: ${result.enrolled} enrolled, ${result.skipped} skipped.${result.error ? ' ' + result.error : ''}`);
