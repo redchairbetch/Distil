@@ -1135,6 +1135,71 @@ const PHONEMES=[
 ];
 const HIGH_FREQ_CONSONANTS=['s','th','f','sh','ch','k','p'];
 
+// Pre-annotated paragraph for hearing simulation. Each segment: {t:text, ph:phoneme|null}
+// Paragraph intentionally loads high-frequency consonants (s,f,th,sh,ch,k,p).
+const HEARING_SIM_TEXT = [
+  // "Can you hear me? "
+  {t:"C",ph:"k"},{t:"a",ph:"a"},{t:"n",ph:"n"},{t:" "},
+  {t:"y",ph:"j"},{t:"ou",ph:"u"},{t:" "},
+  {t:"h",ph:"h"},{t:"ea",ph:"i"},{t:"r",ph:"r"},{t:" "},
+  {t:"m",ph:"m"},{t:"e",ph:"i"},{t:"?"},{t:" "},
+  // "My wife says I keep the television too loud, "
+  {t:"M",ph:"m"},{t:"y",ph:"a"},{t:" "},
+  {t:"w",ph:"v"},{t:"i",ph:"a"},{t:"f",ph:"f"},{t:"e"},{t:" "},
+  {t:"s",ph:"s"},{t:"a",ph:"e"},{t:"y",ph:"i"},{t:"s",ph:"z"},{t:" "},
+  {t:"I",ph:"a"},{t:" "},
+  {t:"k",ph:"k"},{t:"ee",ph:"i"},{t:"p",ph:"p"},{t:" "},
+  {t:"th",ph:"th"},{t:"e",ph:"e"},{t:" "},
+  {t:"t",ph:"d"},{t:"e",ph:"e"},{t:"l",ph:"l"},{t:"e",ph:"e"},{t:"v",ph:"v"},{t:"i",ph:"i"},{t:"s",ph:"z"},{t:"i",ph:"i"},{t:"o",ph:"o"},{t:"n",ph:"n"},{t:" "},
+  {t:"t",ph:"d"},{t:"oo",ph:"u"},{t:" "},
+  {t:"l",ph:"l"},{t:"ou",ph:"o"},{t:"d",ph:"d"},{t:","},{t:" "},
+  // "but the sound seems fine to me. "
+  {t:"b",ph:"b"},{t:"u",ph:"u"},{t:"t",ph:"d"},{t:" "},
+  {t:"th",ph:"th"},{t:"e",ph:"e"},{t:" "},
+  {t:"s",ph:"s"},{t:"ou",ph:"o"},{t:"n",ph:"n"},{t:"d",ph:"d"},{t:" "},
+  {t:"s",ph:"s"},{t:"ee",ph:"i"},{t:"m",ph:"m"},{t:"s",ph:"z"},{t:" "},
+  {t:"f",ph:"f"},{t:"i",ph:"a"},{t:"n",ph:"n"},{t:"e"},{t:" "},
+  {t:"t",ph:"d"},{t:"o",ph:"u"},{t:" "},
+  {t:"m",ph:"m"},{t:"e",ph:"i"},{t:"."},{t:" "},
+  // "She thinks I should get my hearing checked. "
+  {t:"Sh",ph:"sh"},{t:"e",ph:"i"},{t:" "},
+  {t:"th",ph:"th"},{t:"i",ph:"i"},{t:"n",ph:"n"},{t:"k",ph:"k"},{t:"s",ph:"s"},{t:" "},
+  {t:"I",ph:"a"},{t:" "},
+  {t:"sh",ph:"sh"},{t:"ou",ph:"u"},{t:"l",ph:"l"},{t:"d",ph:"d"},{t:" "},
+  {t:"g",ph:"g"},{t:"e",ph:"e"},{t:"t",ph:"d"},{t:" "},
+  {t:"m",ph:"m"},{t:"y",ph:"a"},{t:" "},
+  {t:"h",ph:"h"},{t:"ea",ph:"i"},{t:"r",ph:"r"},{t:"i",ph:"i"},{t:"n",ph:"n"},{t:"g",ph:"g"},{t:" "},
+  {t:"ch",ph:"ch"},{t:"e",ph:"e"},{t:"ck",ph:"k"},{t:"e",ph:"e"},{t:"d",ph:"d"},{t:"."},{t:" "},
+  // "I can hear people speaking, "
+  {t:"I",ph:"a"},{t:" "},
+  {t:"c",ph:"k"},{t:"a",ph:"a"},{t:"n",ph:"n"},{t:" "},
+  {t:"h",ph:"h"},{t:"ea",ph:"i"},{t:"r",ph:"r"},{t:" "},
+  {t:"p",ph:"p"},{t:"eo",ph:"i"},{t:"p",ph:"p"},{t:"l",ph:"l"},{t:"e",ph:"e"},{t:" "},
+  {t:"s",ph:"s"},{t:"p",ph:"p"},{t:"ea",ph:"i"},{t:"k",ph:"k"},{t:"i",ph:"i"},{t:"n",ph:"n"},{t:"g",ph:"g"},{t:","},{t:" "},
+  // "but sometimes the words just aren't clear "
+  {t:"b",ph:"b"},{t:"u",ph:"u"},{t:"t",ph:"d"},{t:" "},
+  {t:"s",ph:"s"},{t:"o",ph:"o"},{t:"m",ph:"m"},{t:"e",ph:"e"},{t:"t",ph:"d"},{t:"i",ph:"a"},{t:"m",ph:"m"},{t:"e",ph:"e"},{t:"s",ph:"z"},{t:" "},
+  {t:"th",ph:"th"},{t:"e",ph:"e"},{t:" "},
+  {t:"w",ph:"v"},{t:"or",ph:"r"},{t:"d",ph:"d"},{t:"s",ph:"z"},{t:" "},
+  {t:"j",ph:"j"},{t:"u",ph:"u"},{t:"s",ph:"s"},{t:"t",ph:"d"},{t:" "},
+  {t:"a",ph:"a"},{t:"r",ph:"r"},{t:"e",ph:"e"},{t:"n",ph:"n"},{t:"'t"},{t:" "},
+  {t:"c",ph:"k"},{t:"l",ph:"l"},{t:"ea",ph:"i"},{t:"r",ph:"r"},{t:" "},
+  // "— especially in a restaurant "
+  {t:"\u2014"},{t:" "},
+  {t:"e",ph:"e"},{t:"s",ph:"s"},{t:"p",ph:"p"},{t:"e",ph:"e"},{t:"ci",ph:"sh"},{t:"a",ph:"a"},{t:"ll",ph:"l"},{t:"y",ph:"i"},{t:" "},
+  {t:"i",ph:"i"},{t:"n",ph:"n"},{t:" "},
+  {t:"a",ph:"a"},{t:" "},
+  {t:"r",ph:"r"},{t:"e",ph:"e"},{t:"s",ph:"s"},{t:"t",ph:"d"},{t:"au",ph:"o"},{t:"r",ph:"r"},{t:"a",ph:"a"},{t:"n",ph:"n"},{t:"t",ph:"d"},{t:" "},
+  // "or when the kids are talking fast."
+  {t:"or",ph:"r"},{t:" "},
+  {t:"wh",ph:"v"},{t:"e",ph:"e"},{t:"n",ph:"n"},{t:" "},
+  {t:"th",ph:"th"},{t:"e",ph:"e"},{t:" "},
+  {t:"k",ph:"k"},{t:"i",ph:"i"},{t:"d",ph:"d"},{t:"s",ph:"z"},{t:" "},
+  {t:"a",ph:"a"},{t:"r",ph:"r"},{t:"e"},{t:" "},
+  {t:"t",ph:"d"},{t:"a",ph:"a"},{t:"l",ph:"l"},{t:"k",ph:"k"},{t:"i",ph:"i"},{t:"n",ph:"n"},{t:"g",ph:"g"},{t:" "},
+  {t:"f",ph:"f"},{t:"a",ph:"a"},{t:"s",ph:"s"},{t:"t",ph:"d"},{t:"."},
+];
+
 
 function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={},leftMask={},rightBCMask={},leftBCMask={},interactive=false,onSet,activeEar="right",activeTestType="AC",maskMode=false,showBanana=false,phonemeDimMode=null}){
   const W=600,H=340,ML=52,MT=42,MR=88,MB=24;
@@ -1526,6 +1591,85 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [audTestType, setAudTestType] = useState("AC");
   const [maskMode, setMaskMode] = useState(false);
   const [phonemeDimMode, setPhonemeDimMode] = useState("both");
+
+  // Audiogram drawing overlay state
+  const [drawingEnabled, setDrawingEnabled] = useState(false);
+  const [drawPaths, setDrawPaths] = useState([]);       // [{points, color, width}]
+  const [drawColor, setDrawColor] = useState("#dc2626");
+  const drawCanvasRef = useRef(null);
+  const drawingRef = useRef(false);                      // is pointer currently down
+  const currentPathRef = useRef(null);                   // in-progress path
+
+  const redrawCanvas = useCallback((paths, inProgress) => {
+    const c = drawCanvasRef.current;
+    if (!c) return;
+    const ctx = c.getContext("2d");
+    ctx.clearRect(0, 0, c.width, c.height);
+    const renderPath = (p) => {
+      if (!p || p.points.length < 2) return;
+      ctx.beginPath();
+      ctx.strokeStyle = p.color;
+      ctx.lineWidth = p.width;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.moveTo(p.points[0].x, p.points[0].y);
+      for (let i = 1; i < p.points.length; i++) ctx.lineTo(p.points[i].x, p.points[i].y);
+      ctx.stroke();
+    };
+    paths.forEach(renderPath);
+    if (inProgress) renderPath(inProgress);
+  }, []);
+
+  const getCanvasPoint = useCallback((e) => {
+    const c = drawCanvasRef.current;
+    if (!c) return { x: 0, y: 0 };
+    const r = c.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * (c.width / r.width), y: (e.clientY - r.top) * (c.height / r.height) };
+  }, []);
+
+  const onDrawPointerDown = useCallback((e) => {
+    e.preventDefault();
+    drawingRef.current = true;
+    const pt = getCanvasPoint(e);
+    currentPathRef.current = { points: [pt], color: drawColor, width: 3 };
+    drawCanvasRef.current?.setPointerCapture(e.pointerId);
+  }, [drawColor, getCanvasPoint]);
+
+  const onDrawPointerMove = useCallback((e) => {
+    if (!drawingRef.current || !currentPathRef.current) return;
+    e.preventDefault();
+    currentPathRef.current.points.push(getCanvasPoint(e));
+    redrawCanvas(drawPaths, currentPathRef.current);
+  }, [drawPaths, getCanvasPoint, redrawCanvas]);
+
+  const onDrawPointerUp = useCallback(() => {
+    if (!drawingRef.current) return;
+    drawingRef.current = false;
+    if (currentPathRef.current && currentPathRef.current.points.length >= 2) {
+      setDrawPaths(prev => [...prev, currentPathRef.current]);
+    }
+    currentPathRef.current = null;
+  }, []);
+
+  // Resize canvas to match container
+  useEffect(() => {
+    if (!drawingEnabled) return;
+    const c = drawCanvasRef.current;
+    if (!c) return;
+    const parent = c.parentElement;
+    const resize = () => {
+      const dpr = window.devicePixelRatio || 1;
+      c.width = parent.offsetWidth * dpr;
+      c.height = parent.offsetHeight * dpr;
+      c.style.width = parent.offsetWidth + "px";
+      c.style.height = parent.offsetHeight + "px";
+      redrawCanvas(drawPaths, null);
+    };
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(parent);
+    return () => ro.disconnect();
+  }, [drawingEnabled, drawPaths, redrawCanvas]);
 
   // PDF import state
   const [pdfImport, setPdfImport] = useState(null); // { fields: Set, warnings: [], patientName, testDate }
@@ -3487,8 +3631,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
           {hasThresholds && (
             <div className="card">
               <div className="card-title">Your Audiogram</div>
-              {/* Phoneme dim ear toggle */}
-              <div style={{display:"flex",gap:6,marginBottom:12}}>
+              {/* Phoneme dim ear toggle + Drawing toolbar */}
+              <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
                 {["left","both","right"].map(mode=>(
                   <button key={mode} onClick={()=>setPhonemeDimMode(mode)}
                     style={{padding:"5px 14px",borderRadius:6,fontSize:11,fontWeight:600,cursor:"pointer",
@@ -3499,9 +3643,76 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   </button>
                 ))}
                 <span style={{fontSize:11,color:"#9ca3af",alignSelf:"center",marginLeft:4}}>Phoneme dimming ear</span>
+
+                <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center"}}>
+                  {/* Draw toggle */}
+                  <button onClick={()=>setDrawingEnabled(!drawingEnabled)}
+                    style={{padding:"5px 12px",borderRadius:6,fontSize:11,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:4,
+                      border:drawingEnabled?"2px solid #f59e0b":"1px solid #d1d5db",
+                      background:drawingEnabled?"#fffbeb":"#fff",
+                      color:drawingEnabled?"#b45309":"#6b7280"}}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                    Draw
+                  </button>
+                  {/* Color pills — only visible when drawing */}
+                  {drawingEnabled && <>
+                    {[["#dc2626","Red"],["#2563eb","Blue"],["#1e293b","Black"]].map(([c,label])=>(
+                      <button key={c} onClick={()=>setDrawColor(c)} title={label}
+                        style={{width:20,height:20,borderRadius:"50%",border:drawColor===c?"3px solid #f59e0b":"2px solid #d1d5db",background:c,cursor:"pointer",padding:0,flexShrink:0}}/>
+                    ))}
+                    <button onClick={()=>setDrawPaths(prev=>prev.slice(0,-1))} disabled={drawPaths.length===0} title="Undo"
+                      style={{padding:"4px 8px",borderRadius:6,fontSize:11,fontWeight:600,cursor:drawPaths.length?"pointer":"default",border:"1px solid #d1d5db",background:"#fff",color:drawPaths.length?"#6b7280":"#d1d5db",display:"flex",alignItems:"center",gap:3}}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+                    </button>
+                    <button onClick={()=>setDrawPaths([])} disabled={drawPaths.length===0} title="Clear all"
+                      style={{padding:"4px 8px",borderRadius:6,fontSize:11,fontWeight:600,cursor:drawPaths.length?"pointer":"default",border:"1px solid #d1d5db",background:"#fff",color:drawPaths.length?"#6b7280":"#d1d5db",display:"flex",alignItems:"center",gap:3}}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                    </button>
+                  </>}
+                </div>
               </div>
-              <div style={{background:"#fafafa",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 8px",marginBottom:14}}>
+              <div style={{position:"relative",background:"#fafafa",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 8px",marginBottom:14}}>
                 <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false} showBanana={true} phonemeDimMode={phonemeDimMode}/>
+                {drawingEnabled && (
+                  <canvas
+                    ref={drawCanvasRef}
+                    onPointerDown={onDrawPointerDown}
+                    onPointerMove={onDrawPointerMove}
+                    onPointerUp={onDrawPointerUp}
+                    onPointerLeave={onDrawPointerUp}
+                    style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",cursor:"crosshair",touchAction:"none",borderRadius:10}}
+                  />
+                )}
+                {!drawingEnabled && drawPaths.length > 0 && (
+                  <canvas
+                    ref={el=>{if(el){drawCanvasRef.current=el;const p=el.parentElement;const dpr=window.devicePixelRatio||1;el.width=p.offsetWidth*dpr;el.height=p.offsetHeight*dpr;el.style.width=p.offsetWidth+"px";el.style.height=p.offsetHeight+"px";redrawCanvas(drawPaths,null);}}}
+                    style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",pointerEvents:"none",borderRadius:10}}
+                  />
+                )}
+              </div>
+
+              {/* ── Hearing Simulation Paragraph ── */}
+              <div style={{margin:"0 0 16px",padding:"16px 20px",background:"#fff",border:"1px solid #e5e7eb",borderRadius:10}}>
+                <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:10}}>What speech sounds like with your hearing</div>
+                <p style={{fontSize:16,lineHeight:2,fontFamily:"'DM Sans',sans-serif",margin:0,letterSpacing:"0.01em"}}>
+                  {HEARING_SIM_TEXT.map((seg,i) => {
+                    if (!seg.ph) return <span key={i}>{seg.t}</span>;
+                    const ph = PHONEMES.find(p => p.label === seg.ph);
+                    if (!ph) return <span key={i}>{seg.t}</span>;
+                    const rThr = interpolateThreshold(aud.rightT, ph.freq);
+                    const lThr = interpolateThreshold(aud.leftT, ph.freq);
+                    const rIn = rThr != null && rThr > ph.db;
+                    const lIn = lThr != null && lThr > ph.db;
+                    const rBorder = rThr != null && !rIn && rThr > ph.db - 5;
+                    const lBorder = lThr != null && !lIn && lThr > ph.db - 5;
+                    let inaudible = false, borderline = false;
+                    if (phonemeDimMode === "right") { inaudible = rIn; borderline = !inaudible && rBorder; }
+                    else if (phonemeDimMode === "left") { inaudible = lIn; borderline = !inaudible && lBorder; }
+                    else { inaudible = rIn || lIn; borderline = !inaudible && (rBorder || lBorder); }
+                    const color = inaudible ? "#e5e7eb" : borderline ? "#b0b5bd" : "#1e293b";
+                    return <span key={i} style={{color,transition:"color 0.3s ease"}}>{seg.t}</span>;
+                  })}
+                </p>
               </div>
 
               {/* ── Severity per ear ── */}
