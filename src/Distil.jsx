@@ -5188,7 +5188,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     const p = selectedPatient;
     if (!p) return null;
     const days = daysUntil(p.devices?.warrantyExpiry||"");
-    const aidedUrl = `https://distil-lime.vercel.app/aided?pid=${encodeURIComponent(p.id)}`;
+    const aidedUrl = `https://aided-theta.vercel.app?pid=${encodeURIComponent(p.id)}`;
     const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(aidedUrl)}`;
     return (
       <>
