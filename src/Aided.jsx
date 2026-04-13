@@ -202,45 +202,51 @@ export default function PatientApp() {
   };
 
   useEffect(() => {
-    // Always render immediately with demo data — update if real Supabase session exists
+    // Always render immediately with demo data — update if real patient found
     setPatient(DEMO);
+
+    // Helper: fetch a patient by ID and set state
+    const loadPatient = async (patientId) => {
+      const { data: patientData } = await supabase
+        .from('patients')
+        .select(`
+          *,
+          insurance_coverage(*),
+          device_fittings(
+            *,
+            device_sides(*)
+          ),
+          appointments(*)
+        `)
+        .eq('id', patientId)
+        .single();
+
+      if (patientData) {
+        if (patientData.clinic_id) {
+          const { data: clinic } = await supabase
+            .from('clinics')
+            .select('name')
+            .eq('id', patientData.clinic_id)
+            .single();
+          if (clinic?.name) setClinicName(clinic.name);
+        }
+        setPatient(mapSupabasePatientToAidedShape(patientData));
+      }
+    };
+
     (async () => {
       try {
+        // 1. Check URL param first (QR code flow)
+        const pid = new URLSearchParams(window.location.search).get('pid');
+        if (pid) return await loadPatient(pid);
+
+        // 2. Fall back to auth session (future patient login)
         const { data: sessionData } = await supabase.auth.getSession();
         if (sessionData?.session?.user) {
-          const patientId = sessionData.session.user.id;
-
-          const { data: patientData } = await supabase
-            .from('patients')
-            .select(`
-              *,
-              insurance_coverage(*),
-              device_fittings(
-                *,
-                device_sides(*)
-              ),
-              appointments(*)
-            `)
-            .eq('id', patientId)
-            .single();
-
-          if (patientData) {
-            // Load clinic name from clinics table using patient's clinic_id
-            if (patientData.clinic_id) {
-              const { data: clinic } = await supabase
-                .from('clinics')
-                .select('name')
-                .eq('id', patientData.clinic_id)
-                .single();
-              if (clinic?.name) setClinicName(clinic.name);
-            }
-
-            const mapped = mapSupabasePatientToAidedShape(patientData);
-            setPatient(mapped);
-            return;
-          }
+          return await loadPatient(sessionData.session.user.id);
         }
-        // No session or no patient found — stay on DEMO
+
+        // 3. No identifier found — stay on DEMO
       } catch (err) {
         console.warn('Patient load failed, using demo:', err);
       }

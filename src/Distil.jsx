@@ -2579,9 +2579,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     .qr-prompt { background: linear-gradient(135deg, #0a1628, #1a3050); color: white; border-radius: 14px; padding: 28px; text-align: center; margin-bottom: 20px; }
     .qr-title { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
     .qr-sub { font-size: 13px; opacity: 0.65; margin-bottom: 20px; }
-    .qr-box { background: white; border-radius: 12px; width: 120px; height: 120px; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; }
-    .qr-grid { display: grid; grid-template-columns: repeat(8,10px); gap: 2px; }
-    .qr-cell { width: 10px; height: 10px; border-radius: 2px; }
+    .qr-box { background: white; border-radius: 12px; width: 120px; height: 120px; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .qr-id { font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 700; color: #4ade80; letter-spacing: 3px; margin-bottom: 4px; }
     .qr-inst { font-size: 12px; opacity: 0.5; }
     .warranty-ring { position: relative; display: inline-flex; align-items: center; justify-content:: center; }
@@ -5190,7 +5188,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
     const p = selectedPatient;
     if (!p) return null;
     const days = daysUntil(p.devices?.warrantyExpiry||"");
-    const qrPattern = Array.from({length:64},(_,i)=> [0,7,8,15,16,17,24,31,32,33,40,47,48,55,56,63].includes(i%16) || (i>8&&i<15) || (i>48&&i<55) || (i%8===0&&i<32));
+    const aidedUrl = `https://distil-lime.vercel.app/aided?pid=${encodeURIComponent(p.id)}`;
+    const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(aidedUrl)}`;
     return (
       <>
         <div className="topbar">
@@ -5464,14 +5463,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div className="qr-title">Patient App QR Code</div>
             <div className="qr-sub">Patient scans this to load their profile in the Aided companion app</div>
             <div className="qr-box">
-              <div className="qr-grid">
-                {Array.from({length:64},(_,i)=>(
-                  <div key={i} className="qr-cell" style={{background: (qrPattern[i]||(Math.random()>0.5&&i>8&&i<55)) ? "#0a1628":"transparent"}} />
-                ))}
-              </div>
+              <img src={qrImgUrl} alt="QR code to open Aided patient app" width={100} height={100} style={{borderRadius:4}} />
             </div>
             <div className="qr-id">{p.id.slice(0,8).toUpperCase()}</div>
-            <div className="qr-inst">Patient ID · Used to sync with app</div>
+            <div className="qr-inst">Patient ID · Scan to open Aided</div>
           </div>
 
 

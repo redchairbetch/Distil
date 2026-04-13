@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import React from 'react'
 import Distil from './Distil.jsx'
 import IntakeKiosk from './IntakeKiosk.jsx'
+import PatientApp from './Aided.jsx'
 import Login from './Login.jsx'
 import { getSession, getCurrentStaff, onAuthStateChange } from './db.js'
 
@@ -11,6 +12,7 @@ import { getSession, getCurrentStaff, onAuthStateChange } from './db.js'
 //   /intake        → Patient kiosk (no login required)
 const path = window.location.pathname.replace(/\/$/, '')
 const isKiosk = path === '/intake'
+const isAided = path === '/aided'
 
 function App() {
   const [session, setSession]   = useState(undefined) // undefined = loading
@@ -37,7 +39,8 @@ function App() {
     return () => subscription.unsubscribe()
   }, [])
 
-  // Kiosk never needs auth
+  // Patient app and kiosk never need auth
+  if (isAided) return <PatientApp />
   if (isKiosk) return <IntakeKiosk />
 
   // Still checking session
