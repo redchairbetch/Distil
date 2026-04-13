@@ -125,7 +125,10 @@ function mapSupabasePatientToAidedShape(data) {
 export default function PatientApp() {
   const [patient, setPatient] = useState(null);
   const [clinicName, setClinicName] = useState("My Hearing Centers");
-  const [tab, setTab] = useState("home");
+  const [tab, setTab] = useState(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    return ['home','devices','care','schedule','help'].includes(t) ? t : 'home';
+  });
   const [messages, setMessages] = useState([
     { role: "assistant", content: "Hi! I'm your hearing care assistant. Ask me anything about your devices, cleaning, troubleshooting, or your upcoming appointments." }
   ]);
@@ -136,7 +139,31 @@ export default function PatientApp() {
   const [punchUsed, setPunchUsed] = useState({ cleanings: 0, appointments: 0 });
   const [punchConfirm, setPunchConfirm] = useState(null); // "cleaning" | "appointment" | null
   const [achievements, setAchievements] = useState([]);
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
   const messagesEndRef = useRef(null);
+
+  // Capture the browser's install prompt for PWA "Add to Home Screen"
+  useEffect(() => {
+    const handler = (e) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+      // Show banner after a short delay so it doesn't feel aggressive
+      setTimeout(() => setShowInstallBanner(true), 3000);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setShowInstallBanner(false);
+      setInstallPrompt(null);
+    }
+  };
 
   // Load punch card state from Supabase (or skip for demo patient)
   useEffect(() => {
@@ -236,17 +263,24 @@ export default function PatientApp() {
 
     (async () => {
       try {
-        // 1. Check URL param first (QR code flow)
+        // 1. Check URL param first (QR code scan)
         const pid = new URLSearchParams(window.location.search).get('pid');
-        if (pid) return await loadPatient(pid);
+        if (pid) {
+          localStorage.setItem('aided_pid', pid);
+          return await loadPatient(pid);
+        }
 
-        // 2. Fall back to auth session (future patient login)
+        // 2. Check localStorage (PWA reopen — remembers last QR scan)
+        const savedPid = localStorage.getItem('aided_pid');
+        if (savedPid) return await loadPatient(savedPid);
+
+        // 3. Fall back to auth session (future patient login)
         const { data: sessionData } = await supabase.auth.getSession();
         if (sessionData?.session?.user) {
           return await loadPatient(sessionData.session.user.id);
         }
 
-        // 3. No identifier found — stay on DEMO
+        // 4. No identifier found — stay on DEMO
       } catch (err) {
         console.warn('Patient load failed, using demo:', err);
       }
@@ -419,6 +453,11 @@ export default function PatientApp() {
     .punch-mini-num { font-size: 20px; font-weight: 800; color: #4ade80; }
     .punch-mini-label { font-size: 9px; opacity: 0.5; letter-spacing: 0.5px; text-transform: uppercase; }
     .profile-id { font-size: 10px; font-weight: 600; color: #16a34a; font-family: monospace; background: rgba(22,163,74,0.1); padding: 2px 8px; border-radius: 10px; margin-top: 4px; display: inline-block; }
+    .install-banner { background: linear-gradient(135deg,#065f46,#047857); border-radius: 14px; padding: 14px 16px; margin: 0 16px 12px; display: flex; align-items: center; justify-content: space-between; color: white; }
+    .install-banner-text { font-size: 13px; font-weight: 600; }
+    .install-banner-sub { font-size: 11px; opacity: 0.7; margin-top: 2px; }
+    .install-banner-btn { background: white; color: #065f46; border: none; border-radius: 10px; padding: 8px 16px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+    .install-banner-close { background: none; border: none; color: white; opacity: 0.5; font-size: 18px; cursor: pointer; padding: 4px; margin-left: 8px; }
     /* SECTION PADDING TOP */
     .pt-section { padding-top: 20px; }
   `;
@@ -430,6 +469,18 @@ export default function PatientApp() {
         <div className="header-name">{p.name.split(" ")[0]} 👋</div>
         <div className="profile-id">ID: {p.id}</div>
       </div>
+      {showInstallBanner && (
+        <div className="install-banner">
+          <div>
+            <div className="install-banner-text">📱 Install Aided</div>
+            <div className="install-banner-sub">Add to your home screen for quick access</div>
+          </div>
+          <div style={{display:"flex",alignItems:"center"}}>
+            <button className="install-banner-btn" onClick={handleInstall}>Install</button>
+            <button className="install-banner-close" onClick={()=>setShowInstallBanner(false)}>✕</button>
+          </div>
+        </div>
+      )}
       <div className="scroll-content">
         {nextAppt && (
           <div className="section pt-section">
