@@ -1206,7 +1206,7 @@ const HEARING_SIM_TEXT = [
 ];
 
 
-function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={},leftMask={},rightBCMask={},leftBCMask={},interactive=false,onSet,activeEar="right",activeTestType="AC",maskMode=false,showBanana=false,phonemeDimMode=null}){
+function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={},leftMask={},rightBCMask={},leftBCMask={},interactive=false,onSet,activeEar="right",activeTestType="AC",maskMode=false,showBanana=false,phonemeDimMode=null,dimIntensity=75}){
   const W=600,H=340,ML=52,MT=42,MR=88,MB=24;
   const PW=W-ML-MR, PH=H-MT-MB;
   const fx=i=>ML+i*(PW/(AUDIG_FREQS.length-1));
@@ -1359,8 +1359,17 @@ function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={},leftM
         if(phonemeDimMode==="right"){ inaudible=rInaudible; borderline=!inaudible&&rBorderline; }
         else if(phonemeDimMode==="left"){ inaudible=lInaudible; borderline=!inaudible&&lBorderline; }
         else{ /* both — use worse ear */ inaudible=rInaudible||lInaudible; borderline=!inaudible&&(rBorderline||lBorderline); }
-        const opacity=inaudible?1.0:borderline?0.85:1.0;
-        const color=inaudible?"#c2410c":borderline?"#f59e0b":"#1e293b";
+        const t=dimIntensity/100;
+        const lerpC=(a,b,f)=>Math.round(a+(b-a)*f);
+        const baseRgb=[30,41,59];
+        const inaudRgb=[194,65,12]; // #c2410c
+        const borderRgb=[245,158,11]; // #f59e0b
+        const opacity=inaudible?t:borderline?(0.85*t+1*(1-t)):1.0;
+        const color=inaudible
+          ?`rgb(${lerpC(baseRgb[0],inaudRgb[0],t)},${lerpC(baseRgb[1],inaudRgb[1],t)},${lerpC(baseRgb[2],inaudRgb[2],t)})`
+          :borderline
+          ?`rgb(${lerpC(baseRgb[0],borderRgb[0],t)},${lerpC(baseRgb[1],borderRgb[1],t)},${lerpC(baseRgb[2],borderRgb[2],t)})`
+          :"#1e293b";
         const weight=inaudible?700:600;
         return(
           <g key={"ph"+pi}>
@@ -1598,6 +1607,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [audTestType, setAudTestType] = useState("AC");
   const [maskMode, setMaskMode] = useState(false);
   const [phonemeDimMode, setPhonemeDimMode] = useState("both");
+  const [dimIntensity, setDimIntensity] = useState(75); // 0 = no dimming, 100 = full fade
 
   // Audiogram drawing overlay state
   const [drawingEnabled, setDrawingEnabled] = useState(false);
@@ -3307,7 +3317,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
               </div>
             </div>
             <div style={{position:"relative",background:"#fafafa",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 8px",marginBottom:14}}>
-              <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false} showBanana={true} phonemeDimMode={phonemeDimMode}/>
+              <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false} showBanana={true} phonemeDimMode={phonemeDimMode} dimIntensity={dimIntensity}/>
               {drawingEnabled && (
                 <canvas
                   ref={drawCanvasRef}
@@ -3328,7 +3338,15 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
             {/* Hearing Simulation Paragraph */}
             <div style={{margin:"0 0 16px",padding:"16px 20px",background:"#fff",border:"1px solid #e5e7eb",borderRadius:10}}>
-              <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:10}}>What speech sounds like with your hearing</div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:8}}>
+                <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>What speech sounds like with your hearing</div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:10,color:"#9ca3af",fontWeight:600}}>Dim</span>
+                  <input type="range" min="0" max="100" value={dimIntensity} onChange={e=>setDimIntensity(Number(e.target.value))}
+                    style={{width:100,accentColor:"#6366f1",cursor:"pointer"}}/>
+                  <span style={{fontSize:10,color:"#9ca3af",fontWeight:600,minWidth:28}}>{dimIntensity}%</span>
+                </div>
+              </div>
               <p style={{fontSize:16,lineHeight:2,fontFamily:"'DM Sans',sans-serif",margin:0,letterSpacing:"0.01em"}}>
                 {HEARING_SIM_TEXT.map((seg,i) => {
                   if (!seg.ph) return <span key={i}>{seg.t}</span>;
@@ -3344,7 +3362,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   if (phonemeDimMode === "right") { inaudible = rIn; borderline = !inaudible && rBorder; }
                   else if (phonemeDimMode === "left") { inaudible = lIn; borderline = !inaudible && lBorder; }
                   else { inaudible = rIn || lIn; borderline = !inaudible && (rBorder || lBorder); }
-                  const color = inaudible ? "#e5e7eb" : borderline ? "#b0b5bd" : "#1e293b";
+                  const t = dimIntensity / 100;
+                  const base = [30, 41, 59]; // #1e293b
+                  const inaudTarget = [229, 231, 235]; // #e5e7eb
+                  const borderTarget = [176, 181, 189]; // #b0b5bd
+                  const lerp = (a,b,f) => Math.round(a + (b - a) * f);
+                  const color = inaudible
+                    ? `rgb(${lerp(base[0],inaudTarget[0],t)},${lerp(base[1],inaudTarget[1],t)},${lerp(base[2],inaudTarget[2],t)})`
+                    : borderline
+                    ? `rgb(${lerp(base[0],borderTarget[0],t)},${lerp(base[1],borderTarget[1],t)},${lerp(base[2],borderTarget[2],t)})`
+                    : "#1e293b";
                   return <span key={i} style={{color,transition:"color 0.3s ease"}}>{seg.t}</span>;
                 })}
               </p>
@@ -6444,6 +6471,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
               )}
             </button>
           </div>
+          <div style={{padding:"0 14px 8px"}}>
+            <button onClick={async()=>{try{await signOut();}catch(e){console.error("Sign out failed",e);}}}
+              style={{width:"100%",background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.1)",
+                borderRadius:8,padding:"8px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:8,
+                fontFamily:"'Sora',sans-serif",fontSize:12,fontWeight:500,color:"rgba(255,255,255,0.5)",
+                transition:"all 0.15s"}}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              Sign Out
+            </button>
+          </div>
           <div className="sidebar-footer">
             Distil · Hearing Care Platform<br/>HIPAA-compliant · v1.0
           </div>
@@ -6473,7 +6510,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   <button className="btn-ghost" onClick={()=>setView("patient")}>{"\u2190"} Exit Consultation</button>
                 </div>
                 <div className="content">
-                  <div style={{maxWidth:720,margin:"0 auto"}}>
+                  <div style={{maxWidth:1100,margin:"0 auto"}}>
                     {renderResultsContent(p.audiology, p.notes || "")}
                   </div>
                 </div>

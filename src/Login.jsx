@@ -32,7 +32,7 @@ export default function Login({ onLogin }) {
 
         .login-root {
           min-height: 100vh;
-          background: #0a1628;
+          background: #0b1929;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -47,8 +47,8 @@ export default function Login({ onLogin }) {
           position: absolute;
           inset: 0;
           background:
-            radial-gradient(ellipse 80% 60% at 50% 0%, rgba(22,163,74,0.12) 0%, transparent 70%),
-            radial-gradient(ellipse 50% 40% at 100% 100%, rgba(22,163,74,0.06) 0%, transparent 60%);
+            radial-gradient(ellipse 80% 60% at 50% 0%, rgba(24,64,105,0.25) 0%, transparent 70%),
+            radial-gradient(ellipse 50% 40% at 100% 100%, rgba(234,172,21,0.06) 0%, transparent 60%);
           pointer-events: none;
         }
 
@@ -75,7 +75,7 @@ export default function Login({ onLogin }) {
           border-radius: 20px;
           backdrop-filter: blur(12px);
           box-shadow:
-            0 0 0 1px rgba(22,163,74,0.08),
+            0 0 0 1px rgba(24,64,105,0.15),
             0 32px 64px rgba(0,0,0,0.4),
             0 8px 24px rgba(0,0,0,0.3);
           animation: cardIn 0.5s cubic-bezier(0.16,1,0.3,1) both;
@@ -90,25 +90,15 @@ export default function Login({ onLogin }) {
           display: flex;
           flex-direction: column;
           align-items: center;
+          text-align: center;
           margin-bottom: 36px;
-          gap: 14px;
+          gap: 16px;
         }
 
-        .login-icon {
-          width: 56px;
-          height: 56px;
-          background: linear-gradient(135deg, #16a34a, #15803d);
-          border-radius: 16px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          box-shadow: 0 0 0 8px rgba(22,163,74,0.12), 0 4px 16px rgba(22,163,74,0.3);
-        }
-
-        .login-icon svg {
-          width: 28px;
-          height: 28px;
-          fill: white;
+        .login-logo-mark {
+          width: 72px;
+          height: 72px;
+          filter: drop-shadow(0 2px 8px rgba(234,172,21,0.15));
         }
 
         .login-org {
@@ -116,7 +106,8 @@ export default function Login({ onLogin }) {
           font-weight: 600;
           letter-spacing: 2.5px;
           text-transform: uppercase;
-          color: #16a34a;
+          color: #EAAC15;
+          text-align: center;
         }
 
         .login-title {
@@ -166,8 +157,8 @@ export default function Login({ onLogin }) {
         .login-input::placeholder { color: rgba(255,255,255,0.2); }
 
         .login-input:focus {
-          border-color: rgba(22,163,74,0.6);
-          box-shadow: 0 0 0 3px rgba(22,163,74,0.12);
+          border-color: rgba(234,172,21,0.5);
+          box-shadow: 0 0 0 3px rgba(234,172,21,0.1);
         }
 
         .login-error {
@@ -184,7 +175,7 @@ export default function Login({ onLogin }) {
         .login-btn {
           width: 100%;
           padding: 13px;
-          background: #16a34a;
+          background: #184069;
           color: white;
           border: none;
           border-radius: 10px;
@@ -193,13 +184,13 @@ export default function Login({ onLogin }) {
           font-family: 'Sora', sans-serif;
           cursor: pointer;
           transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
-          box-shadow: 0 4px 16px rgba(22,163,74,0.3);
+          box-shadow: 0 4px 16px rgba(24,64,105,0.4);
           letter-spacing: 0.2px;
         }
 
         .login-btn:hover:not(:disabled) {
-          background: #15803d;
-          box-shadow: 0 6px 20px rgba(22,163,74,0.4);
+          background: #1b4d7d;
+          box-shadow: 0 6px 20px rgba(24,64,105,0.5);
           transform: translateY(-1px);
         }
 
@@ -223,12 +214,18 @@ export default function Login({ onLogin }) {
         <div className="login-card">
 
           <div className="login-logo-wrap">
-            {/* Hearing aid icon */}
-            <div className="login-icon">
-              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 2C8.13 2 5 5.13 5 9c0 2.61 1.42 4.88 3.5 6.14V20a2 2 0 004 0v-4.86C14.58 13.88 16 11.61 16 9c0-2.21-.9-4.21-2.34-5.66A7.94 7.94 0 0012 2zm0 2c1.6 0 3.04.65 4.09 1.69A5.96 5.96 0 0118 9c0 2.08-1.06 3.9-2.67 4.99L14 15v5h-4v-5l-1.33-1.01A5.97 5.97 0 016 9c0-3.31 2.69-6 6-6zm0 2a4 4 0 100 8 4 4 0 000-8zm0 2a2 2 0 110 4 2 2 0 010-4z"/>
-              </svg>
-            </div>
+            {/* MHC globe logo mark — white on dark */}
+            <svg className="login-logo-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <mask id="mhcMask">
+                  <circle cx="50" cy="50" r="48" fill="white"/>
+                  <ellipse cx="8" cy="50" rx="22" ry="30" fill="black"/>
+                  <path d="M 28 2 C 46 30 46 70 30 98" stroke="black" strokeWidth="7" fill="none"/>
+                  <path d="M 60 2 C 74 30 74 70 64 98" stroke="black" strokeWidth="7" fill="none"/>
+                </mask>
+              </defs>
+              <circle cx="50" cy="50" r="48" fill="white" mask="url(#mhcMask)"/>
+            </svg>
             <div>
               <div className="login-org">My Hearing Centers</div>
               <div className="login-title">Provider Portal</div>
