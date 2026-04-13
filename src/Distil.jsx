@@ -1662,11 +1662,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const onDrawPointerUp = useCallback(() => {
     if (!drawingRef.current) return;
     drawingRef.current = false;
-    if (currentPathRef.current && currentPathRef.current.points.length >= 2) {
-      setDrawPaths(prev => [...prev, currentPathRef.current]);
-    }
+    const finishedPath = currentPathRef.current;
     currentPathRef.current = null;
-  }, []);
+    if (finishedPath && finishedPath.points.length >= 2) {
+      setDrawPaths(prev => [...prev, finishedPath]);
+      redrawCanvas([...drawPaths, finishedPath], null);
+    }
+  }, [drawPaths, redrawCanvas]);
 
   // Resize canvas to match container
   useEffect(() => {
@@ -2454,7 +2456,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const styles = `
     @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Sora', sans-serif; background: #f0f2f5; }
+    body { font-family: 'Sora', sans-serif; background: #1e293b; }
     .app { display: flex; height: 100vh; overflow: hidden; }
     /* SIDEBAR */
     .sidebar { width: 260px; background: #0a1628; display: flex; flex-direction: column; flex-shrink: 0; }
