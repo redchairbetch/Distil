@@ -1632,7 +1632,7 @@ export async function resolveInsurancePlanId(carrier, planGroup, tierLabel) {
 export async function loadInsurancePlans() {
   const { data, error } = await supabase
     .from('insurance_plans')
-    .select('id, carrier, plan_group, tpa, tier_label, copay_per_aid, retail_anchor_key, notes')
+    .select('id, carrier, plan_group, tpa, tier_label, price_per_aid, retail_anchor_key, notes')
     .order('carrier')
     .order('plan_group')
   if (error) throw error
@@ -1643,7 +1643,7 @@ export async function loadInsurancePlans() {
     planGroup: row.plan_group,
     tpa:       row.tpa || '',
     tier:      row.tier_label,
-    tierPrice: row.copay_per_aid != null ? row.copay_per_aid / 100 : null,
+    tierPrice: row.price_per_aid != null ? row.price_per_aid / 100 : null,
     retailAnchorKey: row.retail_anchor_key,
     notes:     row.notes || '',
   }))
