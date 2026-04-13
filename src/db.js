@@ -494,6 +494,246 @@ function buildSideRow(fittingId, ear, side) {
 
 
 // ============================================================
+// INCREMENTAL WIZARD SAVE
+// ============================================================
+
+// Step 0 — create a draft patient with basic info + insurance
+export async function createPatientDraft(data, staffId, clinicId) {
+  const { first_name, last_name } = splitName(data.name)
+  const { data: row, error } = await supabase
+    .from('patients')
+    .insert({
+      id:             data.id,
+      clinic_id:      clinicId,
+      created_by:     staffId,
+      first_name,
+      last_name,
+      dob:            data.dob       || null,
+      phone:          data.phone     || null,
+      email:          data.email     || null,
+      address:        data.address   || null,
+      pay_type:       data.payType,
+      notes:          data.notes     || null,
+      patient_status: 'draft',
+    })
+    .select()
+    .single()
+  if (error) throw error
+
+  if (data.insurance && data.payType === 'insurance') {
+    const planId = await resolveInsurancePlanId(
+      data.insurance.carrier,
+      data.insurance.planGroup,
+      data.insurance.tier
+    )
+    const { error: covErr } = await supabase.from('insurance_coverage').insert({
+      patient_id:         row.id,
+      carrier:            data.insurance.carrier,
+      plan_group:         data.insurance.planGroup,
+      tpa:                data.insurance.tpa     || null,
+      tier:               data.insurance.tier    || null,
+      tier_price_per_aid: data.insurance.tierPrice
+                            ? Math.round(data.insurance.tierPrice * 100)
+                            : null,
+      insurance_plan_id:  planId,
+    })
+    if (covErr) console.error('draft insurance_coverage insert:', covErr)
+  }
+
+  return row.id
+}
+
+// Step 1 — save audiogram data for an existing patient
+export async function updatePatientAudiology(patientId, audiology, staffId) {
+  if (!audiology) return
+  const a = audiology
+  const hasAudioData = Object.keys(a.rightT || {}).length > 0 ||
+                       Object.keys(a.leftT  || {}).length > 0 ||
+                       Object.keys(a.rightBC || {}).length > 0 ||
+                       Object.keys(a.leftBC  || {}).length > 0 ||
+                       a.unaidedR != null || a.unaidedL != null ||
+                       a.cctR != null || a.cctL != null ||
+                       a.tinnitusRight || a.tinnitusLeft
+  if (!hasAudioData) return
+
+  // Delete existing audiogram + thresholds for this patient (re-save pattern)
+  const { data: existing } = await supabase
+    .from('audiograms')
+    .select('id')
+    .eq('patient_id', patientId)
+  if (existing?.length) {
+    for (const row of existing) {
+      await supabase.from('audiogram_thresholds').delete().eq('audiogram_id', row.id)
+    }
+    await supabase.from('audiograms').delete().eq('patient_id', patientId)
+  }
+
+  const { data: audioRow, error: audioError } = await supabase
+    .from('audiograms')
+    .insert({
+      patient_id:        patientId,
+      tested_by:         staffId,
+      test_date:         new Date().toISOString().split('T')[0],
+      unaided_wrs_right: a.unaidedR ?? null,
+      unaided_wrs_left:  a.unaidedL ?? null,
+      aided_wrs_right:   a.aidedR   ?? null,
+      aided_wrs_left:    a.aidedL   ?? null,
+      wr_mcl_right:      a.wrMclR   ?? null,
+      wr_mcl_left:       a.wrMclL   ?? null,
+      sin_score:         a.sinBin   ?? null,
+      tinnitus_right:    a.tinnitusRight ?? false,
+      tinnitus_left:     a.tinnitusLeft  ?? false,
+      cct_right:         a.cctR     ?? null,
+      cct_left:          a.cctL     ?? null,
+      cct_level_right:   a.cctLevelR ?? null,
+      cct_level_left:    a.cctLevelL ?? null,
+      source_type:       a._sourceType || 'manual',
+    })
+    .select()
+    .single()
+
+  if (audioError) { console.error('updatePatientAudiology:', audioError); return }
+
+  const thresholdRows = []
+  const addRows = (map, ear, testType, maskMap) => {
+    Object.entries(map || {}).forEach(([freq, db]) => {
+      thresholdRows.push({
+        audiogram_id:  audioRow.id,
+        ear,
+        frequency:     parseInt(freq),
+        threshold_db:  db,
+        test_type:     testType,
+        is_masked:     !!(maskMap && maskMap[freq]),
+      })
+    })
+  }
+  addRows(a.rightT,  'right', 'AC', a.rightMask)
+  addRows(a.leftT,   'left',  'AC', a.leftMask)
+  addRows(a.rightBC, 'right', 'BC', a.rightBCMask)
+  addRows(a.leftBC,  'left',  'BC', a.leftBCMask)
+  if (thresholdRows.length) {
+    const { error } = await supabase.from('audiogram_thresholds').insert(thresholdRows)
+    if (error) console.error('audiogram_thresholds insert:', error)
+  }
+}
+
+// Step 3 — save device fitting + sides for existing patient
+export async function updatePatientDevices(patientId, devices, staffId) {
+  if (!devices) return
+  const fittingType = (devices.fittingType || 'bilateral')
+    .toLowerCase().replace('/', '_').replace(' ', '_')
+
+  // Delete existing fittings + sides (re-save)
+  const { data: existing } = await supabase
+    .from('device_fittings')
+    .select('id')
+    .eq('patient_id', patientId)
+  if (existing?.length) {
+    for (const row of existing) {
+      await supabase.from('device_sides').delete().eq('fitting_id', row.id)
+    }
+    await supabase.from('device_fittings').delete().eq('patient_id', patientId)
+  }
+
+  const { data: fittingRow, error: fittingError } = await supabase
+    .from('device_fittings')
+    .insert({
+      patient_id:      patientId,
+      fitted_by:       staffId,
+      fitting_type:    fittingType,
+      serial_left:     devices.serialLeft  || null,
+      serial_right:    devices.serialRight || null,
+    })
+    .select()
+    .single()
+
+  if (fittingError) { console.error('updatePatientDevices:', fittingError); return }
+
+  const sidesToInsert = []
+  if (devices.left)  sidesToInsert.push(buildSideRow(fittingRow.id, 'left', devices.left))
+  if (devices.right) sidesToInsert.push(buildSideRow(fittingRow.id, 'right', devices.right))
+  if (sidesToInsert.length) {
+    const { error } = await supabase.from('device_sides').insert(sidesToInsert)
+    if (error) console.error('device_sides insert:', error)
+  }
+}
+
+// Step 4 — save care plan selection
+export async function updatePatientCarePlan(patientId, carePlan) {
+  const { error } = await supabase
+    .from('insurance_coverage')
+    .update({ care_plan_type: carePlan || null })
+    .eq('patient_id', patientId)
+  if (error) console.error('updatePatientCarePlan:', error)
+}
+
+// Final — promote draft to active/tns and set warranty/fitting info
+export async function finalizePatient(patientId, status, devices, carePlan, notes, appointments, staffId, clinicId) {
+  // Update patient status + notes
+  const updates = { patient_status: status || 'active' }
+  if (notes != null) updates.notes = notes
+  const { error: patErr } = await supabase
+    .from('patients')
+    .update(updates)
+    .eq('id', patientId)
+  if (patErr) console.error('finalizePatient status:', patErr)
+
+  // Update warranty/fitting dates on device_fittings
+  if (devices?.fittingDate || devices?.warrantyExpiry) {
+    const devUpdate = {}
+    if (devices.fittingDate)    devUpdate.fitting_date    = devices.fittingDate
+    if (devices.warrantyExpiry) devUpdate.warranty_expiry = devices.warrantyExpiry
+    const { error } = await supabase
+      .from('device_fittings')
+      .update(devUpdate)
+      .eq('patient_id', patientId)
+    if (error) console.error('finalizePatient fittings:', error)
+  }
+
+  // Update warranty on insurance_coverage
+  if (devices?.warrantyExpiry) {
+    const { error } = await supabase
+      .from('insurance_coverage')
+      .update({ warranty_expiry: devices.warrantyExpiry, care_plan_type: carePlan || null })
+      .eq('patient_id', patientId)
+    if (error) console.error('finalizePatient coverage:', error)
+  }
+
+  // Insert appointments
+  if (appointments?.length) {
+    const apptRows = appointments.map(appt => ({
+      patient_id:       patientId,
+      clinic_id:        clinicId,
+      staff_id:         staffId,
+      appointment_date: appt.date,
+      appointment_type: appt.type || null,
+      status:           'scheduled',
+    }))
+    const { error } = await supabase.from('appointments').insert(apptRows)
+    if (error) console.error('finalizePatient appointments:', error)
+  }
+
+  // Auto-enroll in default campaign
+  if (devices?.fittingDate) {
+    try {
+      const { data: defaultTemplate } = await supabase
+        .from('campaign_templates')
+        .select('id')
+        .eq('name', 'Standard Hearing Care Journey')
+        .eq('active', true)
+        .limit(1)
+        .maybeSingle()
+      if (defaultTemplate) {
+        await enrollPatientInCampaign(patientId, defaultTemplate.id, devices.fittingDate, staffId)
+      }
+    } catch (e) {
+      console.error('auto-enroll campaign:', e)
+    }
+  }
+}
+
+
+// ============================================================
 // PUNCH CARDS
 // ============================================================
 

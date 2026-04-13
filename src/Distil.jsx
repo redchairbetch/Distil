@@ -60,6 +60,11 @@ import {
   updatePatientStatus,
   enrollTnsNurture,
   convertTnsToActive,
+  createPatientDraft,
+  updatePatientAudiology,
+  updatePatientDevices,
+  updatePatientCarePlan,
+  finalizePatient,
 } from "./db.js";
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 import { downloadQuote } from "./generateQuote.js";
@@ -1503,6 +1508,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState(null);
+  const [wizardPatientId, setWizardPatientId] = useState(null);
+  const [saveToast, setSaveToast] = useState(false);
   const [punchData, setPunchData] = useState({ cleanings: 0, appointments: 0, log: [] });
   const [punchConfirm, setPunchConfirm] = useState(null);
   const [punchSuccess, setPunchSuccess] = useState(null);
@@ -2222,10 +2229,52 @@ export default function ProviderCRM({ staffId, clinicId }) {
       || form.left.isCROS || form.right.isCROS;
     const fittingType = leftRec && rightRec ? (isCROS ? "CROS/BiCROS" : "Bilateral") : leftRec ? "Monaural Left" : "Monaural Right";
     const years = form.payType === "insurance" && form.carePlan === "complete" ? 4 : 3;
-    // Warranty starts 14 days after PA signature (average fitting lead time), or today if no PA signed
     const warrantyStart = wizardPaSignatureDate
       ? new Date(new Date(wizardPaSignatureDate).getTime() + 14 * 86400000).toISOString().split("T")[0]
       : new Date().toISOString().split("T")[0];
+
+    // Incremental save path — patient already exists in DB as draft
+    if (wizardPatientId) {
+      try {
+        const carePlan = form.payType === "insurance" ? form.carePlan : null;
+        await finalizePatient(
+          wizardPatientId,
+          wizardPaSigned ? "active" : "tns",
+          { fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null },
+          carePlan,
+          form.notes,
+          form.appointments,
+          staffId, clinicId
+        );
+        setSaved(true);
+        await refreshPatients();
+        // Build local patient object for selectedPatient
+        const patient = {
+          id: wizardPatientId,
+          location: clinic.name,
+          createdAt: new Date().toISOString(),
+          name: [form.firstName, form.lastName].filter(Boolean).join(" "),
+          dob: form.dob, phone: form.phone, email: form.email, address: form.address,
+          payType: form.payType,
+          insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
+          devices: { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null, serialLeft: genId(), serialRight: genId() },
+          audiology: form.audiology,
+          carePlan: carePlan,
+          appointments: form.appointments,
+          notes: form.notes,
+          patientStatus: wizardPaSigned ? "active" : "tns",
+        };
+        setSelectedPatient(patient);
+        setPunchData({ cleanings: 0, appointments: 0, log: [] });
+        setView("patient");
+      } catch (err) {
+        console.error("finalizePatient error:", err);
+        setSaveError(err?.message || err?.toString() || "Unknown error — check console");
+      }
+      return;
+    }
+
+    // Legacy full-save path (no incremental saves happened)
     const patient = {
       id: genId(),
       location: clinic.name,
@@ -2276,6 +2325,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     setForm({ firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},audiology:{rightT:{},leftT:{},rightBC:{},leftBC:{},rightMask:{},leftMask:{},rightBCMask:{},leftBCMask:{},tinnitusRight:false,tinnitusLeft:false,unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,wrMclR:null,wrMclL:null,sinBin:null},carePlan:"",appointments:[],notes:"" });
     setActiveSide("left");
     setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
+    setWizardPatientId(null); setSaveToast(false);
     setStep(0); setSaved(false); setView("new");
   };
 
@@ -3147,6 +3197,277 @@ export default function ProviderCRM({ staffId, clinicId }) {
   ][step];
 
 
+  // ── Shared Results / Consultation content ────────────────────────────────
+  // Used by both wizard Step 2 and Consultation Mode. Accepts audiology data
+  // and chief complaint text; renders audiogram + speech banana + phoneme
+  // dimming + drawing overlay + hearing sim paragraph + severity/CCT/WRS +
+  // dynamic counseling copy.
+  const renderResultsContent = (aud, chiefComplaint) => {
+    if (!aud) return null;
+    const rPTA = getPTA(aud.rightT);
+    const lPTA = getPTA(aud.leftT);
+    const hasThresholds = rPTA!=null || lPTA!=null;
+    const hasAnyData = hasThresholds || aud.unaidedR!=null || aud.unaidedL!=null || aud.cctR!=null || aud.cctL!=null || aud.wrMclR!=null || aud.wrMclL!=null || aud.sinBin!=null;
+
+    const rSeverity = getWorstThresholdSeverity(aud.rightT);
+    const lSeverity = getWorstThresholdSeverity(aud.leftT);
+    const severityRank = s => ["Normal","Mild","Moderate","Moderately Severe","Severe","Profound"].indexOf(s);
+    const overallSeverity = (rSeverity && lSeverity)
+      ? (severityRank(rSeverity) >= severityRank(lSeverity) ? rSeverity : lSeverity)
+      : (rSeverity || lSeverity);
+
+    const cctR = aud.cctR ?? aud.unaidedR, cctL = aud.cctL ?? aud.unaidedL;
+    const cctDefR = cctR!=null ? 100-cctR : null;
+    const cctDefL = cctL!=null ? 100-cctL : null;
+    const worseCCT = (cctR!=null && cctL!=null) ? Math.min(cctR, cctL) : (cctR ?? cctL);
+    const cctColor = v => v==null ? "#9ca3af" : v>=90 ? "#16a34a" : v>=75 ? "#f59e0b" : "#dc2626";
+
+    const computeInaudible = (thresholds, dimMode) => {
+      return PHONEMES.map(ph => {
+        const rThr = interpolateThreshold(aud.rightT, ph.freq);
+        const lThr = interpolateThreshold(aud.leftT, ph.freq);
+        const rIn = rThr!=null && rThr > ph.db;
+        const lIn = lThr!=null && lThr > ph.db;
+        let inaudible = false;
+        if(dimMode==="right") inaudible = rIn;
+        else if(dimMode==="left") inaudible = lIn;
+        else inaudible = rIn || lIn;
+        return inaudible ? ph.label : null;
+      }).filter(Boolean);
+    };
+    const inaudibleBoth = computeInaudible(null, "both");
+    const highFreqInaudible = inaudibleBoth.filter(l => HIGH_FREQ_CONSONANTS.includes(l));
+
+    const findingSentence = {
+      "Normal": "Your hearing thresholds are within the normal range.",
+      "Mild": "You have a mild hearing loss \u2014 most noticeable in quiet or reverberant rooms.",
+      "Moderate": "You have a moderate hearing loss affecting everyday conversation.",
+      "Moderately Severe": "You have a moderately severe hearing loss. Unaided conversation requires significant effort.",
+      "Severe": "You have a severe hearing loss. Unaided speech understanding is substantially compromised.",
+      "Profound": "You have a profound hearing loss. Unaided communication is extremely limited.",
+    }[overallSeverity] || null;
+
+    const clarityGapCopy = (() => {
+      if(worseCCT==null || worseCCT >= 90) return null;
+      const deficit = 100 - worseCCT;
+      if(worseCCT >= 75) return "Even at a comfortable volume, your ability to understand speech clearly is mildly reduced.";
+      if(worseCCT >= 60) return `At a level where someone with normal hearing scores 100%, you scored ${worseCCT}%. That ${deficit}-point gap is the difference between hearing and understanding.`;
+      return "Your word recognition deficit is significant. You are likely missing large portions of conversation even when sound is loud enough to hear.";
+    })();
+
+    const missingCopy = (() => {
+      if(!hasThresholds) return null;
+      const n = highFreqInaudible.length;
+      if(n >= 5) return "The sounds you\u2019re missing most \u2014 S, F, TH, SH \u2014 are the consonants that define word endings and questions. Without them, speech sounds muffled rather than quiet.";
+      if(n >= 3) return "Several high-frequency consonants are in your inaudible range. This explains why some words sound unclear even when the volume seems fine.";
+      if(n >= 1) return "A small number of high-frequency sounds fall just outside your hearing range \u2014 likely subtle, but present.";
+      return null;
+    })();
+
+    return (
+      <>
+        {hasThresholds && (
+          <div className="card">
+            <div className="card-title">Your Audiogram</div>
+            <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+              {["left","both","right"].map(mode=>(
+                <button key={mode} onClick={()=>setPhonemeDimMode(mode)}
+                  style={{padding:"5px 14px",borderRadius:6,fontSize:11,fontWeight:600,cursor:"pointer",
+                    border:phonemeDimMode===mode?"2px solid #6366f1":"1px solid #d1d5db",
+                    background:phonemeDimMode===mode?"#eef2ff":"#fff",
+                    color:phonemeDimMode===mode?"#4f46e5":mode==="right"?"#dc2626":mode==="left"?"#2563eb":"#374151"}}>
+                  {mode==="left"?"Left":mode==="right"?"Right":"Both"}
+                </button>
+              ))}
+              <span style={{fontSize:11,color:"#9ca3af",alignSelf:"center",marginLeft:4}}>Phoneme dimming ear</span>
+
+              <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center"}}>
+                <button onClick={()=>setDrawingEnabled(!drawingEnabled)}
+                  style={{padding:"5px 12px",borderRadius:6,fontSize:11,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:4,
+                    border:drawingEnabled?"2px solid #f59e0b":"1px solid #d1d5db",
+                    background:drawingEnabled?"#fffbeb":"#fff",
+                    color:drawingEnabled?"#b45309":"#6b7280"}}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                  Draw
+                </button>
+                {drawingEnabled && <>
+                  {[["#dc2626","Red"],["#2563eb","Blue"],["#1e293b","Black"]].map(([c,label])=>(
+                    <button key={c} onClick={()=>setDrawColor(c)} title={label}
+                      style={{width:20,height:20,borderRadius:"50%",border:drawColor===c?"3px solid #f59e0b":"2px solid #d1d5db",background:c,cursor:"pointer",padding:0,flexShrink:0}}/>
+                  ))}
+                  <button onClick={()=>setDrawPaths(prev=>prev.slice(0,-1))} disabled={drawPaths.length===0} title="Undo"
+                    style={{padding:"4px 8px",borderRadius:6,fontSize:11,fontWeight:600,cursor:drawPaths.length?"pointer":"default",border:"1px solid #d1d5db",background:"#fff",color:drawPaths.length?"#6b7280":"#d1d5db",display:"flex",alignItems:"center",gap:3}}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+                  </button>
+                  <button onClick={()=>setDrawPaths([])} disabled={drawPaths.length===0} title="Clear all"
+                    style={{padding:"4px 8px",borderRadius:6,fontSize:11,fontWeight:600,cursor:drawPaths.length?"pointer":"default",border:"1px solid #d1d5db",background:"#fff",color:drawPaths.length?"#6b7280":"#d1d5db",display:"flex",alignItems:"center",gap:3}}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                  </button>
+                </>}
+              </div>
+            </div>
+            <div style={{position:"relative",background:"#fafafa",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 8px",marginBottom:14}}>
+              <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false} showBanana={true} phonemeDimMode={phonemeDimMode}/>
+              {drawingEnabled && (
+                <canvas
+                  ref={drawCanvasRef}
+                  onPointerDown={onDrawPointerDown}
+                  onPointerMove={onDrawPointerMove}
+                  onPointerUp={onDrawPointerUp}
+                  onPointerLeave={onDrawPointerUp}
+                  style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",cursor:"crosshair",touchAction:"none",borderRadius:10}}
+                />
+              )}
+              {!drawingEnabled && drawPaths.length > 0 && (
+                <canvas
+                  ref={el=>{if(el){drawCanvasRef.current=el;const p=el.parentElement;const dpr=window.devicePixelRatio||1;el.width=p.offsetWidth*dpr;el.height=p.offsetHeight*dpr;el.style.width=p.offsetWidth+"px";el.style.height=p.offsetHeight+"px";redrawCanvas(drawPaths,null);}}}
+                  style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",pointerEvents:"none",borderRadius:10}}
+                />
+              )}
+            </div>
+
+            {/* Hearing Simulation Paragraph */}
+            <div style={{margin:"0 0 16px",padding:"16px 20px",background:"#fff",border:"1px solid #e5e7eb",borderRadius:10}}>
+              <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:10}}>What speech sounds like with your hearing</div>
+              <p style={{fontSize:16,lineHeight:2,fontFamily:"'DM Sans',sans-serif",margin:0,letterSpacing:"0.01em"}}>
+                {HEARING_SIM_TEXT.map((seg,i) => {
+                  if (!seg.ph) return <span key={i}>{seg.t}</span>;
+                  const ph = PHONEMES.find(p => p.label === seg.ph);
+                  if (!ph) return <span key={i}>{seg.t}</span>;
+                  const rThr = interpolateThreshold(aud.rightT, ph.freq);
+                  const lThr = interpolateThreshold(aud.leftT, ph.freq);
+                  const rIn = rThr != null && rThr > ph.db;
+                  const lIn = lThr != null && lThr > ph.db;
+                  const rBorder = rThr != null && !rIn && rThr > ph.db - 5;
+                  const lBorder = lThr != null && !lIn && lThr > ph.db - 5;
+                  let inaudible = false, borderline = false;
+                  if (phonemeDimMode === "right") { inaudible = rIn; borderline = !inaudible && rBorder; }
+                  else if (phonemeDimMode === "left") { inaudible = lIn; borderline = !inaudible && lBorder; }
+                  else { inaudible = rIn || lIn; borderline = !inaudible && (rBorder || lBorder); }
+                  const color = inaudible ? "#e5e7eb" : borderline ? "#b0b5bd" : "#1e293b";
+                  return <span key={i} style={{color,transition:"color 0.3s ease"}}>{seg.t}</span>;
+                })}
+              </p>
+            </div>
+
+            {/* Severity per ear */}
+            <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
+              {rSeverity&&(
+                <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"10px 16px"}}>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:2}}>Right Ear</div>
+                  <div style={{fontSize:16,fontWeight:800,color:"#0a1628"}}>{rSeverity}</div>
+                </div>
+              )}
+              {lSeverity&&(
+                <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 16px"}}>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:2}}>Left Ear</div>
+                  <div style={{fontSize:16,fontWeight:800,color:"#0a1628"}}>{lSeverity}</div>
+                </div>
+              )}
+              {aud.sinBin!=null&&(
+                <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 16px"}}>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>QuickSIN SNR Loss</div>
+                  <div style={{fontSize:18,fontWeight:800,color:"#0a1628"}}>{aud.sinBin} <span style={{fontSize:11,color:"#9ca3af",fontWeight:400}}>dB</span></div>
+                  <div style={{fontSize:11,fontWeight:600,marginTop:2,
+                    color:aud.sinBin<=2?"#16a34a":aud.sinBin<=7?"#ca8a04":aud.sinBin<=15?"#ea580c":"#dc2626"}}>
+                    {aud.sinBin<=2?"Near-normal":aud.sinBin<=7?"Mild":aud.sinBin<=15?"Moderate":"Severe"} difficulty in noise
+                  </div>
+                </div>
+              )}
+              {(aud.tinnitusRight||aud.tinnitusLeft)&&(
+                <div style={{background:"#fefce8",border:"1px solid #fde68a",borderRadius:8,padding:"10px 16px"}}>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#92400e",marginBottom:2}}>Tinnitus</div>
+                  <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>
+                    {aud.tinnitusRight&&aud.tinnitusLeft?"Bilateral":aud.tinnitusRight?"Right Ear":"Left Ear"}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* CCT + WRS @ MCL Scorecard */}
+            {(cctR!=null||cctL!=null||aud.wrMclR!=null||aud.wrMclL!=null) && (
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:10,padding:"14px 16px"}}>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:10}}>Right Ear</div>
+                  <div style={{marginBottom:10}}>
+                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>CCT Score</div>
+                    <div style={{fontSize:22,fontWeight:800,color:cctColor(cctR)}}>{cctR!=null?`${cctR}%`:"\u2014"}</div>
+                    {cctDefR!=null&&cctDefR>0&&(
+                      <div style={{fontSize:12,fontWeight:700,color:"#dc2626",marginTop:2}}>{cctDefR} pts below normal</div>
+                    )}
+                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>California Consonant Test @ 45 dB</div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>WRS @ MCL</div>
+                    <div style={{fontSize:22,fontWeight:800,color:"#0a1628"}}>{aud.wrMclR!=null?`${aud.wrMclR}%`:"\u2014"}</div>
+                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>Word recognition at comfortable volume</div>
+                  </div>
+                </div>
+                <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:10,padding:"14px 16px"}}>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:10}}>Left Ear</div>
+                  <div style={{marginBottom:10}}>
+                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>CCT Score</div>
+                    <div style={{fontSize:22,fontWeight:800,color:cctColor(cctL)}}>{cctL!=null?`${cctL}%`:"\u2014"}</div>
+                    {cctDefL!=null&&cctDefL>0&&(
+                      <div style={{fontSize:12,fontWeight:700,color:"#dc2626",marginTop:2}}>{cctDefL} pts below normal</div>
+                    )}
+                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>California Consonant Test @ 45 dB</div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>WRS @ MCL</div>
+                    <div style={{fontSize:22,fontWeight:800,color:"#0a1628"}}>{aud.wrMclL!=null?`${aud.wrMclL}%`:"\u2014"}</div>
+                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>Word recognition at comfortable volume</div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Dynamic Counseling Copy */}
+        {hasAnyData && (
+          <div className="card">
+            <div className="card-title">Understanding Your Results</div>
+            {chiefComplaint && (
+              <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"12px 16px",marginBottom:16}}>
+                <div style={{fontSize:13,color:"#374151",fontStyle:"italic",lineHeight:1.6}}>
+                  You came in today because: {chiefComplaint}
+                </div>
+              </div>
+            )}
+            {findingSentence && (
+              <div style={{fontSize:14,color:"#0a1628",fontWeight:600,lineHeight:1.7,marginBottom:16}}>
+                {findingSentence}
+              </div>
+            )}
+            {clarityGapCopy && (
+              <div style={{fontSize:13,color:"#374151",lineHeight:1.75,marginBottom:16}}>
+                {clarityGapCopy}
+              </div>
+            )}
+            {missingCopy && (
+              <div style={{fontSize:13,color:"#374151",lineHeight:1.75,marginBottom:16}}>
+                {missingCopy}
+              </div>
+            )}
+            <div style={{fontSize:13,color:"#6b7280",fontWeight:500,lineHeight:1.7,paddingTop:8,borderTop:"1px solid #f3f4f6"}}>
+              Below, you'll see how treatment addresses each of these gaps.
+            </div>
+          </div>
+        )}
+
+        {!hasAnyData && (
+          <div className="card" style={{textAlign:"center",padding:"40px 20px",color:"#9ca3af"}}>
+            <div style={{fontSize:40,marginBottom:12}}>📋</div>
+            <div style={{fontSize:16,fontWeight:600,color:"#374151",marginBottom:8}}>No test data recorded yet</div>
+            <div style={{fontSize:13}}>Go back to the Testing step to enter audiogram and speech scores, or continue to treatment options.</div>
+          </div>
+        )}
+      </>
+    );
+  };
+
+
   const renderStep = () => {
     if (step === 0) return (
       <div className="card">
@@ -3558,292 +3879,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
       );
     }
     if (step === 2) {
-      const aud = form.audiology;
-      const rPTA = getPTA(aud.rightT);
-      const lPTA = getPTA(aud.leftT);
-      const hasThresholds = rPTA!=null || lPTA!=null;
-      const hasAnyData = hasThresholds || aud.unaidedR!=null || aud.unaidedL!=null || aud.cctR!=null || aud.cctL!=null || aud.wrMclR!=null || aud.wrMclL!=null || aud.sinBin!=null;
-
-      // ── Worst-threshold severity (Change 4) ──
-      const rSeverity = getWorstThresholdSeverity(aud.rightT);
-      const lSeverity = getWorstThresholdSeverity(aud.leftT);
-      const severityRank = s => ["Normal","Mild","Moderate","Moderately Severe","Severe","Profound"].indexOf(s);
-      const overallSeverity = (rSeverity && lSeverity)
-        ? (severityRank(rSeverity) >= severityRank(lSeverity) ? rSeverity : lSeverity)
-        : (rSeverity || lSeverity);
-
-      // ── CCT scores — prefer dedicated cctR/cctL from NHAX, fall back to unaided WRS ──
-      const cctR = aud.cctR ?? aud.unaidedR, cctL = aud.cctL ?? aud.unaidedL;
-      const cctDefR = cctR!=null ? 100-cctR : null;
-      const cctDefL = cctL!=null ? 100-cctL : null;
-      const worseCCT = (cctR!=null && cctL!=null) ? Math.min(cctR, cctL) : (cctR ?? cctL);
-      const cctColor = v => v==null ? "#9ca3af" : v>=90 ? "#16a34a" : v>=75 ? "#f59e0b" : "#dc2626";
-
-      // ── Phoneme dimming analysis ──
-      const computeInaudible = (thresholds, dimMode) => {
-        return PHONEMES.map(ph => {
-          const rThr = interpolateThreshold(aud.rightT, ph.freq);
-          const lThr = interpolateThreshold(aud.leftT, ph.freq);
-          const rIn = rThr!=null && rThr > ph.db;
-          const lIn = lThr!=null && lThr > ph.db;
-          let inaudible = false;
-          if(dimMode==="right") inaudible = rIn;
-          else if(dimMode==="left") inaudible = lIn;
-          else inaudible = rIn || lIn;
-          return inaudible ? ph.label : null;
-        }).filter(Boolean);
-      };
-      const inaudibleBoth = computeInaudible(null, "both");
-      const highFreqInaudible = inaudibleBoth.filter(l => HIGH_FREQ_CONSONANTS.includes(l));
-
-      // ── Dynamic copy (Change 5) ──
-      const chiefComplaint = form.notes || "";
-
-      const findingSentence = {
-        "Normal": "Your hearing thresholds are within the normal range.",
-        "Mild": "You have a mild hearing loss \u2014 most noticeable in quiet or reverberant rooms.",
-        "Moderate": "You have a moderate hearing loss affecting everyday conversation.",
-        "Moderately Severe": "You have a moderately severe hearing loss. Unaided conversation requires significant effort.",
-        "Severe": "You have a severe hearing loss. Unaided speech understanding is substantially compromised.",
-        "Profound": "You have a profound hearing loss. Unaided communication is extremely limited.",
-      }[overallSeverity] || null;
-
-      const clarityGapCopy = (() => {
-        if(worseCCT==null || worseCCT >= 90) return null;
-        const deficit = 100 - worseCCT;
-        if(worseCCT >= 75) return "Even at a comfortable volume, your ability to understand speech clearly is mildly reduced.";
-        if(worseCCT >= 60) return `At a level where someone with normal hearing scores 100%, you scored ${worseCCT}%. That ${deficit}-point gap is the difference between hearing and understanding.`;
-        return "Your word recognition deficit is significant. You are likely missing large portions of conversation even when sound is loud enough to hear.";
-      })();
-
-      const missingCopy = (() => {
-        if(!hasThresholds) return null;
-        const n = highFreqInaudible.length;
-        if(n >= 5) return "The sounds you\u2019re missing most \u2014 S, F, TH, SH \u2014 are the consonants that define word endings and questions. Without them, speech sounds muffled rather than quiet.";
-        if(n >= 3) return "Several high-frequency consonants are in your inaudible range. This explains why some words sound unclear even when the volume seems fine.";
-        if(n >= 1) return "A small number of high-frequency sounds fall just outside your hearing range \u2014 likely subtle, but present.";
-        return null;
-      })();
-
-      return (
-        <>
-          {/* ── Audiogram with Speech Banana ── */}
-          {hasThresholds && (
-            <div className="card">
-              <div className="card-title">Your Audiogram</div>
-              {/* Phoneme dim ear toggle + Drawing toolbar */}
-              <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
-                {["left","both","right"].map(mode=>(
-                  <button key={mode} onClick={()=>setPhonemeDimMode(mode)}
-                    style={{padding:"5px 14px",borderRadius:6,fontSize:11,fontWeight:600,cursor:"pointer",
-                      border:phonemeDimMode===mode?"2px solid #6366f1":"1px solid #d1d5db",
-                      background:phonemeDimMode===mode?"#eef2ff":"#fff",
-                      color:phonemeDimMode===mode?"#4f46e5":mode==="right"?"#dc2626":mode==="left"?"#2563eb":"#374151"}}>
-                    {mode==="left"?"Left":mode==="right"?"Right":"Both"}
-                  </button>
-                ))}
-                <span style={{fontSize:11,color:"#9ca3af",alignSelf:"center",marginLeft:4}}>Phoneme dimming ear</span>
-
-                <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center"}}>
-                  {/* Draw toggle */}
-                  <button onClick={()=>setDrawingEnabled(!drawingEnabled)}
-                    style={{padding:"5px 12px",borderRadius:6,fontSize:11,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:4,
-                      border:drawingEnabled?"2px solid #f59e0b":"1px solid #d1d5db",
-                      background:drawingEnabled?"#fffbeb":"#fff",
-                      color:drawingEnabled?"#b45309":"#6b7280"}}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-                    Draw
-                  </button>
-                  {/* Color pills — only visible when drawing */}
-                  {drawingEnabled && <>
-                    {[["#dc2626","Red"],["#2563eb","Blue"],["#1e293b","Black"]].map(([c,label])=>(
-                      <button key={c} onClick={()=>setDrawColor(c)} title={label}
-                        style={{width:20,height:20,borderRadius:"50%",border:drawColor===c?"3px solid #f59e0b":"2px solid #d1d5db",background:c,cursor:"pointer",padding:0,flexShrink:0}}/>
-                    ))}
-                    <button onClick={()=>setDrawPaths(prev=>prev.slice(0,-1))} disabled={drawPaths.length===0} title="Undo"
-                      style={{padding:"4px 8px",borderRadius:6,fontSize:11,fontWeight:600,cursor:drawPaths.length?"pointer":"default",border:"1px solid #d1d5db",background:"#fff",color:drawPaths.length?"#6b7280":"#d1d5db",display:"flex",alignItems:"center",gap:3}}>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
-                    </button>
-                    <button onClick={()=>setDrawPaths([])} disabled={drawPaths.length===0} title="Clear all"
-                      style={{padding:"4px 8px",borderRadius:6,fontSize:11,fontWeight:600,cursor:drawPaths.length?"pointer":"default",border:"1px solid #d1d5db",background:"#fff",color:drawPaths.length?"#6b7280":"#d1d5db",display:"flex",alignItems:"center",gap:3}}>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-                    </button>
-                  </>}
-                </div>
-              </div>
-              <div style={{position:"relative",background:"#fafafa",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 8px",marginBottom:14}}>
-                <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false} showBanana={true} phonemeDimMode={phonemeDimMode}/>
-                {drawingEnabled && (
-                  <canvas
-                    ref={drawCanvasRef}
-                    onPointerDown={onDrawPointerDown}
-                    onPointerMove={onDrawPointerMove}
-                    onPointerUp={onDrawPointerUp}
-                    onPointerLeave={onDrawPointerUp}
-                    style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",cursor:"crosshair",touchAction:"none",borderRadius:10}}
-                  />
-                )}
-                {!drawingEnabled && drawPaths.length > 0 && (
-                  <canvas
-                    ref={el=>{if(el){drawCanvasRef.current=el;const p=el.parentElement;const dpr=window.devicePixelRatio||1;el.width=p.offsetWidth*dpr;el.height=p.offsetHeight*dpr;el.style.width=p.offsetWidth+"px";el.style.height=p.offsetHeight+"px";redrawCanvas(drawPaths,null);}}}
-                    style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",pointerEvents:"none",borderRadius:10}}
-                  />
-                )}
-              </div>
-
-              {/* ── Hearing Simulation Paragraph ── */}
-              <div style={{margin:"0 0 16px",padding:"16px 20px",background:"#fff",border:"1px solid #e5e7eb",borderRadius:10}}>
-                <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:10}}>What speech sounds like with your hearing</div>
-                <p style={{fontSize:16,lineHeight:2,fontFamily:"'DM Sans',sans-serif",margin:0,letterSpacing:"0.01em"}}>
-                  {HEARING_SIM_TEXT.map((seg,i) => {
-                    if (!seg.ph) return <span key={i}>{seg.t}</span>;
-                    const ph = PHONEMES.find(p => p.label === seg.ph);
-                    if (!ph) return <span key={i}>{seg.t}</span>;
-                    const rThr = interpolateThreshold(aud.rightT, ph.freq);
-                    const lThr = interpolateThreshold(aud.leftT, ph.freq);
-                    const rIn = rThr != null && rThr > ph.db;
-                    const lIn = lThr != null && lThr > ph.db;
-                    const rBorder = rThr != null && !rIn && rThr > ph.db - 5;
-                    const lBorder = lThr != null && !lIn && lThr > ph.db - 5;
-                    let inaudible = false, borderline = false;
-                    if (phonemeDimMode === "right") { inaudible = rIn; borderline = !inaudible && rBorder; }
-                    else if (phonemeDimMode === "left") { inaudible = lIn; borderline = !inaudible && lBorder; }
-                    else { inaudible = rIn || lIn; borderline = !inaudible && (rBorder || lBorder); }
-                    const color = inaudible ? "#e5e7eb" : borderline ? "#b0b5bd" : "#1e293b";
-                    return <span key={i} style={{color,transition:"color 0.3s ease"}}>{seg.t}</span>;
-                  })}
-                </p>
-              </div>
-
-              {/* ── Severity per ear ── */}
-              <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
-                {rSeverity&&(
-                  <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"10px 16px"}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:2}}>Right Ear</div>
-                    <div style={{fontSize:16,fontWeight:800,color:"#0a1628"}}>{rSeverity}</div>
-                  </div>
-                )}
-                {lSeverity&&(
-                  <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 16px"}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:2}}>Left Ear</div>
-                    <div style={{fontSize:16,fontWeight:800,color:"#0a1628"}}>{lSeverity}</div>
-                  </div>
-                )}
-                {aud.sinBin!=null&&(
-                  <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 16px"}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>QuickSIN SNR Loss</div>
-                    <div style={{fontSize:18,fontWeight:800,color:"#0a1628"}}>{aud.sinBin} <span style={{fontSize:11,color:"#9ca3af",fontWeight:400}}>dB</span></div>
-                    <div style={{fontSize:11,fontWeight:600,marginTop:2,
-                      color:aud.sinBin<=2?"#16a34a":aud.sinBin<=7?"#ca8a04":aud.sinBin<=15?"#ea580c":"#dc2626"}}>
-                      {aud.sinBin<=2?"Near-normal":aud.sinBin<=7?"Mild":aud.sinBin<=15?"Moderate":"Severe"} difficulty in noise
-                    </div>
-                  </div>
-                )}
-                {(aud.tinnitusRight||aud.tinnitusLeft)&&(
-                  <div style={{background:"#fefce8",border:"1px solid #fde68a",borderRadius:8,padding:"10px 16px"}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#92400e",marginBottom:2}}>Tinnitus</div>
-                    <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>
-                      {aud.tinnitusRight&&aud.tinnitusLeft?"Bilateral":aud.tinnitusRight?"Right Ear":"Left Ear"}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* ── CCT + WRS @ MCL Scorecard (Change 3) ── */}
-              {(cctR!=null||cctL!=null||aud.wrMclR!=null||aud.wrMclL!=null) && (
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-                  {/* Right ear */}
-                  <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:10,padding:"14px 16px"}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:10}}>Right Ear</div>
-                    <div style={{marginBottom:10}}>
-                      <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>CCT Score</div>
-                      <div style={{fontSize:22,fontWeight:800,color:cctColor(cctR)}}>{cctR!=null?`${cctR}%`:"\u2014"}</div>
-                      {cctDefR!=null&&cctDefR>0&&(
-                        <div style={{fontSize:12,fontWeight:700,color:"#dc2626",marginTop:2}}>{cctDefR} pts below normal</div>
-                      )}
-                      <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>California Consonant Test @ 45 dB</div>
-                    </div>
-                    <div>
-                      <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>WRS @ MCL</div>
-                      <div style={{fontSize:22,fontWeight:800,color:"#0a1628"}}>{aud.wrMclR!=null?`${aud.wrMclR}%`:"\u2014"}</div>
-                      <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>Word recognition at comfortable volume</div>
-                    </div>
-                  </div>
-                  {/* Left ear */}
-                  <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:10,padding:"14px 16px"}}>
-                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:10}}>Left Ear</div>
-                    <div style={{marginBottom:10}}>
-                      <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>CCT Score</div>
-                      <div style={{fontSize:22,fontWeight:800,color:cctColor(cctL)}}>{cctL!=null?`${cctL}%`:"\u2014"}</div>
-                      {cctDefL!=null&&cctDefL>0&&(
-                        <div style={{fontSize:12,fontWeight:700,color:"#dc2626",marginTop:2}}>{cctDefL} pts below normal</div>
-                      )}
-                      <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>California Consonant Test @ 45 dB</div>
-                    </div>
-                    <div>
-                      <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>WRS @ MCL</div>
-                      <div style={{fontSize:22,fontWeight:800,color:"#0a1628"}}>{aud.wrMclL!=null?`${aud.wrMclL}%`:"\u2014"}</div>
-                      <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>Word recognition at comfortable volume</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-
-          {/* ── Dynamic Copy (Change 5) ── */}
-          {hasAnyData && (
-            <div className="card">
-              <div className="card-title">Understanding Your Results</div>
-
-              {/* Section A — Complaint anchor */}
-              {chiefComplaint && (
-                <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"12px 16px",marginBottom:16}}>
-                  <div style={{fontSize:13,color:"#374151",fontStyle:"italic",lineHeight:1.6}}>
-                    You came in today because: {chiefComplaint}
-                  </div>
-                </div>
-              )}
-
-              {/* Section B — One-sentence finding */}
-              {findingSentence && (
-                <div style={{fontSize:14,color:"#0a1628",fontWeight:600,lineHeight:1.7,marginBottom:16}}>
-                  {findingSentence}
-                </div>
-              )}
-
-              {/* Section C — The clarity gap */}
-              {clarityGapCopy && (
-                <div style={{fontSize:13,color:"#374151",lineHeight:1.75,marginBottom:16}}>
-                  {clarityGapCopy}
-                </div>
-              )}
-
-              {/* Section D — What you're missing */}
-              {missingCopy && (
-                <div style={{fontSize:13,color:"#374151",lineHeight:1.75,marginBottom:16}}>
-                  {missingCopy}
-                </div>
-              )}
-
-              {/* Section E — Bridge line */}
-              <div style={{fontSize:13,color:"#6b7280",fontWeight:500,lineHeight:1.7,paddingTop:8,borderTop:"1px solid #f3f4f6"}}>
-                Below, you'll see how treatment addresses each of these gaps.
-              </div>
-            </div>
-          )}
-
-
-          {!hasAnyData && (
-            <div className="card" style={{textAlign:"center",padding:"40px 20px",color:"#9ca3af"}}>
-              <div style={{fontSize:40,marginBottom:12}}>📋</div>
-              <div style={{fontSize:16,fontWeight:600,color:"#374151",marginBottom:8}}>No test data recorded yet</div>
-              <div style={{fontSize:13}}>Go back to the Testing step to enter audiogram and speech scores, or continue to treatment options.</div>
-            </div>
-          )}
-        </>
-      );
+      return renderResultsContent(form.audiology, form.notes || "");
     }
     if (step === 3) {
 
@@ -4502,7 +4538,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
             </div>
             <button
               style={{background:"none",border:"none",color:"#9ca3af",fontFamily:"'Sora',sans-serif",fontSize:12,cursor:"pointer",padding:"4px 12px"}}
-              onClick={()=>setStep(5)}
+              onClick={async()=>{
+                if (wizardPatientId && form.carePlan) { try { await updatePatientCarePlan(wizardPatientId, form.carePlan); setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000); } catch(e) { console.error("care plan save:", e); } }
+                setStep(5);
+              }}
             >
               Continue to review →
             </button>
@@ -4791,7 +4830,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
               <button
                 disabled={!(form.payType === "private" || !!form.carePlan)}
                 style={{background:"none",border:"none",color:"#9ca3af",fontFamily:"'Sora',sans-serif",fontSize:12,cursor:"pointer",padding:"4px 12px",opacity:(form.payType === "private" || !!form.carePlan)?1:0.4}}
-                onClick={()=>setStep(5)}
+                onClick={async()=>{
+                  if (wizardPatientId && form.carePlan) { try { await updatePatientCarePlan(wizardPatientId, form.carePlan); setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000); } catch(e) { console.error("care plan save:", e); } }
+                  setStep(5);
+                }}
               >
                 Continue to review →
               </button>
@@ -5143,6 +5185,15 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 }}
               >
                 Mark as TNS
+              </button>
+            )}
+            {p.audiology && (getPTA(p.audiology.rightT)!=null || getPTA(p.audiology.leftT)!=null) && (
+              <button
+                style={{background:"#4f46e5",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
+                onClick={() => { setDrawPaths([]); setDrawingEnabled(false); setPhonemeDimMode("both"); setView("consultation"); }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+                Consultation Mode
               </button>
             )}
             {p.devices && (p.carePlan || p.payType === "private") && (
@@ -6400,8 +6451,35 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
         <div className="main">
+          {/* Save toast */}
+          {saveToast && (
+            <div style={{position:"fixed",top:16,right:16,zIndex:9999,background:"#0a1628",color:"#4ade80",padding:"10px 20px",borderRadius:10,fontSize:13,fontWeight:700,fontFamily:"'Sora',sans-serif",boxShadow:"0 4px 20px rgba(0,0,0,0.25)",display:"flex",alignItems:"center",gap:8,animation:"fadeIn 0.2s ease"}}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              Saved
+            </div>
+          )}
           {(view === "dashboard" || view === "patients") && renderDashboard()}
           {view === "patient" && renderPatientDetail()}
+          {view === "consultation" && (() => {
+            const p = selectedPatient;
+            if (!p || !p.audiology) return null;
+            return (
+              <>
+                <div className="topbar">
+                  <div>
+                    <div className="topbar-title">Consultation — {p.name}</div>
+                    <div className="topbar-sub">Audiogram counseling tools · {p.id.slice(0,8).toUpperCase()}</div>
+                  </div>
+                  <button className="btn-ghost" onClick={()=>setView("patient")}>{"\u2190"} Exit Consultation</button>
+                </div>
+                <div className="content">
+                  <div style={{maxWidth:720,margin:"0 auto"}}>
+                    {renderResultsContent(p.audiology, p.notes || "")}
+                  </div>
+                </div>
+              </>
+            );
+          })()}
           {view === "settings" && renderSettings()}
           {view === "catalog" && renderCatalog()}
           {view === "campaigns" && <CampaignManager clinicId={clinicId} staffId={staffId} patients={patients} />}
@@ -6441,13 +6519,34 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     </button>
                     {step < STEPS.length-1 ? (
                       step === 4 ? null : (
-                        <button className="btn-primary" disabled={!canProceed} style={{opacity:canProceed?1:0.4}} onClick={()=>setStep(s=>s+1)}>
+                        <button className="btn-primary" disabled={!canProceed} style={{opacity:canProceed?1:0.4}} onClick={async()=>{
+                          try {
+                            if (step === 0 && !wizardPatientId) {
+                              const name = [form.firstName, form.lastName].filter(Boolean).join(" ");
+                              const ins = form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null;
+                              const pid = await createPatientDraft({ id: genId(), name, dob: form.dob, phone: form.phone, email: form.email, address: form.address, payType: form.payType, notes: form.notes, insurance: ins }, staffId, clinicId);
+                              setWizardPatientId(pid);
+                              setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
+                            } else if (step === 1 && wizardPatientId) {
+                              await updatePatientAudiology(wizardPatientId, form.audiology, staffId);
+                              setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
+                            } else if (step === 3 && wizardPatientId) {
+                              const leftRec = buildSideRecord(form.left);
+                              const rightRec = buildSideRecord(form.right);
+                              const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
+                              const fittingType = leftRec && rightRec ? (isCROS ? "cros_bicros" : "bilateral") : leftRec ? "monaural_left" : "monaural_right";
+                              await updatePatientDevices(wizardPatientId, { left: leftRec, right: rightRec, fittingType, serialLeft: genId(), serialRight: genId() }, staffId);
+                              setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
+                            }
+                          } catch(e) { console.error("incremental save:", e); }
+                          setStep(s=>s+1);
+                        }}>
                           Continue →
                         </button>
                       )
                     ) : (
                       <button className="btn-primary green" onClick={handleSave}>
-                        ✓ Create Patient Profile
+                        ✓ {wizardPatientId ? "Finalize Patient" : "Create Patient Profile"}
                       </button>
                     )}
                   </div>
