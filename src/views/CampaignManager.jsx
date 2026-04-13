@@ -87,7 +87,7 @@ export default function CampaignManager({ clinicId, staffId, patients }) {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16 }}>
                 {templates.map(t => {
                   const stepCount = t.campaign_steps?.length || 0;
-                  const triggerLabel = { fitting_date: "Fitting Date", manual: "Manual", warranty_expiry: "Warranty Expiry" }[t.trigger_type] || t.trigger_type;
+                  const triggerLabel = { fitting_date: "Fitting Date", manual: "Manual", warranty_expiry: "Warranty Expiry", tns: "Treatment Not Started" }[t.trigger_type] || t.trigger_type;
                   return (
                     <div key={t.id} className="card" style={{ padding: 20, cursor: "pointer", transition: "box-shadow 0.15s", opacity: t.active ? 1 : 0.5 }}
                       onClick={() => setSelectedTemplate(t)}
