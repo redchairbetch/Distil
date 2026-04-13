@@ -11,7 +11,7 @@ const FREQ_MAP = {
 };
 
 // Only keep frequencies Distil tracks
-const DISTIL_FREQS = new Set([250, 500, 1000, 2000, 3000, 4000, 6000, 8000]);
+const DISTIL_FREQS = new Set([250, 500, 1000, 2000, 3000, 4000, 6000av, 8000]);
 
 /**
  * Parse a frequency header line like "Right 125 250 500 750 1k 1.5k 2k 3k 4k 6k 8k"
