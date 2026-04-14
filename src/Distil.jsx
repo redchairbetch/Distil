@@ -20,6 +20,7 @@ import logoSignia from "./assets/logos/Signia.png";
 import logoStarkey from "./assets/logos/Starkey.png";
 import logoTruHearing from "./assets/logos/TruHearing.png";
 import logoWidex from "./assets/logos/Widex.png";
+import CareJourney from "./views/CareJourney.jsx";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.mjs",
@@ -4588,6 +4589,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
         <>
           {/* Device summary */}
           <DeviceSummary />
+
+          {/* Care journey visualization */}
+          <CareJourney />
 
           {/* Plan selector — recommendation-first design */}
           <div className="card">
