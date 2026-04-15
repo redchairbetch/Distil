@@ -66,22 +66,32 @@ const ACHIEVEMENT_DISPLAY = {
 };
 
 // ── Map Supabase patient join to the flat shape Aided's render functions expect ──
+// Device details live on `device_sides` (keyed by `ear`), not `device_fittings`.
+// The fitting row only carries date, warranty, fitting_type, and the two serials.
 function mapSupabasePatientToAidedShape(data) {
-  // Find the most recent active fitting
+  // Most recent active fitting
   const fitting = (data.device_fittings || [])
+    .filter(f => f.active !== false)
     .sort((a, b) => new Date(b.fitting_date || 0) - new Date(a.fitting_date || 0))[0];
 
-  // Get device sides from the fitting
+  // Device sides on the fitting (one per ear)
   const sides = fitting?.device_sides || [];
-  const left = sides.find(s => s.side === 'left') || {};
-  const right = sides.find(s => s.side === 'right') || {};
-  // Use left side as primary for display (bilateral assumption)
-  const primary = left.id ? left : right;
+  const left  = sides.find(s => s.ear === 'left')  || null;
+  const right = sides.find(s => s.ear === 'right') || null;
+  // Use left as primary for display (bilateral assumption). Fall back to right for monaural.
+  const primary = left || right || null;
 
-  // Find insurance coverage
-  const coverage = (data.insurance_coverage || [])[0];
+  // Compose a human-readable receiver label from length + power (matches Distil convention)
+  const receiverLabel = primary
+    ? [primary.receiver_length && `Length ${primary.receiver_length}`, primary.receiver_power]
+        .filter(Boolean).join(' · ')
+    : '';
 
-  // Map appointments to expected shape
+  // Insurance coverage (first active row)
+  const coverage = (data.insurance_coverage || []).find(c => c.active !== false)
+                || (data.insurance_coverage || [])[0];
+
+  // Appointments → flat shape the render expects
   const appointments = (data.appointments || []).map(a => ({
     date: a.appointment_date || a.date,
     type: a.appointment_type || a.type || 'Appointment',
@@ -90,31 +100,32 @@ function mapSupabasePatientToAidedShape(data) {
   return {
     id: data.id,
     name: [data.first_name, data.last_name].filter(Boolean).join(' ') || data.name || 'Patient',
-    dob: data.date_of_birth || data.dob,
+    dob: data.dob || data.date_of_birth,
     phone: data.phone,
     location: data.clinic_name || '',
     payType: coverage ? 'insurance' : (data.pay_type || 'private'),
     insurance: coverage ? {
-      carrier: coverage.carrier || coverage.insurance_carrier,
-      planGroup: coverage.plan_group || coverage.plan_name,
-      tpa: coverage.tpa,
-      tier: coverage.tier,
-      tierPrice: coverage.tier_price || coverage.copay,
+      carrier:   coverage.carrier,
+      planGroup: coverage.plan_group,
+      tpa:       coverage.tpa,
+      tier:      coverage.tier,
+      tierPrice: coverage.tier_price_per_aid ? coverage.tier_price_per_aid / 100 : null,
     } : null,
-    devices: fitting ? {
-      manufacturer: fitting.manufacturer || primary.manufacturer,
-      model: fitting.model || primary.model,
-      style: fitting.style || primary.style || 'ric',
-      color: primary.color || fitting.color,
-      battery: primary.battery_type || fitting.battery_type || 'Rechargeable',
-      receiver: primary.receiver || fitting.receiver,
-      dome: primary.dome || fitting.dome,
-      fittingDate: fitting.fitting_date,
-      warrantyExpiry: fitting.warranty_expiry || fitting.warranty_end,
-      serialLeft: left.serial_number || '',
-      serialRight: right.serial_number || '',
+    devices: (fitting && primary) ? {
+      manufacturer:   primary.manufacturer || '',
+      model:          primary.family || '',
+      style:          primary.style || 'ric',
+      color:          primary.color || '',
+      battery:        primary.battery || 'Rechargeable',
+      receiver:       receiverLabel,
+      dome:           primary.dome || '',
+      techLevel:      primary.tech_level || '',
+      fittingDate:    fitting.fitting_date,
+      warrantyExpiry: fitting.warranty_expiry,
+      serialLeft:     fitting.serial_left  || '',
+      serialRight:    fitting.serial_right || '',
     } : DEMO.devices, // Fallback to demo devices if no fitting found
-    carePlan: fitting?.care_plan || data.care_plan || 'complete',
+    carePlan: coverage?.care_plan_type || 'complete',
     appointments,
     notes: data.notes,
     createdAt: data.created_at,
