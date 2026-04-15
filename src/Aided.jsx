@@ -139,31 +139,7 @@ export default function PatientApp() {
   const [punchUsed, setPunchUsed] = useState({ cleanings: 0, appointments: 0 });
   const [punchConfirm, setPunchConfirm] = useState(null); // "cleaning" | "appointment" | null
   const [achievements, setAchievements] = useState([]);
-  const [installPrompt, setInstallPrompt] = useState(null);
-  const [showInstallBanner, setShowInstallBanner] = useState(false);
   const messagesEndRef = useRef(null);
-
-  // Capture the browser's install prompt for PWA "Add to Home Screen"
-  useEffect(() => {
-    const handler = (e) => {
-      e.preventDefault();
-      setInstallPrompt(e);
-      // Show banner after a short delay so it doesn't feel aggressive
-      setTimeout(() => setShowInstallBanner(true), 3000);
-    };
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
-  }, []);
-
-  const handleInstall = async () => {
-    if (!installPrompt) return;
-    installPrompt.prompt();
-    const { outcome } = await installPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setShowInstallBanner(false);
-      setInstallPrompt(null);
-    }
-  };
 
   // Load punch card state from Supabase (or skip for demo patient)
   useEffect(() => {
@@ -453,11 +429,6 @@ export default function PatientApp() {
     .punch-mini-num { font-size: 20px; font-weight: 800; color: #4ade80; }
     .punch-mini-label { font-size: 9px; opacity: 0.5; letter-spacing: 0.5px; text-transform: uppercase; }
     .profile-id { font-size: 10px; font-weight: 600; color: #16a34a; font-family: monospace; background: rgba(22,163,74,0.1); padding: 2px 8px; border-radius: 10px; margin-top: 4px; display: inline-block; }
-    .install-banner { background: linear-gradient(135deg,#065f46,#047857); border-radius: 14px; padding: 14px 16px; margin: 0 16px 12px; display: flex; align-items: center; justify-content: space-between; color: white; }
-    .install-banner-text { font-size: 13px; font-weight: 600; }
-    .install-banner-sub { font-size: 11px; opacity: 0.7; margin-top: 2px; }
-    .install-banner-btn { background: white; color: #065f46; border: none; border-radius: 10px; padding: 8px 16px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
-    .install-banner-close { background: none; border: none; color: white; opacity: 0.5; font-size: 18px; cursor: pointer; padding: 4px; margin-left: 8px; }
     /* SECTION PADDING TOP */
     .pt-section { padding-top: 20px; }
   `;
@@ -469,18 +440,6 @@ export default function PatientApp() {
         <div className="header-name">{p.name.split(" ")[0]} 👋</div>
         <div className="profile-id">ID: {p.id}</div>
       </div>
-      {showInstallBanner && (
-        <div className="install-banner">
-          <div>
-            <div className="install-banner-text">📱 Install Aided</div>
-            <div className="install-banner-sub">Add to your home screen for quick access</div>
-          </div>
-          <div style={{display:"flex",alignItems:"center"}}>
-            <button className="install-banner-btn" onClick={handleInstall}>Install</button>
-            <button className="install-banner-close" onClick={()=>setShowInstallBanner(false)}>✕</button>
-          </div>
-        </div>
-      )}
       <div className="scroll-content">
         {nextAppt && (
           <div className="section pt-section">
@@ -780,9 +739,9 @@ export default function PatientApp() {
           <div className="section">
             <div className="card" style={{background:"linear-gradient(135deg,#0a1628,#1a3050)",padding:"18px"}}>
               <div style={{fontSize:16,fontWeight:700,color:"white",marginBottom:6}}>Need more help?</div>
-              <div style={{fontSize:13,color:"rgba(255,255,255,0.6)",marginBottom:14}}>Chat with your hearing care AI assistant for personalized guidance.</div>
+              <div style={{fontSize:13,color:"rgba(255,255,255,0.6)",marginBottom:14}}>Call your clinic or see the Help tab for troubleshooting tips.</div>
               <div style={{background:"#4ade80",borderRadius:8,padding:"10px",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:14,color:"#0a1628"}} onClick={()=>setTab("help")}>
-                Open AI Assistant →
+                Open Help →
               </div>
             </div>
           </div>
@@ -848,38 +807,33 @@ export default function PatientApp() {
   const renderHelp = () => (
     <>
       <div className="header">
-        <div className="header-greeting">AI Assistant</div>
-        <div className="header-name">How can I help?</div>
+        <div className="header-greeting">Need a hand?</div>
+        <div className="header-name">We're here to help</div>
       </div>
-      <div className="scroll-content" style={{display:"flex",flexDirection:"column"}}>
-        <div className="quick-chips" style={{paddingTop:12}}>
-          {["My device won't turn on","How do I clean my aids?","Warranty question","Book an appointment"].map(q=>(
-            <div key={q} className="chip" onClick={()=>{ setInput(q); }}>{q}</div>
-          ))}
-        </div>
-        <div className="chat-messages">
-          {messages.map((m,i)=>(
-            <div key={i} className={`msg ${m.role}`}>
-              {m.role==="assistant" && <div style={{fontSize:10,fontWeight:700,color:"#9ca3af",marginBottom:4,letterSpacing:1}}>HEARING CARE AI</div>}
-              <div className="msg-bubble">{m.content}</div>
+      <div className="scroll-content">
+        <div className="section" style={{paddingTop:16}}>
+          <div className="card card-pad">
+            <div className="card-label">Contact your clinic</div>
+            <div style={{fontSize:15,fontWeight:700,color:"#0a1628",marginBottom:6}}>{clinicName}</div>
+            {p.phone && <div style={{fontSize:14,color:"#374151",marginBottom:4}}>📞 {p.phone}</div>}
+            {p.location && <div style={{fontSize:13,color:"#6b7280"}}>📍 {p.location}</div>}
+            <div style={{fontSize:12,color:"#9ca3af",marginTop:12,lineHeight:1.5}}>
+              Call your clinic for appointments, device issues, or any questions about your hearing care.
             </div>
-          ))}
-          {chatLoading && (
-            <div className="msg assistant">
-              <div style={{fontSize:10,fontWeight:700,color:"#9ca3af",marginBottom:4,letterSpacing:1}}>HEARING CARE AI</div>
-              <div className="msg-bubble" style={{padding:"8px 14px"}}>
-                <div className="typing-dots">
-                  <div className="typing-dot" /><div className="typing-dot" /><div className="typing-dot" />
-                </div>
+          </div>
+        </div>
+        <div className="section">
+          <div className="card">
+            <div className="card-pad">
+              <div className="card-label">Quick Troubleshooting</div>
+            </div>
+            {TROUBLESHOOT_TIPS.map((t,i)=>(
+              <div key={i} className="tip-row" onClick={()=>setExpandedTip(expandedTip===i?null:i)}>
+                <div className="tip-q">{t.q}<span>{expandedTip===i?"▲":"▼"}</span></div>
+                {expandedTip===i && <div className="tip-a">{t.a}</div>}
               </div>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-        <div className="chat-input-bar" style={{position:"sticky",bottom:80}}>
-          <input className="chat-input" placeholder="Ask anything about your hearing aids…" value={input}
-            onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendMessage()} />
-          <button className="chat-send" onClick={sendMessage}>↑</button>
+            ))}
+          </div>
         </div>
       </div>
     </>
