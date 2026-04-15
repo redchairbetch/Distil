@@ -4571,6 +4571,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
           {/* Plan selector — recommendation-first design */}
           <div className="card">
+            {form.payType !== "private" && (<>
             <div style={{marginBottom:20,fontFamily:"'DM Sans',sans-serif"}}>
               <h2 style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:24,fontWeight:700,color:"#111827",margin:0,letterSpacing:"-0.02em"}}>Your Care Plan</h2>
               <p style={{color:"#6b7280",fontSize:13,margin:"6px 0 0",lineHeight:1.5}}>Our recommendation for protecting your investment over the next five years.</p>
@@ -4760,6 +4761,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div style={{marginTop:18,padding:"10px 16px",background:"#f9fafb",borderRadius:10,fontSize:11,color:"#9ca3af",lineHeight:1.6,fontFamily:"'DM Sans',sans-serif"}}>
               All plans include a one-time Loss & Damage replacement per device ($275/device). Most manufacturers will not service devices older than six years.
             </div>
+            </>)}
 
             {/* Total investment */}
             {(aidTotal != null || form.carePlan) && (
