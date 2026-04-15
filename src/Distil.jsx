@@ -2210,6 +2210,18 @@ export default function ProviderCRM({ staffId, clinicId }) {
     };
   };
 
+  // Private-pay pricing: Signia is $2,750/device (preferred partner),
+  // all other manufacturers are $3,250/device. Applied per ear.
+  const privatePayPriceForSide = (s) => {
+    if (!s) return 0;
+    if (!s.familyId && s.manufacturer !== "TruHearing") return 0;
+    return s.manufacturer === "Signia" ? 2750 : 3250;
+  };
+  const privatePayTotal = () =>
+    privatePayPriceForSide(form.left) + privatePayPriceForSide(form.right);
+  const privatePayPrimaryPerAid = () =>
+    privatePayPriceForSide(form.left) || privatePayPriceForSide(form.right);
+
   // ── Generate Quote PDF from wizard state ─────────────────────────────
   const handleGenerateQuote = () => {
     const leftRec = buildSideRecord(form.left);
@@ -2220,7 +2232,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     downloadQuote({
       patient: { name: [form.firstName, form.lastName].filter(Boolean).join(" "), phone: form.phone },
       devices: { fittingType, left: leftRec, right: rightRec },
-      pricePerAid: form.payType === "private" ? 2750 : (form.tierPrice || 0),
+      pricePerAid: form.payType === "private" ? privatePayPrimaryPerAid() : (form.tierPrice || 0),
       selectedCarePlan: form.carePlan || "complete",
       payType: form.payType,
       tpa: form.tpa,
@@ -4448,8 +4460,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
       const leftOk  = isSideConfigured("left");
       const rightOk = isSideConfigured("right");
       const aidCount = (leftOk ? 1 : 0) + (rightOk ? 1 : 0);
-      const aidBase = form.tierPrice != null ? form.tierPrice * aidCount : null;
+      const aidBase = form.payType === "private"
+        ? (aidCount > 0 ? privatePayTotal() : null)
+        : (form.tierPrice != null ? form.tierPrice * aidCount : null);
       const aidTotal = aidBase;
+      const perAidFor = (side) => form.payType === "private"
+        ? privatePayPriceForSide(form[side])
+        : form.tierPrice;
       const isTruHearing = form.tpa === "TruHearing";
       const isTruHearingTPA = isTruHearing;
 
@@ -4467,16 +4484,17 @@ export default function ProviderCRM({ staffId, clinicId }) {
           const name = d.manufacturer === "TruHearing"
             ? `TruHearing Select · ${d.techLevel}`
             : `${fam?.family || ""} · ${d.techLevel}`;
+          const sidePrice = perAidFor(side);
           return (
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #f3f4f6"}}>
               <div>
                 <div style={{fontSize:13,fontWeight:600,color:"#0a1628"}}>{label}</div>
                 <div style={{fontSize:11,color:"#6b7280",marginTop:1}}>{name}</div>
               </div>
-              {form.tierPrice != null && (
+              {sidePrice != null && (
                 <div style={{textAlign:"right"}}>
                   <div style={{fontSize:15,fontWeight:700,color:"#0a1628"}}>
-                    {form.tierPrice===0?"No Charge":`$${form.tierPrice.toLocaleString()}`}
+                    {sidePrice===0?"No Charge":`$${sidePrice.toLocaleString()}`}
                   </div>
                   <div style={{fontSize:10,color:"#9ca3af"}}>per aid</div>
                 </div>
@@ -4494,7 +4512,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,paddingTop:10,borderTop:"2px solid #e5e7eb"}}>
                   <div>
                     <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>Device Total</div>
-                    <div style={{fontSize:11,color:"#6b7280"}}>{aidCount} aid{aidCount!==1?"s":""} · {form.tier} tier</div>
+                    <div style={{fontSize:11,color:"#6b7280"}}>{aidCount} aid{aidCount!==1?"s":""}{form.tier ? ` · ${form.tier} tier` : form.payType === "private" ? " · Private Pay" : ""}</div>
                   </div>
                   <div style={{background:"#0a1628",color:"white",borderRadius:8,padding:"8px 16px",textAlign:"right"}}>
                     <div style={{fontSize:20,fontWeight:800,lineHeight:1}}>
@@ -4534,48 +4552,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
       // Pay-As-You-Go price label (TPA-aware)
       const paygoPriceLabel = isTruHearing ? "$975 est." : "$65/visit";
       const paygoSubLabel   = isTruHearingTPA ? "est. over 4 yrs" : "per visit";
-
-      if (form.payType === "private") return (
-        <div className="card">
-          <div className="card-title">Private Pay – Standard of Care</div>
-          <div style={{background:"linear-gradient(135deg,#0a1628,#1a3050)",color:"white",borderRadius:12,padding:"20px 24px",marginBottom:16}}>
-            <div style={{fontSize:22,fontWeight:700,marginBottom:4}}>Standard of Care Package</div>
-            <div style={{fontSize:32,fontWeight:700,color:"#4ade80"}}>$5,500</div>
-            <div style={{fontSize:12,opacity:0.6,marginTop:4}}>Total investment · All-inclusive</div>
-          </div>
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {["Two top-tier hearing aids (any manufacturer)","Custom earmolds if needed","Unlimited office visits for life of aids","4-year comprehensive warranty","One-time replacement per device ($275 deductible)"].map(i=>(
-              <div key={i} style={{display:"flex",gap:10,fontSize:13,color:"#374151"}}><span style={{color:"#16a34a"}}>✓</span>{i}</div>
-            ))}
-          </div>
-          {/* ── Fork: Sign PA / Generate Quote / Continue ────────── */}
-          <div style={{marginTop:24,display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
-            <div style={{display:"flex",gap:12,width:"100%",justifyContent:"center"}}>
-              <button
-                style={{background:"#15803d",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:8}}
-                onClick={()=>{ setPaSignatureName(""); setPaStep("review"); setShowWizardPaModal(true); }}
-              >
-                <span style={{fontSize:16}}>📝</span> Sign Purchase Agreement
-              </button>
-              <button
-                style={{background:"#1e40af",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:8}}
-                onClick={handleGenerateQuote}
-              >
-                <span style={{fontSize:16}}>📄</span> Generate Quote
-              </button>
-            </div>
-            <button
-              style={{background:"none",border:"none",color:"#9ca3af",fontFamily:"'Sora',sans-serif",fontSize:12,cursor:"pointer",padding:"4px 12px"}}
-              onClick={async()=>{
-                if (wizardPatientId && form.carePlan) { try { await updatePatientCarePlan(wizardPatientId, form.carePlan); setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000); } catch(e) { console.error("care plan save:", e); } }
-                setStep(5);
-              }}
-            >
-              Continue to review →
-            </button>
-          </div>
-        </div>
-      );
 
       const selectedPlan = CARE_PLANS.find(c => c.id === form.carePlan);
       const cpCost = form.carePlan ? cpCostFor(form.carePlan) : null;
@@ -4792,7 +4768,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
                   {aidTotal != null && (
                     <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
-                      <span>Hearing aids ({aidCount} aid{aidCount!==1?"s":""} · {form.tier})</span>
+                      <span>Hearing aids ({aidCount} aid{aidCount!==1?"s":""}{form.tier ? ` · ${form.tier}` : form.payType === "private" ? " · Private Pay" : ""})</span>
                       <span style={{fontWeight:600}}>{aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}</span>
                     </div>
                   )}
@@ -6746,7 +6722,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                               downloadPurchaseAgreement({
                                 patient:{name:pName,address:form.address,phone:form.phone,dob:form.dob},
                                 devices:{fittingType:fType,left:leftRec,right:rightRec},
-                                carePlan:cpId, pricePerAid:form.payType==="private"?2750:(form.tierPrice||0),
+                                carePlan:cpId, pricePerAid:form.payType==="private"?privatePayPrimaryPerAid():(form.tierPrice||0),
                                 clinic:clinicObj,
                                 provider:{fullName:provName,activeLicense:provLic,signatureUrl:staffProfile?.signatureUrl||null},
                                 patientSignature:paSignatureName.trim(), patientSignatureDate:sigDate,
