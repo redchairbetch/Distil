@@ -222,6 +222,9 @@ export async function loadPricingReveal(clinicId, patientId) {
 11. Year 4 Donate & Upgrade pathway — punch card incentive, charity donation flow
 12. Year 5 Loyalty discount pathway
 13. Video upload/record flow: donor message → recipient response → social share with consent
+14. **AI chat on Help tab** — currently hidden. Calls `api.anthropic.com` directly from the browser (CORS + no key) so every send failed silently. Replace with a Supabase edge function that proxies to Anthropic, then re-enable the chat UI in `Aided.jsx::renderHelp`.
+15. **Bilateral mismatch handling on Devices tab** — `mapSupabasePatientToAidedShape` uses left side as primary (falling back to right). If a patient has different manufacturer/color/dome/receiver on each ear, only the primary side renders. Matches Distil's convention today, but should show both sides (or a "Left" / "Right" toggle) when values differ. Also applies to any future CROS/BiCROS fittings where left and right are asymmetric by design.
+16. **PWA install flow** — stripped pre-demo because the manifest/sw/icons lived in a dead `aided/` folder that was never built. Revisit if/when a real user asks for add-to-home-screen. Would need: `public/manifest.json` with `"scope": "/aided"` and `"start_url": "/aided"`, a scoped service worker, and PWA meta tags added conditionally to the root `index.html` when path is `/aided`.
 
 ---
 
