@@ -2357,7 +2357,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   // ── Intake queue handlers ────────────────────────────────────────────
   const handleAcceptIntake = (intake) => {
-    const a = intake.answers || {};
+    const a = intake.answers?.answers || intake.answers || {};
     const phone = a.phone || "";
     const digits = phone.replace(/\D/g,"").slice(0,10);
     let fmt = digits;
