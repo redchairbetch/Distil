@@ -851,6 +851,59 @@ export async function saveProductCatalog(catalogItems) {
   if (error) console.error('saveProductCatalog:', error)
 }
 
+// Load all tier rows (one per device tier within a family) with their parent
+// family fields denormalized onto each row for convenient consumption.
+// Used by the Device Selection screen's recommendation engine and tier comparison.
+export async function loadProductCatalogTiers() {
+  const { data, error } = await supabase
+    .from('product_catalog_tier')
+    .select(`
+      id,
+      product_catalog_id,
+      tier_name,
+      tier_rank,
+      msrp,
+      platform_chip,
+      battery_type,
+      rechargeable,
+      streaming_protocols,
+      ip_rating,
+      telecoil,
+      directional_mic,
+      fitting_range_low_hz_db,
+      fitting_range_high_hz_db,
+      bundled_cc_plus_compatible,
+      active,
+      notes,
+      product_catalog ( manufacturer, family, generation )
+    `)
+    .eq('active', true)
+    .order('tier_rank', { ascending: false })
+  if (error) { console.error('loadProductCatalogTiers:', error); return [] }
+  return (data || []).map(row => ({
+    id:                       row.id,
+    productCatalogId:         row.product_catalog_id,
+    tierName:                 row.tier_name,
+    tierRank:                 row.tier_rank,
+    msrp:                     row.msrp != null ? Number(row.msrp) : null,
+    platformChip:             row.platform_chip,
+    batteryType:              row.battery_type,
+    rechargeable:             row.rechargeable,
+    streamingProtocols:       row.streaming_protocols || [],
+    ipRating:                 row.ip_rating,
+    telecoil:                 row.telecoil,
+    directionalMic:           row.directional_mic,
+    fittingRangeLowHzDb:      row.fitting_range_low_hz_db,
+    fittingRangeHighHzDb:     row.fitting_range_high_hz_db,
+    bundledCcPlusCompatible:  row.bundled_cc_plus_compatible,
+    active:                   row.active,
+    notes:                    row.notes,
+    manufacturer:             row.product_catalog?.manufacturer,
+    family:                   row.product_catalog?.family,
+    generation:               row.product_catalog?.generation,
+  }))
+}
+
 
 // ============================================================
 // INTAKE QUEUE
@@ -1741,11 +1794,12 @@ export async function loadInsurancePlans() {
 // PRICING REVEAL
 // ============================================================
 
-export async function loadRetailAnchors(clinicId) {
+export async function loadRetailAnchors(clinicId, manufacturerClass = 'signia') {
   const { data, error } = await supabase
     .from('clinic_retail_anchors')
-    .select('id, label, price_per_aid, sort_order')
+    .select('id, label, price_per_aid, sort_order, manufacturer_class')
     .eq('clinic_id', clinicId)
+    .eq('manufacturer_class', manufacturerClass)
     .order('sort_order')
   if (error) return []
   return data || []
@@ -1776,6 +1830,7 @@ export async function loadPricingReveal(clinicId, patientId) {
     .select('label, price_per_aid')
     .eq('id', anchorKey)
     .eq('clinic_id', clinicId)
+    .eq('manufacturer_class', 'signia')
     .single()
 
   if (!anchor) return null
