@@ -937,6 +937,18 @@ export async function acceptIntake(intakeId) {
   if (error) console.error('acceptIntake:', error)
 }
 
+// Set intakes.patient_id after savePatient creates the patient record.
+// Used by the device-selection recommendation engine to query intake
+// responses by patient.
+export async function linkIntakeToPatient(intakeId, patientId) {
+  if (!intakeId || !patientId) return
+  const { error } = await supabase
+    .from('intakes')
+    .update({ patient_id: patientId })
+    .eq('id', intakeId)
+  if (error) console.error('linkIntakeToPatient:', error)
+}
+
 // Mark an intake as dismissed
 export async function dismissIntake(intakeId) {
   const { error } = await supabase
