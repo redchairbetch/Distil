@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import * as pdfjsLib from "pdfjs-dist";
 import { parseMedRxPdf } from "./parsers/medrxParser.js";
 import { parseNHAX } from "./parsers/nhaxParser.js";
+import { unwrapIntakeAnswers } from "./recommendationEngine.js";
 
 // ── Body style images ──
 import imgRIC from "./assets/body-styles/RIC.png";
@@ -2117,7 +2118,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
     const id = intake._meta?.intakeId;
     if (!id || seenIntakeIds.current.has(id)) return;
     seenIntakeIds.current.add(id);
-    const name = `${intake.answers?.firstName || ""} ${intake.answers?.lastName || ""}`.trim() || "New Patient";
+    const a = unwrapIntakeAnswers(intake.answers) || {};
+    const name = `${a.firstName || ""} ${a.lastName || ""}`.trim() || "New Patient";
     setIntakeToast({ name, intakeId: id });
     let flashing = true;
     const orig = document.title;
@@ -2363,8 +2365,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   // ── Intake queue handlers ────────────────────────────────────────────
   const handleAcceptIntake = (intake) => {
-    const a = intake.answers?.answers || intake.answers || {};
-    const phone = a.phone || "";
+    const a = unwrapIntakeAnswers(intake.answers) || {};
+    const phone = a.mobilePhone || a.homePhone || a.workPhone || a.phone || "";
     const digits = phone.replace(/\D/g,"").slice(0,10);
     let fmt = digits;
     if (digits.length >= 7) fmt = `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
@@ -2380,7 +2382,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
       email:      a.email      || "",
       payType:    a.payType    || "insurance",
       carrier:    a.carrier    || "",
-      notes: [f.notes, intake._meta?.intakeId ? `Intake ID: ${intake._meta.intakeId}` : ""].filter(Boolean).join("\n"),
+      notes: [f.notes, a.visitReason, intake._meta?.intakeId ? `Intake ID: ${intake._meta.intakeId}` : ""].filter(Boolean).join("\n"),
     }));
     try { dbAcceptIntake(intake._meta.intakeId); } catch {}
     setPendingIntakes(prev => prev.filter(i => i._meta?.intakeId !== intake._meta?.intakeId));
@@ -6407,7 +6409,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
               </div>
             ) : (
               pendingIntakes.map(intake => {
-                const a = intake.answers || {};
+                const a = unwrapIntakeAnswers(intake.answers) || {};
+                const phone = a.mobilePhone || a.homePhone || a.workPhone || a.phone || "";
+                const reason = a.visitReason || a.chiefComplaint;
                 const submitted = intake._meta?.submittedAt
                   ? new Date(intake._meta.submittedAt).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})
                   : "—";
@@ -6419,16 +6423,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     <div className="queue-card-meta">Submitted {submitted}</div>
                     <div className="queue-card-fields">
                       <div className="queue-card-field"><span>DOB</span>{a.dob || "—"}</div>
-                      <div className="queue-card-field"><span>Phone</span>{a.phone || "—"}</div>
-                      <div className="queue-card-field"><span>Coverage</span>{a.payType === "insurance" ? (a.carrier || "Insurance") : "Private Pay"}</div>
+                      <div className="queue-card-field"><span>Phone</span>{phone || "—"}</div>
+                      <div className="queue-card-field"><span>Coverage</span>{a.payType ? (a.payType === "insurance" ? (a.carrier || "Insurance") : "Private Pay") : "—"}</div>
                       <div className="queue-card-field"><span>Email</span>{a.email || "—"}</div>
                     </div>
-                    {a.chiefComplaint && (
+                    {reason && (
                       <div style={{fontSize:12,color:"#374151",background:"white",borderRadius:8,
                         padding:"8px 10px",border:"1px solid #f3f4f6",marginBottom:8}}>
                         <span style={{fontSize:10,fontWeight:700,color:"#9ca3af",display:"block",
-                          textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Chief Complaint</span>
-                        {a.chiefComplaint}
+                          textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Reason for Visit</span>
+                        {reason}
                       </div>
                     )}
                     <div className="queue-card-actions">
