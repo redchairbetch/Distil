@@ -8,6 +8,7 @@
 import { supabase } from './supabase.js'
 import { CONTENT_LIBRARY, CAMPAIGN_TIMELINE } from './nurture_seed_data.js'
 import { TNS_CONTENT_LIBRARY } from './tns_seed_data.js'
+import { runRecommendationEngine } from './recommendationEngine.js'
 
 
 // ============================================================
@@ -851,6 +852,59 @@ export async function saveProductCatalog(catalogItems) {
   if (error) console.error('saveProductCatalog:', error)
 }
 
+// Load all tier rows (one per device tier within a family) with their parent
+// family fields denormalized onto each row for convenient consumption.
+// Used by the Device Selection screen's recommendation engine and tier comparison.
+export async function loadProductCatalogTiers() {
+  const { data, error } = await supabase
+    .from('product_catalog_tier')
+    .select(`
+      id,
+      product_catalog_id,
+      tier_name,
+      tier_rank,
+      msrp,
+      platform_chip,
+      battery_type,
+      rechargeable,
+      streaming_protocols,
+      ip_rating,
+      telecoil,
+      directional_mic,
+      fitting_range_low_hz_db,
+      fitting_range_high_hz_db,
+      bundled_cc_plus_compatible,
+      active,
+      notes,
+      product_catalog ( manufacturer, family, generation )
+    `)
+    .eq('active', true)
+    .order('tier_rank', { ascending: false })
+  if (error) { console.error('loadProductCatalogTiers:', error); return [] }
+  return (data || []).map(row => ({
+    id:                       row.id,
+    productCatalogId:         row.product_catalog_id,
+    tierName:                 row.tier_name,
+    tierRank:                 row.tier_rank,
+    msrp:                     row.msrp != null ? Number(row.msrp) : null,
+    platformChip:             row.platform_chip,
+    batteryType:              row.battery_type,
+    rechargeable:             row.rechargeable,
+    streamingProtocols:       row.streaming_protocols || [],
+    ipRating:                 row.ip_rating,
+    telecoil:                 row.telecoil,
+    directionalMic:           row.directional_mic,
+    fittingRangeLowHzDb:      row.fitting_range_low_hz_db,
+    fittingRangeHighHzDb:     row.fitting_range_high_hz_db,
+    bundledCcPlusCompatible:  row.bundled_cc_plus_compatible,
+    active:                   row.active,
+    notes:                    row.notes,
+    manufacturer:             row.product_catalog?.manufacturer,
+    family:                   row.product_catalog?.family,
+    generation:               row.product_catalog?.generation,
+  }))
+}
+
 
 // ============================================================
 // INTAKE QUEUE
@@ -882,6 +936,18 @@ export async function acceptIntake(intakeId) {
     .update({ status: 'accepted', accepted_at: new Date().toISOString() })
     .eq('id', intakeId)
   if (error) console.error('acceptIntake:', error)
+}
+
+// Set intakes.patient_id after savePatient creates the patient record.
+// Used by the device-selection recommendation engine to query intake
+// responses by patient.
+export async function linkIntakeToPatient(intakeId, patientId) {
+  if (!intakeId || !patientId) return
+  const { error } = await supabase
+    .from('intakes')
+    .update({ patient_id: patientId })
+    .eq('id', intakeId)
+  if (error) console.error('linkIntakeToPatient:', error)
 }
 
 // Mark an intake as dismissed
@@ -1741,11 +1807,12 @@ export async function loadInsurancePlans() {
 // PRICING REVEAL
 // ============================================================
 
-export async function loadRetailAnchors(clinicId) {
+export async function loadRetailAnchors(clinicId, manufacturerClass = 'signia') {
   const { data, error } = await supabase
     .from('clinic_retail_anchors')
-    .select('id, label, price_per_aid, sort_order')
+    .select('id, label, price_per_aid, sort_order, manufacturer_class')
     .eq('clinic_id', clinicId)
+    .eq('manufacturer_class', manufacturerClass)
     .order('sort_order')
   if (error) return []
   return data || []
@@ -1776,6 +1843,7 @@ export async function loadPricingReveal(clinicId, patientId) {
     .select('label, price_per_aid')
     .eq('id', anchorKey)
     .eq('clinic_id', clinicId)
+    .eq('manufacturer_class', 'signia')
     .single()
 
   if (!anchor) return null
@@ -1854,4 +1922,121 @@ export async function convertTnsToActive(patientId, warrantyYears = 3) {
     warranty_expiry: warrantyExpiry,
   }).eq('patient_id', patientId)
   if (fErr) throw fErr
+}
+
+
+// ============================================================
+// RECOMMENDATION ENGINE (Device Selection & Pricing Screen v1)
+// ============================================================
+
+// Default Signia flagship family. IX covers ranks 3–5; AX covers entry
+// tiers (1–2) not yet available in the current IX generation.
+const SIGNIA_FAMILY_BY_RANK = {
+  5: 'sig-pure-ix',
+  4: 'sig-pure-ix',
+  3: 'sig-pure-ix',
+  2: 'sig-pure-ax',
+  1: 'sig-pure-ax',
+}
+
+export async function loadPatientRecommendationInputs(patientId) {
+  const { data: audiogram } = await supabase
+    .from('audiograms')
+    .select('*')
+    .eq('patient_id', patientId)
+    .order('test_date', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  let thresholds = []
+  if (audiogram?.id) {
+    const { data } = await supabase
+      .from('audiogram_thresholds')
+      .select('ear, frequency, threshold_db, test_type, is_masked')
+      .eq('audiogram_id', audiogram.id)
+    thresholds = data || []
+  }
+
+  const { data: intake } = await supabase
+    .from('intakes')
+    .select('answers, accepted_at')
+    .eq('patient_id', patientId)
+    .eq('status', 'accepted')
+    .order('accepted_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  return {
+    audiogram:     audiogram || null,
+    thresholds,
+    intakeAnswers: intake?.answers || null,
+  }
+}
+
+export async function generateRecommendation(patientId, clinicId) {
+  const inputs = await loadPatientRecommendationInputs(patientId)
+  const result = runRecommendationEngine(
+    inputs.audiogram,
+    inputs.thresholds,
+    inputs.intakeAnswers,
+  )
+
+  if (result.blocked) return { blocked: true, reason: result.reason }
+
+  const familyId = SIGNIA_FAMILY_BY_RANK[result.recommendedRank]
+  let tierId = null
+  if (familyId) {
+    const { data: tier } = await supabase
+      .from('product_catalog_tier')
+      .select('id')
+      .eq('product_catalog_id', familyId)
+      .eq('tier_rank', result.recommendedRank)
+      .eq('active', true)
+      .maybeSingle()
+    tierId = tier?.id || null
+  }
+
+  // Supersede any currently active recommendation before inserting
+  await supabase
+    .from('recommendation_engine_output')
+    .update({ superseded_at: new Date().toISOString() })
+    .eq('patient_id', patientId)
+    .is('superseded_at', null)
+
+  const { data: output, error } = await supabase
+    .from('recommendation_engine_output')
+    .insert({
+      patient_id:                          patientId,
+      clinic_id:                           clinicId,
+      recommended_tier_rank:               result.recommendedRank,
+      recommended_product_catalog_tier_id: tierId,
+      down_tier_score:                     result.downTierScore,
+      contributing_inputs: {
+        score:  result.downTierScore,
+        inputs: result.contributingInputs,
+        audio:  result.normalizedInputs.audio,
+        intake: result.normalizedInputs.intake,
+      },
+      generated_rationale_text:            result.rationale,
+    })
+    .select()
+    .single()
+
+  if (error) {
+    console.error('generateRecommendation:', error)
+    return { blocked: true, reason: error.message }
+  }
+  return output
+}
+
+export async function loadCurrentRecommendation(patientId) {
+  const { data } = await supabase
+    .from('recommendation_engine_output')
+    .select('*')
+    .eq('patient_id', patientId)
+    .is('superseded_at', null)
+    .order('generated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return data || null
 }

@@ -39,6 +39,7 @@ import {
   loadPendingIntakes,
   subscribeToIntakes,
   acceptIntake as dbAcceptIntake,
+  linkIntakeToPatient,
   dismissIntake,
   signOut,
   enrollPatientInCampaign,
@@ -1591,6 +1592,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   // New patient form state
   const [form, setForm] = useState({
+    intakeId: null,
     firstName:"", lastName:"", dob:"", phone:"", email:"", address:"",
     payType:"insurance",
     carrier:"", planGroup:"", tpa:"", tier:"", tierPrice:null,
@@ -2334,6 +2336,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
     };
     try {
       await savePatient(patient, staffId, clinicId);
+      if (form.intakeId) {
+        try { await linkIntakeToPatient(form.intakeId, patient.id); }
+        catch (e) { console.error('linkIntakeToPatient:', e); }
+      }
       setSaved(true);
       await refreshPatients();
       setSelectedPatient(patient);
@@ -2347,7 +2353,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
   const startNew = () => {
-    setForm({ firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},audiology:{rightT:{},leftT:{},rightBC:{},leftBC:{},rightMask:{},leftMask:{},rightBCMask:{},leftBCMask:{},tinnitusRight:false,tinnitusLeft:false,unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,wrMclR:null,wrMclL:null,sinBin:null},carePlan:"",appointments:[],notes:"" });
+    setForm({ intakeId:null,firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},audiology:{rightT:{},leftT:{},rightBC:{},leftBC:{},rightMask:{},leftMask:{},rightBCMask:{},leftBCMask:{},tinnitusRight:false,tinnitusLeft:false,unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,wrMclR:null,wrMclL:null,sinBin:null},carePlan:"",appointments:[],notes:"" });
     setActiveSide("left");
     setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
     setWizardPatientId(null); setSaveToast(false);
@@ -2366,6 +2372,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     else if (digits.length > 0) fmt = `(${digits}`;
     setForm(f => ({
       ...f,
+      intakeId:   intake._meta?.intakeId || null,
       firstName:  a.firstName  || "",
       lastName:   a.lastName   || "",
       dob:        a.dob        || "",
