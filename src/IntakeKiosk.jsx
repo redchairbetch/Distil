@@ -21,6 +21,50 @@ const C = {
 const font = "'Nunito', sans-serif";
 const serif = "'DM Serif Display', serif";
 
+// ── Static lookups ─────────────────────────────────────────────────────────────
+// US states stored as 2-letter codes; display is the full name.
+// Ordered A→Z; DC + territories appended so they're easy to find.
+const US_STATES = [
+  ["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],
+  ["CO","Colorado"],["CT","Connecticut"],["DE","Delaware"],["FL","Florida"],["GA","Georgia"],
+  ["HI","Hawaii"],["ID","Idaho"],["IL","Illinois"],["IN","Indiana"],["IA","Iowa"],
+  ["KS","Kansas"],["KY","Kentucky"],["LA","Louisiana"],["ME","Maine"],["MD","Maryland"],
+  ["MA","Massachusetts"],["MI","Michigan"],["MN","Minnesota"],["MS","Mississippi"],["MO","Missouri"],
+  ["MT","Montana"],["NE","Nebraska"],["NV","Nevada"],["NH","New Hampshire"],["NJ","New Jersey"],
+  ["NM","New Mexico"],["NY","New York"],["NC","North Carolina"],["ND","North Dakota"],["OH","Ohio"],
+  ["OK","Oklahoma"],["OR","Oregon"],["PA","Pennsylvania"],["RI","Rhode Island"],["SC","South Carolina"],
+  ["SD","South Dakota"],["TN","Tennessee"],["TX","Texas"],["UT","Utah"],["VT","Vermont"],
+  ["VA","Virginia"],["WA","Washington"],["WV","West Virginia"],["WI","Wisconsin"],["WY","Wyoming"],
+  ["DC","District of Columbia"],["PR","Puerto Rico"],["VI","U.S. Virgin Islands"],["GU","Guam"],
+];
+
+// Auto-format (XXX) XXX-XXXX as the user types. Stores the formatted string
+// (not raw digits) so generateHTML prints phones correctly without extra work.
+function formatPhone(raw = "") {
+  const digits = String(raw).replace(/\D/g, "").slice(0, 10);
+  if (digits.length >= 7) return `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+  if (digits.length >= 4) return `(${digits.slice(0,3)}) ${digits.slice(3)}`;
+  if (digits.length > 0)  return `(${digits}`;
+  return "";
+}
+
+// Parse ISO YYYY-MM-DD into {month, day, year} strings (or "" parts) so the
+// three DOB dropdowns can render their current selection on back-navigation.
+function parseIsoDob(iso = "") {
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return { year: "", month: "", day: "" };
+  return { year: m[1], month: String(parseInt(m[2], 10)), day: String(parseInt(m[3], 10)) };
+}
+
+// Year range for the DOB Year dropdown — patients span infants (rare) up to
+// centenarians. Current year down to 99 years back is generous but finite.
+function dobYearRange() {
+  const now = new Date().getFullYear();
+  const years = [];
+  for (let y = now; y >= now - 99; y--) years.push(y);
+  return years;
+}
+
 // ── Translations ───────────────────────────────────────────────────────────────
 const T = {
   en: {
@@ -41,8 +85,12 @@ const T = {
     firstName: "First Name", mi: "M.I. (optional)", lastName: "Last Name",
 
     dobTitle: "Date of birth & gender",
-    dob: "Date of Birth (MM / DD / YYYY)", age: "Age",
+    dob: "Date of Birth", age: "Age",
+    dobMonth: "Month", dobDay: "Day", dobYear: "Year",
+    months: ["January","February","March","April","May","June","July","August","September","October","November","December"],
     genderLabel: "Gender", male: "Male", female: "Female", preferNotSay: "Prefer not to say",
+    selectPrompt: "Select…",
+    otherDescribe: "Please describe (optional)",
 
     addressTitle: "What is your home address?",
     street: "Street Address", apt: "Apt # (optional)", city: "City", state: "State", zip: "Zip Code",
@@ -61,6 +109,16 @@ const T = {
     visitTitle: "A couple more things…",
     visitReason: "What is your reason for today's visit? (optional)",
     referral: "How did you hear about our practice? (optional)",
+    ref_current_patient: "Current patient",
+    ref_friend_family: "Friend or family referral",
+    ref_doctor: "Doctor referral",
+    ref_google: "Google search",
+    ref_social: "Social media",
+    ref_tv_radio: "TV or radio",
+    ref_direct_mail: "Direct mail",
+    ref_event: "Event or health fair",
+    ref_walkin: "Walk-in",
+    ref_other: "Other",
 
     medQ_pain: "Do you have pain or discomfort in your ear(s)?",
     medQ_drain: "Do you have any drainage in your ear(s)?",
@@ -76,9 +134,26 @@ const T = {
     diabeticType: "Which type?", type1: "Type I", type2: "Type II",
     medQ_family: "Who in your family has hearing loss and/or wears hearing aids?",
     familyPlaceholder: "e.g. Mother, Father, 2 Brothers, 1 Sister…",
+    fam_mother: "Mother",
+    fam_father: "Father",
+    fam_grandparent_maternal: "Maternal grandparent",
+    fam_grandparent_paternal: "Paternal grandparent",
+    fam_siblings: "Siblings",
+    fam_children: "Children",
+    fam_aunt_uncle: "Aunt or uncle",
+    fam_none: "None known",
+    fam_unsure: "Unsure",
     medQ_noise_occupational: "Have you had significant occupational noise exposure? (construction, factory, military, aviation, etc.)",
     medQ_noise_recreational: "Have you had significant recreational noise exposure? (concerts, motorsports, firearms, power tools, etc.)",
-    noiseDescribe: "Please describe:",
+    noiseDescribe: "Which kinds?",
+    noise_firearms: "Firearms or hunting",
+    noise_power_tools: "Power tools",
+    noise_motorcycles: "Motorcycles or ATVs",
+    noise_concerts: "Concerts or live music",
+    noise_lawn: "Lawn or yard equipment",
+    noise_woodworking: "Woodworking",
+    noise_machinery: "Loud machinery at work",
+    noise_other: "Other",
 
     hearQ_tested: "Have you had your hearing tested before?",
     testedWhen: "When was your last hearing test?",
@@ -99,6 +174,14 @@ const T = {
     hearQ_ready: "If a hearing loss is diagnosed, are you ready to improve your hearing?",
     hearQ_prevented: "What has prevented you from addressing your hearing challenges? (optional)",
     hearQ_changed: "What has changed that you are now ready for help? (optional)",
+    resist_cost: "Cost or affordability",
+    resist_cosmetics: "Cosmetics or appearance",
+    resist_denial: "Didn't feel ready",
+    resist_bad_experience: "Past bad experience",
+    resist_stigma: "Stigma",
+    resist_dont_know: "Didn't know where to start",
+    resist_fear_dependence: "Fear of becoming dependent",
+    resist_other: "Other",
 
     aidsTitle: "Do you currently wear hearing aids?",
     aidsWhichEar: "Which ear(s) do you wear a hearing aid in?",
@@ -154,8 +237,12 @@ const T = {
     firstName: "Nombre", mi: "Inicial (opcional)", lastName: "Apellido",
 
     dobTitle: "Fecha de nacimiento y género",
-    dob: "Fecha de Nacimiento (MM / DD / AAAA)", age: "Edad",
+    dob: "Fecha de Nacimiento", age: "Edad",
+    dobMonth: "Mes", dobDay: "Día", dobYear: "Año",
+    months: ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"],
     genderLabel: "Género", male: "Masculino", female: "Femenino", preferNotSay: "Prefiero no decir",
+    selectPrompt: "Seleccione…",
+    otherDescribe: "Por favor describa (opcional)",
 
     addressTitle: "¿Cuál es su dirección de casa?",
     street: "Dirección", apt: "Apto # (opcional)", city: "Ciudad", state: "Estado", zip: "Código Postal",
@@ -174,6 +261,16 @@ const T = {
     visitTitle: "Un par de cosas más…",
     visitReason: "¿Cuál es el motivo de su visita de hoy? (opcional)",
     referral: "¿Cómo se enteró de nuestra práctica? (opcional)",
+    ref_current_patient: "Paciente actual",
+    ref_friend_family: "Referencia de amigo o familiar",
+    ref_doctor: "Referencia de médico",
+    ref_google: "Búsqueda en Google",
+    ref_social: "Redes sociales",
+    ref_tv_radio: "TV o radio",
+    ref_direct_mail: "Correo directo",
+    ref_event: "Evento o feria de salud",
+    ref_walkin: "Sin cita previa",
+    ref_other: "Otro",
 
     medQ_pain: "¿Tiene dolor o molestia en su(s) oído(s)?",
     medQ_drain: "¿Tiene algún drenaje en su(s) oído(s)?",
@@ -189,9 +286,26 @@ const T = {
     diabeticType: "¿Qué tipo?", type1: "Tipo I", type2: "Tipo II",
     medQ_family: "¿Quién en su familia tiene pérdida auditiva y/o usa audífonos?",
     familyPlaceholder: "Ej. Madre, Padre, 2 Hermanos, 1 Hermana…",
+    fam_mother: "Madre",
+    fam_father: "Padre",
+    fam_grandparent_maternal: "Abuelo/a materno/a",
+    fam_grandparent_paternal: "Abuelo/a paterno/a",
+    fam_siblings: "Hermanos/as",
+    fam_children: "Hijos/as",
+    fam_aunt_uncle: "Tío/a",
+    fam_none: "Ninguno conocido",
+    fam_unsure: "No estoy seguro/a",
     medQ_noise_occupational: "¿Ha tenido exposición significativa a ruido en el trabajo? (construcción, fábrica, militar, aviación, etc.)",
     medQ_noise_recreational: "¿Ha tenido exposición significativa a ruido recreativo? (conciertos, deportes de motor, armas de fuego, herramientas eléctricas, etc.)",
-    noiseDescribe: "Por favor describa:",
+    noiseDescribe: "¿Qué tipos?",
+    noise_firearms: "Armas de fuego o caza",
+    noise_power_tools: "Herramientas eléctricas",
+    noise_motorcycles: "Motocicletas o cuatrimotos",
+    noise_concerts: "Conciertos o música en vivo",
+    noise_lawn: "Equipo de jardín",
+    noise_woodworking: "Carpintería",
+    noise_machinery: "Maquinaria ruidosa en el trabajo",
+    noise_other: "Otro",
 
     hearQ_tested: "¿Le han examinado la audición anteriormente?",
     testedWhen: "¿Cuándo fue su última prueba de audición?",
@@ -212,6 +326,14 @@ const T = {
     hearQ_ready: "Si se diagnostica pérdida auditiva, ¿está listo/a para mejorar su audición?",
     hearQ_prevented: "¿Qué le ha impedido abordar sus problemas de audición? (opcional)",
     hearQ_changed: "¿Qué ha cambiado para que ahora esté listo/a para recibir ayuda? (opcional)",
+    resist_cost: "Costo o accesibilidad",
+    resist_cosmetics: "Estética o apariencia",
+    resist_denial: "No me sentía listo/a",
+    resist_bad_experience: "Mala experiencia previa",
+    resist_stigma: "Estigma",
+    resist_dont_know: "No sabía por dónde empezar",
+    resist_fear_dependence: "Miedo a la dependencia",
+    resist_other: "Otro",
 
     aidsTitle: "¿Usa actualmente audífonos?",
     aidsWhichEar: "¿En qué oído(s) usa el audífono?",
@@ -261,7 +383,7 @@ const STEPS = [
     { key: "lastName", label: "lastName", req: true, width: "100%" },
   ]},
   { id: "dob_gender", type: "form", title: "dobTitle", sec: "secPersonal", fields: [
-    { key: "dob", label: "dob", req: true, width: "60%" },
+    { key: "dob", label: "dob", req: true, width: "100%", type: "dob" },
     { key: "age", label: "age", req: false, width: "30%", type: "number" },
     { key: "gender", label: "genderLabel", req: true, type: "radio", options: ["male","female","preferNotSay"], width: "100%" },
   ]},
@@ -269,8 +391,8 @@ const STEPS = [
     { key: "street", label: "street", req: true, width: "70%" },
     { key: "apt", label: "apt", req: false, width: "25%" },
     { key: "city", label: "city", req: true, width: "50%" },
-    { key: "state", label: "state", req: true, width: "20%" },
-    { key: "zip", label: "zip", req: true, width: "25%" },
+    { key: "state", label: "state", req: true, width: "42%", type: "state" },
+    { key: "zip", label: "zip", req: true, width: "100%" },
   ]},
   { id: "contact", type: "form", title: "contactTitle", sec: "secPersonal", fields: [
     { key: "homePhone", label: "homePhone", req: false, width: "48%", type: "tel" },
@@ -282,14 +404,15 @@ const STEPS = [
   { id: "emergency", type: "form", title: "emergencyTitle", sec: "secPersonal", fields: [
     { key: "spouseName", label: "spouseName", req: false, width: "55%" },
     { key: "spousePhone", label: "spousePhone", req: false, width: "40%", type: "tel" },
-    { key: "spouseDob", label: "spouseDob", req: false, width: "45%" },
+    { key: "spouseDob", label: "spouseDob", req: false, width: "100%", type: "dob" },
     { key: "emergencyName", label: "emergencyName", req: true, width: "55%" },
     { key: "emergencyPhone", label: "emergencyPhone", req: true, width: "40%", type: "tel" },
     { key: "pcp", label: "pcp", req: false, width: "100%" },
   ]},
   { id: "visit", type: "form", title: "visitTitle", sec: "secPersonal", fields: [
     { key: "visitReason", label: "visitReason", req: false, type: "textarea", width: "100%" },
-    { key: "referral", label: "referral", req: false, width: "100%" },
+    { key: "referralSource", label: "referral", req: false, type: "buttonGrid", width: "100%",
+      options: REFERRAL_OPTIONS, otherKey: "other", otherValueKey: "referralOther" },
   ]},
   { id: "med_pain", type: "yesno", sec: "secMedical", qKey: "medQ_pain", ansKey: "med_pain" },
   { id: "med_drain", type: "yesno", sec: "secMedical", qKey: "medQ_drain", ansKey: "med_drain" },
@@ -303,11 +426,14 @@ const STEPS = [
   { id: "med_thinner", type: "yesno", sec: "secMedical", qKey: "medQ_thinner", ansKey: "med_thinner" },
   { id: "med_diabetic", type: "yesno", sec: "secMedical", qKey: "medQ_diabetic", ansKey: "med_diabetic",
     followUp: { key: "med_diabetic_type", label: "diabeticType", type: "radio", options: ["type1","type2"], showIf: true } },
-  { id: "med_family", type: "text", sec: "secMedical", qKey: "medQ_family", ansKey: "med_family", phKey: "familyPlaceholder", req: false },
+  { id: "med_family", type: "multiSelect", sec: "secMedical", qKey: "medQ_family", ansKey: "medFamilyHistory",
+    options: FAMILY_OPTIONS, mutuallyExclusive: ["none","unsure"], req: false },
   { id: "med_noise_occupational", type: "yesno", sec: "secMedical", qKey: "medQ_noise_occupational", ansKey: "med_noise_occupational",
-    followUp: { key: "med_noise_occupational_desc", label: "noiseDescribe", showIf: true } },
+    followUp: { key: "med_noise_occupational_types", label: "noiseDescribe", showIf: true, type: "multiSelect",
+      options: NOISE_OPTIONS, otherKey: "other", otherValueKey: "med_noise_occupational_other" } },
   { id: "med_noise_recreational", type: "yesno", sec: "secMedical", qKey: "medQ_noise_recreational", ansKey: "med_noise_recreational",
-    followUp: { key: "med_noise_recreational_desc", label: "noiseDescribe", showIf: true } },
+    followUp: { key: "med_noise_recreational_types", label: "noiseDescribe", showIf: true, type: "multiSelect",
+      options: NOISE_OPTIONS, otherKey: "other", otherValueKey: "med_noise_recreational_other" } },
   { id: "hear_tested", type: "yesno", sec: "secHearing", qKey: "hearQ_tested", ansKey: "hear_tested",
     followUps: [
       { key: "hear_tested_when", label: "testedWhen", showIf: true },
@@ -325,7 +451,8 @@ const STEPS = [
   { id: "hear_rating", type: "scale", sec: "secHearing", qKey: "hearQ_rating", ansKey: "hear_rating" },
   { id: "hear_ready", type: "yesno", sec: "secHearing", qKey: "hearQ_ready", ansKey: "hear_ready",
     followUp: { key: "hear_changed", label: "hearQ_changed", showIf: true, optional: true } },
-  { id: "hear_prevented", type: "text", sec: "secHearing", qKey: "hearQ_prevented", ansKey: "hear_prevented", req: false },
+  { id: "hear_prevented", type: "multiSelect", sec: "secHearing", qKey: "hearQ_prevented", ansKey: "resistancePoints",
+    options: RESISTANCE_OPTIONS, otherKey: "other", otherValueKey: "resistancePointsOther", req: false },
   { id: "aids_q", type: "yesno", sec: "secHearing", qKey: "aidsTitle", ansKey: "aids_q" },
   { id: "aids_detail", type: "aids", sec: "secHearing", conditional: "aids_q" },
   { id: "privacy", type: "scrollConsent", sec: "secConsent", contentKey: "privacy" },
@@ -345,6 +472,59 @@ function genIntakeId() {
 function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t) {
   const yn = (key) => answers[key] === true ? "Yes" : answers[key] === false ? "No" : "—";
   const val = (key) => answers[key] || "—";
+  // DOB is stored as ISO YYYY-MM-DD — format as MM/DD/YYYY for the printed
+  // intake since that's what providers expect to scan quickly on paper.
+  const dobDisplay = (() => {
+    const p = parseIsoDob(answers.dob || "");
+    if (!p.year || !p.month || !p.day) return "—";
+    return `${String(p.month).padStart(2,"0")}/${String(p.day).padStart(2,"0")}/${p.year}`;
+  })();
+  const spouseDobDisplay = (() => {
+    const p = parseIsoDob(answers.spouseDob || "");
+    if (!p.year || !p.month || !p.day) return "—";
+    return `${String(p.month).padStart(2,"0")}/${String(p.day).padStart(2,"0")}/${p.year}`;
+  })();
+  // State is stored as 2-letter code; render the full name so the printed
+  // intake reads naturally.
+  const stateDisplay = (() => {
+    const code = answers.state;
+    if (!code) return "";
+    const found = US_STATES.find(([c]) => c === code);
+    return found ? found[1] : code;
+  })();
+  // Referral: render the selected source name + freeform "other" text when
+  // the user picked "Other".
+  const referralDisplay = (() => {
+    const src = answers.referralSource;
+    if (!src) return "—";
+    const found = REFERRAL_OPTIONS.find(([k]) => k === src);
+    const name = found ? (t[found[1]] || found[1]) : src;
+    if (src === "other" && answers.referralOther) return `${name} — ${answers.referralOther}`;
+    return name;
+  })();
+  // Multi-select arrays → comma-separated list of translated names, with
+  // "other" freeform text appended when present.
+  const multiDisplay = (arrKey, options, otherKey, otherValueKey) => {
+    const arr = Array.isArray(answers[arrKey]) ? answers[arrKey] : [];
+    if (!arr.length) return "—";
+    const names = arr
+      .filter(k => k !== otherKey)
+      .map(k => {
+        const found = options.find(([kk]) => kk === k);
+        return found ? (t[found[1]] || found[1]) : k;
+      });
+    if (arr.includes(otherKey)) {
+      const otherName = options.find(([k]) => k === otherKey);
+      const label = otherName ? (t[otherName[1]] || otherName[1]) : "Other";
+      const extra = answers[otherValueKey] ? `${label} (${answers[otherValueKey]})` : label;
+      names.push(extra);
+    }
+    return names.join(", ");
+  };
+  const familyDisplay     = multiDisplay("medFamilyHistory", FAMILY_OPTIONS, null, null);
+  const occupNoiseDisplay = multiDisplay("med_noise_occupational_types", NOISE_OPTIONS, "other", "med_noise_occupational_other");
+  const recNoiseDisplay   = multiDisplay("med_noise_recreational_types", NOISE_OPTIONS, "other", "med_noise_recreational_other");
+  const resistanceDisplay = multiDisplay("resistancePoints", RESISTANCE_OPTIONS, "other", "resistancePointsOther");
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -390,12 +570,12 @@ function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t) {
   <div class="field"><label>Last Name</label><div class="val">${val("lastName")}</div></div>
 </div>
 <div class="row">
-  <div class="field"><label>Date of Birth</label><div class="val">${val("dob")}</div></div>
+  <div class="field"><label>Date of Birth</label><div class="val">${dobDisplay}</div></div>
   <div class="field"><label>Age</label><div class="val">${val("age")}</div></div>
   <div class="field"><label>Gender</label><div class="val">${val("gender")}</div></div>
 </div>
 <div class="row">
-  <div class="field"><label>Address</label><div class="val">${val("street")} ${val("apt") !== "—" ? val("apt") : ""}, ${val("city")}, ${val("state")} ${val("zip")}</div></div>
+  <div class="field"><label>Address</label><div class="val">${val("street")} ${val("apt") !== "—" ? val("apt") : ""}, ${val("city")}, ${stateDisplay} ${val("zip")}</div></div>
 </div>
 <div class="row">
   <div class="field"><label>Home Phone</label><div class="val">${val("homePhone")}</div></div>
@@ -404,13 +584,16 @@ function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t) {
 </div>
 <div class="row">
   <div class="field"><label>Spouse</label><div class="val">${val("spouseName")}</div></div>
+  <div class="field"><label>Spouse DOB</label><div class="val">${spouseDobDisplay}</div></div>
   <div class="field"><label>Spouse Phone</label><div class="val">${val("spousePhone")}</div></div>
-  <div class="field"><label>Emergency Contact</label><div class="val">${val("emergencyName")} — ${val("emergencyPhone")}</div></div>
 </div>
 <div class="row">
+  <div class="field"><label>Emergency Contact</label><div class="val">${val("emergencyName")} — ${val("emergencyPhone")}</div></div>
   <div class="field"><label>Primary Care Physician</label><div class="val">${val("pcp")}</div></div>
+</div>
+<div class="row">
   <div class="field"><label>Reason for Visit</label><div class="val">${val("visitReason")}</div></div>
-  <div class="field"><label>Referred By</label><div class="val">${val("referral")}</div></div>
+  <div class="field"><label>Referred By</label><div class="val">${referralDisplay}</div></div>
 </div>
 
 <h2>Medical History</h2>
@@ -425,11 +608,11 @@ ${[
   ["Ever had ear surgery?", "med_surgery"],
   ["Taking blood thinning medication?", "med_thinner"],
   ["Are you diabetic?", "med_diabetic"],
-  ["History of working around loud noises?", "med_noise"],
-].map(([q,k]) => `<div class="ynrow"><div class="ynq">${q}${answers[k+"_type"] ? " — "+answers[k+"_type"] : ""}${answers["med_doctor_when"] && k === "med_doctor" ? " ("+answers["med_doctor_when"]+")" : ""}${answers["med_noise_desc"] && k === "med_noise" ? " ("+answers["med_noise_desc"]+")" : ""}</div><div class="yna">${yn(k)}</div></div>`).join("")}
+  ["Significant occupational noise exposure?", "med_noise_occupational"],
+  ["Significant recreational noise exposure?", "med_noise_recreational"],
+].map(([q,k]) => `<div class="ynrow"><div class="ynq">${q}${answers["med_diabetic_type"] && k === "med_diabetic" ? " — "+answers["med_diabetic_type"] : ""}${answers["med_doctor_when"] && k === "med_doctor" ? " ("+answers["med_doctor_when"]+")" : ""}${k === "med_noise_occupational" && occupNoiseDisplay !== "—" ? " — "+occupNoiseDisplay : ""}${k === "med_noise_recreational" && recNoiseDisplay !== "—" ? " — "+recNoiseDisplay : ""}</div><div class="yna">${yn(k)}</div></div>`).join("")}
 <div class="row" style="margin-top:8px">
-  <div class="field"><label>Family with hearing loss/aids</label><div class="val">${val("med_family")}</div></div>
-  <div class="field"><label>Other loud noise exposure</label><div class="val">${val("med_otherNoise")}</div></div>
+  <div class="field"><label>Family with hearing loss/aids</label><div class="val">${familyDisplay}</div></div>
 </div>
 
 <h2>Hearing History</h2>
@@ -450,7 +633,7 @@ ${[
   <div class="field"><label>Other challenges</label><div class="val">${val("hear_other")}</div></div>
 </div>
 <div class="row">
-  <div class="field"><label>What has prevented addressing hearing</label><div class="val">${val("hear_prevented")}</div></div>
+  <div class="field"><label>What has prevented addressing hearing</label><div class="val">${resistanceDisplay}</div></div>
   <div class="field"><label>What has changed</label><div class="val">${val("hear_changed")}</div></div>
 </div>
 
@@ -500,9 +683,205 @@ function SectionBadge({ label }) {
   );
 }
 
-function FieldInput({ field, t, value, onChange, error }) {
+// ── DOB dropdowns ──────────────────────────────────────────────────────────────
+// Three <select>s (Month / Day / Year) instead of a native date picker. The
+// calendar widget forces elderly patients to swipe back through 60+ years of
+// months which is brutal on a kiosk; dropdowns jump straight to the value.
+// Stores the combined value as ISO YYYY-MM-DD (empty string until all three
+// are filled) so the DB DATE column and provider-side handlers can consume
+// it directly without further normalization.
+function DobDropdowns({ value, onChange, t, error }) {
+  const parts = parseIsoDob(value);
+  const update = (k, v) => {
+    const next = { ...parts, [k]: v };
+    if (next.year && next.month && next.day) {
+      const iso = `${next.year}-${String(next.month).padStart(2,"0")}-${String(next.day).padStart(2,"0")}`;
+      onChange(iso);
+    } else {
+      // Partial selection — clear the stored ISO so validation still flags
+      // this field as incomplete rather than accepting a half-filled date.
+      onChange("");
+    }
+  };
+  const selectStyle = {
+    flex: 1, minWidth: 0, fontSize: 17, padding: "12px 10px",
+    border: `2px solid ${error ? C.red : C.border}`, borderRadius: 10,
+    color: C.text, fontFamily: font, background: "#fff", outline: "none",
+  };
+  const labelStyle = { display: "block", fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 };
+  return (
+    <div style={{ display: "flex", gap: 10 }}>
+      <div style={{ flex: 2 }}>
+        <label style={labelStyle}>{t.dobMonth}</label>
+        <select value={parts.month} onChange={e => update("month", e.target.value)} style={selectStyle}>
+          <option value="">{t.selectPrompt}</option>
+          {t.months.map((name, i) => <option key={i+1} value={i+1}>{name}</option>)}
+        </select>
+      </div>
+      <div style={{ flex: 1 }}>
+        <label style={labelStyle}>{t.dobDay}</label>
+        <select value={parts.day} onChange={e => update("day", e.target.value)} style={selectStyle}>
+          <option value="">{t.selectPrompt}</option>
+          {Array.from({length: 31}, (_, i) => i+1).map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+      </div>
+      <div style={{ flex: 1.4 }}>
+        <label style={labelStyle}>{t.dobYear}</label>
+        <select value={parts.year} onChange={e => update("year", e.target.value)} style={selectStyle}>
+          <option value="">{t.selectPrompt}</option>
+          {dobYearRange().map(y => <option key={y} value={y}>{y}</option>)}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+// ── State dropdown ─────────────────────────────────────────────────────────────
+// Stores 2-letter code; displays the full state name. Defaults to UT since
+// MHC is Utah-based — sets only when the field is empty so it doesn't stomp
+// a user who's already chosen another state.
+function StateDropdown({ value, onChange, error }) {
+  useEffect(() => { if (!value) onChange("UT"); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <select value={value || ""} onChange={e => onChange(e.target.value)}
+      style={{ width: "100%", boxSizing: "border-box", fontSize: 17, padding: "12px 14px", border: `2px solid ${error ? C.red : C.border}`, borderRadius: 10, color: C.text, fontFamily: font, background: "#fff", outline: "none" }}>
+      {US_STATES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+    </select>
+  );
+}
+
+// ── Single-select button grid (with optional "other" freeform) ────────────────
+// Used for the referral source. Options live in `options` as [storageKey,
+// translationKey] pairs; selection writes storageKey to value; picking the
+// "other"-flagged key reveals a text input that writes to otherValue.
+function ButtonGrid({ options, value, onChange, otherKey, otherValue, onOtherChange, t }) {
+  return (
+    <>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+        {options.map(([key, tKey]) => {
+          const selected = value === key;
+          return (
+            <button key={key} type="button" onClick={() => onChange(key)}
+              style={{ padding: "12px 18px", borderRadius: 10, border: `2px solid ${selected ? C.teal : C.border}`, background: selected ? C.tealL : "#fff", color: selected ? C.tealD : C.text, fontWeight: 700, fontSize: 15, cursor: "pointer", fontFamily: font, transition: "all 0.15s" }}>
+              {t[tKey] || tKey}
+            </button>
+          );
+        })}
+      </div>
+      {value === otherKey && (
+        <div style={{ marginTop: 12 }}>
+          <input type="text" value={otherValue || ""} onChange={e => onOtherChange(e.target.value)}
+            placeholder={t.otherDescribe}
+            style={{ width: "100%", boxSizing: "border-box", fontSize: 16, padding: "10px 14px", border: `2px solid ${C.border}`, borderRadius: 10, color: C.text, fontFamily: font, outline: "none" }} />
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── Multi-select button grid (with optional "other" freeform) ─────────────────
+// Shared by family history, noise exposure types, and resistance points.
+// `mutuallyExclusive` keys (like "none" / "unsure" on family history) clear
+// all other selections when chosen, and get cleared when any other key is
+// chosen. Stores selections as an array of storage keys.
+function MultiSelectGrid({ options, value, onChange, otherKey, otherValue, onOtherChange, t, mutuallyExclusive = [] }) {
+  const selected = Array.isArray(value) ? value : [];
+  const toggle = (key) => {
+    let next;
+    if (mutuallyExclusive.includes(key)) {
+      next = selected.includes(key) ? [] : [key];
+    } else if (selected.includes(key)) {
+      next = selected.filter(k => k !== key);
+    } else {
+      next = [...selected.filter(k => !mutuallyExclusive.includes(k)), key];
+    }
+    onChange(next);
+  };
+  const showOther = otherKey && selected.includes(otherKey);
+  return (
+    <>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+        {options.map(([key, tKey]) => {
+          const isSelected = selected.includes(key);
+          return (
+            <button key={key} type="button" onClick={() => toggle(key)}
+              style={{ padding: "12px 18px", borderRadius: 10, border: `2px solid ${isSelected ? C.teal : C.border}`, background: isSelected ? C.tealL : "#fff", color: isSelected ? C.tealD : C.text, fontWeight: 700, fontSize: 15, cursor: "pointer", fontFamily: font, transition: "all 0.15s" }}>
+              {isSelected ? "✓ " : ""}{t[tKey] || tKey}
+            </button>
+          );
+        })}
+      </div>
+      {showOther && (
+        <div style={{ marginTop: 12 }}>
+          <input type="text" value={otherValue || ""} onChange={e => onOtherChange(e.target.value)}
+            placeholder={t.otherDescribe}
+            style={{ width: "100%", boxSizing: "border-box", fontSize: 16, padding: "10px 14px", border: `2px solid ${C.border}`, borderRadius: 10, color: C.text, fontFamily: font, outline: "none" }} />
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── Option tables referenced by step definitions ──────────────────────────────
+const REFERRAL_OPTIONS = [
+  ["current_patient","ref_current_patient"],["friend_family","ref_friend_family"],
+  ["doctor","ref_doctor"],["google","ref_google"],["social","ref_social"],
+  ["tv_radio","ref_tv_radio"],["direct_mail","ref_direct_mail"],
+  ["event","ref_event"],["walkin","ref_walkin"],["other","ref_other"],
+];
+const FAMILY_OPTIONS = [
+  ["mother","fam_mother"],["father","fam_father"],
+  ["grandparent_maternal","fam_grandparent_maternal"],["grandparent_paternal","fam_grandparent_paternal"],
+  ["siblings","fam_siblings"],["children","fam_children"],["aunt_uncle","fam_aunt_uncle"],
+  ["none","fam_none"],["unsure","fam_unsure"],
+];
+const NOISE_OPTIONS = [
+  ["firearms","noise_firearms"],["power_tools","noise_power_tools"],
+  ["motorcycles","noise_motorcycles"],["concerts","noise_concerts"],
+  ["lawn","noise_lawn"],["woodworking","noise_woodworking"],
+  ["machinery","noise_machinery"],["other","noise_other"],
+];
+const RESISTANCE_OPTIONS = [
+  ["cost","resist_cost"],["cosmetics","resist_cosmetics"],["denial","resist_denial"],
+  ["bad_experience","resist_bad_experience"],["stigma","resist_stigma"],
+  ["dont_know","resist_dont_know"],["fear_dependence","resist_fear_dependence"],
+  ["other","resist_other"],
+];
+
+function FieldInput({ field, t, value, onChange, error, answers, setAnswer }) {
   const lbl = t[field.label] || field.label;
   const st = { width: field.width || "100%", boxSizing: "border-box" };
+  if (field.type === "dob") {
+    return (
+      <div style={{ ...st, marginBottom: 16 }}>
+        <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>{lbl}</label>
+        <DobDropdowns value={value} onChange={onChange} t={t} error={error} />
+        {error && <p style={{ color: C.red, fontSize: 12, marginTop: 4 }}>{error}</p>}
+      </div>
+    );
+  }
+  if (field.type === "state") {
+    return (
+      <div style={{ ...st, marginBottom: 16 }}>
+        <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>{lbl}</label>
+        <StateDropdown value={value} onChange={onChange} error={error} />
+        {error && <p style={{ color: C.red, fontSize: 12, marginTop: 4 }}>{error}</p>}
+      </div>
+    );
+  }
+  if (field.type === "buttonGrid") {
+    return (
+      <div style={{ ...st, marginBottom: 16 }}>
+        <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>{lbl}</label>
+        <ButtonGrid options={field.options} value={value} onChange={onChange}
+          otherKey={field.otherKey}
+          otherValue={answers?.[field.otherValueKey]}
+          onOtherChange={v => setAnswer(field.otherValueKey, v)}
+          t={t} />
+        {error && <p style={{ color: C.red, fontSize: 12, marginTop: 4 }}>{error}</p>}
+      </div>
+    );
+  }
   if (field.type === "radio") {
     return (
       <div style={{ ...st, marginBottom: 16 }}>
@@ -529,10 +908,15 @@ function FieldInput({ field, t, value, onChange, error }) {
       </div>
     );
   }
+  const isPhone = field.type === "tel";
   return (
     <div style={{ ...st, marginBottom: 16 }}>
       <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>{lbl}</label>
-      <input type={field.type || "text"} value={value || ""} onChange={e => onChange(e.target.value)}
+      <input
+        type={field.type || "text"}
+        inputMode={isPhone ? "tel" : undefined}
+        value={value || ""}
+        onChange={e => onChange(isPhone ? formatPhone(e.target.value) : e.target.value)}
         style={{ width: "100%", boxSizing: "border-box", fontSize: 17, padding: "12px 14px", border: `2px solid ${error ? C.red : C.border}`, borderRadius: 10, color: C.text, fontFamily: font, outline: "none" }} />
       {error && <p style={{ color: C.red, fontSize: 12, marginTop: 4 }}>{error}</p>}
     </div>
@@ -755,7 +1139,7 @@ export default function IntakeKiosk() {
       <h2 style={{ fontFamily: serif, fontSize: 26, color: C.text, margin: "0 0 24px", lineHeight: 1.3 }}>{t[step.title]}</h2>
       <div style={{ display: "flex", flexWrap: "wrap", gap: "0 16px" }}>
         {step.fields.map(f => (
-          <FieldInput key={f.key} field={f} t={t} value={answers[f.key]} onChange={v => setAnswer(f.key, v)} error={errors[f.key]} />
+          <FieldInput key={f.key} field={f} t={t} value={answers[f.key]} onChange={v => setAnswer(f.key, v)} error={errors[f.key]} answers={answers} setAnswer={setAnswer} />
         ))}
       </div>
       <NavButtons onBack={goBack} onNext={goNext} nextLabel={t.next} backLabel={t.back} stepIdx={stepIdx} />
@@ -763,13 +1147,19 @@ export default function IntakeKiosk() {
   );
 
   if (step.type === "yesno") {
-    const hasFollowUp = (step.followUp || step.followUps) && answers[step.ansKey] === true;
+    // If the step declares ANY follow-up (showing on Yes), always render the
+    // manual Yes/No branch — never auto-advance. Previously auto-advance
+    // fired on the initial Yes click because hasFollowUp was computed from
+    // answers[ansKey] === true, which was still undefined on that click, so
+    // the follow-up UI was bypassed entirely.
     const followUps = step.followUps || (step.followUp ? [step.followUp] : []);
+    const stepHasFollowUp = followUps.length > 0;
+    const showFollowUpFields = stepHasFollowUp && answers[step.ansKey] === true;
     return card(
       <>
         {step.sec && <SectionBadge label={t[step.sec]} />}
         <h2 style={{ fontFamily: serif, fontSize: 26, color: C.text, margin: "0 0 32px", lineHeight: 1.35 }}>{t[step.qKey]}</h2>
-        {!hasFollowUp ? (
+        {!stepHasFollowUp ? (
           <div style={{ display: "flex", gap: 16 }}>
             {["yes","no"].map(opt => (
               <button key={opt} onClick={() => autoAdvance(step.ansKey, opt === "yes")}
@@ -788,14 +1178,14 @@ export default function IntakeKiosk() {
                 </button>
               ))}
             </div>
-            {followUps.filter(fu => !fu.type || fu.type !== "radio").map(fu => (
+            {showFollowUpFields && followUps.filter(fu => !fu.type || fu.type === "text").map(fu => (
               <div key={fu.key} style={{ marginBottom: 16 }}>
                 <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>{t[fu.label]}</label>
                 <input type="text" value={answers[fu.key] || ""} onChange={e => setAnswer(fu.key, e.target.value)}
                   style={{ width: "100%", boxSizing: "border-box", fontSize: 17, padding: "12px 14px", border: `2px solid ${C.border}`, borderRadius: 10, color: C.text, fontFamily: font, outline: "none" }} />
               </div>
             ))}
-            {followUps.filter(fu => fu.type === "radio").map(fu => (
+            {showFollowUpFields && followUps.filter(fu => fu.type === "radio").map(fu => (
               <div key={fu.key} style={{ marginBottom: 16 }}>
                 <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>{t[fu.label]}</label>
                 <div style={{ display: "flex", gap: 12 }}>
@@ -808,10 +1198,24 @@ export default function IntakeKiosk() {
                 </div>
               </div>
             ))}
+            {showFollowUpFields && followUps.filter(fu => fu.type === "multiSelect").map(fu => (
+              <div key={fu.key} style={{ marginBottom: 16 }}>
+                <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>{t[fu.label]}</label>
+                <MultiSelectGrid
+                  options={fu.options}
+                  value={answers[fu.key]}
+                  onChange={v => setAnswer(fu.key, v)}
+                  otherKey={fu.otherKey}
+                  otherValue={answers[fu.otherValueKey]}
+                  onOtherChange={v => setAnswer(fu.otherValueKey, v)}
+                  t={t}
+                />
+              </div>
+            ))}
             <NavButtons onBack={goBack} onNext={goNext} nextLabel={t.continue_} backLabel={t.back} stepIdx={stepIdx} />
           </>
         )}
-        {!hasFollowUp && stepIdx > 1 && (
+        {!stepHasFollowUp && stepIdx > 1 && (
           <div style={{ marginTop: 20 }}>
             <button onClick={goBack} style={{ padding: "10px 20px", fontSize: 14, fontWeight: 700, color: C.muted, background: "transparent", border: `2px solid ${C.border}`, borderRadius: 10, cursor: "pointer", fontFamily: font }}>{t.back}</button>
           </div>
@@ -835,6 +1239,24 @@ export default function IntakeKiosk() {
       <div style={{ marginTop: 20 }}>
         <button onClick={goBack} style={{ padding: "10px 20px", fontSize: 14, fontWeight: 700, color: C.muted, background: "transparent", border: `2px solid ${C.border}`, borderRadius: 10, cursor: "pointer", fontFamily: font }}>{t.back}</button>
       </div>
+    </>
+  );
+
+  if (step.type === "multiSelect") return card(
+    <>
+      {step.sec && <SectionBadge label={t[step.sec]} />}
+      <h2 style={{ fontFamily: serif, fontSize: 26, color: C.text, margin: "0 0 24px", lineHeight: 1.35 }}>{t[step.qKey]}</h2>
+      <MultiSelectGrid
+        options={step.options}
+        value={answers[step.ansKey]}
+        onChange={v => setAnswer(step.ansKey, v)}
+        otherKey={step.otherKey}
+        otherValue={answers[step.otherValueKey]}
+        onOtherChange={v => setAnswer(step.otherValueKey, v)}
+        t={t}
+        mutuallyExclusive={step.mutuallyExclusive || []}
+      />
+      <NavButtons onBack={goBack} onNext={goNext} nextLabel={step.req === false ? t.next : t.next} backLabel={t.back} stepIdx={stepIdx} />
     </>
   );
 
