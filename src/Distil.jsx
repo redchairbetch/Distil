@@ -6581,6 +6581,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
                               const ins = form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null;
                               const pid = await createPatientDraft({ id: genId(), name, dob: form.dob, phone: form.phone, email: form.email, address: form.address, payType: form.payType, notes: form.notes, insurance: ins }, staffId, clinicId);
                               setWizardPatientId(pid);
+                              if (form.intakeId) {
+                                try { await linkIntakeToPatient(form.intakeId, pid); }
+                                catch (e) { console.error('linkIntakeToPatient:', e); }
+                              }
                               setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
                             } else if (step === 1 && wizardPatientId) {
                               await updatePatientAudiology(wizardPatientId, form.audiology, staffId);

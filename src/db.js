@@ -940,7 +940,8 @@ export async function acceptIntake(intakeId) {
 
 // Set intakes.patient_id after savePatient creates the patient record.
 // Used by the device-selection recommendation engine to query intake
-// responses by patient.
+// responses by patient, and by the Health History wizard step to
+// surface all prior intakes on the patient profile.
 export async function linkIntakeToPatient(intakeId, patientId) {
   if (!intakeId || !patientId) return
   const { error } = await supabase
@@ -948,6 +949,55 @@ export async function linkIntakeToPatient(intakeId, patientId) {
     .update({ patient_id: patientId })
     .eq('id', intakeId)
   if (error) console.error('linkIntakeToPatient:', error)
+}
+
+// Load all intakes for a patient, newest first. Each submission is its own
+// row — history is preserved and never overwritten. Used by the Health
+// History wizard step and the patient-detail "Intake Responses" accordion.
+export async function loadIntakesForPatient(patientId) {
+  if (!patientId) return []
+  const { data, error } = await supabase
+    .from('intakes')
+    .select('*')
+    .eq('patient_id', patientId)
+    .order('submitted_at', { ascending: false })
+  if (error) { console.error('loadIntakesForPatient:', error); return [] }
+  return (data || []).map(row => ({
+    answers:       row.answers       || {},
+    providerNotes: row.provider_notes || {},
+    _meta: {
+      intakeId:    row.id,
+      patientId:   row.patient_id,
+      status:      row.status,
+      submittedAt: row.submitted_at,
+      acceptedAt:  row.accepted_at || null,
+    },
+  }))
+}
+
+// Patch a single answer field on an intake. Called per-field on blur
+// from the Health History wizard step so the provider's clinical review
+// edits persist without a Save button.
+export async function updateIntakeAnswers(intakeId, answers) {
+  if (!intakeId) return
+  const { error } = await supabase
+    .from('intakes')
+    .update({ answers })
+    .eq('id', intakeId)
+  if (error) console.error('updateIntakeAnswers:', error)
+}
+
+// Write the provider_notes JSONB object. Shape is keyed by intake field
+// name, e.g. { "med_pain": "Discussed, left ear" }. Provider notes live
+// alongside but separate from patient answers — answers remain the
+// patient's immutable source of truth.
+export async function updateIntakeProviderNotes(intakeId, providerNotes) {
+  if (!intakeId) return
+  const { error } = await supabase
+    .from('intakes')
+    .update({ provider_notes: providerNotes })
+    .eq('id', intakeId)
+  if (error) console.error('updateIntakeProviderNotes:', error)
 }
 
 // Mark an intake as dismissed
