@@ -413,7 +413,6 @@ const STEPS = [
   ]},
   { id: "dob_gender", type: "form", title: "dobTitle", sec: "secPersonal", fields: [
     { key: "dob", label: "dob", req: true, width: "100%", type: "dob" },
-    { key: "age", label: "age", req: false, width: "30%", type: "number" },
     { key: "gender", label: "genderLabel", req: true, type: "radio", options: ["male","female","preferNotSay"], width: "100%" },
   ]},
   { id: "address", type: "form", title: "addressTitle", sec: "secPersonal", fields: [
@@ -600,7 +599,6 @@ function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t) {
 </div>
 <div class="row">
   <div class="field"><label>Date of Birth</label><div class="val">${dobDisplay}</div></div>
-  <div class="field"><label>Age</label><div class="val">${val("age")}</div></div>
   <div class="field"><label>Gender</label><div class="val">${val("gender")}</div></div>
 </div>
 <div class="row">
@@ -720,9 +718,25 @@ function SectionBadge({ label }) {
 // are filled) so the DB DATE column and provider-side handlers can consume
 // it directly without further normalization.
 function DobDropdowns({ value, onChange, t, error }) {
-  const parts = parseIsoDob(value);
+  // The three dropdowns live in LOCAL state, not derived from the parent's
+  // ISO value. Previously we re-derived `parts` from `value` every render,
+  // but `value` is only set to a real ISO once all three parts are filled —
+  // which meant picking Month first would fire onChange("") (since Day and
+  // Year were still empty), zeroing the stored value, and the next render
+  // would pull an empty Month back out of `value`. Visually the user saw
+  // each selection erase the previous one. Local state keeps partial state
+  // until the user finishes entering a full date.
+  const [parts, setParts] = useState(() => parseIsoDob(value));
+  // Sync from parent when it changes externally (e.g., back nav restoring a
+  // previously-completed DOB). Safe to run on every change of `value` since
+  // we only overwrite parts when the incoming ISO genuinely parses.
+  useEffect(() => {
+    const next = parseIsoDob(value);
+    if (next.year || next.month || next.day) setParts(next);
+  }, [value]);
   const update = (k, v) => {
     const next = { ...parts, [k]: v };
+    setParts(next);
     if (next.year && next.month && next.day) {
       const iso = `${next.year}-${String(next.month).padStart(2,"0")}-${String(next.day).padStart(2,"0")}`;
       onChange(iso);
