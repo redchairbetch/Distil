@@ -2364,7 +2364,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
   // ── Intake queue handlers ────────────────────────────────────────────
-  const handleAcceptIntake = (intake) => {
+  // Accept an intake: immediately persist a draft patient from the intake
+  // answers and link intakes.patient_id. We do this at Accept time (not on
+  // the Continue button) so if the provider abandons the wizard the record
+  // still survives — the intake already captured enough to call it a
+  // patient. Link happens synchronously with draft creation to keep the
+  // intake queryable by patient_id from the very first save.
+  const handleAcceptIntake = async (intake) => {
     const a = unwrapIntakeAnswers(intake.answers) || {};
     const phone = a.mobilePhone || a.homePhone || a.workPhone || a.phone || "";
     const digits = phone.replace(/\D/g,"").slice(0,10);
@@ -2372,22 +2378,73 @@ export default function ProviderCRM({ staffId, clinicId }) {
     if (digits.length >= 7) fmt = `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
     else if (digits.length >= 4) fmt = `(${digits.slice(0,3)}) ${digits.slice(3)}`;
     else if (digits.length > 0) fmt = `(${digits}`;
+
+    // Kiosk currently stores DOB as MM/DD/YYYY; patients.dob is DATE so we
+    // normalize to ISO. Phase 2 will replace the kiosk's DOB input with
+    // three dropdowns that write ISO directly, at which point this regex
+    // fallback becomes a no-op for fresh intakes but still handles any
+    // in-flight MM/DD/YYYY rows.
+    const rawDob = a.dob || "";
+    const usDob = rawDob.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    const isoDob = usDob
+      ? `${usDob[3]}-${usDob[1].padStart(2,"0")}-${usDob[2].padStart(2,"0")}`
+      : rawDob;
+
+    const address = [a.street, [a.city, a.state].filter(Boolean).join(", "), a.zip]
+      .filter(Boolean).join(", ");
+    const firstName = a.firstName || "";
+    const lastName  = a.lastName  || "";
+    const name      = [firstName, lastName].filter(Boolean).join(" ") || "New Patient";
+    const payType   = a.payType || "insurance";
+    const intakeId  = intake._meta?.intakeId || null;
+    const notes     = [a.visitReason, intakeId ? `Intake ID: ${intakeId}` : ""]
+      .filter(Boolean).join("\n");
+
+    let newPatientId;
+    try {
+      newPatientId = await createPatientDraft({
+        id: genId(),
+        name,
+        dob: isoDob,
+        phone: fmt,
+        email: a.email || "",
+        address,
+        payType,
+        notes,
+        // Insurance is deliberately left null — verification happens live
+        // during the appointment as a trust-building ritual, not pre-visit.
+        insurance: null,
+      }, staffId, clinicId);
+    } catch (e) {
+      console.error("createPatientDraft on intake accept:", e);
+      setSaveError(e?.message || e?.toString() || "Failed to save draft patient from intake — check console.");
+      return;
+    }
+
+    if (intakeId) {
+      try { await linkIntakeToPatient(intakeId, newPatientId); }
+      catch (e) { console.error("linkIntakeToPatient on intake accept:", e); }
+      try { await dbAcceptIntake(intakeId); } catch {}
+    }
+
     setForm(f => ({
       ...f,
-      intakeId:   intake._meta?.intakeId || null,
-      firstName:  a.firstName  || "",
-      lastName:   a.lastName   || "",
-      dob:        a.dob        || "",
-      phone:      fmt,
-      email:      a.email      || "",
-      payType:    a.payType    || "insurance",
-      carrier:    a.carrier    || "",
-      notes: [f.notes, a.visitReason, intake._meta?.intakeId ? `Intake ID: ${intake._meta.intakeId}` : ""].filter(Boolean).join("\n"),
+      intakeId,
+      firstName,
+      lastName,
+      dob:     isoDob,
+      phone:   fmt,
+      email:   a.email   || "",
+      address,
+      payType,
+      carrier: a.carrier || "",
+      notes:   [f.notes, notes].filter(Boolean).join("\n"),
     }));
-    try { dbAcceptIntake(intake._meta.intakeId); } catch {}
-    setPendingIntakes(prev => prev.filter(i => i._meta?.intakeId !== intake._meta?.intakeId));
+    setWizardPatientId(newPatientId);
+    setPendingIntakes(prev => prev.filter(i => i._meta?.intakeId !== intakeId));
     setShowIntakeQueue(false);
     setStep(0); setSaved(false); setView("new");
+    refreshPatients();
   };
 
   const handleDismissIntake = async (intakeId) => {
