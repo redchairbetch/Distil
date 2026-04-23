@@ -2419,7 +2419,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
       console.error("createPatientDraft on intake accept:", e);
       const msg = e?.message || e?.toString() || "Unknown error";
       setSaveError(`Failed to save draft patient from intake: ${msg}`);
-      alert(`Intake accept failed — draft patient could not be saved.\n\nError: ${msg}\n\nThe intake is still in the queue for retry. Please screenshot this and share with Claude.`);
+      alert(`Couldn't save the patient record from this intake.\n\nError: ${msg}\n\nThe intake is still in the queue — you can try Accept again.`);
       return;
     }
 

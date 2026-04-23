@@ -516,7 +516,7 @@ export async function createPatientDraft(data, staffId, clinicId) {
       address:        data.address   || null,
       pay_type:       data.payType,
       notes:          data.notes     || null,
-      patient_status: 'draft',
+      patient_status: 'prospect',
     })
     .select()
     .single()
