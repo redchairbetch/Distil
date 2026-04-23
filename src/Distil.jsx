@@ -2417,7 +2417,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
       }, staffId, clinicId);
     } catch (e) {
       console.error("createPatientDraft on intake accept:", e);
-      setSaveError(e?.message || e?.toString() || "Failed to save draft patient from intake — check console.");
+      const msg = e?.message || e?.toString() || "Unknown error";
+      setSaveError(`Failed to save draft patient from intake: ${msg}`);
+      alert(`Intake accept failed — draft patient could not be saved.\n\nError: ${msg}\n\nThe intake is still in the queue for retry. Please screenshot this and share with Claude.`);
       return;
     }
 
