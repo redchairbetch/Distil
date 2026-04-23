@@ -373,8 +373,37 @@ const T = {
   },
 };
 
+// ── Option tables ─────────────────────────────────────────────────────────────
+// Stored keys are stable across translations and consumed by generateHTML +
+// the provider-side Health History step. Display names come from the
+// translation dictionaries via the paired translation key.
+const REFERRAL_OPTIONS = [
+  ["current_patient","ref_current_patient"],["friend_family","ref_friend_family"],
+  ["doctor","ref_doctor"],["google","ref_google"],["social","ref_social"],
+  ["tv_radio","ref_tv_radio"],["direct_mail","ref_direct_mail"],
+  ["event","ref_event"],["walkin","ref_walkin"],["other","ref_other"],
+];
+const FAMILY_OPTIONS = [
+  ["mother","fam_mother"],["father","fam_father"],
+  ["grandparent_maternal","fam_grandparent_maternal"],["grandparent_paternal","fam_grandparent_paternal"],
+  ["siblings","fam_siblings"],["children","fam_children"],["aunt_uncle","fam_aunt_uncle"],
+  ["none","fam_none"],["unsure","fam_unsure"],
+];
+const NOISE_OPTIONS = [
+  ["firearms","noise_firearms"],["power_tools","noise_power_tools"],
+  ["motorcycles","noise_motorcycles"],["concerts","noise_concerts"],
+  ["lawn","noise_lawn"],["woodworking","noise_woodworking"],
+  ["machinery","noise_machinery"],["other","noise_other"],
+];
+const RESISTANCE_OPTIONS = [
+  ["cost","resist_cost"],["cosmetics","resist_cosmetics"],["denial","resist_denial"],
+  ["bad_experience","resist_bad_experience"],["stigma","resist_stigma"],
+  ["dont_know","resist_dont_know"],["fear_dependence","resist_fear_dependence"],
+  ["other","resist_other"],
+];
+
 // ── Step definitions ───────────────────────────────────────────────────────────
-// type: welcome | form | yesno | multiChoice | text | scale | aids | scrollConsent | signature | thanks
+// type: welcome | form | yesno | multiChoice | multiSelect | text | scale | aids | scrollConsent | signature | thanks
 const STEPS = [
   { id: "welcome", type: "welcome" },
   { id: "name", type: "form", title: "nameTitle", sec: "secPersonal", fields: [
@@ -821,32 +850,6 @@ function MultiSelectGrid({ options, value, onChange, otherKey, otherValue, onOth
     </>
   );
 }
-
-// ── Option tables referenced by step definitions ──────────────────────────────
-const REFERRAL_OPTIONS = [
-  ["current_patient","ref_current_patient"],["friend_family","ref_friend_family"],
-  ["doctor","ref_doctor"],["google","ref_google"],["social","ref_social"],
-  ["tv_radio","ref_tv_radio"],["direct_mail","ref_direct_mail"],
-  ["event","ref_event"],["walkin","ref_walkin"],["other","ref_other"],
-];
-const FAMILY_OPTIONS = [
-  ["mother","fam_mother"],["father","fam_father"],
-  ["grandparent_maternal","fam_grandparent_maternal"],["grandparent_paternal","fam_grandparent_paternal"],
-  ["siblings","fam_siblings"],["children","fam_children"],["aunt_uncle","fam_aunt_uncle"],
-  ["none","fam_none"],["unsure","fam_unsure"],
-];
-const NOISE_OPTIONS = [
-  ["firearms","noise_firearms"],["power_tools","noise_power_tools"],
-  ["motorcycles","noise_motorcycles"],["concerts","noise_concerts"],
-  ["lawn","noise_lawn"],["woodworking","noise_woodworking"],
-  ["machinery","noise_machinery"],["other","noise_other"],
-];
-const RESISTANCE_OPTIONS = [
-  ["cost","resist_cost"],["cosmetics","resist_cosmetics"],["denial","resist_denial"],
-  ["bad_experience","resist_bad_experience"],["stigma","resist_stigma"],
-  ["dont_know","resist_dont_know"],["fear_dependence","resist_fear_dependence"],
-  ["other","resist_other"],
-];
 
 function FieldInput({ field, t, value, onChange, error, answers, setAnswer }) {
   const lbl = t[field.label] || field.label;
