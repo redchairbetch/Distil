@@ -1848,12 +1848,16 @@ export async function loadPricingReveal(clinicId, patientId) {
 
   if (!anchor) return null
 
+  // tier_price_per_aid is stored in cents (matches loadInsurancePlans /
+  // loadAllPatients convention). Anchor price_per_aid is numeric dollars.
   const retailPerAid  = parseFloat(anchor.price_per_aid)
-  const copayPerAid   = data.tier_price_per_aid
+  const copayPerAid   = data.tier_price_per_aid != null ? data.tier_price_per_aid / 100 : null
+  if (copayPerAid == null) return null
   const savingsPerAid = retailPerAid - copayPerAid
   const savingsPct    = Math.round((savingsPerAid / retailPerAid) * 100)
 
   return {
+    anchorKey,
     tierLabel:    anchor.label,
     retailPerAid,
     copayPerAid,
@@ -2036,6 +2040,36 @@ export async function loadCurrentRecommendation(patientId) {
     .eq('patient_id', patientId)
     .is('superseded_at', null)
     .order('generated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return data || null
+}
+
+export async function saveProviderEditedRationale(recOutputId, text) {
+  const value = typeof text === 'string' && text.trim().length > 0 ? text : null
+  const { error } = await supabase
+    .from('recommendation_engine_output')
+    .update({ provider_edited_rationale_text: value })
+    .eq('id', recOutputId)
+  if (error) throw error
+}
+
+export async function loadPatientHeader(patientId) {
+  const { data } = await supabase
+    .from('patients')
+    .select('id, first_name, last_name, dob')
+    .eq('id', patientId)
+    .maybeSingle()
+  return data || null
+}
+
+// Patient-has-TNS flag for Zone 1 clinical strip. Any row present → show warning.
+export async function loadPatientTnsFlag(patientId) {
+  const { data } = await supabase
+    .from('tns_outcomes')
+    .select('outcome_reason, created_at')
+    .eq('patient_id', patientId)
+    .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
   return data || null
