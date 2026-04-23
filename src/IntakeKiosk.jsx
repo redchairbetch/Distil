@@ -146,13 +146,16 @@ const T = {
     medQ_noise_occupational: "Have you had significant occupational noise exposure? (construction, factory, military, aviation, etc.)",
     medQ_noise_recreational: "Have you had significant recreational noise exposure? (concerts, motorsports, firearms, power tools, etc.)",
     noiseDescribe: "Which kinds?",
+    noise_construction: "Construction",
+    noise_military: "Military",
+    noise_aviation: "Aviation",
+    noise_machinery: "Loud machinery at work",
     noise_firearms: "Firearms or hunting",
     noise_power_tools: "Power tools",
     noise_motorcycles: "Motorcycles or ATVs",
     noise_concerts: "Concerts or live music",
     noise_lawn: "Lawn or yard equipment",
     noise_woodworking: "Woodworking",
-    noise_machinery: "Loud machinery at work",
     noise_other: "Other",
 
     hearQ_tested: "Have you had your hearing tested before?",
@@ -298,13 +301,16 @@ const T = {
     medQ_noise_occupational: "¿Ha tenido exposición significativa a ruido en el trabajo? (construcción, fábrica, militar, aviación, etc.)",
     medQ_noise_recreational: "¿Ha tenido exposición significativa a ruido recreativo? (conciertos, deportes de motor, armas de fuego, herramientas eléctricas, etc.)",
     noiseDescribe: "¿Qué tipos?",
+    noise_construction: "Construcción",
+    noise_military: "Militar",
+    noise_aviation: "Aviación",
+    noise_machinery: "Maquinaria ruidosa en el trabajo",
     noise_firearms: "Armas de fuego o caza",
     noise_power_tools: "Herramientas eléctricas",
     noise_motorcycles: "Motocicletas o cuatrimotos",
     noise_concerts: "Conciertos o música en vivo",
     noise_lawn: "Equipo de jardín",
     noise_woodworking: "Carpintería",
-    noise_machinery: "Maquinaria ruidosa en el trabajo",
     noise_other: "Otro",
 
     hearQ_tested: "¿Le han examinado la audición anteriormente?",
@@ -389,11 +395,23 @@ const FAMILY_OPTIONS = [
   ["siblings","fam_siblings"],["children","fam_children"],["aunt_uncle","fam_aunt_uncle"],
   ["none","fam_none"],["unsure","fam_unsure"],
 ];
-const NOISE_OPTIONS = [
-  ["firearms","noise_firearms"],["power_tools","noise_power_tools"],
-  ["motorcycles","noise_motorcycles"],["concerts","noise_concerts"],
+// Occupational noise sources are workplace-flavored: construction, military,
+// aviation, heavy machinery. Power tools, lawn equipment, and woodworking
+// stay since they show up in landscaping / carpentry / maintenance jobs.
+const NOISE_OPTIONS_OCCUPATIONAL = [
+  ["construction","noise_construction"],["military","noise_military"],
+  ["aviation","noise_aviation"],["machinery","noise_machinery"],
+  ["power_tools","noise_power_tools"],["lawn","noise_lawn"],
+  ["woodworking","noise_woodworking"],["other","noise_other"],
+];
+// Recreational excludes workplace-only "loud machinery at work" — doesn't
+// belong to a hobby. Firearms/hunting, motorcycles, concerts are the
+// typical recreational culprits.
+const NOISE_OPTIONS_RECREATIONAL = [
+  ["firearms","noise_firearms"],["motorcycles","noise_motorcycles"],
+  ["concerts","noise_concerts"],["power_tools","noise_power_tools"],
   ["lawn","noise_lawn"],["woodworking","noise_woodworking"],
-  ["machinery","noise_machinery"],["other","noise_other"],
+  ["other","noise_other"],
 ];
 const RESISTANCE_OPTIONS = [
   ["cost","resist_cost"],["cosmetics","resist_cosmetics"],["denial","resist_denial"],
@@ -458,10 +476,10 @@ const STEPS = [
     options: FAMILY_OPTIONS, mutuallyExclusive: ["none","unsure"], req: false },
   { id: "med_noise_occupational", type: "yesno", sec: "secMedical", qKey: "medQ_noise_occupational", ansKey: "med_noise_occupational",
     followUp: { key: "med_noise_occupational_types", label: "noiseDescribe", showIf: true, type: "multiSelect",
-      options: NOISE_OPTIONS, otherKey: "other", otherValueKey: "med_noise_occupational_other" } },
+      options: NOISE_OPTIONS_OCCUPATIONAL, otherKey: "other", otherValueKey: "med_noise_occupational_other" } },
   { id: "med_noise_recreational", type: "yesno", sec: "secMedical", qKey: "medQ_noise_recreational", ansKey: "med_noise_recreational",
     followUp: { key: "med_noise_recreational_types", label: "noiseDescribe", showIf: true, type: "multiSelect",
-      options: NOISE_OPTIONS, otherKey: "other", otherValueKey: "med_noise_recreational_other" } },
+      options: NOISE_OPTIONS_RECREATIONAL, otherKey: "other", otherValueKey: "med_noise_recreational_other" } },
   { id: "hear_tested", type: "yesno", sec: "secHearing", qKey: "hearQ_tested", ansKey: "hear_tested",
     followUps: [
       { key: "hear_tested_when", label: "testedWhen", showIf: true },
@@ -550,8 +568,8 @@ function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t) {
     return names.join(", ");
   };
   const familyDisplay     = multiDisplay("medFamilyHistory", FAMILY_OPTIONS, null, null);
-  const occupNoiseDisplay = multiDisplay("med_noise_occupational_types", NOISE_OPTIONS, "other", "med_noise_occupational_other");
-  const recNoiseDisplay   = multiDisplay("med_noise_recreational_types", NOISE_OPTIONS, "other", "med_noise_recreational_other");
+  const occupNoiseDisplay = multiDisplay("med_noise_occupational_types", NOISE_OPTIONS_OCCUPATIONAL, "other", "med_noise_occupational_other");
+  const recNoiseDisplay   = multiDisplay("med_noise_recreational_types", NOISE_OPTIONS_RECREATIONAL, "other", "med_noise_recreational_other");
   const resistanceDisplay = multiDisplay("resistancePoints", RESISTANCE_OPTIONS, "other", "resistancePointsOther");
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1068,11 +1086,20 @@ export default function IntakeKiosk() {
 
   const handleSubmit = async () => {
     if (!hasSignature) { setErrors({ sig: t.sigRequired }); return; }
+    // Guard: if the kiosk was built without VITE_CLINIC_ID, refuse to
+    // proceed rather than letting the user sign and think they're done.
+    // The insert would silently fail on a NOT-NULL clinic_id and the
+    // intake would never reach the provider's queue — as happened once
+    // on a preview deployment that had no env vars wired up.
+    if (!KIOSK_CLINIC_ID) {
+      setErrors({ sig: "Kiosk configuration error: clinic ID is not set. Please notify the front desk." });
+      return;
+    }
     const canvas = signatureRef.current;
     const sigDataUrl = canvas ? canvas.toDataURL("image/png") : null;
     const timestamp = new Date().toISOString();
-    const record = { _meta: { intakeId, submittedAt: timestamp, lang, status: "pending" }, answers, consent: { privacyAgreed: answers.privacyAgreed, insuranceAgreed: answers.insuranceAgreed, signedAt: timestamp, signatureDataUrl: sigDataUrl } };
-    // Submit intake to Supabase
+    // Submit intake to Supabase. If this throws, surface the error so the
+    // user doesn't see the Thank-You screen with a record that doesn't exist.
     try {
       const payload = {
         _meta: { intakeId, submittedAt: timestamp, lang, status: "pending" },
@@ -1080,7 +1107,11 @@ export default function IntakeKiosk() {
         consent: { privacyAgreed: answers.privacyAgreed, insuranceAgreed: answers.insuranceAgreed, signedAt: timestamp, signatureDataUrl: sigDataUrl }
       };
       await submitIntake(payload, KIOSK_CLINIC_ID);
-    } catch (e) { console.error("Intake submit error:", e); }
+    } catch (e) {
+      console.error("Intake submit error:", e);
+      setErrors({ sig: `Submission failed: ${e?.message || "unknown error"}. Please notify the front desk.` });
+      return;
+    }
     // Download HTML "PDF"
     const html = generateHTML(answers, intakeId, sigDataUrl, timestamp, t);
     const blob = new Blob([html], { type: "text/html" });
@@ -1164,45 +1195,54 @@ export default function IntakeKiosk() {
   );
 
   if (step.type === "yesno") {
-    // If the step declares ANY follow-up (showing on Yes), always render the
-    // manual Yes/No branch — never auto-advance. Previously auto-advance
-    // fired on the initial Yes click because hasFollowUp was computed from
-    // answers[ansKey] === true, which was still undefined on that click, so
-    // the follow-up UI was bypassed entirely.
+    // Auto-advance semantics with follow-ups:
+    //   - No step has a follow-up → both Yes/No auto-advance (fast path).
+    //   - Step has a follow-up, user taps No → auto-advance (nothing to fill).
+    //   - Step has a follow-up, user taps Yes → do NOT auto-advance; reveal
+    //     the follow-up and wait for the user to tap Continue.
+    // The earlier "always-manual" fix stopped the Yes-skips-follow-up bug but
+    // made No require a needless Continue click too.
     const followUps = step.followUps || (step.followUp ? [step.followUp] : []);
     const stepHasFollowUp = followUps.length > 0;
-    const showFollowUpFields = stepHasFollowUp && answers[step.ansKey] === true;
+    const followUpVisible = stepHasFollowUp && answers[step.ansKey] === true;
     return card(
       <>
         {step.sec && <SectionBadge label={t[step.sec]} />}
         <h2 style={{ fontFamily: serif, fontSize: 26, color: C.text, margin: "0 0 32px", lineHeight: 1.35 }}>{t[step.qKey]}</h2>
-        {!stepHasFollowUp ? (
+        {!followUpVisible ? (
           <div style={{ display: "flex", gap: 16 }}>
-            {["yes","no"].map(opt => (
-              <button key={opt} onClick={() => autoAdvance(step.ansKey, opt === "yes")}
-                style={{ flex: 1, padding: "28px 16px", fontSize: 24, fontWeight: 800, color: opt === "yes" ? "#fff" : C.text, background: opt === "yes" ? C.teal : C.tealL, border: "none", borderRadius: 16, cursor: "pointer", fontFamily: font, transition: "all 0.15s", transform: answers[step.ansKey] === (opt === "yes") ? "scale(0.97)" : "scale(1)" }}>
-                {t[opt]}
-              </button>
-            ))}
+            {["yes","no"].map(opt => {
+              const selectsYesWithFollowUp = stepHasFollowUp && opt === "yes";
+              const onClick = selectsYesWithFollowUp
+                ? () => setAnswer(step.ansKey, true)
+                : () => autoAdvance(step.ansKey, opt === "yes");
+              return (
+                <button key={opt} onClick={onClick}
+                  style={{ flex: 1, padding: "28px 16px", fontSize: 24, fontWeight: 800, color: opt === "yes" ? "#fff" : C.text, background: opt === "yes" ? C.teal : C.tealL, border: "none", borderRadius: 16, cursor: "pointer", fontFamily: font, transition: "all 0.15s", transform: answers[step.ansKey] === (opt === "yes") ? "scale(0.97)" : "scale(1)" }}>
+                  {t[opt]}
+                </button>
+              );
+            })}
           </div>
         ) : (
           <>
             <div style={{ display: "flex", gap: 16, marginBottom: 24 }}>
               {["yes","no"].map(opt => (
-                <button key={opt} onClick={() => setAnswer(step.ansKey, opt === "yes")}
+                <button key={opt}
+                  onClick={opt === "no" ? () => autoAdvance(step.ansKey, false) : () => setAnswer(step.ansKey, true)}
                   style={{ flex: 1, padding: "22px 16px", fontSize: 20, fontWeight: 800, color: answers[step.ansKey] === (opt==="yes") ? "#fff" : C.text, background: answers[step.ansKey] === (opt==="yes") ? C.teal : C.tealL, border: `2px solid ${answers[step.ansKey] === (opt==="yes") ? C.teal : "transparent"}`, borderRadius: 14, cursor: "pointer", fontFamily: font, transition: "all 0.15s" }}>
                   {t[opt]}
                 </button>
               ))}
             </div>
-            {showFollowUpFields && followUps.filter(fu => !fu.type || fu.type === "text").map(fu => (
+            {followUpVisible && followUps.filter(fu => !fu.type || fu.type === "text").map(fu => (
               <div key={fu.key} style={{ marginBottom: 16 }}>
                 <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>{t[fu.label]}</label>
                 <input type="text" value={answers[fu.key] || ""} onChange={e => setAnswer(fu.key, e.target.value)}
                   style={{ width: "100%", boxSizing: "border-box", fontSize: 17, padding: "12px 14px", border: `2px solid ${C.border}`, borderRadius: 10, color: C.text, fontFamily: font, outline: "none" }} />
               </div>
             ))}
-            {showFollowUpFields && followUps.filter(fu => fu.type === "radio").map(fu => (
+            {followUpVisible && followUps.filter(fu => fu.type === "radio").map(fu => (
               <div key={fu.key} style={{ marginBottom: 16 }}>
                 <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>{t[fu.label]}</label>
                 <div style={{ display: "flex", gap: 12 }}>
@@ -1215,7 +1255,7 @@ export default function IntakeKiosk() {
                 </div>
               </div>
             ))}
-            {showFollowUpFields && followUps.filter(fu => fu.type === "multiSelect").map(fu => (
+            {followUpVisible && followUps.filter(fu => fu.type === "multiSelect").map(fu => (
               <div key={fu.key} style={{ marginBottom: 16 }}>
                 <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>{t[fu.label]}</label>
                 <MultiSelectGrid
@@ -1232,7 +1272,7 @@ export default function IntakeKiosk() {
             <NavButtons onBack={goBack} onNext={goNext} nextLabel={t.continue_} backLabel={t.back} stepIdx={stepIdx} />
           </>
         )}
-        {!stepHasFollowUp && stepIdx > 1 && (
+        {!followUpVisible && stepIdx > 1 && (
           <div style={{ marginTop: 20 }}>
             <button onClick={goBack} style={{ padding: "10px 20px", fontSize: 14, fontWeight: 700, color: C.muted, background: "transparent", border: `2px solid ${C.border}`, borderRadius: 10, cursor: "pointer", fontFamily: font }}>{t.back}</button>
           </div>
