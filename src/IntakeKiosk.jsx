@@ -592,7 +592,19 @@ function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t) {
   .sig-section { margin-top: 20px; border-top: 2px solid #0A7B8C; padding-top: 12px; }
   .sig-img { border: 1px solid #ccc; max-width: 300px; height: 80px; }
   .cert-text { font-size: 10px; color: #444; line-height: 1.5; margin-bottom: 10px; }
-  @media print { body { margin: 0; padding: 10px; } }
+  /* Consent page — prints on a separate sheet with privacy + insurance
+     verbiage above the signature. Flex column + min-height keeps the
+     signature block anchored at the bottom of the sheet even when the
+     consent content is short. */
+  .consent-page { page-break-before: always; display: flex; flex-direction: column; min-height: 25cm; }
+  .consent-section { margin-bottom: 18px; }
+  .consent-section h3 { font-size: 13px; color: #0A7B8C; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid #D0DCDE; padding-bottom: 4px; }
+  .consent-section p { font-size: 11px; line-height: 1.55; color: #333; margin: 6px 0; }
+  .consent-section ul { font-size: 11px; line-height: 1.55; color: #333; padding-left: 20px; margin: 6px 0; }
+  .consent-section li { margin-bottom: 4px; }
+  .sig-anchor { margin-top: auto; }
+  @page { margin: 15mm; size: letter; }
+  @media print { body { margin: 0; padding: 0; } }
 </style>
 </head>
 <body>
@@ -700,12 +712,27 @@ ${answers.aids_q ? `
   <div class="field"><label>Satisfaction rating (1–10)</label><div class="val">${val("aids_satisfRating")}</div></div>
 </div>` : ""}
 
-<div class="sig-section">
-  <p class="cert-text">By signing below, I certify that the information I provided above is accurate and correct to the best of my knowledge. I further acknowledge that I have read and understand the privacy policy and I consent to the use of the information for business purposes. I understand that a copy of this policy will be presented to me upon request.</p>
-  ${signatureDataUrl ? `<img class="sig-img" src="${signatureDataUrl}" alt="Patient Signature" />` : ""}
-  <div class="row" style="margin-top:8px">
-    <div class="field"><label>Authorized Signature</label><div class="val">&nbsp;</div></div>
-    <div class="field"><label>Date</label><div class="val">${new Date(timestamp).toLocaleDateString()}</div></div>
+<!-- Page 2: consent verbiage + signature. The clinic keeps this printed
+     alongside the patient's record so the signed acknowledgment is
+     archival, not just clicked-through-and-lost. English regardless of
+     kiosk language since it's for the clinic's files. -->
+<div class="consent-page">
+  <div class="consent-section">
+    <h3>${T.en.privacyTitle}</h3>
+    <p>${T.en.privacyIntro}</p>
+    <ul>${T.en.privacyBullets.map(b => `<li>${b}</li>`).join("")}</ul>
+  </div>
+  <div class="consent-section">
+    <h3>${T.en.insTitle}</h3>
+    ${T.en.insText.split("\n\n").map(p => `<p>${p}</p>`).join("")}
+  </div>
+  <div class="sig-anchor sig-section">
+    <p class="cert-text">${T.en.sigCert}</p>
+    ${signatureDataUrl ? `<img class="sig-img" src="${signatureDataUrl}" alt="Patient Signature" />` : ""}
+    <div class="row" style="margin-top:8px">
+      <div class="field"><label>Authorized Signature</label><div class="val">&nbsp;</div></div>
+      <div class="field"><label>Date</label><div class="val">${new Date(timestamp).toLocaleDateString()}</div></div>
+    </div>
   </div>
 </div>
 </body></html>`;
