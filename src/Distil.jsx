@@ -46,6 +46,7 @@ import {
   loadIntakesForPatient,
   updateIntakeAnswers,
   updateIntakeProviderNotes,
+  createProviderIntake,
   dismissIntake,
   signOut,
   enrollPatientInCampaign,
@@ -1536,6 +1537,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [saveError, setSaveError] = useState(null);
   const [wizardPatientId, setWizardPatientId] = useState(null);
   const [wizardIntake, setWizardIntake] = useState(null);
+  // Bumped after createProviderIntake mints a fresh row, so the loader
+  // useEffect re-fires and picks up the new intake without waiting on a
+  // step transition.
+  const [intakeRefreshKey, setIntakeRefreshKey] = useState(0);
   const [saveToast, setSaveToast] = useState(false);
   const [punchData, setPunchData] = useState({ cleanings: 0, appointments: 0, log: [] });
   const [punchConfirm, setPunchConfirm] = useState(null);
@@ -2202,7 +2207,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
       if (!cancelled) setWizardIntake(null);
     });
     return () => { cancelled = true; };
-  }, [step, wizardPatientId]);
+  }, [step, wizardPatientId, intakeRefreshKey]);
 
   // Reset wizardIntake when the wizard itself resets (back to step 0 with
   // no patient yet, or returning to dashboard). Without this, leftover
@@ -3752,6 +3757,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
             try { await updateIntakeProviderNotes(intakeId, nextNotes); }
             catch (e) { console.error("updateIntakeProviderNotes:", e); }
           }}
+          onStartGuidedConversation={
+            wizardPatientId && clinicId
+              ? async () => {
+                  await createProviderIntake(wizardPatientId, clinicId);
+                  // Bump the refresh key — the loader useEffect re-fires
+                  // and the new intake row pops in as the editable surface.
+                  setIntakeRefreshKey(k => k + 1);
+                }
+              : undefined
+          }
         />
       );
     }

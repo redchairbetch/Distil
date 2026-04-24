@@ -199,7 +199,7 @@ export function formatFieldValue(field, value, answers = {}) {
   }
 }
 
-export default function HealthHistory({ intake, onUpdateAnswer, onUpdateNote }) {
+export default function HealthHistory({ intake, onUpdateAnswer, onUpdateNote, onStartGuidedConversation }) {
   // Notes that have a value on load are auto-expanded so the provider
   // sees prior context immediately. New notes start collapsed.
   const [expandedNotes, setExpandedNotes] = useState(() => new Set(
@@ -207,11 +207,39 @@ export default function HealthHistory({ intake, onUpdateAnswer, onUpdateNote }) 
       .filter(([, v]) => v && String(v).trim().length > 0)
       .map(([k]) => k)
   ));
+  const [starting, setStarting] = useState(false);
 
   if (!intake) {
     return (
-      <div style={{ padding:32, color:MUTED, fontStyle:"italic" }}>
-        No intake on file for this patient.
+      <div style={{ padding:32, textAlign:"center" }}>
+        <div style={{ color:MUTED, fontStyle:"italic", marginBottom:onStartGuidedConversation ? 16 : 0 }}>
+          No intake on file for this patient.
+        </div>
+        {onStartGuidedConversation && (
+          <>
+            <div style={{ color:MUTED, fontSize:13, marginBottom:16, maxWidth:480, marginLeft:"auto", marginRight:"auto" }}>
+              Walk through the intake questions with the patient now. The same fields will populate
+              and feed the technology-tier recommendation.
+            </div>
+            <button
+              type="button"
+              disabled={starting}
+              onClick={async () => {
+                setStarting(true);
+                try { await onStartGuidedConversation(); }
+                catch (e) { console.error("Start guided conversation:", e); setStarting(false); }
+              }}
+              style={{
+                padding:"10px 18px", fontSize:14, fontWeight:700,
+                background: starting ? "#94a3b8" : TEAL, color:"#fff",
+                border:"none", borderRadius:8, cursor: starting ? "wait" : "pointer",
+                fontFamily:"inherit",
+              }}
+            >
+              {starting ? "Starting…" : "Start a guided conversation"}
+            </button>
+          </>
+        )}
       </div>
     );
   }
