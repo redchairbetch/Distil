@@ -764,8 +764,12 @@ function DobDropdowns({ value, onChange, t, error }) {
       onChange("");
     }
   };
+  // width: 100% because native <select> sizes to content by default;
+  // without this the dropdowns shrink to fit the placeholder text and
+  // leave the flex children visibly empty on the right.
   const selectStyle = {
-    flex: 1, minWidth: 0, fontSize: 17, padding: "12px 10px",
+    width: "100%", boxSizing: "border-box",
+    fontSize: 17, padding: "12px 10px",
     border: `2px solid ${error ? C.red : C.border}`, borderRadius: 10,
     color: C.text, fontFamily: font, background: "#fff", outline: "none",
   };
