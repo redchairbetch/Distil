@@ -23,6 +23,7 @@ import logoTruHearing from "./assets/logos/TruHearing.png";
 import logoWidex from "./assets/logos/Widex.png";
 import CareJourney from "./views/CareJourney.jsx";
 import HealthHistory from "./views/HealthHistory.jsx";
+import IntakeResponsesAccordion from "./views/IntakeResponsesAccordion.jsx";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.mjs",
@@ -6259,6 +6260,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 </div>
               );
             })()}
+
+            {/* ── INTAKE RESPONSES ─────────────────────────────────────── */}
+            <IntakeResponsesAccordion patientId={p.id} />
           </div>
         </div>
       </>
