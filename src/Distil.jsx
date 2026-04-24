@@ -42,6 +42,9 @@ import {
   subscribeToIntakes,
   acceptIntake as dbAcceptIntake,
   linkIntakeToPatient,
+  loadIntakesForPatient,
+  updateIntakeAnswers,
+  updateIntakeProviderNotes,
   dismissIntake,
   signOut,
   enrollPatientInCampaign,
@@ -1531,6 +1534,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState(null);
   const [wizardPatientId, setWizardPatientId] = useState(null);
+  const [wizardIntake, setWizardIntake] = useState(null);
   const [saveToast, setSaveToast] = useState(false);
   const [punchData, setPunchData] = useState({ cleanings: 0, appointments: 0, log: [] });
   const [punchConfirm, setPunchConfirm] = useState(null);
@@ -2166,6 +2170,46 @@ export default function ProviderCRM({ staffId, clinicId }) {
       setEditDraft(null);
     }
   }, [view, selectedPatient?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load the most recent intake for the wizard's Health History step.
+  // Triggered when the provider arrives at step 1 with a wizardPatientId
+  // (which is set on Continue-from-Patient, including the linkIntake call).
+  // Re-fetches if the patient changes mid-wizard. Empty result → null,
+  // which the HealthHistory view renders as its empty-state placeholder.
+  //
+  // Kiosk submissions wrap the answers column as { _meta, answers, consent }
+  // — consent contains the signature data URL (legal record). We unwrap to
+  // the flat shape for rendering but stash the wrapper context so writes
+  // re-wrap and preserve _meta + consent on the row.
+  useEffect(() => {
+    if (step !== 1 || !wizardPatientId) return;
+    let cancelled = false;
+    loadIntakesForPatient(wizardPatientId).then(intakes => {
+      if (cancelled) return;
+      const latest = intakes[0];
+      if (!latest) { setWizardIntake(null); return; }
+      const raw = latest.answers;
+      const isWrapped = raw && typeof raw === "object" && raw.answers
+        && typeof raw.answers === "object" && (raw._meta || raw.consent);
+      setWizardIntake({
+        ...latest,
+        answers: isWrapped ? raw.answers : (raw || {}),
+        _wrapper: isWrapped ? { _meta: raw._meta, consent: raw.consent } : null,
+      });
+    }).catch(e => {
+      console.error("loadIntakesForPatient:", e);
+      if (!cancelled) setWizardIntake(null);
+    });
+    return () => { cancelled = true; };
+  }, [step, wizardPatientId]);
+
+  // Reset wizardIntake when the wizard itself resets (back to step 0 with
+  // no patient yet, or returning to dashboard). Without this, leftover
+  // state from a prior session would briefly flash on the next Health
+  // History entry before the loader replaces it.
+  useEffect(() => {
+    if (!wizardPatientId) setWizardIntake(null);
+  }, [wizardPatientId]);
 
   // Clear non-TruHearing device selections when a private-label plan is chosen
   useEffect(() => {
@@ -3679,14 +3723,34 @@ export default function ProviderCRM({ staffId, clinicId }) {
       </div>
     );
     if (step === 1) {
-      // Health History — review intake responses with the patient before
-      // testing begins. Phase 4c will load the actual intake; for now,
-      // shows the empty-state when no intake is associated.
+      // Health History — review intake responses with the patient. The
+      // intake is loaded by the useEffect on entering this step. Per-field
+      // edits write back to the JSONB columns immediately on blur via the
+      // two callbacks; local state is updated optimistically so the UI
+      // reflects the change without waiting on the round-trip.
+      const intakeId = wizardIntake?._meta?.intakeId;
       return (
         <HealthHistory
-          intake={null}
-          onUpdateAnswer={() => {}}
-          onUpdateNote={() => {}}
+          intake={wizardIntake}
+          onUpdateAnswer={async (key, value) => {
+            if (!intakeId) return;
+            const nextAnswers = { ...(wizardIntake.answers || {}), [key]: value };
+            setWizardIntake(prev => prev ? { ...prev, answers: nextAnswers } : prev);
+            // Re-wrap with _meta + consent if the row was wrapped, so the
+            // signature image and submission metadata aren't clobbered.
+            const persisted = wizardIntake._wrapper
+              ? { ...wizardIntake._wrapper, answers: nextAnswers }
+              : nextAnswers;
+            try { await updateIntakeAnswers(intakeId, persisted); }
+            catch (e) { console.error("updateIntakeAnswers:", e); }
+          }}
+          onUpdateNote={async (key, text) => {
+            if (!intakeId) return;
+            const nextNotes = { ...(wizardIntake.providerNotes || {}), [key]: text };
+            setWizardIntake(prev => prev ? { ...prev, providerNotes: nextNotes } : prev);
+            try { await updateIntakeProviderNotes(intakeId, nextNotes); }
+            catch (e) { console.error("updateIntakeProviderNotes:", e); }
+          }}
         />
       );
     }
