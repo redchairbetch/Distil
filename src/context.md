@@ -56,7 +56,6 @@ Companion patient-facing app.
 - **Intake IDs**: Format `MHC-YYYYMMDD-XXXXX`
 - **HIPAA consent**: Verbatim MHC legal language, scroll-to-bottom gating
 - **"Neurotechnology" is trademarked** — owned by former Intermountain Audiology. Never use in app copy or patient-facing UI. Use "devices" instead.
-- **"Premium" is banned from patient-facing UI** — per scripting doc / Dr. Darrow. Use "Select" as the top tier label in all patient-visible contexts. "Premium" may exist internally in `insurance_plans.tier_label` (TruHearing's own naming) but never surfaces to patients.
 - **"Trial" and "demo" are banned** — use "adaptation period" and "evaluation."
 
 ---
