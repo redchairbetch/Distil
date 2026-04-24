@@ -592,19 +592,17 @@ function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t) {
   .sig-section { margin-top: 20px; border-top: 2px solid #0A7B8C; padding-top: 12px; }
   .sig-img { border: 1px solid #ccc; max-width: 300px; height: 80px; }
   .cert-text { font-size: 10px; color: #444; line-height: 1.5; margin-bottom: 10px; }
-  /* Consent page — prints on a separate sheet with privacy + insurance
-     verbiage above the signature. Flex column + min-height keeps the
-     signature block anchored near the bottom of the sheet even when the
-     consent content is short. min-height stays below one letter page's
-     printable area (11" - 30mm margins ≈ 24.94cm) so the block doesn't
-     overflow into a third page. */
-  .consent-page { page-break-before: always; page-break-inside: avoid; display: flex; flex-direction: column; min-height: 22cm; }
+  /* Consent page — starts on a fresh sheet via page-break-before. Content
+     flows naturally from top (privacy) → insurance → signature at the end
+     of whatever space it takes. Previous attempts at bottom-anchoring the
+     signature with flex + min-height caused overflow and extra blank
+     pages; natural flow stays under one letter page every time. */
+  .consent-page { page-break-before: always; }
   .consent-section { margin-bottom: 18px; }
   .consent-section h3 { font-size: 13px; color: #0A7B8C; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid #D0DCDE; padding-bottom: 4px; }
   .consent-section p { font-size: 11px; line-height: 1.55; color: #333; margin: 6px 0; }
   .consent-section ul { font-size: 11px; line-height: 1.55; color: #333; padding-left: 20px; margin: 6px 0; }
   .consent-section li { margin-bottom: 4px; }
-  .sig-anchor { margin-top: auto; }
   @page { margin: 15mm; size: letter; }
   @media print { body { margin: 0; padding: 0; } }
 </style>
@@ -728,7 +726,7 @@ ${answers.aids_q ? `
     <h3>${T.en.insTitle}</h3>
     ${T.en.insText.split("\n\n").map(p => `<p>${p}</p>`).join("")}
   </div>
-  <div class="sig-anchor sig-section">
+  <div class="sig-section">
     <p class="cert-text">${T.en.sigCert}</p>
     ${signatureDataUrl ? `<img class="sig-img" src="${signatureDataUrl}" alt="Patient Signature" />` : ""}
     <div class="row" style="margin-top:8px">
