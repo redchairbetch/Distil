@@ -594,9 +594,11 @@ function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t) {
   .cert-text { font-size: 10px; color: #444; line-height: 1.5; margin-bottom: 10px; }
   /* Consent page — prints on a separate sheet with privacy + insurance
      verbiage above the signature. Flex column + min-height keeps the
-     signature block anchored at the bottom of the sheet even when the
-     consent content is short. */
-  .consent-page { page-break-before: always; display: flex; flex-direction: column; min-height: 25cm; }
+     signature block anchored near the bottom of the sheet even when the
+     consent content is short. min-height stays below one letter page's
+     printable area (11" - 30mm margins ≈ 24.94cm) so the block doesn't
+     overflow into a third page. */
+  .consent-page { page-break-before: always; page-break-inside: avoid; display: flex; flex-direction: column; min-height: 22cm; }
   .consent-section { margin-bottom: 18px; }
   .consent-section h3 { font-size: 13px; color: #0A7B8C; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid #D0DCDE; padding-bottom: 4px; }
   .consent-section p { font-size: 11px; line-height: 1.55; color: #333; margin: 6px 0; }
