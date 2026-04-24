@@ -2176,11 +2176,26 @@ export default function ProviderCRM({ staffId, clinicId }) {
   // (which is set on Continue-from-Patient, including the linkIntake call).
   // Re-fetches if the patient changes mid-wizard. Empty result → null,
   // which the HealthHistory view renders as its empty-state placeholder.
+  //
+  // Kiosk submissions wrap the answers column as { _meta, answers, consent }
+  // — consent contains the signature data URL (legal record). We unwrap to
+  // the flat shape for rendering but stash the wrapper context so writes
+  // re-wrap and preserve _meta + consent on the row.
   useEffect(() => {
     if (step !== 1 || !wizardPatientId) return;
     let cancelled = false;
     loadIntakesForPatient(wizardPatientId).then(intakes => {
-      if (!cancelled) setWizardIntake(intakes[0] || null);
+      if (cancelled) return;
+      const latest = intakes[0];
+      if (!latest) { setWizardIntake(null); return; }
+      const raw = latest.answers;
+      const isWrapped = raw && typeof raw === "object" && raw.answers
+        && typeof raw.answers === "object" && (raw._meta || raw.consent);
+      setWizardIntake({
+        ...latest,
+        answers: isWrapped ? raw.answers : (raw || {}),
+        _wrapper: isWrapped ? { _meta: raw._meta, consent: raw.consent } : null,
+      });
     }).catch(e => {
       console.error("loadIntakesForPatient:", e);
       if (!cancelled) setWizardIntake(null);
@@ -3721,7 +3736,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
             if (!intakeId) return;
             const nextAnswers = { ...(wizardIntake.answers || {}), [key]: value };
             setWizardIntake(prev => prev ? { ...prev, answers: nextAnswers } : prev);
-            try { await updateIntakeAnswers(intakeId, nextAnswers); }
+            // Re-wrap with _meta + consent if the row was wrapped, so the
+            // signature image and submission metadata aren't clobbered.
+            const persisted = wizardIntake._wrapper
+              ? { ...wizardIntake._wrapper, answers: nextAnswers }
+              : nextAnswers;
+            try { await updateIntakeAnswers(intakeId, persisted); }
             catch (e) { console.error("updateIntakeAnswers:", e); }
           }}
           onUpdateNote={async (key, text) => {
