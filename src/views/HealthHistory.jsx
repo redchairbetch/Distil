@@ -127,8 +127,12 @@ export const SECTIONS = [
     id: "hearing", label: "Hearing History",
     fields: [
       { key:"hear_tested", label:"Hearing tested before", type:"yesno",
-        followUpKey:"hear_tested_when", followUpLabel:"When?",
-        secondFollowUpKey:"hear_tested_results", secondFollowUpLabel:"Results / outcome" },
+        followUpKey:"hear_tested_when", followUpLabel:"Year of last test",
+        followUpType:"text",
+        secondFollowUpKey:"hear_tested_results", secondFollowUpLabel:"Reported results",
+        secondFollowUpType:"radio",
+        secondFollowUpOptions:[["normal","Normal hearing"],["mild","Mild loss"],["moderate","Moderate loss"],["severe","Severe loss"]] },
+      { key:"hear_aids_recommended", label:"Were hearing aids recommended at that test?", type:"yesno" },
       { key:"hear_best", label:"Better-hearing ear", type:"radio",
         options:[["right","Right"],["left","Left"],["same","Same"]] },
       { key:"hear_mumble", label:"People sound like they mumble", type:"yesno" },
@@ -138,10 +142,8 @@ export const SECTIONS = [
       { key:"hear_loud", label:"Told they speak loudly", type:"yesno" },
       { key:"hear_tv", label:"Trouble hearing TV", type:"yesno" },
       { key:"hear_kids", label:"Trouble understanding children's voices", type:"yesno" },
-      { key:"hear_other", label:"Other listening challenges", type:"text" },
       { key:"hear_rating", label:"Self-rated hearing (1–10)", type:"scale" },
-      { key:"hear_ready", label:"Ready for help", type:"yesno",
-        followUpKey:"hear_changed", followUpLabel:"What changed?" },
+      { key:"hear_ready", label:"Ready for help", type:"yesno" },
       { key:"resistancePoints", label:"What's held them back", type:"multiSelect",
         options:RESISTANCE, otherKey:"other", otherValueKey:"resistancePointsOther" },
       { key:"aids_q", label:"Currently wears hearing aids", type:"yesno" },
@@ -346,7 +348,11 @@ function FollowUp({ field, answers, onUpdateAnswer }) {
         <div style={{ marginTop:8 }}>
           <div style={{ fontSize:11, fontWeight:600, color:MUTED, marginBottom:4 }}>{field.secondFollowUpLabel}</div>
           <FieldInput
-            field={{ key: field.secondFollowUpKey, type: "text" }}
+            field={{
+              key: field.secondFollowUpKey,
+              type: field.secondFollowUpType || "text",
+              options: field.secondFollowUpOptions,
+            }}
             value={answers[field.secondFollowUpKey]}
             answers={answers}
             onUpdateAnswer={onUpdateAnswer}
