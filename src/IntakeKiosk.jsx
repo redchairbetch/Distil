@@ -772,7 +772,7 @@ function DobDropdowns({ value, onChange, t, error }) {
   const labelStyle = { display: "block", fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 };
   return (
     <div style={{ display: "flex", gap: 10 }}>
-      <div style={{ flex: 2 }}>
+      <div style={{ flex: 1.4 }}>
         <label style={labelStyle}>{t.dobMonth}</label>
         <select value={parts.month} onChange={e => update("month", e.target.value)} style={selectStyle}>
           <option value="">{t.selectPrompt}</option>
@@ -786,7 +786,7 @@ function DobDropdowns({ value, onChange, t, error }) {
           {Array.from({length: 31}, (_, i) => i+1).map(d => <option key={d} value={d}>{d}</option>)}
         </select>
       </div>
-      <div style={{ flex: 1.4 }}>
+      <div style={{ flex: 1.2 }}>
         <label style={labelStyle}>{t.dobYear}</label>
         <select value={parts.year} onChange={e => update("year", e.target.value)} style={selectStyle}>
           <option value="">{t.selectPrompt}</option>
