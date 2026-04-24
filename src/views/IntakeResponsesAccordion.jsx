@@ -153,7 +153,13 @@ function Section({ section, answers, notes }) {
               {field.secondFollowUpKey && shouldShowFollowUp(field, value) && (
                 <div style={{ display: "grid", gridTemplateColumns: "minmax(180px, 1fr) 2fr", gap: 12, marginTop: 4, paddingLeft: 12, borderLeft: `2px solid ${BORDER}` }}>
                   <div style={{ color: MUTED, fontSize: 11 }}>↳ {field.secondFollowUpLabel}</div>
-                  <div style={{ color: TEXT, fontSize: 12 }}>{formatFieldValue({ type: "text" }, secondFollowUpValue, answers)}</div>
+                  <div style={{ color: TEXT, fontSize: 12 }}>
+                    {formatFieldValue(
+                      { type: field.secondFollowUpType || "text", options: field.secondFollowUpOptions },
+                      secondFollowUpValue,
+                      answers
+                    )}
+                  </div>
                 </div>
               )}
               {note && String(note).trim() && (

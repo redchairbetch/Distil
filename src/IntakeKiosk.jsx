@@ -161,6 +161,11 @@ const T = {
     hearQ_tested: "Have you had your hearing tested before?",
     testedWhen: "When was your last hearing test?",
     testedResults: "What were the results?",
+    normal: "Normal hearing",
+    mild: "Mild loss",
+    moderate: "Moderate loss",
+    severe: "Severe loss",
+    hearQ_aidsRecommended: "Were you advised to consider hearing aids?",
     hearQ_bestEar: "In which ear is your hearing the best?",
     right: "Right", left: "Left", same: "Same",
     hearQ_mumble: "Have you noticed that people seem to mumble?",
@@ -176,7 +181,6 @@ const T = {
     poor: "1 — Poor", excellent: "10 — Excellent",
     hearQ_ready: "If a hearing loss is diagnosed, are you ready to improve your hearing?",
     hearQ_prevented: "What has prevented you from addressing your hearing challenges? (optional)",
-    hearQ_changed: "What has changed that you are now ready for help? (optional)",
     resist_cost: "Cost or affordability",
     resist_cosmetics: "Cosmetics or appearance",
     resist_denial: "Didn't feel ready",
@@ -316,6 +320,11 @@ const T = {
     hearQ_tested: "¿Le han examinado la audición anteriormente?",
     testedWhen: "¿Cuándo fue su última prueba de audición?",
     testedResults: "¿Cuáles fueron los resultados?",
+    normal: "Audición normal",
+    mild: "Pérdida leve",
+    moderate: "Pérdida moderada",
+    severe: "Pérdida severa",
+    hearQ_aidsRecommended: "¿Le aconsejaron considerar audífonos?",
     hearQ_bestEar: "¿En qué oído escucha mejor?",
     right: "Derecho", left: "Izquierdo", same: "Igual",
     hearQ_mumble: "¿Ha notado que las personas parecen murmurar?",
@@ -331,7 +340,6 @@ const T = {
     poor: "1 — Malo", excellent: "10 — Excelente",
     hearQ_ready: "Si se diagnostica pérdida auditiva, ¿está listo/a para mejorar su audición?",
     hearQ_prevented: "¿Qué le ha impedido abordar sus problemas de audición? (opcional)",
-    hearQ_changed: "¿Qué ha cambiado para que ahora esté listo/a para recibir ayuda? (opcional)",
     resist_cost: "Costo o accesibilidad",
     resist_cosmetics: "Estética o apariencia",
     resist_denial: "No me sentía listo/a",
@@ -482,9 +490,12 @@ const STEPS = [
       options: NOISE_OPTIONS_RECREATIONAL, otherKey: "other", otherValueKey: "med_noise_recreational_other" } },
   { id: "hear_tested", type: "yesno", sec: "secHearing", qKey: "hearQ_tested", ansKey: "hear_tested",
     followUps: [
-      { key: "hear_tested_when", label: "testedWhen", showIf: true },
-      { key: "hear_tested_results", label: "testedResults", showIf: true },
+      { key: "hear_tested_when", label: "testedWhen", showIf: true, type: "yearSelect" },
+      { key: "hear_tested_results", label: "testedResults", showIf: true, type: "radio",
+        options: ["normal","mild","moderate","severe"] },
     ]},
+  { id: "hear_aids_recommended", type: "yesno", sec: "secHearing",
+    qKey: "hearQ_aidsRecommended", ansKey: "hear_aids_recommended", conditional: "hear_tested" },
   { id: "hear_best", type: "multiChoice", sec: "secHearing", qKey: "hearQ_bestEar", ansKey: "hear_best", options: ["right","left","same"] },
   { id: "hear_mumble", type: "yesno", sec: "secHearing", qKey: "hearQ_mumble", ansKey: "hear_mumble" },
   { id: "hear_repeat", type: "yesno", sec: "secHearing", qKey: "hearQ_repeat", ansKey: "hear_repeat" },
@@ -493,10 +504,8 @@ const STEPS = [
   { id: "hear_loud", type: "yesno", sec: "secHearing", qKey: "hearQ_loud", ansKey: "hear_loud" },
   { id: "hear_tv", type: "yesno", sec: "secHearing", qKey: "hearQ_tv", ansKey: "hear_tv" },
   { id: "hear_kids", type: "yesno", sec: "secHearing", qKey: "hearQ_kids", ansKey: "hear_kids" },
-  { id: "hear_other", type: "text", sec: "secHearing", qKey: "hearQ_other", ansKey: "hear_other", phKey: "otherChallengesPlaceholder", req: false },
   { id: "hear_rating", type: "scale", sec: "secHearing", qKey: "hearQ_rating", ansKey: "hear_rating" },
-  { id: "hear_ready", type: "yesno", sec: "secHearing", qKey: "hearQ_ready", ansKey: "hear_ready",
-    followUp: { key: "hear_changed", label: "hearQ_changed", showIf: true, optional: true } },
+  { id: "hear_ready", type: "yesno", sec: "secHearing", qKey: "hearQ_ready", ansKey: "hear_ready" },
   { id: "hear_prevented", type: "multiSelect", sec: "secHearing", qKey: "hearQ_prevented", ansKey: "resistancePoints",
     options: RESISTANCE_OPTIONS, otherKey: "other", otherValueKey: "resistancePointsOther", req: false },
   { id: "aids_q", type: "yesno", sec: "secHearing", qKey: "aidsTitle", ansKey: "aids_q" },
@@ -682,16 +691,23 @@ ${[
   ["Told you speak loudly?", "hear_loud"],
   ["Told you turn TV too loud?", "hear_tv"],
   ["Difficulty with children's voices?", "hear_kids"],
+  ["Were aids recommended?", "hear_aids_recommended"],
   ["Ready to improve if loss diagnosed?", "hear_ready"],
-].map(([q,k]) => `<div class="ynrow"><div class="ynq">${q}${answers["hear_tested_when"] && k === "hear_tested" ? " — Last tested: "+answers["hear_tested_when"]+(answers["hear_tested_results"] ? ", Results: "+answers["hear_tested_results"] : "") : ""}</div><div class="yna">${yn(k)}</div></div>`).join("")}
+].map(([q,k]) => {
+  let suffix = "";
+  if (k === "hear_tested" && answers["hear_tested_when"]) {
+    const sevKey = answers["hear_tested_results"];
+    const sevLabel = sevKey ? (t[sevKey] || sevKey) : null;
+    suffix = " — Last tested: " + answers["hear_tested_when"] + (sevLabel ? ", Results: " + sevLabel : "");
+  }
+  return `<div class="ynrow"><div class="ynq">${q}${suffix}</div><div class="yna">${yn(k)}</div></div>`;
+}).join("")}
 <div class="row" style="margin-top:8px">
   <div class="field"><label>Best ear</label><div class="val">${val("hear_best")}</div></div>
   <div class="field"><label>Self-rated hearing (1–10)</label><div class="val">${val("hear_rating")}</div></div>
-  <div class="field"><label>Other challenges</label><div class="val">${val("hear_other")}</div></div>
 </div>
 <div class="row">
   <div class="field"><label>What has prevented addressing hearing</label><div class="val">${resistanceDisplay}</div></div>
-  <div class="field"><label>What has changed</label><div class="val">${val("hear_changed")}</div></div>
 </div>
 
 ${answers.aids_q ? `
@@ -1276,16 +1292,30 @@ export default function IntakeKiosk() {
             {followUpVisible && followUps.filter(fu => fu.type === "radio").map(fu => (
               <div key={fu.key} style={{ marginBottom: 16 }}>
                 <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>{t[fu.label]}</label>
-                <div style={{ display: "flex", gap: 12 }}>
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                   {fu.options.map(opt => (
-                    <button key={opt} onClick={() => setAnswer(fu.key, t[opt] || opt)}
-                      style={{ padding: "12px 22px", borderRadius: 10, border: `2px solid ${answers[fu.key] === (t[opt]||opt) ? C.teal : C.border}`, background: answers[fu.key] === (t[opt]||opt) ? C.tealL : "#fff", color: answers[fu.key] === (t[opt]||opt) ? C.tealD : C.text, fontWeight: 700, fontSize: 16, cursor: "pointer", fontFamily: font }}>
+                    <button key={opt} onClick={() => setAnswer(fu.key, opt)}
+                      style={{ padding: "12px 22px", borderRadius: 10, border: `2px solid ${answers[fu.key] === opt ? C.teal : C.border}`, background: answers[fu.key] === opt ? C.tealL : "#fff", color: answers[fu.key] === opt ? C.tealD : C.text, fontWeight: 700, fontSize: 16, cursor: "pointer", fontFamily: font }}>
                       {t[opt] || opt}
                     </button>
                   ))}
                 </div>
               </div>
             ))}
+            {followUpVisible && followUps.filter(fu => fu.type === "yearSelect").map(fu => {
+              const currentYear = new Date().getFullYear();
+              const years = Array.from({ length: 70 }, (_, i) => currentYear - i);
+              return (
+                <div key={fu.key} style={{ marginBottom: 16 }}>
+                  <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>{t[fu.label]}</label>
+                  <select value={answers[fu.key] || ""} onChange={e => setAnswer(fu.key, e.target.value)}
+                    style={{ width: "100%", boxSizing: "border-box", fontSize: 17, padding: "12px 14px", border: `2px solid ${C.border}`, borderRadius: 10, color: C.text, fontFamily: font, outline: "none", background: "#fff" }}>
+                    <option value="">—</option>
+                    {years.map(y => <option key={y} value={String(y)}>{y}</option>)}
+                  </select>
+                </div>
+              );
+            })}
             {followUpVisible && followUps.filter(fu => fu.type === "multiSelect").map(fu => (
               <div key={fu.key} style={{ marginBottom: 16 }}>
                 <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>{t[fu.label]}</label>
