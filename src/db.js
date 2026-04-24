@@ -914,19 +914,22 @@ export async function loadProductCatalogTiers() {
 // Write a completed intake from the kiosk
 // Note: IntakeKiosk uses the anon key — the "anyone_insert_intakes"
 // RLS policy allows unauthenticated inserts.
-// clinicId must be passed in from the kiosk's environment config.
+//
+// IMPORTANT: no .select() on the insert. Supabase's PostgREST would
+// issue RETURNING, which triggers a SELECT RLS check on the row — and
+// anon has no SELECT policy on intakes (only staff do, scoped to their
+// clinic). RETURNING as anon fails and Postgres reports the whole
+// operation as "violates row-level security policy". We don't need the
+// inserted row back anyway.
 export async function submitIntake(answers, clinicId) {
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from('intakes')
     .insert({
       clinic_id: clinicId,
       answers,
       status: 'pending',
     })
-    .select()
-    .single()
   if (error) throw error
-  return data
 }
 
 // Mark an intake as accepted (called from Distil when provider accepts)

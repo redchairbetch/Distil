@@ -216,6 +216,7 @@ export async function loadPricingReveal(clinicId, patientId) {
 7. Insurance Plans management screen (deferred pending Supabase migration testing)
 8. **Narrative Thread UX** — five-chapter patient education / device selection / close flow (design complete, build pending)
 9. **Pricing Reveal component** — Chapter 3 of narrative thread (data model complete, `db.js` function ready, UI build pending)
+10. **Referral pipeline — name the referrer** — intake kiosk "Friend or family referral" should reveal a text box for the referrer's name so the clinic can close the loop (thank-you card, referral credit, cross-reference to the existing patient record). Low-priority polish; revisit when fleshing out the referral pipeline.
 
 ### Aided
 10. Patient engagement: push notifications, educational content, short videos
