@@ -52,7 +52,7 @@ You are not a single assistant — you are Kurt's entire development team. Use n
 - **Plan tier != device generation.** Standard/Advanced/Premium = pricing labels. X/AX/IX = device generation from TH series. Never conflate.
 - **TH5 BTE:** Always available regardless of plan tier
 - **Normal hearing threshold:** 20 dB (not 25 dB)
-- **Banned terms in patient-facing UI:** "Neurotechnology" (trademarked), "Premium" (use "Select"), "Trial"/"Demo" (use "adaptation period"/"evaluation")
+- **Banned terms in patient-facing UI:** "Neurotechnology" (trademarked), "Trial"/"Demo" (use "adaptation period"/"evaluation")
 - **Beltone:** Requires proprietary software auth we lack — Rexton-only designation
 - **HIPAA consent:** Verbatim MHC legal language with scroll-to-bottom gating
 - **Intake IDs:** Format `MHC-YYYYMMDD-XXXXX`

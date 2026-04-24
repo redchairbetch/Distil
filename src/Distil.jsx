@@ -845,6 +845,15 @@ const TH_DOMES = {
 // Styles that show receiver length + dome selection
 const TH_RECEIVER_STYLES = ["ric","ric_bct","sr"];
 
+// Patient-facing benefit copy for TruHearing tier rows. Each tier is framed
+// as capable on its own; the next tier adds capability in noisier / more
+// complex listening environments. Avoid disparaging lower tiers.
+const TH_TIER_BLURBS = {
+  Standard: "Clear, automatic hearing for quieter, one-on-one settings — home, small groups, TV.",
+  Advanced: "Adds active noise management and directional focus — restaurants, gatherings, and conversations over background noise become easier to follow.",
+  Premium:  "The most sophisticated processing offered — effortless clarity in the hardest listening environments, with richer spatial awareness, steadier streaming, and the lowest listening effort across a full day."
+};
+
 
 // Per-manufacturer receiver power options. earmold:true = auto-requires earmold, no dome
 const RECEIVER_POWERS = {
@@ -4114,6 +4123,11 @@ export default function ProviderCRM({ staffId, clinicId }) {
                           {t.price===0 ? "No Charge" : `$${t.price.toLocaleString()} / aid`}
                         </div>
                       </div>
+                      {TH_TIER_BLURBS[t.label] && (
+                        <div style={{marginTop:6,fontSize:12,lineHeight:1.45,color:"#475569"}}>
+                          {TH_TIER_BLURBS[t.label]}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
