@@ -19,7 +19,7 @@ const MUTED = "#6b7280";
 const BORDER = "#e5e7eb";
 
 // US states for the address dropdown.
-const US_STATES = [
+export const US_STATES = [
   ["AL","Alabama"],["AK","Alaska"],["AZ","Arizona"],["AR","Arkansas"],["CA","California"],
   ["CO","Colorado"],["CT","Connecticut"],["DE","Delaware"],["DC","District of Columbia"],["FL","Florida"],
   ["GA","Georgia"],["HI","Hawaii"],["ID","Idaho"],["IL","Illinois"],["IN","Indiana"],
@@ -65,7 +65,10 @@ const RESISTANCE = [
 //       "radio" | "multiSelect" | "scale" | "state" | "gender"
 // followUpKey: the answer key whose value we render indented underneath
 //              when this field's value === showFollowUpWhen.
-const SECTIONS = [
+//
+// Exported so the read-only IntakeResponsesAccordion (patient-detail
+// view) can reuse the exact same field schema and labels.
+export const SECTIONS = [
   {
     id: "about", label: "About You",
     fields: [
@@ -158,6 +161,41 @@ const SECTIONS = [
     ],
   },
 ];
+
+// Format a single field's stored value as a human-readable string for
+// the read-only patient-detail accordion. Returns "—" for missing
+// values so empty rows don't visually disappear.
+export function formatFieldValue(field, value, answers = {}) {
+  if (value === undefined || value === null || value === "") return "—";
+  switch (field.type) {
+    case "yesno":
+      return value === true ? "Yes" : value === false ? "No" : "—";
+    case "radio": {
+      const opt = (field.options || []).find(([k]) => k === value);
+      return opt ? opt[1] : String(value);
+    }
+    case "multiSelect": {
+      if (!Array.isArray(value) || value.length === 0) return "—";
+      const labels = value.map(k => {
+        const opt = (field.options || []).find(([key]) => key === k);
+        return opt ? opt[1] : k;
+      });
+      const otherTxt = field.otherKey && field.otherValueKey && value.includes(field.otherKey)
+        ? answers[field.otherValueKey]
+        : null;
+      const joined = labels.join(", ");
+      return otherTxt ? `${joined} (${otherTxt})` : joined;
+    }
+    case "scale":
+      return `${value} / 10`;
+    case "state": {
+      const row = US_STATES.find(([code]) => code === value);
+      return row ? row[1] : String(value);
+    }
+    default:
+      return String(value);
+  }
+}
 
 export default function HealthHistory({ intake, onUpdateAnswer, onUpdateNote }) {
   // Notes that have a value on load are auto-expanded so the provider
