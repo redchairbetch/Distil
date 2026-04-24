@@ -22,6 +22,7 @@ import logoStarkey from "./assets/logos/Starkey.png";
 import logoTruHearing from "./assets/logos/TruHearing.png";
 import logoWidex from "./assets/logos/Widex.png";
 import CareJourney from "./views/CareJourney.jsx";
+import HealthHistory from "./views/HealthHistory.jsx";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.mjs",
@@ -1504,7 +1505,7 @@ function generateCounseling(aud){
 
 
 // ── WIZARD STEPS ──────────────────────────────────────────────────────────────
-const STEPS = ["Patient","Testing","Results","Device Selection","Care Plan","Review"];
+const STEPS = ["Patient","Health History","Testing","Results","Device Selection","Care Plan","Review"];
 
 
 // ── ROLE CHECK UTILITY ─────────────────────────────────────────────────────────
@@ -3289,6 +3290,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const canProceed = [
     form.firstName && form.lastName && form.dob && form.phone,
+    true, // Health History — review-only, always proceedable
     true, // Testing — always skippable
     true, // Results — always skippable
     (isSideConfigured("left") || isSideConfigured("right")),
@@ -3677,6 +3679,18 @@ export default function ProviderCRM({ staffId, clinicId }) {
       </div>
     );
     if (step === 1) {
+      // Health History — review intake responses with the patient before
+      // testing begins. Phase 4c will load the actual intake; for now,
+      // shows the empty-state when no intake is associated.
+      return (
+        <HealthHistory
+          intake={null}
+          onUpdateAnswer={() => {}}
+          onUpdateNote={() => {}}
+        />
+      );
+    }
+    if (step === 2) {
       const updAud=(k,v)=>upd("audiology",{...form.audiology,[k]:v});
       const setThreshold=(ear,freq,val,testType="AC",isMasked=false)=>{
         const key=testType==="BC"
@@ -3995,10 +4009,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
         </>
       );
     }
-    if (step === 2) {
+    if (step === 3) {
       return renderResultsContent(form.audiology, form.notes || "");
     }
-    if (step === 3) {
+    if (step === 4) {
 
       const renderSideColumn = (side) => {
         const s = form[side];
@@ -4538,7 +4552,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
         </>
       );
     }
-    if (step === 4) {
+    if (step === 5) {
       const leftOk  = isSideConfigured("left");
       const rightOk = isSideConfigured("right");
       const aidCount = (leftOk ? 1 : 0) + (rightOk ? 1 : 0);
@@ -4923,7 +4937,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 style={{background:"none",border:"none",color:"#9ca3af",fontFamily:"'Sora',sans-serif",fontSize:12,cursor:"pointer",padding:"4px 12px",opacity:(form.payType === "private" || !!form.carePlan)?1:0.4}}
                 onClick={async()=>{
                   if (wizardPatientId && form.carePlan) { try { await updatePatientCarePlan(wizardPatientId, form.carePlan); setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000); } catch(e) { console.error("care plan save:", e); } }
-                  setStep(5);
+                  setStep(6);
                 }}
               >
                 Continue to review →
@@ -4933,7 +4947,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
         </>
       );
     }
-    if (step === 5) {
+    if (step === 6) {
       const ReviewSide = ({side, label}) => {
         const d = form[side];
         const fam = catalog.find(e => e.id === d.familyId);
@@ -6646,7 +6660,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       {step===0?"Cancel":"← Back"}
                     </button>
                     {step < STEPS.length-1 ? (
-                      step === 4 ? null : (
+                      step === 5 ? null : (
                         <button className="btn-primary" disabled={!canProceed} style={{opacity:canProceed?1:0.4}} onClick={async()=>{
                           try {
                             if (step === 0 && !wizardPatientId) {
@@ -6659,10 +6673,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
                                 catch (e) { console.error('linkIntakeToPatient:', e); }
                               }
                               setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
-                            } else if (step === 1 && wizardPatientId) {
+                            } else if (step === 2 && wizardPatientId) {
                               await updatePatientAudiology(wizardPatientId, form.audiology, staffId);
                               setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
-                            } else if (step === 3 && wizardPatientId) {
+                            } else if (step === 4 && wizardPatientId) {
                               const leftRec = buildSideRecord(form.left);
                               const rightRec = buildSideRecord(form.right);
                               const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
@@ -6822,7 +6836,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                               setWizardPaSignatureDate(new Date().toISOString());
                               setShowWizardPaModal(false);
                               setPaStep("review");
-                              setStep(5);
+                              setStep(6);
                             }}
                           >
                             Sign & Proceed
