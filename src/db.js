@@ -941,6 +941,44 @@ export async function acceptIntake(intakeId) {
   if (error) console.error('acceptIntake:', error)
 }
 
+// Create a fresh intake row tagged source='provider' for a patient who
+// did not submit through the kiosk. Used by the Health History wizard
+// step's "Start a guided conversation" affordance — the provider then
+// fills in the same fields with the patient verbally, and the engine
+// can run on real intake signal instead of falling back to audio-only.
+//
+// Stored answers shape mirrors a kiosk submission's wrapper so the
+// existing read/write logic in HealthHistory + IntakeResponsesAccordion
+// works unchanged. consent is null because no patient signature exists.
+export async function createProviderIntake(patientId, clinicId) {
+  if (!patientId || !clinicId) throw new Error('createProviderIntake: patientId and clinicId required')
+  const now = new Date()
+  const datePart = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`
+  const rand = Math.random().toString(36).substring(2,7).toUpperCase()
+  const intakeId = `MHC-${datePart}-${rand}`
+  const timestamp = now.toISOString()
+  const wrapped = {
+    _meta: { intakeId, submittedAt: timestamp, lang: 'en', status: 'accepted', source: 'provider' },
+    answers: {},
+    consent: null,
+  }
+  const { data, error } = await supabase
+    .from('intakes')
+    .insert({
+      clinic_id:     clinicId,
+      patient_id:    patientId,
+      answers:       wrapped,
+      provider_notes: {},
+      status:        'accepted',
+      source:        'provider',
+      accepted_at:   timestamp,
+    })
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
 // Set intakes.patient_id after savePatient creates the patient record.
 // Used by the device-selection recommendation engine to query intake
 // responses by patient, and by the Health History wizard step to
