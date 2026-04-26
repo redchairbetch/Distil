@@ -24,6 +24,7 @@ import logoWidex from "./assets/logos/Widex.png";
 import CareJourney from "./views/CareJourney.jsx";
 import HealthHistory from "./views/HealthHistory.jsx";
 import IntakeResponsesAccordion from "./views/IntakeResponsesAccordion.jsx";
+import TierSelection from "./views/TierSelection.jsx";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.mjs",
@@ -1510,7 +1511,7 @@ function generateCounseling(aud){
 
 
 // ── WIZARD STEPS ──────────────────────────────────────────────────────────────
-const STEPS = ["Patient","Health History","Testing","Results","Device Selection","Care Plan","Review"];
+const STEPS = ["Patient","Health History","Testing","Results","Technology Tier","Device Selection","Care Plan","Review"];
 
 
 // ── ROLE CHECK UTILITY ─────────────────────────────────────────────────────────
@@ -2227,6 +2228,23 @@ export default function ProviderCRM({ staffId, clinicId }) {
       right: (f.right.manufacturer && f.right.manufacturer !== "TruHearing") ? {...emptySide} : f.right,
     }));
   }, [isPrivateLabel]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync the chosen tier (form.tier from the Technology Tier wizard step)
+  // into each side's techLevel when entering Device Selection. If a side
+  // already has a different tier configured (e.g. user went back and
+  // changed tier), reset the side so the cascade re-derives availability
+  // for the new tier.
+  useEffect(() => {
+    if (!isPrivateLabel || !form.tier) return;
+    setForm(f => {
+      const next = { ...f };
+      ["left","right"].forEach(side => {
+        if (f[side].techLevel === form.tier) return;
+        next[side] = { ...EMPTY_SIDE(), manufacturer:"TruHearing", techLevel: form.tier };
+      });
+      return next;
+    });
+  }, [isPrivateLabel, form.tier]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
   const buildSideRecord = (s) => {
@@ -3343,6 +3361,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
     true, // Health History — review-only, always proceedable
     true, // Testing — always skippable
     true, // Results — always skippable
+    // Technology Tier — required for plans where it applies (private-label
+    // TruHearing or private-pay). Other insurance flows skip the choice.
+    (isPrivateLabel || form.payType === "private") ? !!form.tier : true,
     (isSideConfigured("left") || isSideConfigured("right")),
     form.payType === "private" || !!form.carePlan,
     true, // Review — always valid
@@ -4093,6 +4114,26 @@ export default function ProviderCRM({ staffId, clinicId }) {
       return renderResultsContent(form.audiology, form.notes || "");
     }
     if (step === 4) {
+      // Technology Tier — patient picks Standard / Advanced / Premium
+      // (or whatever subset the plan covers) BEFORE Device Selection.
+      // Engine recommendation auto-selects on entry; provider override
+      // is sticky. Selection writes to form.tier + form.tierPrice.
+      return (
+        <TierSelection
+          patientId={wizardPatientId}
+          clinicId={clinicId}
+          selectedTier={form.tier}
+          onSelectTier={(label, price) => setForm(f => ({ ...f, tier: label, tierPrice: price }))}
+          planTiers={privateLabelTiers}
+          payType={form.payType}
+          isPrivateLabel={isPrivateLabel}
+          retailAnchors={retailAnchors}
+          intakeAnswers={wizardIntake?.answers || null}
+          tierBlurbs={TH_TIER_BLURBS}
+        />
+      );
+    }
+    if (step === 5) {
 
       const renderSideColumn = (side) => {
         const s = form[side];
@@ -4204,30 +4245,11 @@ export default function ProviderCRM({ staffId, clinicId }) {
             </>)}
 
             {/* ── Private-label: TruHearing cascade ── */}
+            {/* Tier was chosen in the Technology Tier wizard step (4); this
+                cascade now starts at Body Style. The chosen tier flows into
+                each side via form.tier → s.techLevel sync (see useEffect). */}
             {isPrivateLabel && (<>
-              {/* 1. Technology Tier */}
-              <div className="field" style={{marginBottom:16}}><label>Technology Tier</label>
-                <div className="plan-select-list">
-                  {privateLabelTiers.map(t => (
-                    <div key={t.label} className={`plan-row ${s.techLevel===t.label?"active":""}`}
-                      onClick={()=>setForm(f=>({...f, tier:t.label, tierPrice:t.price, [side]:{...EMPTY_SIDE(), manufacturer:"TruHearing", techLevel:t.label}}))}>
-                      <div className="plan-row-top">
-                        <div><div className="plan-row-name">{t.label}</div></div>
-                        <div style={{fontWeight:700,color:"#0a1628"}}>
-                          {t.price===0 ? "No Charge" : `$${t.price.toLocaleString()} / aid`}
-                        </div>
-                      </div>
-                      {TH_TIER_BLURBS[t.label] && (
-                        <div style={{marginTop:6,fontSize:12,lineHeight:1.45,color:"#475569"}}>
-                          {TH_TIER_BLURBS[t.label]}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* 2. Body Style (card grid — mirrors private-pay imagery) */}
+              {/* Body Style (card grid — mirrors private-pay imagery) */}
               {s.techLevel && d.thAvailBodyStyles.length > 0 && (
                 <div className="field" style={{marginBottom:16}}><label>Body Style</label>
                   <div className="style-grid">
@@ -4632,7 +4654,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
         </>
       );
     }
-    if (step === 5) {
+    if (step === 6) {
       const leftOk  = isSideConfigured("left");
       const rightOk = isSideConfigured("right");
       const aidCount = (leftOk ? 1 : 0) + (rightOk ? 1 : 0);
@@ -5017,7 +5039,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 style={{background:"none",border:"none",color:"#9ca3af",fontFamily:"'Sora',sans-serif",fontSize:12,cursor:"pointer",padding:"4px 12px",opacity:(form.payType === "private" || !!form.carePlan)?1:0.4}}
                 onClick={async()=>{
                   if (wizardPatientId && form.carePlan) { try { await updatePatientCarePlan(wizardPatientId, form.carePlan); setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000); } catch(e) { console.error("care plan save:", e); } }
-                  setStep(6);
+                  setStep(7);
                 }}
               >
                 Continue to review →
@@ -5027,7 +5049,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
         </>
       );
     }
-    if (step === 6) {
+    if (step === 7) {
       const ReviewSide = ({side, label}) => {
         const d = form[side];
         const fam = catalog.find(e => e.id === d.familyId);
@@ -6743,7 +6765,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       {step===0?"Cancel":"← Back"}
                     </button>
                     {step < STEPS.length-1 ? (
-                      step === 5 ? null : (
+                      step === 6 ? null : (
                         <button className="btn-primary" disabled={!canProceed} style={{opacity:canProceed?1:0.4}} onClick={async()=>{
                           try {
                             if (step === 0 && !wizardPatientId) {
@@ -6759,7 +6781,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                             } else if (step === 2 && wizardPatientId) {
                               await updatePatientAudiology(wizardPatientId, form.audiology, staffId);
                               setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
-                            } else if (step === 4 && wizardPatientId) {
+                            } else if (step === 5 && wizardPatientId) {
                               const leftRec = buildSideRecord(form.left);
                               const rightRec = buildSideRecord(form.right);
                               const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
@@ -6919,7 +6941,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                               setWizardPaSignatureDate(new Date().toISOString());
                               setShowWizardPaModal(false);
                               setPaStep("review");
-                              setStep(6);
+                              setStep(7);
                             }}
                           >
                             Sign & Proceed
