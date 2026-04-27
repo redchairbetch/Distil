@@ -216,12 +216,16 @@ export async function loadPricingReveal(clinicId, patientId) {
 8. **Narrative Thread UX** — five-chapter patient education / device selection / close flow (design complete, build pending)
 9. **Pricing Reveal component** — Chapter 3 of narrative thread (data model complete, `db.js` function ready, UI build pending)
 10. **Referral pipeline — name the referrer** — intake kiosk "Friend or family referral" should reveal a text box for the referrer's name so the clinic can close the loop (thank-you card, referral credit, cross-reference to the existing patient record). Low-priority polish; revisit when fleshing out the referral pipeline.
+11. **Branding / logo for Distil** — current favicon is a generic 🩺 emoji. Need a real wordmark/icon for the provider CRM. Tie to a brand system that also covers Aided and (eventually) Lima Charlie.
 
 ### Aided
-10. Patient engagement: push notifications, educational content, short videos
-11. Year 4 Donate & Upgrade pathway — punch card incentive, charity donation flow
-12. Year 5 Loyalty discount pathway
-13. Video upload/record flow: donor message → recipient response → social share with consent
+10. **PWA conversion** ✅ DONE (Apr 2026) — installable on home screen, scoped to `/aided`, hand-rolled service worker, SVG icons, safe-area insets for standalone display. Placeholder 🎧-on-navy icon in use until real branding lands.
+11. **Branding / logo for Aided** — placeholder 🎧 emoji on dark navy `#0a1628` is in place from the PWA conversion. Need a proper Aided wordmark + icon system; coordinate with Distil branding so the two read as a family. Inputs: dark navy is the established primary, hearing/sound/clarity is the conceptual core, audience is older adults (legibility matters more than cleverness).
+12. **Push notifications** (deferred from PWA work) — patient engagement reminders (cleaning, appointments, warranty alerts, year-4 upgrade conversation). Requires: VAPID key pair, SW `push` event handler, `push_subscriptions` Supabase table, Supabase Edge Function to fan out from a scheduled trigger or CRM action, permission UX timed to a meaningful moment (not the first launch). ~2–3 day project on its own.
+13. Patient engagement: educational content, short videos
+14. Year 4 Donate & Upgrade pathway — punch card incentive, charity donation flow
+15. Year 5 Loyalty discount pathway
+16. Video upload/record flow: donor message → recipient response → social share with consent
 
 ---
 

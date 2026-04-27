@@ -392,7 +392,7 @@ export default function PatientApp() {
     .chip { padding: 6px 14px; border-radius: 20px; border: 1px solid #e5e7eb; font-size: 12px; font-weight: 500; cursor: pointer; background: white; white-space: nowrap; }
     .chip:hover { background: #f9fafb; }
     /* BOTTOM NAV */
-    .bottom-nav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 390px; max-width: 100%; background: rgba(255,255,255,0.95); backdrop-filter: blur(20px); border-top: 1px solid rgba(0,0,0,0.08); padding: 8px 0 16px; display: flex; }
+    .bottom-nav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 390px; max-width: 100%; background: rgba(255,255,255,0.95); backdrop-filter: blur(20px); border-top: 1px solid rgba(0,0,0,0.08); padding: 8px 0 calc(16px + env(safe-area-inset-bottom, 0px)); display: flex; }
     .nav-tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; padding: 4px 0; }
     .nav-tab-icon { font-size: 22px; }
     .nav-tab-label { font-size: 10px; font-weight: 600; color: #9ca3af; letter-spacing: 0.3px; }
@@ -431,6 +431,12 @@ export default function PatientApp() {
     .profile-id { font-size: 10px; font-weight: 600; color: #16a34a; font-family: monospace; background: rgba(22,163,74,0.1); padding: 2px 8px; border-radius: 10px; margin-top: 4px; display: inline-block; }
     /* SECTION PADDING TOP */
     .pt-section { padding-top: 20px; }
+    /* PWA STANDALONE MODE — hide simulated status bar, respect iOS safe areas */
+    @media (display-mode: standalone) {
+      html, body { background: #0a1628; }
+      .status-bar { display: none; }
+      .header { padding-top: calc(16px + env(safe-area-inset-top, 0px)); }
+    }
   `;
 
   const renderHome = () => (

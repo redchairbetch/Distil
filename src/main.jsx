@@ -19,6 +19,34 @@ const isAided = path === '/aided'
 const selectMatch = path.match(/^\/distil\/select\/([0-9a-fA-F-]{36})$/)
 const selectPatientId = selectMatch ? selectMatch[1] : null
 
+// Aided runs as a PWA — installable, standalone-capable, scoped to /aided.
+// Distil and IntakeKiosk are deliberately excluded; they share the index.html
+// shell, so PWA metadata is injected at runtime only when on /aided.
+if (isAided) {
+  document.title = 'Aided'
+
+  const head = document.head
+  const addTag = (tag, attrs) => {
+    const el = document.createElement(tag)
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v)
+    head.appendChild(el)
+  }
+  addTag('link', { rel: 'manifest', href: '/manifest.webmanifest' })
+  addTag('link', { rel: 'apple-touch-icon', href: '/icons/aided.svg' })
+  addTag('meta', { name: 'theme-color', content: '#0a1628' })
+  addTag('meta', { name: 'apple-mobile-web-app-capable', content: 'yes' })
+  addTag('meta', { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' })
+  addTag('meta', { name: 'apple-mobile-web-app-title', content: 'Aided' })
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker
+        .register('/sw.js', { scope: '/aided' })
+        .catch((err) => console.warn('Aided SW registration failed:', err))
+    })
+  }
+}
+
 function App() {
   const [session, setSession]   = useState(undefined) // undefined = loading
   const [staff, setStaff]       = useState(null)

@@ -1,0 +1,26 @@
+{
+  "name": "Aided — My Hearing Centers",
+  "short_name": "Aided",
+  "description": "Your hearing care companion — devices, care plan, appointments, and support.",
+  "start_url": "/aided",
+  "scope": "/aided",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0a1628",
+  "background_color": "#0a1628",
+  "categories": ["health", "medical", "lifestyle"],
+  "icons": [
+    {
+      "src": "/icons/aided.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/aided-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
