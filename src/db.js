@@ -1967,7 +1967,7 @@ export async function loadPricingReveal(clinicId, patientId) {
 export async function loadTnsOutcomes() {
   const { data, error } = await supabase
     .from('tns_outcomes')
-    .select('patient_id, outcome_reason')
+    .select('patient_id, outcome_reasons')
   if (error) { console.error('loadTnsOutcomes:', error); return [] }
   return data
 }
@@ -1980,14 +1980,16 @@ export async function updatePatientStatus(patientId, status) {
   if (error) throw error
 }
 
-export async function saveTnsOutcome(patientId, clinicId, staffId, reason, notes, griefStage) {
+export async function saveTnsOutcome(patientId, clinicId, staffId, reasons, notes) {
+  if (!Array.isArray(reasons) || reasons.length === 0) {
+    throw new Error('saveTnsOutcome: reasons must be a non-empty array')
+  }
   const { error } = await supabase.from('tns_outcomes').insert({
-    patient_id:     patientId,
-    clinic_id:      clinicId,
-    logged_by:      staffId,
-    outcome_reason: reason,
-    outcome_notes:  notes || null,
-    grief_stage:    griefStage || null,
+    patient_id:      patientId,
+    clinic_id:       clinicId,
+    logged_by:       staffId,
+    outcome_reasons: reasons,
+    outcome_notes:   notes || null,
   })
   if (error) throw error
 }
@@ -2160,7 +2162,7 @@ export async function loadPatientHeader(patientId) {
 export async function loadPatientTnsFlag(patientId) {
   const { data } = await supabase
     .from('tns_outcomes')
-    .select('outcome_reason, created_at')
+    .select('outcome_reasons, created_at')
     .eq('patient_id', patientId)
     .order('created_at', { ascending: false })
     .limit(1)
