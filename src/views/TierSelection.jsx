@@ -354,8 +354,24 @@ function TierCard({ tier, selected, recommended, blurb, flagged, onSelect }) {
   );
 }
 
+// Red (≤50%) → Yellow (75%) → Green (100%) gradient. Linear RGB
+// interpolation between anchors so adjacent percentages read as
+// distinct shades — easier to scan than the prior 4-bucket palette.
+function coverageColor(pct) {
+  const RED = [220, 38, 38];   // #dc2626
+  const YEL = [234, 179, 8];   // #eab308
+  const GRN = [22, 163, 74];   // #16a34a
+  const lerp = (a, b, t) => Math.round(a + (b - a) * t);
+  const mix = (c1, c2, t) =>
+    `rgb(${lerp(c1[0], c2[0], t)}, ${lerp(c1[1], c2[1], t)}, ${lerp(c1[2], c2[2], t)})`;
+  if (pct <= 50) return `rgb(${RED.join(",")})`;
+  if (pct >= 100) return `rgb(${GRN.join(",")})`;
+  if (pct <= 75) return mix(RED, YEL, (pct - 50) / 25);
+  return mix(YEL, GRN, (pct - 75) / 25);
+}
+
 function CoverageRow({ label, pct, prominent = false }) {
-  const fillColor = pct >= 90 ? RECOMMEND : pct >= 60 ? TEAL : pct >= 40 ? "#d97706" : "#dc2626";
+  const fillColor = coverageColor(pct);
   return (
     <div style={{ display:"flex", alignItems:"center", gap:8, fontSize: prominent ? 12 : 11 }}>
       <div style={{ flex:1, color: prominent ? TEXT : MUTED, fontWeight: prominent ? 600 : 500 }}>
