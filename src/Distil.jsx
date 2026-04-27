@@ -3699,8 +3699,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     })
                     .sort((a,b)=>a.planGroup.localeCompare(b.planGroup))
                     .map(plan=>(
-                      <div key={plan.planGroup}
-                        className={`plan-row ${form.planGroup===plan.planGroup?"active":""}`}
+                      <div key={`${plan.carrier}|${plan.planGroup}`}
+                        className={`plan-row ${form.carrier===plan.carrier&&form.planGroup===plan.planGroup?"active":""}`}
                         onClick={()=>{
                           upd("planGroup",plan.planGroup);
                           upd("carrier",plan.carrier);
@@ -5707,8 +5707,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
                         .sort((a,b)=>a.planGroup.localeCompare(b.planGroup))
                         .slice(0,30)
                         .map(plan=>(
-                          <div key={plan.planGroup}
-                            className={`plan-row ${editDraft.planGroup===plan.planGroup?"active":""}`}
+                          <div key={`${plan.carrier}|${plan.planGroup}`}
+                            className={`plan-row ${editDraft.carrier===plan.carrier&&editDraft.planGroup===plan.planGroup?"active":""}`}
                             onClick={()=>setEditDraft(d=>({...d,carrier:plan.carrier,planGroup:plan.planGroup,tpa:plan.tpa||"",tier:"",tierPrice:null}))}>
                             <div className="plan-row-name">{plan.planGroup}</div>
                             <div className="plan-row-tpa">{plan.carrier} · via {plan.tpa}</div>
