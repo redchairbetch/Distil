@@ -221,7 +221,11 @@ export async function loadPricingReveal(clinicId, patientId) {
 ### Aided
 10. **PWA conversion** ✅ DONE (Apr 2026) — installable on home screen, scoped to `/aided`, hand-rolled service worker, SVG icons, safe-area insets for standalone display. Placeholder 🎧-on-navy icon in use until real branding lands.
 11. **Branding / logo for Aided** — placeholder 🎧 emoji on dark navy `#0a1628` is in place from the PWA conversion. Need a proper Aided wordmark + icon system; coordinate with Distil branding so the two read as a family. Inputs: dark navy is the established primary, hearing/sound/clarity is the conceptual core, audience is older adults (legibility matters more than cleverness).
-12. **Push notifications** (deferred from PWA work) — patient engagement reminders (cleaning, appointments, warranty alerts, year-4 upgrade conversation). Requires: VAPID key pair, SW `push` event handler, `push_subscriptions` Supabase table, Supabase Edge Function to fan out from a scheduled trigger or CRM action, permission UX timed to a meaningful moment (not the first launch). ~2–3 day project on its own.
+12. **Push notifications** — patient engagement reminders (cleaning, appointments, warranty alerts, year-4 upgrade conversation). Phased delivery:
+    - **Phase 1** ✅ DONE (Apr 2026) — VAPID keys generated, `push_subscriptions` table (migration 003), SW `push`/`notificationclick`/`pushsubscriptionchange` handlers, cache bumped to `aided-v2`.
+    - **Phase 2** ✅ DONE (Apr 2026) — `subscribe-push` edge fn (POST upsert / DELETE deactivate), DOB gate on first launch (3 attempts → 60s lockout), contextual opt-in card on Schedule tab, all-or-nothing toggle in Help tab. Reconciliation on patient change re-POSTs the current endpoint to handle browser-rotated subscriptions.
+    - **Phase 3** — `send-push` edge fn + manual "Send notification" button in Distil CRM patient detail.
+    - **Phase 4** — pg_cron scheduled scan: appointment reminder 24h ahead, monthly cleaning prompt, warranty 90d/30d/expired, year-4 upgrade ping. 410-response handling marks subscriptions inactive.
 13. Patient engagement: educational content, short videos
 14. Year 4 Donate & Upgrade pathway — punch card incentive, charity donation flow
 15. Year 5 Loyalty discount pathway
