@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from './supabase.js'
 
 // ── DEMO PATIENT (shown when no real data exists yet) ─────────────────────────
@@ -65,6 +65,206 @@ const ACHIEVEMENT_DISPLAY = {
   hearing_champion:      { emoji: '👑', label: 'Hearing Champion' },
 };
 
+// ── Web Push helpers ─────────────────────────────────────────────────────────
+// Public VAPID key — safe to ship in the client; the matching private key
+// signs send-push requests on the edge function side. If we ever rotate keys,
+// existing subscriptions get a 410 from the push service and clients
+// re-subscribe on next launch.
+const VAPID_PUBLIC_KEY = 'BEixWcDNQsqiZJJ-bDLWdtThqhdCgH3mM6Udp7W9OPTAfxNGfhpmJN6rLTWx0kVyBT8LuHa3hGdkTSQdq5t-Quc';
+
+function urlBase64ToUint8Array(b64) {
+  const padding = '='.repeat((4 - b64.length % 4) % 4);
+  const base64 = (b64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+const pushSupported = () =>
+  typeof window !== 'undefined' &&
+  'serviceWorker' in navigator &&
+  'PushManager' in window &&
+  'Notification' in window;
+
+async function getActiveSubscription() {
+  if (!pushSupported()) return null;
+  const reg = await navigator.serviceWorker.ready;
+  return reg.pushManager.getSubscription();
+}
+
+async function postSubscription(patientId, subscription) {
+  const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/subscribe-push`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify({
+      patient_id: patientId,
+      subscription: subscription.toJSON(),
+      user_agent: navigator.userAgent,
+    }),
+  });
+  return resp.ok;
+}
+
+async function subscribeToPush(patientId) {
+  if (!pushSupported()) return { ok: false, reason: 'unsupported' };
+
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') return { ok: false, reason: permission };
+
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      // pushManager.subscribe can throw on iOS Safari if the PWA isn't installed
+      // to the home screen, or on locked-down enterprise browsers.
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+    }
+    const ok = await postSubscription(patientId, sub);
+    if (!ok) return { ok: false, reason: 'server_error' };
+    return { ok: true };
+  } catch (err) {
+    console.warn('subscribeToPush failed:', err);
+    return { ok: false, reason: 'error' };
+  }
+}
+
+async function unsubscribeFromPush() {
+  if (!pushSupported()) return;
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription();
+  if (!sub) return;
+
+  const endpoint = sub.endpoint;
+  await sub.unsubscribe();
+
+  try {
+    await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/subscribe-push`, {
+      method: 'DELETE',
+      headers: {
+        'content-type': 'application/json',
+        'authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({ endpoint }),
+    });
+  } catch {
+    // Best-effort: local unsubscribe already happened.
+  }
+}
+
+// ── DOB confirmation gate ────────────────────────────────────────────────────
+// First-launch gate for real (non-demo) patients. Provider sets up patient in
+// office, then the patient scans the QR and confirms their DOB to unlock the
+// app on this device. 3 wrong attempts → 60s lockout, then counter resets.
+function DobGate({ patient, onVerified }) {
+  const [input, setInput] = useState('');
+  const [error, setError] = useState('');
+  const [now, setNow] = useState(Date.now());
+
+  const lockoutUntil = parseInt(localStorage.getItem('aided_dob_lockout_until') || '0', 10);
+  const locked = lockoutUntil > now;
+  const lockSeconds = Math.max(0, Math.ceil((lockoutUntil - now) / 1000));
+
+  useEffect(() => {
+    if (!locked) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [locked]);
+
+  const submit = (e) => {
+    e.preventDefault();
+    if (locked || !input) return;
+
+    const expected = patient.dob;
+    if (!expected) {
+      // No DOB on the record. Soft-failing the gate would lock a real patient
+      // out indefinitely — better to let them through and surface this as a
+      // data issue for the clinic.
+      console.warn('Patient has no DOB on file; bypassing gate');
+      localStorage.setItem('aided_dob_verified', 'true');
+      onVerified();
+      return;
+    }
+
+    if (input === expected) {
+      localStorage.setItem('aided_dob_verified', 'true');
+      localStorage.removeItem('aided_dob_attempts');
+      localStorage.removeItem('aided_dob_lockout_until');
+      onVerified();
+      return;
+    }
+
+    const attempts = parseInt(localStorage.getItem('aided_dob_attempts') || '0', 10) + 1;
+    if (attempts >= 3) {
+      const until = Date.now() + 60_000;
+      localStorage.setItem('aided_dob_lockout_until', String(until));
+      localStorage.setItem('aided_dob_attempts', '0');
+      setError('Too many attempts.');
+      setNow(Date.now());
+    } else {
+      localStorage.setItem('aided_dob_attempts', String(attempts));
+      setError(`That doesn't match. ${3 - attempts} ${3 - attempts === 1 ? 'attempt' : 'attempts'} remaining.`);
+    }
+    setInput('');
+  };
+
+  return (
+    <div style={{
+      minHeight: '100vh', background: '#0a1628', display: 'flex',
+      flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      padding: 24, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: 'white',
+    }}>
+      <div style={{ fontSize: 56, marginBottom: 16 }}>🔒</div>
+      <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 8 }}>Confirm it's you</h1>
+      <p style={{ fontSize: 14, opacity: 0.6, marginBottom: 28, textAlign: 'center', maxWidth: 320, lineHeight: 1.5 }}>
+        Enter your date of birth to access your hearing care profile.
+      </p>
+      <form onSubmit={submit} style={{ width: '100%', maxWidth: 320, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <input
+          type="date"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          disabled={locked}
+          style={{
+            padding: '14px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.2)',
+            background: 'rgba(255,255,255,0.06)', color: 'white', fontSize: 16,
+            fontFamily: 'inherit', outline: 'none', colorScheme: 'dark',
+          }}
+        />
+        {error && !locked && (
+          <div style={{ fontSize: 13, color: '#fca5a5', textAlign: 'center' }}>{error}</div>
+        )}
+        {locked && (
+          <div style={{ fontSize: 13, color: '#fbbf24', textAlign: 'center' }}>
+            Locked. Try again in {lockSeconds}s.
+          </div>
+        )}
+        <button
+          type="submit"
+          disabled={locked || !input}
+          style={{
+            padding: '14px', borderRadius: 12, border: 'none',
+            background: (locked || !input) ? 'rgba(255,255,255,0.1)' : '#4ade80',
+            color: (locked || !input) ? 'rgba(255,255,255,0.4)' : '#0a1628',
+            fontSize: 15, fontWeight: 700, fontFamily: 'inherit',
+            cursor: (locked || !input) ? 'default' : 'pointer',
+          }}
+        >
+          Continue
+        </button>
+      </form>
+      <div style={{ fontSize: 12, opacity: 0.45, marginTop: 24, textAlign: 'center', maxWidth: 280, lineHeight: 1.5 }}>
+        Trouble? Call your clinic — they can re-link your device.
+      </div>
+    </div>
+  );
+}
+
 // ── Map Supabase patient join to the flat shape Aided's render functions expect ──
 function mapSupabasePatientToAidedShape(data) {
   // Find the most recent active fitting
@@ -122,24 +322,37 @@ function mapSupabasePatientToAidedShape(data) {
   };
 }
 
+// If a real pid is present on first paint, render nothing (loading) until the
+// fetch resolves — avoids flashing demo data behind the DOB gate.
+function initialPatient() {
+  if (typeof window === 'undefined') return null;
+  const pid = new URLSearchParams(window.location.search).get('pid')
+    || localStorage.getItem('aided_pid');
+  return pid ? null : DEMO;
+}
+
 export default function PatientApp() {
-  const [patient, setPatient] = useState(null);
+  const [patient, setPatient] = useState(initialPatient);
   const [clinicName, setClinicName] = useState("My Hearing Centers");
   const [tab, setTab] = useState(() => {
     const t = new URLSearchParams(window.location.search).get('tab');
     return ['home','devices','care','schedule','help'].includes(t) ? t : 'home';
   });
-  const [messages, setMessages] = useState([
-    { role: "assistant", content: "Hi! I'm your hearing care assistant. Ask me anything about your devices, cleaning, troubleshooting, or your upcoming appointments." }
-  ]);
-  const [input, setInput] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
   const [checkedSteps, setCheckedSteps] = useState({});
   const [expandedTip, setExpandedTip] = useState(null);
   const [punchUsed, setPunchUsed] = useState({ cleanings: 0, appointments: 0 });
   const [punchConfirm, setPunchConfirm] = useState(null); // "cleaning" | "appointment" | null
   const [achievements, setAchievements] = useState([]);
-  const messagesEndRef = useRef(null);
+  const [dobVerified, setDobVerified] = useState(() =>
+    typeof window !== 'undefined' && localStorage.getItem('aided_dob_verified') === 'true'
+  );
+  // 'unseen' | 'dismissed' | 'subscribed' | 'denied' — UI hint only; truth is
+  // pushSubscribed + Notification.permission.
+  const [notifPrompt, setNotifPrompt] = useState(() =>
+    (typeof window !== 'undefined' && localStorage.getItem('aided_notif_state')) || 'unseen'
+  );
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [notifBusy, setNotifBusy] = useState(false);
 
   // Load punch card state from Supabase (or skip for demo patient)
   useEffect(() => {
@@ -205,92 +418,130 @@ export default function PatientApp() {
   };
 
   useEffect(() => {
-    // Always render immediately with demo data — update if real patient found
-    setPatient(DEMO);
-
-    // Helper: fetch a patient by ID and set state
     const loadPatient = async (patientId) => {
-      const { data: patientData } = await supabase
-        .from('patients')
-        .select(`
-          *,
-          insurance_coverage(*),
-          device_fittings(
+      try {
+        const { data: patientData } = await supabase
+          .from('patients')
+          .select(`
             *,
-            device_sides(*)
-          ),
-          appointments(*)
-        `)
-        .eq('id', patientId)
-        .single();
+            insurance_coverage(*),
+            device_fittings(
+              *,
+              device_sides(*)
+            ),
+            appointments(*)
+          `)
+          .eq('id', patientId)
+          .single();
 
-      if (patientData) {
-        if (patientData.clinic_id) {
-          const { data: clinic } = await supabase
-            .from('clinics')
-            .select('name')
-            .eq('id', patientData.clinic_id)
-            .single();
-          if (clinic?.name) setClinicName(clinic.name);
+        if (patientData) {
+          if (patientData.clinic_id) {
+            const { data: clinic } = await supabase
+              .from('clinics')
+              .select('name')
+              .eq('id', patientData.clinic_id)
+              .single();
+            if (clinic?.name) setClinicName(clinic.name);
+          }
+          setPatient(mapSupabasePatientToAidedShape(patientData));
+          return true;
         }
-        setPatient(mapSupabasePatientToAidedShape(patientData));
+      } catch (err) {
+        console.warn('Patient load failed:', err);
       }
+      return false;
     };
 
     (async () => {
+      // 1. URL param (fresh QR scan) — save and load
+      const pid = new URLSearchParams(window.location.search).get('pid');
+      if (pid) {
+        localStorage.setItem('aided_pid', pid);
+        if (!(await loadPatient(pid))) setPatient(DEMO);
+        return;
+      }
+
+      // 2. localStorage pid (PWA reopen)
+      const savedPid = localStorage.getItem('aided_pid');
+      if (savedPid) {
+        if (!(await loadPatient(savedPid))) setPatient(DEMO);
+        return;
+      }
+
+      // 3. Future: authenticated patient login
       try {
-        // 1. Check URL param first (QR code scan)
-        const pid = new URLSearchParams(window.location.search).get('pid');
-        if (pid) {
-          localStorage.setItem('aided_pid', pid);
-          return await loadPatient(pid);
-        }
-
-        // 2. Check localStorage (PWA reopen — remembers last QR scan)
-        const savedPid = localStorage.getItem('aided_pid');
-        if (savedPid) return await loadPatient(savedPid);
-
-        // 3. Fall back to auth session (future patient login)
         const { data: sessionData } = await supabase.auth.getSession();
         if (sessionData?.session?.user) {
-          return await loadPatient(sessionData.session.user.id);
+          if (!(await loadPatient(sessionData.session.user.id))) setPatient(DEMO);
+          return;
         }
+      } catch {}
 
-        // 4. No identifier found — stay on DEMO
-      } catch (err) {
-        console.warn('Patient load failed, using demo:', err);
-      }
+      // 4. No identifier — DEMO mode
+      setPatient(DEMO);
     })();
   }, []);
 
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({behavior:"smooth"}); }, [messages]);
-
-  const sendMessage = async () => {
-    if (!input.trim() || chatLoading) return;
-    const userMsg = input.trim();
-    setInput("");
-    setMessages(m => [...m, { role:"user", content: userMsg }]);
-    setChatLoading(true);
-    try {
-      const p = patient || DEMO;
-      const systemPrompt = `You are a friendly hearing care assistant for ${clinicName}. You're helping a patient named ${p.name} who wears ${p.devices?.manufacturer} ${p.devices?.model} hearing aids (${p.devices?.style?.toUpperCase()}, ${p.devices?.color}, ${p.devices?.battery} battery, ${p.devices?.receiver} receiver, ${p.devices?.dome} dome). Their care plan is ${CARE_PLAN_LABELS[p.carePlan] || p.carePlan}. Their warranty expires ${fmtDate(p.devices?.warrantyExpiry)}. Be warm, concise, and practical. Keep responses under 120 words. If they need urgent help, direct them to call the clinic.`;
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({
-          model:"claude-sonnet-4-20250514",
-          max_tokens:1000,
-          system: systemPrompt,
-          messages: [...messages.filter(m=>m.role!=="system"), {role:"user",content:userMsg}]
-        })
-      });
-      const data = await resp.json();
-      const reply = data.content?.[0]?.text || "I'm sorry, I couldn't process that. Please try again.";
-      setMessages(m => [...m, { role:"assistant", content: reply }]);
-    } catch {
-      setMessages(m => [...m, { role:"assistant", content:"I'm having trouble connecting right now. Please call your clinic directly if you need immediate help." }]);
+  // Reconcile push subscription state on mount + whenever the patient changes.
+  // Handles browser-rotated subscriptions: if the local endpoint differs from
+  // what was last sent to the server, we re-POST it. Catches the
+  // pushsubscriptionchange case without explicit SW message wiring.
+  useEffect(() => {
+    if (!patient || patient.id === 'DEMO01') {
+      setPushSubscribed(false);
+      return;
     }
-    setChatLoading(false);
+    (async () => {
+      const sub = await getActiveSubscription();
+      if (!sub) {
+        setPushSubscribed(false);
+        return;
+      }
+      // We have a local subscription. Make sure the server has the current
+      // endpoint for this patient. Cheap to re-POST — the edge fn upserts.
+      const ok = await postSubscription(patient.id, sub);
+      setPushSubscribed(ok);
+    })();
+  }, [patient?.id]);
+
+  const enableNotifications = async () => {
+    if (!patient || patient.id === 'DEMO01' || notifBusy) return;
+    setNotifBusy(true);
+    try {
+      const result = await subscribeToPush(patient.id);
+      if (result.ok) {
+        setPushSubscribed(true);
+        setNotifPrompt('subscribed');
+        localStorage.setItem('aided_notif_state', 'subscribed');
+      } else if (result.reason === 'denied') {
+        setNotifPrompt('denied');
+        localStorage.setItem('aided_notif_state', 'denied');
+      } else {
+        // 'default' (user dismissed prompt), 'unsupported', 'server_error'
+        setNotifPrompt('dismissed');
+        localStorage.setItem('aided_notif_state', 'dismissed');
+      }
+    } finally {
+      setNotifBusy(false);
+    }
+  };
+
+  const disableNotifications = async () => {
+    if (notifBusy) return;
+    setNotifBusy(true);
+    try {
+      await unsubscribeFromPush();
+      setPushSubscribed(false);
+      setNotifPrompt('dismissed');
+      localStorage.setItem('aided_notif_state', 'dismissed');
+    } finally {
+      setNotifBusy(false);
+    }
+  };
+
+  const dismissNotifPrompt = () => {
+    setNotifPrompt('dismissed');
+    localStorage.setItem('aided_notif_state', 'dismissed');
   };
 
   if (!patient) return (
@@ -298,6 +549,11 @@ export default function PatientApp() {
       Loading your profile…
     </div>
   );
+
+  // DOB gate for real patients only. Demo skips entirely.
+  if (patient.id !== 'DEMO01' && !dobVerified) {
+    return <DobGate patient={patient} onVerified={() => setDobVerified(true)} />;
+  }
 
   const p = patient;
   const warrantyDays = daysUntil(p.devices?.warrantyExpiry);
@@ -372,25 +628,6 @@ export default function PatientApp() {
     .appt-row-date { font-size: 13px; font-weight: 700; color: #0a1628; }
     .appt-row-type { font-size: 12px; color: #6b7280; margin-top: 2px; }
     .appt-row-countdown { margin-left: auto; font-size: 11px; font-weight: 600; color: #16a34a; }
-    /* CHAT */
-    .chat-messages { padding: 16px; display: flex; flex-direction: column; gap: 12px; min-height: 300px; }
-    .msg { max-width: 80%; }
-    .msg.user { align-self: flex-end; }
-    .msg.assistant { align-self: flex-start; }
-    .msg-bubble { padding: 10px 14px; border-radius: 16px; font-size: 14px; line-height: 1.5; }
-    .msg.user .msg-bubble { background: #0a1628; color: white; border-bottom-right-radius: 4px; }
-    .msg.assistant .msg-bubble { background: white; color: #1f2937; border-bottom-left-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-    .chat-input-bar { padding: 12px 16px; background: white; border-top: 1px solid #f3f4f6; display: flex; gap: 10px; }
-    .chat-input { flex: 1; border: 1px solid #e5e7eb; border-radius: 22px; padding: 10px 16px; font-size: 14px; font-family: 'Plus Jakarta Sans', sans-serif; outline: none; }
-    .chat-send { background: #0a1628; color: white; border: none; border-radius: 50%; width: 40px; height: 40px; font-size: 18px; cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
-    .typing-dots { display: flex; gap: 4px; padding: 10px 14px; }
-    .typing-dot { width: 7px; height: 7px; border-radius: 50%; background: #9ca3af; animation: bounce 1.2s infinite; }
-    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
-    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
-    @keyframes bounce { 0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-6px)} }
-    .quick-chips { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 16px 12px; }
-    .chip { padding: 6px 14px; border-radius: 20px; border: 1px solid #e5e7eb; font-size: 12px; font-weight: 500; cursor: pointer; background: white; white-space: nowrap; }
-    .chip:hover { background: #f9fafb; }
     /* BOTTOM NAV */
     .bottom-nav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 390px; max-width: 100%; background: rgba(255,255,255,0.95); backdrop-filter: blur(20px); border-top: 1px solid rgba(0,0,0,0.08); padding: 8px 0 calc(16px + env(safe-area-inset-bottom, 0px)); display: flex; }
     .nav-tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; padding: 4px 0; }
@@ -625,7 +862,10 @@ export default function PatientApp() {
                   </div>
                 ))
               ) : (
-                <div style={{fontSize:14,fontWeight:600,color:"#0a1628"}}>Private Pay – Standard of Care ($5,500)</div>
+                <div>
+                  <div style={{fontSize:14,fontWeight:600,color:"#0a1628"}}>Private Pay</div>
+                  <div style={{fontSize:12,color:"#6b7280",marginTop:6,lineHeight:1.5}}>Contact your clinic for current pricing.</div>
+                </div>
               )}
             </div>
           </div>
@@ -758,6 +998,15 @@ export default function PatientApp() {
 
   const renderSchedule = () => {
     const allAppts = [...(p.appointments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date));
+    const upcomingCount = allAppts.filter(a => daysUntil(a.date) >= 0).length;
+    const showNotifPrompt = (
+      patient.id !== 'DEMO01' &&
+      pushSupported() &&
+      !pushSubscribed &&
+      notifPrompt === 'unseen' &&
+      upcomingCount > 0 &&
+      Notification.permission !== 'denied'
+    );
     return (
       <>
         <div className="header">
@@ -765,7 +1014,43 @@ export default function PatientApp() {
           <div className="header-name">{p.location || clinicName}</div>
         </div>
         <div className="scroll-content">
-          <div className="section pt-section">
+          {showNotifPrompt && (
+            <div className="section pt-section">
+              <div style={{
+                background:"linear-gradient(135deg,#1a3050,#0a1628)", borderRadius:16,
+                padding:"18px", color:"white", position:"relative",
+              }}>
+                <div style={{fontSize:24,marginBottom:8}}>🔔</div>
+                <div style={{fontSize:16,fontWeight:700,marginBottom:6}}>Want a heads-up before your next visit?</div>
+                <div style={{fontSize:13,opacity:0.7,lineHeight:1.5,marginBottom:14}}>
+                  Get a reminder 24 hours before each appointment, plus monthly cleaning prompts.
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button
+                    onClick={enableNotifications}
+                    disabled={notifBusy}
+                    style={{
+                      flex:1, background:"#4ade80", color:"#0a1628", border:"none",
+                      borderRadius:8, padding:"10px", fontSize:13, fontWeight:700,
+                      fontFamily:"inherit", cursor: notifBusy ? "default" : "pointer",
+                      opacity: notifBusy ? 0.6 : 1,
+                    }}>
+                    {notifBusy ? "…" : "Turn on"}
+                  </button>
+                  <button
+                    onClick={dismissNotifPrompt}
+                    style={{
+                      flex:1, background:"transparent", color:"rgba(255,255,255,0.6)",
+                      border:"1px solid rgba(255,255,255,0.2)", borderRadius:8,
+                      padding:"10px", fontSize:13, fontWeight:600, fontFamily:"inherit", cursor:"pointer",
+                    }}>
+                    Not now
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          <div className={`section ${showNotifPrompt ? '' : 'pt-section'}`}>
             <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>Upcoming</div>
             <div className="card">
               {allAppts.filter(a=>daysUntil(a.date)>=0).length === 0 ? (
@@ -810,7 +1095,11 @@ export default function PatientApp() {
     );
   };
 
-  const renderHelp = () => (
+  const renderHelp = () => {
+    const showNotifRow = patient.id !== 'DEMO01' && pushSupported();
+    const permission = (typeof Notification !== 'undefined') ? Notification.permission : 'default';
+    const blocked = permission === 'denied';
+    return (
     <>
       <div className="header">
         <div className="header-greeting">Need a hand?</div>
@@ -828,6 +1117,44 @@ export default function PatientApp() {
             </div>
           </div>
         </div>
+        {showNotifRow && (
+          <div className="section">
+            <div className="card card-pad">
+              <div className="card-label">Notifications</div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:14,fontWeight:600,color:"#0a1628"}}>Reminders & alerts</div>
+                  <div style={{fontSize:12,color:"#6b7280",marginTop:4,lineHeight:1.5}}>
+                    {blocked
+                      ? "Blocked at the device level. Enable in your phone's notification settings."
+                      : pushSubscribed
+                      ? "On. You'll get appointment reminders, cleaning prompts, and warranty alerts."
+                      : "Off. Turn on to get appointment reminders, cleaning prompts, and warranty alerts."}
+                  </div>
+                </div>
+                {!blocked && (
+                  <button
+                    onClick={pushSubscribed ? disableNotifications : enableNotifications}
+                    disabled={notifBusy}
+                    style={{
+                      flexShrink:0, width:52, height:30, borderRadius:15,
+                      border:"none", padding:0, cursor: notifBusy ? "default" : "pointer",
+                      background: pushSubscribed ? "#16a34a" : "#d1d5db",
+                      position:"relative", transition:"background 0.2s",
+                      opacity: notifBusy ? 0.6 : 1,
+                    }}
+                    aria-label={pushSubscribed ? "Disable notifications" : "Enable notifications"}>
+                    <div style={{
+                      position:"absolute", top:3, left: pushSubscribed ? 25 : 3,
+                      width:24, height:24, borderRadius:"50%", background:"white",
+                      transition:"left 0.2s", boxShadow:"0 1px 3px rgba(0,0,0,0.2)",
+                    }} />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         <div className="section">
           <div className="card">
             <div className="card-pad">
@@ -843,7 +1170,8 @@ export default function PatientApp() {
         </div>
       </div>
     </>
-  );
+    );
+  };
 
   const TABS = [
     { id:"home", icon:"🏠", label:"Home" },
