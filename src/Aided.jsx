@@ -29,7 +29,16 @@ const DEMO = {
 
 const CARE_PLAN_LABELS = { complete: "Complete Care+", punch: "Punch Card", paygo: "Pay-As-You-Go" };
 
-function fmtDate(d) { return new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); }
+function fmtDate(d) {
+  if (!d) return "";
+  // Date-only strings ("YYYY-MM-DD") must be parsed as local time — `new Date(s)`
+  // treats them as UTC midnight, which shifts back a day in negative offsets.
+  if (typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    const [y, m, day] = d.split("-").map(Number);
+    return new Date(y, m - 1, day).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  }
+  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
 function daysUntil(dateStr) { return Math.ceil((new Date(dateStr) - new Date()) / 86400000); }
 function daysAgo(dateStr) { return Math.ceil((new Date() - new Date(dateStr)) / 86400000); }
 
@@ -334,6 +343,8 @@ function initialPatient() {
 export default function PatientApp() {
   const [patient, setPatient] = useState(initialPatient);
   const [clinicName, setClinicName] = useState("My Hearing Centers");
+  const [clinicPhone, setClinicPhone] = useState("");
+  const [clinicAddress, setClinicAddress] = useState("");
   const [tab, setTab] = useState(() => {
     const t = new URLSearchParams(window.location.search).get('tab');
     return ['home','devices','care','schedule','help'].includes(t) ? t : 'home';
@@ -438,10 +449,12 @@ export default function PatientApp() {
           if (patientData.clinic_id) {
             const { data: clinic } = await supabase
               .from('clinics')
-              .select('name')
+              .select('name, phone, address')
               .eq('id', patientData.clinic_id)
               .single();
             if (clinic?.name) setClinicName(clinic.name);
+            if (clinic?.phone) setClinicPhone(clinic.phone);
+            if (clinic?.address) setClinicAddress(clinic.address);
           }
           setPatient(mapSupabasePatientToAidedShape(patientData));
           return true;
@@ -1107,15 +1120,28 @@ export default function PatientApp() {
       </div>
       <div className="scroll-content">
         <div className="section" style={{paddingTop:16}}>
-          <div className="card card-pad">
-            <div className="card-label">Contact your clinic</div>
-            <div style={{fontSize:15,fontWeight:700,color:"#0a1628",marginBottom:6}}>{clinicName}</div>
-            {p.phone && <div style={{fontSize:14,color:"#374151",marginBottom:4}}>📞 {p.phone}</div>}
-            {p.location && <div style={{fontSize:13,color:"#6b7280"}}>📍 {p.location}</div>}
-            <div style={{fontSize:12,color:"#9ca3af",marginTop:12,lineHeight:1.5}}>
-              Call your clinic for appointments, device issues, or any questions about your hearing care.
-            </div>
-          </div>
+          {(() => {
+            // Real patients pull from the clinics table; the demo seed carries
+            // its mock clinic info on the patient object.
+            const phone = clinicPhone || (patient.id === 'DEMO01' ? patient.phone : '');
+            const address = clinicAddress || (patient.id === 'DEMO01' ? patient.location : '');
+            return (
+              <div className="card card-pad">
+                <div className="card-label">Contact your clinic</div>
+                <div style={{fontSize:15,fontWeight:700,color:"#0a1628",marginBottom:6}}>{clinicName}</div>
+                {phone && (
+                  <a href={`tel:${phone.replace(/[^\d+]/g,'')}`}
+                     style={{fontSize:14,color:"#374151",marginBottom:4,display:"block",textDecoration:"none"}}>
+                    📞 {phone}
+                  </a>
+                )}
+                {address && <div style={{fontSize:13,color:"#6b7280"}}>📍 {address}</div>}
+                <div style={{fontSize:12,color:"#9ca3af",marginTop:12,lineHeight:1.5}}>
+                  Call your clinic for appointments, device issues, or any questions about your hearing care.
+                </div>
+              </div>
+            );
+          })()}
         </div>
         {showNotifRow && (
           <div className="section">

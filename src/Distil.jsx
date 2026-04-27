@@ -1037,7 +1037,17 @@ const summarizeAudiogram = (p) => {
 };
 
 function genId() { return crypto.randomUUID(); }
-function fmtDate(d) { return new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); }
+function fmtDate(d) {
+  if (!d) return "";
+  // Date-only strings ("YYYY-MM-DD") must be parsed as local time. `new Date(s)`
+  // treats them as UTC midnight, which shifts back a day in negative offsets
+  // (e.g. 1962-03-11 renders as Mar 10 in MST). Detect and parse manually.
+  if (typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    const [y, m, day] = d.split("-").map(Number);
+    return new Date(y, m - 1, day).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  }
+  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
 function warrantyDate(fittingDate, years=3) {
   const d = new Date(fittingDate);
   d.setFullYear(d.getFullYear() + years);
