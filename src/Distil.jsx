@@ -80,6 +80,7 @@ import { downloadQuote } from "./generateQuote.js";
 
 import { TNS_TAGS } from "./tns_tags.js";
 import ContentLibrary from "./views/ContentLibrary.jsx";
+import NurturePreview from "./views/NurturePreview.jsx";
 import CampaignManager from "./views/CampaignManager.jsx";
 import LimaCharlie from "./views/LimaCharlie.jsx";
 
@@ -6015,6 +6016,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
               </div>
             )}
 
+
+            {/* ── PERSONALIZATION PREVIEW (read-only) ──────────────────────────────── */}
+            {patientCampaigns.length > 0 && patientCampaigns.map(campaign => (
+              <NurturePreview
+                key={`prev-${campaign.id}`}
+                patientId={selectedPatient.id}
+                clinicId={clinicId}
+                campaign={campaign}
+              />
+            ))}
 
             {/* ── CAMPAIGN JOURNEY ─────────────────────────────────────────────────── */}
             {/* TODO: restrict campaign edits to care_coordinator, admin once checkRole is enforced */}

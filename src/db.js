@@ -7,7 +7,6 @@
 
 import { supabase } from './supabase.js'
 import { CONTENT_LIBRARY, CAMPAIGN_TIMELINE } from './nurture_seed_data.js'
-import { TNS_CONTENT_LIBRARY } from './tns_seed_data.js'
 import { runRecommendationEngine } from './recommendationEngine.js'
 
 
@@ -1716,92 +1715,6 @@ export async function seedDefaultCampaign(clinicId, staffId) {
 
 
 // ============================================================
-// TNS (Treatment Not Started) Campaign Seed
-// ============================================================
-
-export async function seedTNSCampaign(clinicId, staffId) {
-  // Check if already seeded
-  const { data: existing } = await supabase
-    .from('campaign_templates')
-    .select('id')
-    .eq('name', 'Treatment Not Started — Nurture Journey')
-    .eq('clinic_id', clinicId)
-    .maybeSingle()
-  if (existing) return existing
-
-  // 1. Insert all TNS content items
-  const contentByN = {}
-  for (const item of TNS_CONTENT_LIBRARY) {
-    const { data, error } = await supabase
-      .from('campaign_content')
-      .insert({
-        clinic_id:       clinicId,
-        content_type:    item.type,
-        title:           item.title,
-        body:            item.body || null,
-        category:        item.cat,
-        source_url:      item.url || null,
-        source_name:     item.src || null,
-        tone:            item.tone || null,
-        lifecycle_phase: item.phase || null,
-        suggested_month: item.week ? `w${item.week}` : null,
-        active:          true,
-        created_by:      staffId,
-      })
-      .select()
-      .single()
-    if (error) { console.error('seed TNS content item ' + item.n + ':', error); continue }
-    contentByN[item.n] = data.id
-  }
-
-  // 2. Create the TNS campaign template
-  const { data: template, error: tErr } = await supabase
-    .from('campaign_templates')
-    .insert({
-      clinic_id:    clinicId,
-      name:         'Treatment Not Started — Nurture Journey',
-      description:  '26-week drip campaign: normalization, brain health evidence, myth busting, modern tech, cost reframe, social proof, and re-engagement',
-      trigger_type: 'tns',
-      active:       true,
-      created_by:   staffId,
-    })
-    .select()
-    .single()
-  if (tErr) { console.error('seed TNS template:', tErr); return null }
-
-  // 3. Build campaign steps from the weekly timeline
-  // Only include items with a numeric week (skip "any" and "seasonal")
-  const channelMap = { push: 'push', article: 'in_app', email: 'email', sms: 'sms', video: 'in_app' }
-  const stepRows = []
-  let stepOrder = 0
-
-  const timelineItems = TNS_CONTENT_LIBRARY
-    .filter(item => item.week && !isNaN(parseInt(item.week)))
-    .sort((a, b) => parseInt(a.week) - parseInt(b.week) || a.n - b.n)
-
-  for (const item of timelineItems) {
-    const contentId = contentByN[item.n]
-    if (!contentId) continue
-    stepOrder++
-    stepRows.push({
-      template_id:      template.id,
-      content_id:       contentId,
-      step_order:       stepOrder,
-      delay_days:       parseInt(item.week) * 7,
-      delivery_channel: channelMap[item.type] || item.ch || 'email',
-    })
-  }
-
-  if (stepRows.length) {
-    const { error: sErr } = await supabase.from('campaign_steps').insert(stepRows)
-    if (sErr) console.error('seed TNS steps:', sErr)
-  }
-
-  return template
-}
-
-
-// ============================================================
 // BACKFILL: Enroll existing patients in default campaign
 // ============================================================
 
@@ -1994,16 +1907,6 @@ export async function saveTnsOutcome(patientId, clinicId, staffId, reasons, note
   if (error) throw error
 }
 
-export async function enrollTnsNurture(patientId, clinicId, campaignType, notes) {
-  const { error } = await supabase.from('nurture_enrollment').insert({
-    patient_id:    patientId,
-    clinic_id:     clinicId,
-    campaign_type: campaignType,
-    notes:         notes || null,
-  })
-  if (error) throw error
-}
-
 export async function convertTnsToActive(patientId, warrantyYears = 3) {
   const fittingDate = new Date().toISOString().split('T')[0]
   const expiry = new Date()
@@ -2168,4 +2071,53 @@ export async function loadPatientTnsFlag(patientId) {
     .limit(1)
     .maybeSingle()
   return data || null
+}
+
+
+// ============================================================
+// NURTURE PERSONALIZATION
+// ============================================================
+
+// One-shot loader for everything the personalization profile builder needs.
+// Returns null fields where data is missing — the builder tolerates partial
+// inputs and degrades gracefully.
+export async function loadPersonalizationInputs(patientId) {
+  const [patientRes, audiogramRes, intakeRes, tnsRes] = await Promise.all([
+    supabase.from('patients')
+      .select('id, dob, pay_type, first_name, last_name, clinic_id')
+      .eq('id', patientId).maybeSingle(),
+    supabase.from('audiograms')
+      .select('*')
+      .eq('patient_id', patientId)
+      .order('test_date', { ascending: false })
+      .limit(1).maybeSingle(),
+    supabase.from('intakes')
+      .select('answers, accepted_at')
+      .eq('patient_id', patientId)
+      .eq('status', 'accepted')
+      .order('accepted_at', { ascending: false })
+      .limit(1).maybeSingle(),
+    supabase.from('tns_outcomes')
+      .select('outcome_reasons, outcome_notes, created_at')
+      .eq('patient_id', patientId)
+      .order('created_at', { ascending: false })
+      .limit(1).maybeSingle(),
+  ])
+
+  let thresholds = []
+  if (audiogramRes.data?.id) {
+    const { data } = await supabase
+      .from('audiogram_thresholds')
+      .select('ear, frequency, threshold_db, test_type, is_masked')
+      .eq('audiogram_id', audiogramRes.data.id)
+    thresholds = data || []
+  }
+
+  return {
+    patient:    patientRes.data || null,
+    audiogram:  audiogramRes.data || null,
+    thresholds,
+    intake:     intakeRes.data || null,
+    tnsOutcome: tnsRes.data || null,
+  }
 }
