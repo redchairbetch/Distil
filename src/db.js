@@ -1868,6 +1868,7 @@ export async function resolveInsurancePlanId(carrier, planGroup, tierLabel) {
     .eq('carrier', carrier)
     .eq('plan_group', planGroup)
     .eq('tier_label', tierLabel)
+    .eq('active', true)
     .maybeSingle()
   if (error || !data) return null
   return data.id
@@ -1877,6 +1878,7 @@ export async function loadInsurancePlans() {
   const { data, error } = await supabase
     .from('insurance_plans')
     .select('id, carrier, plan_group, tpa, tier_label, price_per_aid, retail_anchor_key, notes')
+    .eq('active', true)
     .order('carrier')
     .order('plan_group')
   if (error) throw error

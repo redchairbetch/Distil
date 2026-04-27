@@ -93,6 +93,9 @@ const DEFAULT_CLINIC = {
 };
 
 
+// Source of truth: Supabase insurance_plans table (active=true).
+// This array is a fallback if the DB load fails — keep in sync with
+// the TruHearing Plan Pricing Matrix used to seed the table.
 const INSURANCE_PLANS = [
   { carrier:"Anthem", planGroup:"Prefix XMM", tpa:"TruHearing", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
   { carrier:"Anthem", planGroup:"MediBlue Access PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:499}, {label:"Premium",price:799}] },
@@ -145,7 +148,6 @@ const INSURANCE_PLANS = [
   { carrier:"Humana", planGroup:"Gold Plus HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
   { carrier:"Humana", planGroup:"Gold Plus Diabetes and Heart HMO CSNP", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
   { carrier:"Humana", planGroup:"Value Choice PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
-  { carrier:"Humana", planGroup:"Medicare Advantage (most plans)", tpa:"TruHearing", tiers:[{label:"Advanced",price:0}, {label:"Premium",price:299}] },
   { carrier:"Humana", planGroup:"Humana Choice Diabetes and Heart PPO C-SNP", tpa:"TruHearing", tiers:[{label:"Advanced",price:399}, {label:"Premium",price:699}] },
   { carrier:"Humana", planGroup:"Gold Plus Diabetes HMO CSNP", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
   { carrier:"Humana", planGroup:"Gold Plus Giveback HMO", tpa:"TruHearing", tiers:[{label:"Advanced",price:499}, {label:"Premium",price:799}] },
