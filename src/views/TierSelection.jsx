@@ -64,12 +64,15 @@ const INTAKE_TO_ENVS = {
 // Marketing labels → engine ranks. Anchored on the three TruHearing
 // plan tiers and the three clinic_retail_anchors slugs in current use.
 // "Premium" is TruHearing's name; "Select" is private-pay's top tier.
+// Signia's manufacturer_class anchors use numeric level labels (7/5/3/2/1)
+// where 7≈Premium, 5≈Advanced, 3≈Standard. Levels 1 and 2 sit below the
+// three-tier coverage matrix and intentionally return null.
 function tierLabelToRank(label) {
   if (!label) return null;
-  const l = String(label).toLowerCase();
-  if (l === "premium" || l === "select") return 5;
-  if (l === "advanced") return 3;
-  if (l === "standard") return 1;
+  const l = String(label).toLowerCase().trim();
+  if (l === "premium" || l === "select" || l === "7") return 5;
+  if (l === "advanced" || l === "5") return 3;
+  if (l === "standard" || l === "3") return 1;
   return null;
 }
 
@@ -96,6 +99,9 @@ function pickRecommendedTier(engineRank, availableTiers) {
     .map(t => ({ ...t, rank: tierLabelToRank(t.label) }))
     .filter(t => t.rank != null)
     .sort((a, b) => b.rank - a.rank); // highest rank first
+  // Plan tiers can use labels outside the ranked set (e.g. "Level 1" / "Level 2").
+  // When nothing maps, return no recommendation — the provider can still pick.
+  if (ranked.length === 0) return { tier: null, capped: false, originalRank: engineRank };
   const exact = ranked.find(t => t.rank === engineRank);
   if (exact) return { tier: exact, capped: false, originalRank: engineRank };
   // No exact match → take the highest available tier at or below engine rank

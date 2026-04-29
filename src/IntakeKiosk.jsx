@@ -1,5 +1,40 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { submitIntake } from "./db.js";
+import { jsPDF } from "jspdf";
+import { submitIntake, uploadPatientDocument } from "./db.js";
+
+// Convert the printable intake HTML into a real letter-format PDF blob.
+// jsPDF.html() runs html2canvas internally — the source HTML must be in the
+// DOM for layout to resolve, so we mount a hidden iframe, render, snapshot,
+// then tear down. autoPaging splits long content across pages.
+async function htmlToPdfBlob(html) {
+  const iframe = document.createElement("iframe");
+  iframe.style.position = "fixed";
+  iframe.style.left = "-10000px";
+  iframe.style.top = "0";
+  iframe.style.width = "816px"; // 8.5in @ 96dpi — letter width
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  document.body.appendChild(iframe);
+  iframe.contentDocument.open();
+  iframe.contentDocument.write(html);
+  iframe.contentDocument.close();
+  // Two RAFs + a short timeout = layout settled, fonts applied.
+  await new Promise(r => requestAnimationFrame(r));
+  await new Promise(r => requestAnimationFrame(r));
+  await new Promise(r => setTimeout(r, 60));
+  try {
+    const doc = new jsPDF({ unit: "pt", format: "letter" });
+    await doc.html(iframe.contentDocument.body, {
+      width: 552,        // 612pt page - 30pt margins on each side
+      windowWidth: 816,  // matches the iframe css width
+      margin: [30, 30, 30, 30],
+      autoPaging: "text",
+    });
+    return doc.output("blob");
+  } finally {
+    document.body.removeChild(iframe);
+  }
+}
 
 // Clinic ID is set via environment variable so the kiosk knows
 // which clinic to write intakes to without requiring a login.
@@ -1145,6 +1180,12 @@ export default function IntakeKiosk() {
     const canvas = signatureRef.current;
     const sigDataUrl = canvas ? canvas.toDataURL("image/png") : null;
     const timestamp = new Date().toISOString();
+    // Mint the intake row's UUID client-side so we can archive the signed PDF
+    // under the same id without needing RETURNING (anon role has no SELECT
+    // policy on intakes — see submitIntake comment).
+    const intakeRowId = (typeof crypto !== "undefined" && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : null;
     // Submit intake to Supabase. If this throws, surface the error so the
     // user doesn't see the Thank-You screen with a record that doesn't exist.
     try {
@@ -1153,19 +1194,55 @@ export default function IntakeKiosk() {
         answers,
         consent: { privacyAgreed: answers.privacyAgreed, insuranceAgreed: answers.insuranceAgreed, signedAt: timestamp, signatureDataUrl: sigDataUrl }
       };
-      await submitIntake(payload, KIOSK_CLINIC_ID);
+      await submitIntake(payload, KIOSK_CLINIC_ID, intakeRowId);
     } catch (e) {
       console.error("Intake submit error:", e);
       setErrors({ sig: `Submission failed: ${e?.message || "unknown error"}. Please notify the front desk.` });
       return;
     }
-    // Download HTML "PDF"
+    // Render the printable intake HTML as a real PDF: download for the patient
+    // and upload to the patient_documents archive. The signed copy is the
+    // legal record we need for HIPAA + insurance acknowledgment compliance,
+    // so archive failure logs but does not block the submission.
     const html = generateHTML(answers, intakeId, sigDataUrl, timestamp, t);
-    const blob = new Blob([html], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `Intake_${answers.lastName || "Patient"}_${answers.firstName || ""}_${new Date().toLocaleDateString("en-US").replace(/\//g,"-")}.html`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    const fileName = `Intake_${answers.lastName || "Patient"}_${answers.firstName || ""}_${new Date().toLocaleDateString("en-US").replace(/\//g,"-")}.pdf`;
+    let pdfBlob = null;
+    try {
+      pdfBlob = await htmlToPdfBlob(html);
+    } catch (e) {
+      console.error("Render intake PDF:", e);
+    }
+    if (pdfBlob) {
+      // User download
+      const url = URL.createObjectURL(pdfBlob);
+      const a = document.createElement("a");
+      a.href = url; a.download = fileName;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      // Archive (best-effort)
+      if (intakeRowId) {
+        try {
+          await uploadPatientDocument({
+            clinicId: KIOSK_CLINIC_ID,
+            intakeId: intakeRowId,
+            kind: "kiosk_intake",
+            blob: pdfBlob, fileName,
+            metadata: {
+              intakeRefId: intakeId,
+              submittedAt: timestamp,
+              lang,
+              firstName: answers.firstName || null,
+              lastName: answers.lastName || null,
+              dob: answers.dob || null,
+              privacyAgreed: !!answers.privacyAgreed,
+              insuranceAgreed: !!answers.insuranceAgreed,
+            },
+          });
+        } catch (e) {
+          console.error("Archive kiosk intake PDF:", e);
+        }
+      }
+    }
     setSubmitted(true);
     setStepIdx(visibleSteps.findIndex(s => s.type === "thanks"));
   };

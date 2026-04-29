@@ -364,14 +364,17 @@ export function generatePurchaseAgreement({
 
 
 // ============================================================
-// Convenience: generate and trigger download
+// Convenience: generate, trigger download, and return artifacts
+// for archiving (caller can upload `blob` to patient_documents).
 // ============================================================
 export function downloadPurchaseAgreement(params) {
   const doc = generatePurchaseAgreement(params)
   const patientName = (params.patient.name || 'patient').replace(/\s+/g, '_')
   const date = new Date().toISOString().split('T')[0]
-  doc.save(`Purchase_Agreement_${patientName}_${date}.pdf`)
-  return doc
+  const fileName = `Purchase_Agreement_${patientName}_${date}.pdf`
+  doc.save(fileName)
+  const blob = doc.output('blob')
+  return { doc, blob, fileName }
 }
 
 // ============================================================

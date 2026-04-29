@@ -75,6 +75,8 @@ import {
   updatePatientDevices,
   updatePatientCarePlan,
   finalizePatient,
+  uploadPatientDocument,
+  listPatientDocuments,
 } from "./db.js";
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 import { downloadQuote } from "./generateQuote.js";
@@ -1558,6 +1560,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [editSuccess,    setEditSuccess]    = useState(null);
   const [patientCampaigns, setPatientCampaigns] = useState([]);
   const [editPlanSearch, setEditPlanSearch] = useState("");
+  const [patientDocuments, setPatientDocuments] = useState([]);
 
   // ── Intake queue state ────────────────────────────────────────────────
   const [pendingIntakes,  setPendingIntakes]  = useState([]);
@@ -2180,6 +2183,26 @@ export default function ProviderCRM({ staffId, clinicId }) {
     }
   }, [view, selectedPatient?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Load archived documents (quotes, purchase agreements) when viewing a patient.
+  // Reloaded after each successful upload via refreshDocuments() so the list
+  // updates without a navigation round-trip.
+  const refreshDocuments = useCallback(async () => {
+    if (!selectedPatient?.id) return;
+    try {
+      const docs = await listPatientDocuments(selectedPatient.id);
+      setPatientDocuments(docs);
+    } catch (e) {
+      console.error("listPatientDocuments:", e);
+    }
+  }, [selectedPatient?.id]);
+
+  useEffect(() => {
+    if (view === "patient" && selectedPatient?.id) {
+      setPatientDocuments([]);
+      refreshDocuments();
+    }
+  }, [view, selectedPatient?.id, refreshDocuments]);
+
   // Load the most recent intake for the wizard's Health History step.
   // Triggered when the provider arrives at step 1 with a wizardPatientId
   // (which is set on Continue-from-Patient, including the linkIntake call).
@@ -2307,16 +2330,17 @@ export default function ProviderCRM({ staffId, clinicId }) {
     privatePayPriceForSide(form.left) || privatePayPriceForSide(form.right);
 
   // ── Generate Quote PDF from wizard state ─────────────────────────────
-  const handleGenerateQuote = () => {
+  const handleGenerateQuote = async () => {
     const leftRec = buildSideRecord(form.left);
     const rightRec = buildSideRecord(form.right);
     const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
     const fittingType = leftRec && rightRec ? (isCROS ? "cros_bicros" : "bilateral") : leftRec ? "monaural_left" : "monaural_right";
     const counselingSections = generateCounseling(form.audiology); // returns array of {heading,body} or null
-    downloadQuote({
+    const pricePerAid = form.payType === "private" ? privatePayPrimaryPerAid() : (form.tierPrice || 0);
+    const { blob, fileName } = downloadQuote({
       patient: { name: [form.firstName, form.lastName].filter(Boolean).join(" "), phone: form.phone },
       devices: { fittingType, left: leftRec, right: rightRec },
-      pricePerAid: form.payType === "private" ? privatePayPrimaryPerAid() : (form.tierPrice || 0),
+      pricePerAid,
       selectedCarePlan: form.carePlan || "complete",
       payType: form.payType,
       tpa: form.tpa,
@@ -2326,6 +2350,33 @@ export default function ProviderCRM({ staffId, clinicId }) {
       clinic: staffProfile?.clinic || clinic,
       provider: { fullName: staffProfile?.fullName || "Provider", activeLicense: staffProfile?.activeLicense || "" },
     });
+
+    if (wizardPatientId) {
+      try {
+        const isBilateral = (fittingType === 'bilateral' || fittingType === 'cros_bicros');
+        await uploadPatientDocument({
+          patientId: wizardPatientId,
+          clinicId,
+          staffId,
+          kind: 'quote',
+          blob, fileName,
+          metadata: {
+            fittingType,
+            pricePerAid,
+            aidCount: isBilateral ? 2 : 1,
+            selectedCarePlan: form.carePlan || "complete",
+            payType: form.payType,
+            carrier: form.carrier || null,
+            tpa: form.tpa || null,
+            leftFamily: leftRec?.family || null,
+            rightFamily: rightRec?.family || null,
+          },
+        });
+      } catch (e) {
+        console.error('Archive quote PDF (wizard):', e);
+        alert('Quote downloaded, but failed to archive to chart: ' + (e.message || e));
+      }
+    }
   };
 
 
@@ -2673,7 +2724,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     .warranty-fill.warn { background: #f59e0b; }
     .warranty-fill.exp { background: #ef4444; }
     /* WIZARD */
-    .wizard-wrap { max-width: 760px; }
+    .wizard-wrap { max-width: 1140px; }
     .wizard-steps { display: flex; gap: 0; margin-bottom: 32px; }
     .wizard-step { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; }
     .wizard-step:not(:last-child)::after { content:''; position: absolute; top: 14px; left: 50%; width: 100%; height: 2px; background: #e5e7eb; z-index: 0; }
@@ -3694,9 +3745,21 @@ export default function ProviderCRM({ staffId, clinicId }) {
           <div className="field full"><label>Payment Type</label>
             <div className="radio-group">
               {["insurance","private"].map(t => (
-                <div key={t} className={`radio-pill ${form.payType===t?"active":""}`} onClick={()=>upd("payType",t)}>
+                <div key={t} className={`radio-pill ${form.payType===t?"active":""}`} onClick={()=>{
+                  // Private-pay bundles Complete Care+ (4-yr warranty / 5-yr unlimited
+                  // visits) into the device price, so we preset the carePlan here
+                  // and skip the dedicated Care Plan wizard step. carePlan is
+                  // saved as null in the DB for private-pay (handleSave nulls it),
+                  // but the form state needs "complete" so the wizard PA modal,
+                  // Review step, and downstream displays render correctly.
+                  setForm(f => ({
+                    ...f,
+                    payType: t,
+                    carePlan: t === "private" ? "complete" : (f.carePlan === "complete" && f.payType === "private" ? "" : f.carePlan),
+                  }));
+                }}>
                   <div className="radio-pill-label">{t==="insurance"?"Insurance":"Private Pay"}</div>
-                  <div className="radio-pill-sub">{t==="insurance"?"Carrier + TPA plan":"Standard of Care – $5,500"}</div>
+                  <div className="radio-pill-sub">{t==="insurance"?"Carrier + TPA plan":"Complete Care+ included"}</div>
                 </div>
               ))}
             </div>
@@ -3720,8 +3783,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     })
                     .sort((a,b)=>a.planGroup.localeCompare(b.planGroup))
                     .map(plan=>(
-                      <div key={plan.planGroup}
-                        className={`plan-row ${form.planGroup===plan.planGroup?"active":""}`}
+                      <div key={`${plan.carrier}:${plan.planGroup}`}
+                        className={`plan-row ${form.planGroup===plan.planGroup&&form.carrier===plan.carrier?"active":""}`}
                         onClick={()=>{
                           upd("planGroup",plan.planGroup);
                           upd("carrier",plan.carrier);
@@ -5409,16 +5472,17 @@ export default function ProviderCRM({ staffId, clinicId }) {
             {p.devices && (p.carePlan || p.payType === "private") && (
               <button
                 style={{background:"#f0fdf4",color:"#15803d",border:"1px solid #86efac",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
-                onClick={() => {
+                onClick={async () => {
                   const isCROS = [p.devices?.left, p.devices?.right].some(r => r?.variant?.toLowerCase().includes("cros"));
                   const hasLeft = !!p.devices?.left;
                   const hasRight = !!p.devices?.right;
                   const fittingType = hasLeft && hasRight ? (isCROS ? "cros_bicros" : "bilateral") : hasLeft ? "monaural_left" : "monaural_right";
                   const counselingSections = p.audiology ? generateCounseling(p.audiology) : null;
-                  downloadQuote({
+                  const pricePerAid = p.payType === "private" ? 2750 : (p.insurance?.tierPrice || 0);
+                  const { blob, fileName } = downloadQuote({
                     patient: { name: p.name, phone: p.phone },
                     devices: { fittingType, left: p.devices?.left || null, right: p.devices?.right || null },
-                    pricePerAid: p.payType === "private" ? 2750 : (p.insurance?.tierPrice || 0),
+                    pricePerAid,
                     selectedCarePlan: p.carePlan || "complete",
                     payType: p.payType,
                     tpa: p.insurance?.tpa,
@@ -5428,6 +5492,31 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     clinic: staffProfile?.clinic || clinic,
                     provider: { fullName: staffProfile?.fullName || "Provider", activeLicense: staffProfile?.activeLicense || "" },
                   });
+                  try {
+                    const isBilateral = (fittingType === 'bilateral' || fittingType === 'cros_bicros');
+                    await uploadPatientDocument({
+                      patientId: p.id,
+                      clinicId,
+                      staffId,
+                      kind: 'quote',
+                      blob, fileName,
+                      metadata: {
+                        fittingType,
+                        pricePerAid,
+                        aidCount: isBilateral ? 2 : 1,
+                        selectedCarePlan: p.carePlan || "complete",
+                        payType: p.payType,
+                        carrier: p.insurance?.carrier || null,
+                        tpa: p.insurance?.tpa || null,
+                        leftFamily: p.devices?.left?.family || null,
+                        rightFamily: p.devices?.right?.family || null,
+                      },
+                    });
+                    await refreshDocuments();
+                  } catch (e) {
+                    console.error('Archive quote PDF:', e);
+                    alert('Quote downloaded, but failed to archive to chart: ' + (e.message || e));
+                  }
                 }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -5454,7 +5543,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
           const handleGeneratePDF = async (includeDelivery = false) => {
             const pricePerAid = p.payType === "private" ? 2750 : (p.insurance?.tierPrice || 0);
-            downloadPurchaseAgreement({
+            const isBilateral = (p.devices?.fittingType === 'bilateral' || p.devices?.fittingType === 'cros_bicros');
+            const aidCount = isBilateral ? 2 : 1;
+            const carePlanCost = cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0;
+            const { blob, fileName } = downloadPurchaseAgreement({
               patient: { name: p.name, address: p.address, phone: p.phone, dob: p.dob },
               devices: {
                 fittingType: p.devices?.fittingType || 'bilateral',
@@ -5475,6 +5567,37 @@ export default function ProviderCRM({ staffId, clinicId }) {
               deliveryDate: includeDelivery ? paDeliveryDate || null : null,
               signatureImageBase64: null,
             });
+
+            // Always archive to chart — paper trail required for compliance.
+            try {
+              await uploadPatientDocument({
+                patientId: p.id,
+                clinicId,
+                staffId,
+                kind: 'purchase_agreement',
+                blob, fileName,
+                metadata: {
+                  carePlan: cpId,
+                  pricePerAid,
+                  aidCount,
+                  deviceTotal: pricePerAid * aidCount,
+                  carePlanCost,
+                  totalPurchasePrice: (pricePerAid * aidCount) + carePlanCost,
+                  fittingType: p.devices?.fittingType || 'bilateral',
+                  payType: p.payType,
+                  patientSignature: paSignatureName.trim(),
+                  includesDelivery: includeDelivery,
+                  deliverySignature: includeDelivery ? (paDeliveryName.trim() || null) : null,
+                  deliveryDate: includeDelivery ? (paDeliveryDate || null) : null,
+                  providerName: staffProfile?.fullName || null,
+                },
+              });
+              await refreshDocuments();
+            } catch (e) {
+              console.error('Archive purchase agreement:', e);
+              alert('Purchase agreement downloaded, but failed to archive to chart: ' + (e.message || e));
+            }
+
             // Convert TNS patient to active when PA is signed
             if (p.patientStatus === "tns") {
               try {
@@ -5729,8 +5852,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
                         .sort((a,b)=>a.planGroup.localeCompare(b.planGroup))
                         .slice(0,30)
                         .map(plan=>(
-                          <div key={plan.planGroup}
-                            className={`plan-row ${editDraft.planGroup===plan.planGroup?"active":""}`}
+                          <div key={`${plan.carrier}:${plan.planGroup}`}
+                            className={`plan-row ${editDraft.planGroup===plan.planGroup&&editDraft.carrier===plan.carrier?"active":""}`}
                             onClick={()=>setEditDraft(d=>({...d,carrier:plan.carrier,planGroup:plan.planGroup,tpa:plan.tpa||"",tier:"",tierPrice:null}))}>
                             <div className="plan-row-name">{plan.planGroup}</div>
                             <div className="plan-row-tpa">{plan.carrier} · via {plan.tpa}</div>
@@ -6084,6 +6207,50 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 {p.appointments.sort((a,b)=>new Date(a.date)-new Date(b.date)).map((a,i)=>(
                   <div className="detail-row" key={i}><span className="detail-key">{a.type}</span><span className="detail-val">{fmtDate(a.date)}</span></div>
                 ))}
+              </div>
+            )}
+
+
+            {/* ── DOCUMENTS ───────────────────────────────────────────────────────── */}
+            {/* Archived PDFs: quotes, purchase agreements, kiosk intake receipts.   */}
+            {/* Signed URLs are short-lived (1h); the card calls refreshDocuments    */}
+            {/* after each upload and on patient-detail entry.                       */}
+            {patientDocuments.length > 0 && (
+              <div className="detail-card full">
+                <div className="detail-card-title">Documents</div>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {patientDocuments.map(d => {
+                    const kindLabel = d.kind === 'purchase_agreement' ? 'Purchase Agreement'
+                                    : d.kind === 'kiosk_intake' ? 'Intake Form'
+                                    : 'Quote';
+                    const kindColor = d.kind === 'purchase_agreement' ? '#0a1628'
+                                    : d.kind === 'kiosk_intake' ? '#7c3aed'
+                                    : '#15803d';
+                    const kindBg    = d.kind === 'purchase_agreement' ? '#e2e8f0'
+                                    : d.kind === 'kiosk_intake' ? '#ede9fe'
+                                    : '#dcfce7';
+                    const sizeKb = d.byte_size ? Math.round(d.byte_size / 1024) : null;
+                    return (
+                      <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#f9fafb",borderRadius:8,border:"1px solid #e5e7eb"}}>
+                        <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20,background:kindBg,color:kindColor,letterSpacing:0.4,textTransform:"uppercase"}}>{kindLabel}</span>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13,fontWeight:600,color:"#0a1628",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.file_name}</div>
+                          <div style={{fontSize:11,color:"#9ca3af",marginTop:2}}>
+                            {fmtDate(d.created_at)}{sizeKb ? ` · ${sizeKb} KB` : ""}
+                          </div>
+                        </div>
+                        {d.signedUrl ? (
+                          <a href={d.signedUrl} target="_blank" rel="noopener noreferrer"
+                             style={{fontSize:12,fontWeight:600,color:"#0a1628",background:"white",border:"1px solid #e5e7eb",borderRadius:6,padding:"6px 12px",textDecoration:"none"}}>
+                            Open ↗
+                          </a>
+                        ) : (
+                          <span style={{fontSize:11,color:"#9ca3af"}}>link expired</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
@@ -6734,21 +6901,31 @@ export default function ProviderCRM({ staffId, clinicId }) {
           {view === "campaigns" && <CampaignManager clinicId={clinicId} staffId={staffId} patients={patients} />}
           {view === "content" && <ContentLibrary clinicId={clinicId} staffId={staffId} />}
           {view === "lima-charlie" && <LimaCharlie clinicId={clinicId} staffId={staffId} />}
-          {view === "new" && (
+          {view === "new" && (() => {
+            // Private-pay bundles Complete Care+ — no separate Care Plan step.
+            // We hide step index 6 from the stepper and skip it in nav. The
+            // underlying STEPS indexes are unchanged; everything else still
+            // references step === 6 etc. by absolute index.
+            const skipCarePlan = form.payType === "private";
+            const visibleSteps = skipCarePlan
+              ? STEPS.map((s, i) => ({ s, i })).filter(({ i }) => i !== 6)
+              : STEPS.map((s, i) => ({ s, i }));
+            const visiblePos = visibleSteps.findIndex(({ i }) => i === step);
+            return (
             <>
               <div className="topbar">
                 <div>
                   <div className="topbar-title">New Patient</div>
-                  <div className="topbar-sub">Step {step+1} of {STEPS.length} · {STEPS[step]}</div>
+                  <div className="topbar-sub">Step {visiblePos + 1} of {visibleSteps.length} · {STEPS[step]}</div>
                 </div>
                 <button className="btn-ghost" onClick={()=>setView("dashboard")}>Cancel</button>
               </div>
               <div className="content">
                 <div className="wizard-wrap">
                   <div className="wizard-steps">
-                    {STEPS.map((s,i)=>(
-                      <div key={s} className={`wizard-step ${i<step?"done":""}`}>
-                        <div className={`step-dot ${i===step?"active":i<step?"done":""}`}>{i<step?"✓":i+1}</div>
+                    {visibleSteps.map(({ s, i }, pos)=>(
+                      <div key={s} className={`wizard-step ${pos<visiblePos?"done":""}`}>
+                        <div className={`step-dot ${i===step?"active":pos<visiblePos?"done":""}`}>{pos<visiblePos?"✓":pos+1}</div>
                         <div className={`step-name ${i===step?"active":""}`}>{s}</div>
                       </div>
                     ))}
@@ -6763,7 +6940,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     </div>
                   )}
                   <div className="wizard-nav">
-                    <button className="btn-ghost" onClick={()=>step===0?setView("dashboard"):setStep(s=>s-1)}>
+                    <button className="btn-ghost" onClick={()=>{
+                      if (step === 0) { setView("dashboard"); return; }
+                      // Private-pay skips Care Plan (step 6) — going Back from
+                      // Review (step 7) lands on Device Selection (step 5).
+                      if (skipCarePlan && step === 7) { setStep(5); return; }
+                      setStep(s=>s-1);
+                    }}>
                       {step===0?"Cancel":"← Back"}
                     </button>
                     {step < STEPS.length-1 ? (
@@ -6792,7 +6975,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
                               setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
                             }
                           } catch(e) { console.error("incremental save:", e); }
-                          setStep(s=>s+1);
+                          // Private-pay skips Care Plan — Continue from Device
+                          // Selection (step 5) jumps straight to Review (step 7).
+                          setStep(s => (skipCarePlan && s === 5) ? 7 : s + 1);
                         }}>
                           Continue →
                         </button>
@@ -6928,17 +7113,48 @@ export default function ProviderCRM({ staffId, clinicId }) {
                           <button
                             disabled={paSignatureName.trim().length<=2}
                             style={{width:"100%",marginTop:16,background:paSignatureName.trim().length>2?"#15803d":"#d1d5db",color:"white",border:"none",borderRadius:8,padding:"14px 20px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,cursor:paSignatureName.trim().length>2?"pointer":"not-allowed"}}
-                            onClick={()=>{
+                            onClick={async ()=>{
                               const sigDate = new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
-                              downloadPurchaseAgreement({
+                              const pricePerAid = form.payType==="private"?privatePayPrimaryPerAid():(form.tierPrice||0);
+                              const isBilateral = (fType === 'bilateral' || fType === 'cros_bicros');
+                              const aidCount = isBilateral ? 2 : 1;
+                              const carePlanCost = cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0;
+                              const { blob, fileName } = downloadPurchaseAgreement({
                                 patient:{name:pName,address:form.address,phone:form.phone,dob:form.dob},
                                 devices:{fittingType:fType,left:leftRec,right:rightRec},
-                                carePlan:cpId, pricePerAid:form.payType==="private"?privatePayPrimaryPerAid():(form.tierPrice||0),
+                                carePlan:cpId, pricePerAid,
                                 clinic:clinicObj,
                                 provider:{fullName:provName,activeLicense:provLic,signatureUrl:staffProfile?.signatureUrl||null},
                                 patientSignature:paSignatureName.trim(), patientSignatureDate:sigDate,
                                 deliverySignature:null, deliveryDate:null, signatureImageBase64:null,
                               });
+                              if (wizardPatientId) {
+                                try {
+                                  await uploadPatientDocument({
+                                    patientId: wizardPatientId,
+                                    clinicId,
+                                    staffId,
+                                    kind: 'purchase_agreement',
+                                    blob, fileName,
+                                    metadata: {
+                                      carePlan: cpId,
+                                      pricePerAid,
+                                      aidCount,
+                                      deviceTotal: pricePerAid * aidCount,
+                                      carePlanCost,
+                                      totalPurchasePrice: (pricePerAid * aidCount) + carePlanCost,
+                                      fittingType: fType,
+                                      payType: form.payType,
+                                      patientSignature: paSignatureName.trim(),
+                                      includesDelivery: false,
+                                      providerName: provName,
+                                    },
+                                  });
+                                } catch (e) {
+                                  console.error('Archive purchase agreement (wizard):', e);
+                                  alert('Purchase agreement downloaded, but failed to archive to chart: ' + (e.message || e));
+                                }
+                              }
                               setWizardPaSigned(true);
                               setWizardPaSignatureDate(new Date().toISOString());
                               setShowWizardPaModal(false);
@@ -6955,7 +7171,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 );
               })()}
             </>
-          )}
+            );
+          })()}
         </div>
       </div>
     </>

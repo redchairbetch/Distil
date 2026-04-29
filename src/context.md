@@ -217,6 +217,7 @@ export async function loadPricingReveal(clinicId, patientId) {
 9. **Pricing Reveal component** — Chapter 3 of narrative thread (data model complete, `db.js` function ready, UI build pending)
 10. **Referral pipeline — name the referrer** — intake kiosk "Friend or family referral" should reveal a text box for the referrer's name so the clinic can close the loop (thank-you card, referral credit, cross-reference to the existing patient record). Low-priority polish; revisit when fleshing out the referral pipeline.
 11. **Branding / logo for Distil** — current favicon is a generic 🩺 emoji. Need a real wordmark/icon for the provider CRM. Tie to a brand system that also covers Aided and (eventually) Lima Charlie.
+12. **Text-selectable kiosk intake PDF** — current archive uses `jsPDF.html()` (html2canvas under the hood) which produces an image-based PDF: visually identical to the printable HTML and legally fine for compliance, but not text-searchable. Build a parallel jsPDF generator that lays out the intake fields directly (similar to `generatePurchaseAgreement.js`) so the archived signed-intake PDFs are searchable, smaller, and copy-pasteable. Replace the `htmlToPdfBlob()` helper in `IntakeKiosk.jsx` with the new generator once it's ready.
 
 ### Aided
 10. **PWA conversion** ✅ DONE (Apr 2026) — installable on home screen, scoped to `/aided`, hand-rolled service worker, SVG icons, safe-area insets for standalone display. Placeholder 🎧-on-navy icon in use until real branding lands.
