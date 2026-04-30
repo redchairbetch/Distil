@@ -950,7 +950,7 @@ export async function saveClinicSettings(clinicId, settings) {
 export async function loadProductCatalog() {
   const { data, error } = await supabase
     .from('product_catalog')
-    .select('*')
+    .select(`*, product_catalog_tier ( id, tier_name, msrp )`)
     .eq('active', true)
     .order('manufacturer')
   if (error) { console.error('loadProductCatalog:', error); return [] }
@@ -968,6 +968,11 @@ export async function loadProductCatalog() {
     battery:      row.battery_options || [],
     active:       row.active,
     notes:        row.notes        || '',
+    tiers:        (row.product_catalog_tier || []).map(t => ({
+      id:       t.id,
+      tierName: t.tier_name,
+      msrp:     t.msrp != null ? Number(t.msrp) : null,
+    })),
   }))
 }
 
@@ -989,7 +994,50 @@ export async function saveProductCatalog(catalogItems) {
   const { error } = await supabase
     .from('product_catalog')
     .upsert(rows, { onConflict: 'id' })
-  if (error) console.error('saveProductCatalog:', error)
+  if (error) { console.error('saveProductCatalog:', error); return }
+
+  // Sync product_catalog_tier rows for each family.
+  // Tiers carried back from the editor have an `id` if they were loaded from
+  // DB; new tiers (added via the chip editor for a brand-new techLevel) have
+  // no id and get inserted. Anything in DB that's no longer in the new set
+  // gets deleted.
+  const allCatalogIds = catalogItems.map(i => i.id)
+  if (!allCatalogIds.length) return
+
+  const { data: existing, error: exErr } = await supabase
+    .from('product_catalog_tier')
+    .select('id, product_catalog_id')
+    .in('product_catalog_id', allCatalogIds)
+  if (exErr) { console.error('saveProductCatalog tier scan:', exErr); return }
+
+  const wantedIds = new Set(
+    catalogItems.flatMap(item => (item.tiers || []).filter(t => t.id).map(t => t.id))
+  )
+  const toDelete = (existing || []).filter(r => !wantedIds.has(r.id)).map(r => r.id)
+  if (toDelete.length) {
+    const { error: delErr } = await supabase
+      .from('product_catalog_tier')
+      .delete()
+      .in('id', toDelete)
+    if (delErr) console.error('saveProductCatalog tier delete:', delErr)
+  }
+
+  const tierRows = catalogItems.flatMap(item =>
+    (item.tiers || [])
+      .filter(t => t.tierName && t.tierName.trim())
+      .map(t => ({
+        ...(t.id ? { id: t.id } : {}),
+        product_catalog_id: item.id,
+        tier_name:          t.tierName,
+        msrp:               t.msrp != null && t.msrp !== '' ? Number(t.msrp) : null,
+      }))
+  )
+  if (tierRows.length) {
+    const { error: upErr } = await supabase
+      .from('product_catalog_tier')
+      .upsert(tierRows)
+    if (upErr) console.error('saveProductCatalog tier upsert:', upErr)
+  }
 }
 
 // Load all tier rows (one per device tier within a family) with their parent
@@ -2072,6 +2120,47 @@ export async function loadRetailAnchors(clinicId, manufacturerClass = 'signia') 
     .order('sort_order')
   if (error) return []
   return data || []
+}
+
+export async function saveRetailAnchors(clinicId, manufacturerClass, anchors) {
+  // Get existing rows for this clinic + manufacturer class
+  const { data: existing, error: exErr } = await supabase
+    .from('clinic_retail_anchors')
+    .select('id')
+    .eq('clinic_id', clinicId)
+    .eq('manufacturer_class', manufacturerClass)
+  if (exErr) { console.error('saveRetailAnchors scan:', exErr); return { success: false, error: exErr } }
+
+  const wantedIds = new Set((anchors || []).filter(a => a.id).map(a => a.id))
+  const toDelete = (existing || []).filter(r => !wantedIds.has(r.id)).map(r => r.id)
+  if (toDelete.length) {
+    const { error: delErr } = await supabase
+      .from('clinic_retail_anchors')
+      .delete()
+      .in('id', toDelete)
+    if (delErr) { console.error('saveRetailAnchors delete:', delErr); return { success: false, error: delErr } }
+  }
+
+  // Generate client-side UUIDs for new rows. The clinic_retail_anchors.id
+  // column doesn't have a server-side default, so omitting id causes the
+  // insert to silently fail (NOT NULL violation hidden by error logging).
+  const rows = (anchors || [])
+    .filter(a => a.label && a.label.trim())
+    .map((a, i) => ({
+      id:                 a.id || crypto.randomUUID(),
+      clinic_id:          clinicId,
+      manufacturer_class: manufacturerClass,
+      label:              a.label,
+      price_per_aid:      a.price_per_aid != null && a.price_per_aid !== '' ? Number(a.price_per_aid) : null,
+      sort_order:         i + 1,
+    }))
+  if (rows.length) {
+    const { error: upErr } = await supabase
+      .from('clinic_retail_anchors')
+      .upsert(rows)
+    if (upErr) { console.error('saveRetailAnchors upsert:', upErr); return { success: false, error: upErr } }
+  }
+  return { success: true }
 }
 
 export async function loadPricingReveal(clinicId, patientId) {
