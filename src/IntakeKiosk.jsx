@@ -1219,7 +1219,10 @@ export default function IntakeKiosk() {
       a.href = url; a.download = fileName;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      // Archive (best-effort)
+      // Archive (best-effort). returnRow:false skips the .select() chain so
+      // PostgREST issues a plain INSERT instead of INSERT...RETURNING — anon
+      // has no SELECT policy on patient_documents, and RETURNING would fail
+      // the SELECT RLS check on the new row (same workaround as submitIntake).
       if (intakeRowId) {
         try {
           await uploadPatientDocument({
@@ -1227,6 +1230,7 @@ export default function IntakeKiosk() {
             intakeId: intakeRowId,
             kind: "kiosk_intake",
             blob: pdfBlob, fileName,
+            returnRow: false,
             metadata: {
               intakeRefId: intakeId,
               submittedAt: timestamp,

@@ -141,16 +141,21 @@ function sanitizeFileName(name) {
 /**
  * Archive a PDF to the patient's chart.
  * - Provider-side: pass patientId + staffId + clinicId.
- * - Kiosk-side: pass intakeId + clinicId; patientId/staffId are null until
- *   the intake is matched to a patient.
+ * - Kiosk-side: pass intakeId + clinicId + returnRow:false; patientId/staffId
+ *   are null until the intake is matched to a patient.
  *
  * Args:
  *   blob       — Blob with type 'application/pdf'
  *   fileName   — display name (e.g. "Purchase_Agreement_Smith_Jane_2026-04-29.pdf")
  *   kind       — 'quote' | 'purchase_agreement' | 'kiosk_intake'
  *   metadata   — jsonb snapshot for audit trail (devices, totals, etc.)
+ *   returnRow  — when true (default) issue INSERT...RETURNING and return the
+ *                row; when false, plain INSERT and return null. Anon kiosk
+ *                callers must pass false: RETURNING triggers a SELECT RLS
+ *                check and anon has no SELECT policy on patient_documents,
+ *                same as the submitIntake workaround.
  *
- * Returns the inserted patient_documents row.
+ * Returns the inserted patient_documents row, or null when returnRow=false.
  */
 export async function uploadPatientDocument({
   patientId = null,
@@ -161,6 +166,7 @@ export async function uploadPatientDocument({
   blob,
   fileName,
   metadata = {},
+  returnRow = true,
 }) {
   if (!clinicId) throw new Error('uploadPatientDocument: clinicId is required')
   if (!blob) throw new Error('uploadPatientDocument: blob is required')
@@ -185,7 +191,7 @@ export async function uploadPatientDocument({
     .upload(storagePath, blob, { contentType: 'application/pdf', upsert: false })
   if (uploadErr) throw uploadErr
 
-  const { data, error: insertErr } = await supabase
+  const insertBuilder = supabase
     .from('patient_documents')
     .insert({
       patient_id:   patientId,
@@ -198,17 +204,20 @@ export async function uploadPatientDocument({
       byte_size:    blob.size ?? null,
       metadata,
     })
-    .select('*')
-    .single()
+  const { data, error: insertErr } = returnRow
+    ? await insertBuilder.select('*').single()
+    : await insertBuilder
 
   if (insertErr) {
     // Best-effort cleanup of the orphaned object so a retry doesn't collide
-    // on the unique storage_path constraint.
+    // on the unique storage_path constraint. Anon role has no DELETE policy
+    // so the cleanup silently no-ops on the kiosk path; orphans need a
+    // separate sweep job (see backlog).
     await supabase.storage.from(DOCUMENTS_BUCKET).remove([storagePath]).catch(() => {})
     throw insertErr
   }
 
-  return data
+  return data ?? null
 }
 
 /**
