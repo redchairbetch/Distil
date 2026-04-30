@@ -118,6 +118,146 @@ export async function uploadSignatureImage(staffId, file) {
 
 
 // ============================================================
+// PATIENT DOCUMENTS (PDF archive)
+// ============================================================
+// Quote, purchase agreement, and kiosk intake PDFs are uploaded to the
+// private 'patient-documents' bucket and indexed in the patient_documents
+// table. Path layout:
+//   clinics/{clinic_id}/patients/{patient_id}/{kind}/{ts}_{name}.pdf  (provider)
+//   clinics/{clinic_id}/intakes/{intake_id}/{ts}_{name}.pdf            (kiosk)
+// Storage RLS keys off the first two segments (clinics/{clinic_id});
+// the third segment distinguishes provider vs kiosk origin.
+
+const DOCUMENTS_BUCKET = 'patient-documents'
+
+// Strip path-unsafe characters from a filename so storage keys stay clean.
+function sanitizeFileName(name) {
+  return String(name || 'document')
+    .replace(/[^\w.\- ]+/g, '_')
+    .replace(/\s+/g, '_')
+    .slice(0, 120)
+}
+
+/**
+ * Archive a PDF to the patient's chart.
+ * - Provider-side: pass patientId + staffId + clinicId.
+ * - Kiosk-side: pass intakeId + clinicId + returnRow:false; patientId/staffId
+ *   are null until the intake is matched to a patient.
+ *
+ * Args:
+ *   blob       — Blob with type 'application/pdf'
+ *   fileName   — display name (e.g. "Purchase_Agreement_Smith_Jane_2026-04-29.pdf")
+ *   kind       — 'quote' | 'purchase_agreement' | 'kiosk_intake'
+ *   metadata   — jsonb snapshot for audit trail (devices, totals, etc.)
+ *   returnRow  — when true (default) issue INSERT...RETURNING and return the
+ *                row; when false, plain INSERT and return null. Anon kiosk
+ *                callers must pass false: RETURNING triggers a SELECT RLS
+ *                check and anon has no SELECT policy on patient_documents,
+ *                same as the submitIntake workaround.
+ *
+ * Returns the inserted patient_documents row, or null when returnRow=false.
+ */
+export async function uploadPatientDocument({
+  patientId = null,
+  clinicId,
+  staffId = null,
+  intakeId = null,
+  kind,
+  blob,
+  fileName,
+  metadata = {},
+  returnRow = true,
+}) {
+  if (!clinicId) throw new Error('uploadPatientDocument: clinicId is required')
+  if (!blob) throw new Error('uploadPatientDocument: blob is required')
+  if (!['quote', 'purchase_agreement', 'kiosk_intake'].includes(kind)) {
+    throw new Error(`uploadPatientDocument: invalid kind "${kind}"`)
+  }
+
+  const ts = new Date().toISOString().replace(/[:.]/g, '-')
+  const cleanName = sanitizeFileName(fileName || `${kind}.pdf`)
+
+  let storagePath
+  if (kind === 'kiosk_intake') {
+    if (!intakeId) throw new Error('uploadPatientDocument: intakeId required for kiosk_intake')
+    storagePath = `clinics/${clinicId}/intakes/${intakeId}/${ts}_${cleanName}`
+  } else {
+    if (!patientId) throw new Error('uploadPatientDocument: patientId required for provider docs')
+    storagePath = `clinics/${clinicId}/patients/${patientId}/${kind}/${ts}_${cleanName}`
+  }
+
+  const { error: uploadErr } = await supabase.storage
+    .from(DOCUMENTS_BUCKET)
+    .upload(storagePath, blob, { contentType: 'application/pdf', upsert: false })
+  if (uploadErr) throw uploadErr
+
+  const insertBuilder = supabase
+    .from('patient_documents')
+    .insert({
+      patient_id:   patientId,
+      clinic_id:    clinicId,
+      staff_id:     staffId,
+      intake_id:    intakeId,
+      kind,
+      storage_path: storagePath,
+      file_name:    cleanName,
+      byte_size:    blob.size ?? null,
+      metadata,
+    })
+  const { data, error: insertErr } = returnRow
+    ? await insertBuilder.select('*').single()
+    : await insertBuilder
+
+  if (insertErr) {
+    // Best-effort cleanup of the orphaned object so a retry doesn't collide
+    // on the unique storage_path constraint. Anon role has no DELETE policy
+    // so the cleanup silently no-ops on the kiosk path; orphans need a
+    // separate sweep job (see backlog).
+    await supabase.storage.from(DOCUMENTS_BUCKET).remove([storagePath]).catch(() => {})
+    throw insertErr
+  }
+
+  return data ?? null
+}
+
+/**
+ * List archived documents for a patient, newest first. Each row is
+ * augmented with a short-lived signedUrl for direct download.
+ */
+export async function listPatientDocuments(patientId, { signedUrlSeconds = 3600 } = {}) {
+  if (!patientId) return []
+  const { data, error } = await supabase
+    .from('patient_documents')
+    .select('id, kind, file_name, byte_size, metadata, storage_path, created_at, staff_id')
+    .eq('patient_id', patientId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  if (!data?.length) return []
+
+  // Batch-sign URLs in one round-trip.
+  const { data: signed, error: signErr } = await supabase.storage
+    .from(DOCUMENTS_BUCKET)
+    .createSignedUrls(data.map(d => d.storage_path), signedUrlSeconds)
+  if (signErr) throw signErr
+
+  const urlByPath = new Map((signed || []).map(s => [s.path, s.signedUrl]))
+  return data.map(row => ({ ...row, signedUrl: urlByPath.get(row.storage_path) || null }))
+}
+
+/**
+ * Get a fresh signed URL for a single document (e.g. when the cached
+ * URL on a list row has expired).
+ */
+export async function getDocumentSignedUrl(storagePath, expiresIn = 3600) {
+  const { data, error } = await supabase.storage
+    .from(DOCUMENTS_BUCKET)
+    .createSignedUrl(storagePath, expiresIn)
+  if (error) throw error
+  return data?.signedUrl || null
+}
+
+
+// ============================================================
 // HELPERS
 // ============================================================
 
@@ -969,15 +1109,25 @@ export async function loadProductCatalogTiers() {
 // clinic). RETURNING as anon fails and Postgres reports the whole
 // operation as "violates row-level security policy". We don't need the
 // inserted row back anyway.
-export async function submitIntake(answers, clinicId) {
+export async function submitIntake(answers, clinicId, explicitId = null) {
+  // Caller may supply a UUID so the kiosk can archive the signed-intake PDF
+  // under the same ID without needing RETURNING (which would trip RLS for the
+  // anon role). If none is provided, we mint one client-side — the DB will
+  // accept any UUID since the `id` column has no constraints beyond PK.
+  const id = explicitId || (typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : null)
+  const row = {
+    clinic_id: clinicId,
+    answers,
+    status: 'pending',
+  }
+  if (id) row.id = id
   const { error } = await supabase
     .from('intakes')
-    .insert({
-      clinic_id: clinicId,
-      answers,
-      status: 'pending',
-    })
+    .insert(row)
   if (error) throw error
+  return id
 }
 
 // Mark an intake as accepted (called from Distil when provider accepts)
@@ -1031,6 +1181,11 @@ export async function createProviderIntake(patientId, clinicId) {
 // Used by the device-selection recommendation engine to query intake
 // responses by patient, and by the Health History wizard step to
 // surface all prior intakes on the patient profile.
+//
+// Also backfills any patient_documents rows tied to this intake (e.g. the
+// signed-intake PDF archived at kiosk submit time when no patient_id was
+// known yet). The matching staff member's clinic must own the intake — RLS
+// already enforces this on the update.
 export async function linkIntakeToPatient(intakeId, patientId) {
   if (!intakeId || !patientId) return
   const { error } = await supabase
@@ -1038,6 +1193,14 @@ export async function linkIntakeToPatient(intakeId, patientId) {
     .update({ patient_id: patientId })
     .eq('id', intakeId)
   if (error) console.error('linkIntakeToPatient:', error)
+
+  // Best-effort backfill — failures here shouldn't block the intake link.
+  const { error: docErr } = await supabase
+    .from('patient_documents')
+    .update({ patient_id: patientId })
+    .eq('intake_id', intakeId)
+    .is('patient_id', null)
+  if (docErr) console.error('linkIntakeToPatient: backfill patient_documents:', docErr)
 }
 
 // Load all intakes for a patient, newest first. Each submission is its own
