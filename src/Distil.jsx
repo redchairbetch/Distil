@@ -58,6 +58,7 @@ import {
   resolveInsurancePlanId,
   loadPricingReveal,
   loadRetailAnchors,
+  saveRetailAnchors,
   updatePatientContact,
   updateInsuranceCoverage,
   updateDeviceFitting,
@@ -1577,6 +1578,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [retailAnchors, setRetailAnchors] = useState([]);
   const [pricingReveal, setPricingReveal] = useState(null);
 
+  // Retail anchors editor (Clinic Settings → Retail Anchors)
+  const [anchorsClass, setAnchorsClass] = useState("signia");
+  const [anchorsDraft, setAnchorsDraft] = useState([]);
+  const [anchorsLoading, setAnchorsLoading] = useState(false);
+  const [anchorsSaved, setAnchorsSaved] = useState(false);
+  // Tracks which money input is currently focused (so we show raw value while
+  // typing, but normalize to 2-decimal display on blur). Key shape: "anchor:i"
+  // for anchor rows and "tier:tierName" for catalog tier rows.
+  const [focusedMoneyKey, setFocusedMoneyKey] = useState(null);
+
   // ── Purchase Agreement state ──────────────────────────────────────────
   const [staffProfile, setStaffProfile] = useState(null);
   const [showPurchaseAgreement, setShowPurchaseAgreement] = useState(false);
@@ -1596,8 +1607,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [catEditId, setCatEditId] = useState(null);      // which entry is open for editing
   const [catDraft, setCatDraft] = useState(null);         // draft of entry being edited
   const [catAddChip, setCatAddChip] = useState({});       // { fieldKey: inputValue } for chip editors
+  const [catChipEdit, setCatChipEdit] = useState({ key: null, idx: null, value: "" }); // inline chip rename
   const [catSearch, setCatSearch] = useState("");
   const [catNewEntry, setCatNewEntry] = useState(false);
+  const [catSaved, setCatSaved] = useState(false);
 
 
 
@@ -1886,6 +1899,20 @@ export default function ProviderCRM({ staffId, clinicId }) {
       } catch {}
     })();
   }, [clinicId]);
+
+  // Load anchors into the editor whenever the manufacturer class changes
+  // (also runs on mount once clinicId is known).
+  useEffect(() => {
+    if (!clinicId) return;
+    let cancelled = false;
+    setAnchorsLoading(true);
+    loadRetailAnchors(clinicId, anchorsClass).then(rows => {
+      if (cancelled) return;
+      setAnchorsDraft((rows || []).map(r => ({...r})));
+      setAnchorsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [clinicId, anchorsClass]);
 
 
   const refreshPatients = async () => {
@@ -5211,12 +5238,42 @@ export default function ProviderCRM({ staffId, clinicId }) {
     { label:"Teal",    value:"#0d9488" },
   ];
 
+  // Beltone deliberately excluded — we lack proprietary auth (Rexton-only per CLAUDE.md).
+  // 'standard' is the manufacturer-agnostic retail tier for clinic-wide pricing
+  // (kept first so existing legacy rows are immediately visible/editable).
+  const MANUFACTURER_CLASSES = [
+    { value:"standard", label:"Standard (general retail)" },
+    { value:"signia",   label:"Signia"  },
+    { value:"rexton",   label:"Rexton"  },
+    { value:"phonak",   label:"Phonak"  },
+    { value:"oticon",   label:"Oticon"  },
+    { value:"starkey",  label:"Starkey" },
+    { value:"widex",    label:"Widex"   },
+  ];
+
 
   const handleClinicSave = async () => {
     setClinic(clinicDraft);
     try { await saveClinicSettings(clinicId, clinicDraft); } catch {}
     setClinicSaved(true);
     setTimeout(() => setClinicSaved(false), 3000);
+  };
+
+  const handleSaveAnchors = async () => {
+    if (!clinicId) return;
+    const result = await saveRetailAnchors(clinicId, anchorsClass, anchorsDraft);
+    if (!result?.success) {
+      alert("Couldn't save anchors: " + (result?.error?.message || "unknown error — check console"));
+      return;
+    }
+    // Reload to pick up server-normalized values (ids, sort order, etc.)
+    const fresh = await loadRetailAnchors(clinicId, anchorsClass);
+    setAnchorsDraft((fresh || []).map(r => ({...r})));
+    // Refresh the global retailAnchors state if we just edited the class it holds
+    // (bootstrap loads 'signia'), so the pricing reveal sees fresh values without a reload.
+    if (anchorsClass === "signia") setRetailAnchors(fresh || []);
+    setAnchorsSaved(true);
+    setTimeout(() => setAnchorsSaved(false), 2500);
   };
 
 
@@ -5284,6 +5341,91 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 alert(`Backfill complete: ${result.enrolled} enrolled, ${result.skipped} skipped.${result.error ? ' ' + result.error : ''}`);
               }}>Backfill Existing Patients</button>
             </div>
+          </div>
+
+
+          <div className="settings-section">
+            <div className="settings-title">Retail Anchors</div>
+            <div style={{fontSize:12,color:"#9ca3af",marginBottom:14}}>
+              Per-tier retail price per aid, by manufacturer class. Drives the "full retail value" anchor on the patient pricing reveal.
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+              <label style={{fontSize:12,color:"#6b7280",fontWeight:500}}>Manufacturer class</label>
+              <select
+                value={anchorsClass}
+                onChange={e => setAnchorsClass(e.target.value)}
+                style={{padding:"6px 10px",borderRadius:6,border:"1px solid #e5e7eb",fontSize:13,fontFamily:"'Sora',sans-serif",background:"white"}}
+              >
+                {MANUFACTURER_CLASSES.map(c => (
+                  <option key={c.value} value={c.value}>{c.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {anchorsLoading ? (
+              <div style={{fontSize:12,color:"#9ca3af",padding:"10px 4px"}}>Loading…</div>
+            ) : (
+              <>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 150px 30px",gap:10,fontSize:10,color:"#9ca3af",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:8,padding:"0 4px"}}>
+                  <div>Tier label</div>
+                  <div style={{textAlign:"right"}}>Price/aid (USD)</div>
+                  <div></div>
+                </div>
+                {anchorsDraft.length === 0 && (
+                  <div style={{fontSize:12,color:"#9ca3af",padding:"10px 4px"}}>No anchors set for this manufacturer class yet.</div>
+                )}
+                {anchorsDraft.map((a, i) => {
+                  const fkey = `anchor:${i}`;
+                  const focused = focusedMoneyKey === fkey;
+                  return (
+                    <div key={a.id || `new-${i}`} style={{display:"grid",gridTemplateColumns:"1fr 150px 30px",gap:10,marginBottom:8,alignItems:"center"}}>
+                      <input
+                        value={a.label || ""}
+                        placeholder="e.g. Premium 7"
+                        onChange={e => {
+                          const v = e.target.value;
+                          setAnchorsDraft(d => d.map((row, j) => j === i ? {...row, label: v} : row));
+                        }}
+                        style={{padding:"6px 10px",borderRadius:6,border:"1px solid #e5e7eb",fontSize:13,fontFamily:"'Sora',sans-serif"}}
+                      />
+                      <div style={{display:"flex",alignItems:"center",gap:4}}>
+                        <span style={{fontSize:13,color:"#9ca3af"}}>$</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={focused ? (a.price_per_aid ?? "") : formatMoney(a.price_per_aid)}
+                          placeholder="—"
+                          onFocus={() => setFocusedMoneyKey(fkey)}
+                          onBlur={() => setFocusedMoneyKey(null)}
+                          onChange={e => {
+                            const raw = e.target.value;
+                            const next = raw === "" ? null : Math.max(0, Number(raw));
+                            setAnchorsDraft(d => d.map((row, j) => j === i ? {...row, price_per_aid: next} : row));
+                          }}
+                          style={{flex:1,padding:"6px 10px",borderRadius:6,border:"1px solid #e5e7eb",fontSize:13,fontFamily:"'Sora',sans-serif",textAlign:"right"}}
+                        />
+                      </div>
+                      <button
+                        onClick={() => setAnchorsDraft(d => d.filter((_, j) => j !== i))}
+                        style={{background:"none",border:"none",color:"#9ca3af",cursor:"pointer",fontSize:18,padding:0,lineHeight:1}}
+                        title="Delete row"
+                      >×</button>
+                    </div>
+                  );
+                })}
+                <button
+                  className="btn-ghost"
+                  style={{marginTop:6}}
+                  onClick={() => setAnchorsDraft(d => [...d, { label: "", price_per_aid: null }])}
+                >＋ Add Anchor</button>
+                <div style={{fontSize:11,color:"#9ca3af",marginTop:10}}>Display order matches the order shown above — saved automatically.</div>
+                <div style={{display:"flex",gap:10,marginTop:14,alignItems:"center"}}>
+                  <button className="btn-primary" onClick={handleSaveAnchors}>Save Anchors</button>
+                  {anchorsSaved && <div style={{fontSize:12,color:"#16a34a",fontWeight:600}}>✓ Saved</div>}
+                </div>
+              </>
+            )}
           </div>
 
 
@@ -6313,17 +6455,82 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [catMfrFilter, setCatMfrFilter] = useState("All");
 
 
-  const ChipEditor = ({ field, values }) => {
+  const renderChipEditor = (field, values) => {
     const key = `${catDraft?.id}-${field}`;
     const inputVal = catAddChip[key] || "";
+
+    // For techLevels, every chip change also syncs the parallel `tiers` array
+    // (add → append { tierName, msrp:null }, rename → update tierName, delete → drop matching row).
+    const applyChange = (mutator) => setCatDraft(d => {
+      const nextField = mutator(d[field] || []);
+      if (field !== "techLevels") return { ...d, [field]: nextField };
+      const oldNames = d[field] || [];
+      const tiers = d.tiers || [];
+      const keepNames = new Set(nextField);
+      // Detect rename: same length, exactly one position differs
+      let renamedFrom = null, renamedTo = null;
+      if (oldNames.length === nextField.length) {
+        const diffs = oldNames.map((n, i) => n !== nextField[i] ? i : -1).filter(i => i >= 0);
+        if (diffs.length === 1) { renamedFrom = oldNames[diffs[0]]; renamedTo = nextField[diffs[0]]; }
+      }
+      let nextTiers = tiers;
+      if (renamedFrom !== null) {
+        nextTiers = tiers.map(t => t.tierName === renamedFrom ? { ...t, tierName: renamedTo } : t);
+      } else {
+        // Drop tiers whose name no longer exists, then append rows for any new names
+        nextTiers = tiers.filter(t => keepNames.has(t.tierName));
+        const have = new Set(nextTiers.map(t => t.tierName));
+        for (const n of nextField) if (!have.has(n)) nextTiers.push({ tierName: n, msrp: null });
+      }
+      return { ...d, [field]: nextField, tiers: nextTiers };
+    });
+
+    const commitRename = () => {
+      const newVal = catChipEdit.value.trim();
+      const oldVal = values[catChipEdit.idx];
+      if (newVal && newVal !== oldVal) {
+        applyChange(arr => arr.map((v, j) => j === catChipEdit.idx ? newVal : v));
+      }
+      setCatChipEdit({ key: null, idx: null, value: "" });
+    };
+
     return (
       <div className="chip-row">
-        {values.map((v,i) => (
-          <div className="chip" key={i}>
-            {v}
-            <button className="chip-del" onClick={() => setCatDraft(d => ({...d, [field]: d[field].filter((_,j)=>j!==i)}))}>×</button>
-          </div>
-        ))}
+        {values.map((v,i) => {
+          const isEditing = catChipEdit.key === key && catChipEdit.idx === i;
+          if (isEditing) {
+            return (
+              <input
+                key={i}
+                className="chip-add-input"
+                style={{borderStyle:"solid",borderColor:"#0a1628"}}
+                value={catChipEdit.value}
+                autoFocus
+                onChange={e => setCatChipEdit(c => ({...c, value: e.target.value}))}
+                onBlur={commitRename}
+                onKeyDown={e => {
+                  if (e.key === "Enter") { e.preventDefault(); commitRename(); }
+                  else if (e.key === "Escape") { e.preventDefault(); setCatChipEdit({ key: null, idx: null, value: "" }); }
+                }}
+              />
+            );
+          }
+          return (
+            <div
+              className="chip"
+              key={i}
+              style={{cursor:"text"}}
+              title="Click to rename"
+              onClick={() => setCatChipEdit({ key, idx: i, value: v })}
+            >
+              {v}
+              <button
+                className="chip-del"
+                onClick={e => { e.stopPropagation(); applyChange(arr => arr.filter((_,j)=>j!==i)); }}
+              >×</button>
+            </div>
+          );
+        })}
         <input
           className="chip-add-input"
           placeholder="+ add…"
@@ -6332,11 +6539,64 @@ export default function ProviderCRM({ staffId, clinicId }) {
           onKeyDown={e => {
             if ((e.key === "Enter" || e.key === ",") && inputVal.trim()) {
               e.preventDefault();
-              setCatDraft(d => ({...d, [field]: [...(d[field]||[]), inputVal.trim()]}));
+              const v = inputVal.trim();
+              applyChange(arr => [...arr, v]);
               setCatAddChip(c => ({...c, [key]: ""}));
             }
           }}
         />
+      </div>
+    );
+  };
+
+
+  // Money display: show raw value while editing, format to 2 decimals when blurred.
+  const formatMoney = (v) => (v == null || v === "" ? "" : Number(v).toFixed(2));
+
+  const renderTierPricing = () => {
+    const tiers = catDraft?.tiers || [];
+    const techLevels = catDraft?.techLevels || [];
+    if (!techLevels.length) {
+      return <div style={{fontSize:12,color:"#9ca3af"}}>Add tech levels above to set per-tier pricing.</div>;
+    }
+    return (
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {techLevels.map(name => {
+          const idx = tiers.findIndex(t => t.tierName === name);
+          const msrp = idx >= 0 ? tiers[idx].msrp : null;
+          const fkey = `tier:${name}`;
+          const focused = focusedMoneyKey === fkey;
+          return (
+            <div key={name} style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{flex:1,fontSize:13,color:"#374151"}}>{name}</div>
+              <div style={{display:"flex",alignItems:"center",gap:4}}>
+                <span style={{fontSize:13,color:"#9ca3af"}}>$</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  placeholder="—"
+                  style={{width:110,padding:"5px 9px",borderRadius:6,border:"1px solid #e5e7eb",fontSize:13,fontFamily:"'Sora',sans-serif",textAlign:"right"}}
+                  value={focused ? (msrp ?? "") : formatMoney(msrp)}
+                  onFocus={() => setFocusedMoneyKey(fkey)}
+                  onBlur={() => setFocusedMoneyKey(null)}
+                  onChange={e => {
+                    const raw = e.target.value;
+                    const next = raw === "" ? null : Math.max(0, Number(raw));
+                    setCatDraft(d => {
+                      const tiers2 = [...(d.tiers || [])];
+                      const i2 = tiers2.findIndex(t => t.tierName === name);
+                      if (i2 >= 0) tiers2[i2] = { ...tiers2[i2], msrp: next };
+                      else tiers2.push({ tierName: name, msrp: next });
+                      return { ...d, tiers: tiers2 };
+                    });
+                  }}
+                />
+              </div>
+            </div>
+          );
+        })}
+        <div style={{fontSize:11,color:"#9ca3af"}}>MSRP per aid · USD</div>
       </div>
     );
   };
@@ -6356,6 +6616,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
       manufacturer: catMfrFilter !== "All" ? catMfrFilter : "",
       generation: "", family: "",
       styles: [], variants: [], techLevels: [], colors: [], battery: [],
+      tiers: [],
       active: true, notes: "",
     };
     setCatDraft(newEntry);
@@ -6372,7 +6633,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
       next = catalog.map(e => e.id === catDraft.id ? catDraft : e);
     }
     await saveCatalog(next);
-    setCatEditId(null); setCatDraft(null); setCatNewEntry(false);
+    // Keep the editor open after save. If this was a brand-new entry, transition
+    // it into the "editing existing" rendering path so the panel stays attached to
+    // its row in the list instead of vanishing with the New Entry form.
+    setCatEditId(catDraft.id);
+    setCatNewEntry(false);
+    setCatSaved(true);
+    setTimeout(() => setCatSaved(false), 2500);
   };
 
 
@@ -6431,6 +6698,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 <div style={{flex:1,fontWeight:700,color:"#0a1628",fontSize:14}}>New Entry</div>
               </div>
               <div className="catalog-edit-panel">
+                {catSaved && <div className="save-success">✓ Saved</div>}
                 <div className="cat-field-row">
                   <div className="cat-field"><label>Manufacturer</label>
                     <input value={catDraft.manufacturer} onChange={e=>setCatDraft(d=>({...d,manufacturer:e.target.value}))} placeholder="e.g. Signia" />
@@ -6454,16 +6722,19 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   </div>
                 </div>
                 <div className="cat-field"><label>Variants <span style={{fontWeight:400,textTransform:"none",letterSpacing:0}}>(one per line, Enter to add)</span></label>
-                  <ChipEditor field="variants" values={catDraft.variants} />
+                  {renderChipEditor("variants", catDraft.variants)}
                 </div>
                 <div className="cat-field"><label>Technology Levels</label>
-                  <ChipEditor field="techLevels" values={catDraft.techLevels} />
+                  {renderChipEditor("techLevels", catDraft.techLevels)}
+                </div>
+                <div className="cat-field"><label>Pricing per Tier (MSRP per aid)</label>
+                  {renderTierPricing()}
                 </div>
                 <div className="cat-field"><label>Colors</label>
-                  <ChipEditor field="colors" values={catDraft.colors} />
+                  {renderChipEditor("colors", catDraft.colors)}
                 </div>
                 <div className="cat-field"><label>Battery</label>
-                  <ChipEditor field="battery" values={catDraft.battery} />
+                  {renderChipEditor("battery", catDraft.battery)}
                 </div>
                 <div className="cat-field"><label>Notes (internal)</label>
                   <textarea value={catDraft.notes} onChange={e=>setCatDraft(d=>({...d,notes:e.target.value}))} />
@@ -6498,7 +6769,25 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     <button className="cat-btn" onClick={()=>toggleActive(entry.id)}>{entry.active?"Deactivate":"Activate"}</button>
                     <button className="cat-btn" onClick={()=>{
                       if (isEditing) { setCatEditId(null); setCatDraft(null); }
-                      else { setCatEditId(entry.id); setCatDraft({...entry, variants:[...entry.variants], techLevels:[...entry.techLevels], colors:[...entry.colors], battery:[...entry.battery], styles:[...entry.styles]}); }
+                      else {
+                        // Backfill a tier row for any techLevel that doesn't have one yet,
+                        // so the pricing grid always shows one input per tech level.
+                        const existingTiers = (entry.tiers || []).map(t => ({...t}));
+                        const have = new Set(existingTiers.map(t => t.tierName));
+                        for (const n of (entry.techLevels || [])) {
+                          if (!have.has(n)) existingTiers.push({ tierName: n, msrp: null });
+                        }
+                        setCatEditId(entry.id);
+                        setCatDraft({
+                          ...entry,
+                          variants:   [...entry.variants],
+                          techLevels: [...entry.techLevels],
+                          colors:     [...entry.colors],
+                          battery:    [...entry.battery],
+                          styles:     [...entry.styles],
+                          tiers:      existingTiers,
+                        });
+                      }
                     }}>{isEditing?"Cancel":"Edit"}</button>
                     <button className="cat-btn danger" onClick={()=>deleteEntry(entry.id)}>Delete</button>
                   </div>
@@ -6507,6 +6796,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
                 {isEditing && catDraft && (
                   <div className="catalog-edit-panel">
+                    {catSaved && <div className="save-success">✓ Saved</div>}
                     <div className="cat-field-row">
                       <div className="cat-field"><label>Manufacturer</label>
                         <input value={catDraft.manufacturer} onChange={e=>setCatDraft(d=>({...d,manufacturer:e.target.value}))} />
@@ -6530,16 +6820,19 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       </div>
                     </div>
                     <div className="cat-field"><label>Variants</label>
-                      <ChipEditor field="variants" values={catDraft.variants} />
+                      {renderChipEditor("variants", catDraft.variants)}
                     </div>
                     <div className="cat-field"><label>Technology Levels</label>
-                      <ChipEditor field="techLevels" values={catDraft.techLevels} />
+                      {renderChipEditor("techLevels", catDraft.techLevels)}
+                    </div>
+                    <div className="cat-field"><label>Pricing per Tier (MSRP per aid)</label>
+                      {renderTierPricing()}
                     </div>
                     <div className="cat-field"><label>Colors</label>
-                      <ChipEditor field="colors" values={catDraft.colors} />
+                      {renderChipEditor("colors", catDraft.colors)}
                     </div>
                     <div className="cat-field"><label>Battery</label>
-                      <ChipEditor field="battery" values={catDraft.battery} />
+                      {renderChipEditor("battery", catDraft.battery)}
                     </div>
                     <div className="cat-field"><label>Notes (internal)</label>
                       <textarea value={catDraft.notes} onChange={e=>setCatDraft(d=>({...d,notes:e.target.value}))} />
