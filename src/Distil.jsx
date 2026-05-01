@@ -69,7 +69,6 @@ import {
   loadTnsOutcomes,
   saveTnsOutcome,
   updatePatientStatus,
-  enrollTnsNurture,
   convertTnsToActive,
   createPatientDraft,
   updatePatientAudiology,
@@ -82,7 +81,9 @@ import {
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 import { downloadQuote } from "./generateQuote.js";
 
+import { TNS_TAGS } from "./tns_tags.js";
 import ContentLibrary from "./views/ContentLibrary.jsx";
+import NurturePreview from "./views/NurturePreview.jsx";
 import CampaignManager from "./views/CampaignManager.jsx";
 import LimaCharlie from "./views/LimaCharlie.jsx";
 
@@ -965,52 +966,6 @@ const CARE_PLANS = [
 ];
 const VISIT_TYPES = ["New Fitting","2-Week Follow-Up","4-Week Follow-Up","Quarterly Clean & Check","Annual Exam","Triage / Adjustment","Repair Appointment","Other"];
 
-const GRIEF_STAGES = [
-  {
-    id: "denial", label: "Denial", emoji: "\u{1F648}",
-    subtitle: "\"My hearing is fine \u2014 I don't need help.\"",
-    color: "#6366f1", bg: "#eef2ff", campaignType: "tns_denial",
-    reasons: [
-      { id: "pain_not_acute_enough", label: "Hearing Loss Not Bothersome Enough", emoji: "\u{1F4CA}" },
-      { id: "needs_more_research",   label: "Wants to Do More Research",         emoji: "\u{1F50D}" },
-    ],
-  },
-  {
-    id: "anger", label: "Anger", emoji: "\u{1F624}",
-    subtitle: "\"I've tried before \u2014 it didn't work.\"",
-    color: "#dc2626", bg: "#fef2f2", campaignType: "tns_skeptic",
-    reasons: [
-      { id: "prior_bad_experience", label: "Prior Bad Experience with Hearing Aids", emoji: "\u{26A0}\u{FE0F}" },
-    ],
-  },
-  {
-    id: "bargaining", label: "Bargaining", emoji: "\u{1F91D}",
-    subtitle: "\"If only the price were lower or my spouse agreed...\"",
-    color: "#d97706", bg: "#fffbeb", campaignType: "tns_cost",
-    reasons: [
-      { id: "cost_barrier",         label: "Cost / Affordability Barrier",   emoji: "\u{1F4B0}", campaignType: "tns_cost" },
-      { id: "insurance_confusion",  label: "Insurance / Coverage Confusion", emoji: "\u{1F4CB}", campaignType: "tns_cost" },
-      { id: "needs_spouse_consult", label: "Needs Spouse / Family Input",    emoji: "\u{1F465}", campaignType: "tns_general" },
-    ],
-  },
-  {
-    id: "depression", label: "Depression", emoji: "\u{1F614}",
-    subtitle: "\"I know I need help, but I'm just not ready.\"",
-    color: "#4b5563", bg: "#f3f4f6", campaignType: "tns_emotional",
-    reasons: [
-      { id: "not_ready_emotionally", label: "Not Emotionally Ready", emoji: "\u{1F4AD}" },
-    ],
-  },
-  {
-    id: "acceptance", label: "Acceptance", emoji: "\u{1F54A}\u{FE0F}",
-    subtitle: "\"I understand \u2014 I just need time to process.\"",
-    color: "#059669", bg: "#ecfdf5", campaignType: "tns_general",
-    reasons: [
-      { id: "other", label: "Processing / Other Reason", emoji: "\u{1F4AC}" },
-    ],
-  },
-];
-
 const summarizeAudiogram = (p) => {
   if (!p.audiology) return null;
   const { rightT, leftT } = p.audiology;
@@ -1573,7 +1528,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [tnsQueue, setTnsQueue] = useState([]);
   const [tnsExpanded, setTnsExpanded] = useState(true);
   const [tnsReasoning, setTnsReasoning] = useState(null); // patient id currently being tagged
-  const [tnsGriefStage, setTnsGriefStage] = useState(null); // selected grief stage id
+  const [tnsTags, setTnsTags] = useState([]); // selected tag ids for current patient
   const [tnsNote, setTnsNote] = useState("");
 
   // Insurance plans from Supabase + retail anchors for pricing reveal
@@ -1938,16 +1893,20 @@ export default function ProviderCRM({ staffId, clinicId }) {
     loadTnsQueue();
   }, [patients]);
 
-  const saveTnsReason = async (patientId, reason, griefStage, campaignType) => {
+  const toggleTnsTag = (tagId) => {
+    setTnsTags(prev => prev.includes(tagId) ? prev.filter(t => t !== tagId) : [...prev, tagId]);
+  };
+
+  const saveTnsTags = async (patientId) => {
+    if (tnsTags.length === 0) return;
     try {
-      await saveTnsOutcome(patientId, clinicId, staffId, reason, tnsNote, griefStage);
-      await enrollTnsNurture(patientId, clinicId, campaignType, tnsNote);
+      await saveTnsOutcome(patientId, clinicId, staffId, tnsTags, tnsNote);
       setTnsQueue(q => q.filter(p => p.id !== patientId));
       setTnsReasoning(null);
-      setTnsGriefStage(null);
+      setTnsTags([]);
       setTnsNote("");
     } catch (e) {
-      console.error("saveTnsReason:", e);
+      console.error("saveTnsTags:", e);
     }
   };
 
@@ -3116,11 +3075,11 @@ export default function ProviderCRM({ staffId, clinicId }) {
                               }}
                               onClick={() => {
                                 setTnsReasoning(isTagging ? null : p.id);
-                                setTnsGriefStage(null);
+                                setTnsTags([]);
                                 setTnsNote("");
                               }}
                             >
-                              {isTagging ? "Cancel" : "Tag Reason"}
+                              {isTagging ? "Cancel" : "Tag Reasons"}
                             </button>
                           </td>
                         </tr>
@@ -3128,91 +3087,61 @@ export default function ProviderCRM({ staffId, clinicId }) {
                         {isTagging && (
                           <tr key={`${p.id}-reasons`}>
                             <td colSpan={6} style={{ background: "#fffbeb", padding: "16px 20px" }}>
-                              {tnsGriefStage === null ? (
-                                <>
-                                  <div style={{ fontSize: 13, fontWeight: 600, color: "#92400e", marginBottom: 12 }}>
-                                    Where is {p.name.split(" ")[0]} in their hearing journey?
-                                  </div>
-                                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 10 }}>
-                                    {GRIEF_STAGES.map(stage => (
-                                      <div
-                                        key={stage.id}
-                                        onClick={() => setTnsGriefStage(stage.id)}
-                                        style={{
-                                          border: `2px solid ${stage.color}30`,
-                                          borderRadius: 10, padding: "14px 12px", cursor: "pointer",
-                                          background: stage.bg, textAlign: "center",
-                                          transition: "all 0.15s",
-                                        }}
-                                        onMouseEnter={e => { e.currentTarget.style.borderColor = stage.color; e.currentTarget.style.transform = "translateY(-2px)"; }}
-                                        onMouseLeave={e => { e.currentTarget.style.borderColor = `${stage.color}30`; e.currentTarget.style.transform = "none"; }}
-                                      >
-                                        <div style={{ fontSize: 28, marginBottom: 4 }}>{stage.emoji}</div>
-                                        <div style={{ fontSize: 13, fontWeight: 700, color: stage.color }}>{stage.label}</div>
-                                        <div style={{ fontSize: 10, color: "#6b7280", marginTop: 4, fontStyle: "italic", lineHeight: 1.3 }}>{stage.subtitle}</div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </>
-                              ) : (() => {
-                                const activeStage = GRIEF_STAGES.find(s => s.id === tnsGriefStage);
-                                return (
-                                  <>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                                      <button
-                                        onClick={() => setTnsGriefStage(null)}
-                                        style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "#6b7280", padding: 0 }}
-                                      >
-                                        {"\u2190"} Back
-                                      </button>
-                                      <span style={{ fontSize: 13, fontWeight: 600, color: activeStage.color }}>
-                                        {activeStage.emoji} {activeStage.label} {"\u2014"} Select specific reason
-                                      </span>
-                                    </div>
-                                    <div style={{
-                                      display: "grid",
-                                      gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
-                                      gap: 8, marginBottom: 12,
-                                    }}>
-                                      {activeStage.reasons.map(r => (
-                                        <button
-                                          key={r.id}
-                                          onClick={() => saveTnsReason(p.id, r.id, activeStage.id, r.campaignType || activeStage.campaignType)}
-                                          style={{
-                                            display: "flex", alignItems: "center", gap: 8,
-                                            padding: "10px 14px",
-                                            background: "white", border: `1.5px solid ${activeStage.color}30`,
-                                            borderRadius: 8, cursor: "pointer",
-                                            fontSize: 13, fontWeight: 500, color: "#374151",
-                                            textAlign: "left", transition: "all 0.15s",
-                                          }}
-                                          onMouseEnter={e => {
-                                            e.currentTarget.style.borderColor = activeStage.color;
-                                            e.currentTarget.style.background = activeStage.bg;
-                                          }}
-                                          onMouseLeave={e => {
-                                            e.currentTarget.style.borderColor = `${activeStage.color}30`;
-                                            e.currentTarget.style.background = "white";
-                                          }}
-                                        >
-                                          <span style={{ fontSize: 18 }}>{r.emoji}</span>
-                                          {r.label}
-                                        </button>
-                                      ))}
-                                    </div>
-                                    <input
-                                      placeholder="Optional note \u2014 e.g. 'Husband skeptical, follow up in 2 weeks'"
-                                      value={tnsNote}
-                                      onChange={e => setTnsNote(e.target.value)}
+                              <div style={{ fontSize: 13, fontWeight: 600, color: "#92400e", marginBottom: 12 }}>
+                                What kept {p.name.split(" ")[0]} from moving forward? Select all that apply.
+                              </div>
+                              <div style={{
+                                display: "grid",
+                                gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))",
+                                gap: 8, marginBottom: 12,
+                              }}>
+                                {TNS_TAGS.map(tag => {
+                                  const selected = tnsTags.includes(tag.id);
+                                  return (
+                                    <button
+                                      key={tag.id}
+                                      onClick={() => toggleTnsTag(tag.id)}
                                       style={{
-                                        width: "100%", padding: "8px 12px",
-                                        border: `1.5px solid ${activeStage.color}30`, borderRadius: 8,
-                                        fontSize: 13, color: "#374151", boxSizing: "border-box",
+                                        display: "flex", alignItems: "center", gap: 8,
+                                        padding: "10px 14px",
+                                        background: selected ? "#fef3c7" : "white",
+                                        border: `1.5px solid ${selected ? "#f59e0b" : "#fde68a"}`,
+                                        borderRadius: 8, cursor: "pointer",
+                                        fontSize: 13, fontWeight: selected ? 600 : 500,
+                                        color: selected ? "#92400e" : "#374151",
+                                        textAlign: "left", transition: "all 0.12s",
                                       }}
-                                    />
-                                  </>
-                                );
-                              })()}
+                                    >
+                                      <span style={{ fontSize: 18 }}>{tag.emoji}</span>
+                                      {tag.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+                                <input
+                                  placeholder={"Optional note \u2014 e.g. 'Husband skeptical, follow up in 2 weeks'"}
+                                  value={tnsNote}
+                                  onChange={e => setTnsNote(e.target.value)}
+                                  style={{
+                                    flex: 1, padding: "8px 12px",
+                                    border: "1.5px solid #fde68a", borderRadius: 8,
+                                    fontSize: 13, color: "#374151", boxSizing: "border-box",
+                                  }}
+                                />
+                                <button
+                                  onClick={() => saveTnsTags(p.id)}
+                                  disabled={tnsTags.length === 0}
+                                  className="btn-primary green"
+                                  style={{
+                                    fontSize: 13, padding: "8px 18px",
+                                    opacity: tnsTags.length === 0 ? 0.5 : 1,
+                                    cursor: tnsTags.length === 0 ? "not-allowed" : "pointer",
+                                  }}
+                                >
+                                  Save {tnsTags.length > 0 ? `(${tnsTags.length})` : ""}
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         )}
@@ -6353,6 +6282,15 @@ export default function ProviderCRM({ staffId, clinicId }) {
             )}
 
 
+            {/* ── PERSONALIZATION PREVIEW (read-only) ──────────────────────────────── */}
+            {patientCampaigns.length > 0 && patientCampaigns.map(campaign => (
+              <NurturePreview
+                key={`prev-${campaign.id}`}
+                patientId={selectedPatient.id}
+                clinicId={clinicId}
+                campaign={campaign}
+              />
+            ))}
             {/* ── DOCUMENTS ───────────────────────────────────────────────────────── */}
             {/* Archived PDFs: quotes, purchase agreements, kiosk intake receipts.   */}
             {/* Signed URLs are short-lived (1h); the card calls refreshDocuments    */}

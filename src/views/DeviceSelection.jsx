@@ -14,6 +14,7 @@ import {
   normalizeAudiogramInput,
   normalizeIntakeInput,
 } from '../recommendationEngine.js'
+import { tnsTagLabel } from '../tns_tags.js'
 
 // Narrative §3 — Chapter 3: Recommendation. Patient cost first, always.
 // Retail shown only as "full retail value" anchor. Premium label is banned;
@@ -418,8 +419,12 @@ function TnsBlock({ flag }) {
     <div style={{ ...styles.stripCell, background: '#fffbeb', borderColor: '#fde68a' }}>
       <div style={{ ...styles.stripLabel, color: COLOR.warn }}>Prior TNS</div>
       <div style={styles.stripRow}>
-        <span style={styles.stripKey}>Reason</span>
-        <span style={styles.stripVal}>{flag.outcome_reason || '—'}</span>
+        <span style={styles.stripKey}>Reasons</span>
+        <span style={styles.stripVal}>
+          {flag.outcome_reasons?.length
+            ? flag.outcome_reasons.map(tnsTagLabel).join(', ')
+            : '—'}
+        </span>
       </div>
       <div style={{ fontSize: 10, color: COLOR.muted, marginTop: 4 }}>
         Consider empathy-forward approach before revealing price.

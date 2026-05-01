@@ -73,6 +73,7 @@ const INTAKE_TO_ENVS = {
 // where 7≈Premium, 5≈Advanced, 3≈Standard. Levels 1 and 2 sit below the
 // three-tier matrix; pickRecommendedTier excludes them from the engine
 // pool but they get full coverage charts so the patient can compare.
+// three-tier coverage matrix and intentionally return null.
 function tierLabelToRank(label) {
   if (!label) return null;
   const l = String(label).toLowerCase().trim();
@@ -112,6 +113,8 @@ function pickRecommendedTier(engineRank, availableTiers) {
     .sort((a, b) => b.rank - a.rank); // highest rank first
   // No primary tier (Std/Adv/Premium) maps for this plan — fall back
   // to manual selection in the UI; provider picks from the value tiers.
+  // Plan tiers can use labels outside the ranked set (e.g. "Level 1" / "Level 2").
+  // When nothing maps, return no recommendation — the provider can still pick.
   if (ranked.length === 0) return { tier: null, capped: false, originalRank: engineRank };
   const exact = ranked.find(t => t.rank === engineRank);
   if (exact) return { tier: exact, capped: false, originalRank: engineRank };
