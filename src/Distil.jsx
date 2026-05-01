@@ -58,6 +58,7 @@ import {
   resolveInsurancePlanId,
   loadPricingReveal,
   loadRetailAnchors,
+  saveRetailAnchors,
   updatePatientContact,
   updateInsuranceCoverage,
   updateDeviceFitting,
@@ -74,6 +75,8 @@ import {
   updatePatientDevices,
   updatePatientCarePlan,
   finalizePatient,
+  uploadPatientDocument,
+  listPatientDocuments,
 } from "./db.js";
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 import { downloadQuote } from "./generateQuote.js";
@@ -1513,6 +1516,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [editSuccess,    setEditSuccess]    = useState(null);
   const [patientCampaigns, setPatientCampaigns] = useState([]);
   const [editPlanSearch, setEditPlanSearch] = useState("");
+  const [patientDocuments, setPatientDocuments] = useState([]);
 
   // ── Intake queue state ────────────────────────────────────────────────
   const [pendingIntakes,  setPendingIntakes]  = useState([]);
@@ -1531,6 +1535,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [insurancePlans, setInsurancePlans] = useState([]);
   const [retailAnchors, setRetailAnchors] = useState([]);
   const [pricingReveal, setPricingReveal] = useState(null);
+
+  // Retail anchors editor (Clinic Settings → Retail Anchors)
+  const [anchorsClass, setAnchorsClass] = useState("signia");
+  const [anchorsDraft, setAnchorsDraft] = useState([]);
+  const [anchorsLoading, setAnchorsLoading] = useState(false);
+  const [anchorsSaved, setAnchorsSaved] = useState(false);
+  // Tracks which money input is currently focused (so we show raw value while
+  // typing, but normalize to 2-decimal display on blur). Key shape: "anchor:i"
+  // for anchor rows and "tier:tierName" for catalog tier rows.
+  const [focusedMoneyKey, setFocusedMoneyKey] = useState(null);
 
   // ── Purchase Agreement state ──────────────────────────────────────────
   const [staffProfile, setStaffProfile] = useState(null);
@@ -1551,8 +1565,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [catEditId, setCatEditId] = useState(null);      // which entry is open for editing
   const [catDraft, setCatDraft] = useState(null);         // draft of entry being edited
   const [catAddChip, setCatAddChip] = useState({});       // { fieldKey: inputValue } for chip editors
+  const [catChipEdit, setCatChipEdit] = useState({ key: null, idx: null, value: "" }); // inline chip rename
   const [catSearch, setCatSearch] = useState("");
   const [catNewEntry, setCatNewEntry] = useState(false);
+  const [catSaved, setCatSaved] = useState(false);
 
 
 
@@ -1841,6 +1857,20 @@ export default function ProviderCRM({ staffId, clinicId }) {
       } catch {}
     })();
   }, [clinicId]);
+
+  // Load anchors into the editor whenever the manufacturer class changes
+  // (also runs on mount once clinicId is known).
+  useEffect(() => {
+    if (!clinicId) return;
+    let cancelled = false;
+    setAnchorsLoading(true);
+    loadRetailAnchors(clinicId, anchorsClass).then(rows => {
+      if (cancelled) return;
+      setAnchorsDraft((rows || []).map(r => ({...r})));
+      setAnchorsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [clinicId, anchorsClass]);
 
 
   const refreshPatients = async () => {
@@ -2139,6 +2169,26 @@ export default function ProviderCRM({ staffId, clinicId }) {
     }
   }, [view, selectedPatient?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Load archived documents (quotes, purchase agreements) when viewing a patient.
+  // Reloaded after each successful upload via refreshDocuments() so the list
+  // updates without a navigation round-trip.
+  const refreshDocuments = useCallback(async () => {
+    if (!selectedPatient?.id) return;
+    try {
+      const docs = await listPatientDocuments(selectedPatient.id);
+      setPatientDocuments(docs);
+    } catch (e) {
+      console.error("listPatientDocuments:", e);
+    }
+  }, [selectedPatient?.id]);
+
+  useEffect(() => {
+    if (view === "patient" && selectedPatient?.id) {
+      setPatientDocuments([]);
+      refreshDocuments();
+    }
+  }, [view, selectedPatient?.id, refreshDocuments]);
+
   // Load the most recent intake for the wizard's Health History step.
   // Triggered when the provider arrives at step 1 with a wizardPatientId
   // (which is set on Continue-from-Patient, including the linkIntake call).
@@ -2266,16 +2316,17 @@ export default function ProviderCRM({ staffId, clinicId }) {
     privatePayPriceForSide(form.left) || privatePayPriceForSide(form.right);
 
   // ── Generate Quote PDF from wizard state ─────────────────────────────
-  const handleGenerateQuote = () => {
+  const handleGenerateQuote = async () => {
     const leftRec = buildSideRecord(form.left);
     const rightRec = buildSideRecord(form.right);
     const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
     const fittingType = leftRec && rightRec ? (isCROS ? "cros_bicros" : "bilateral") : leftRec ? "monaural_left" : "monaural_right";
     const counselingSections = generateCounseling(form.audiology); // returns array of {heading,body} or null
-    downloadQuote({
+    const pricePerAid = form.payType === "private" ? privatePayPrimaryPerAid() : (form.tierPrice || 0);
+    const { blob, fileName } = downloadQuote({
       patient: { name: [form.firstName, form.lastName].filter(Boolean).join(" "), phone: form.phone },
       devices: { fittingType, left: leftRec, right: rightRec },
-      pricePerAid: form.payType === "private" ? privatePayPrimaryPerAid() : (form.tierPrice || 0),
+      pricePerAid,
       selectedCarePlan: form.carePlan || "complete",
       payType: form.payType,
       tpa: form.tpa,
@@ -2285,6 +2336,33 @@ export default function ProviderCRM({ staffId, clinicId }) {
       clinic: staffProfile?.clinic || clinic,
       provider: { fullName: staffProfile?.fullName || "Provider", activeLicense: staffProfile?.activeLicense || "" },
     });
+
+    if (wizardPatientId) {
+      try {
+        const isBilateral = (fittingType === 'bilateral' || fittingType === 'cros_bicros');
+        await uploadPatientDocument({
+          patientId: wizardPatientId,
+          clinicId,
+          staffId,
+          kind: 'quote',
+          blob, fileName,
+          metadata: {
+            fittingType,
+            pricePerAid,
+            aidCount: isBilateral ? 2 : 1,
+            selectedCarePlan: form.carePlan || "complete",
+            payType: form.payType,
+            carrier: form.carrier || null,
+            tpa: form.tpa || null,
+            leftFamily: leftRec?.family || null,
+            rightFamily: rightRec?.family || null,
+          },
+        });
+      } catch (e) {
+        console.error('Archive quote PDF (wizard):', e);
+        alert('Quote downloaded, but failed to archive to chart: ' + (e.message || e));
+      }
+    }
   };
 
 
@@ -2632,7 +2710,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     .warranty-fill.warn { background: #f59e0b; }
     .warranty-fill.exp { background: #ef4444; }
     /* WIZARD */
-    .wizard-wrap { max-width: 760px; }
+    .wizard-wrap { max-width: 1140px; }
     .wizard-steps { display: flex; gap: 0; margin-bottom: 32px; }
     .wizard-step { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; }
     .wizard-step:not(:last-child)::after { content:''; position: absolute; top: 14px; left: 50%; width: 100%; height: 2px; background: #e5e7eb; z-index: 0; }
@@ -3623,9 +3701,21 @@ export default function ProviderCRM({ staffId, clinicId }) {
           <div className="field full"><label>Payment Type</label>
             <div className="radio-group">
               {["insurance","private"].map(t => (
-                <div key={t} className={`radio-pill ${form.payType===t?"active":""}`} onClick={()=>upd("payType",t)}>
+                <div key={t} className={`radio-pill ${form.payType===t?"active":""}`} onClick={()=>{
+                  // Private-pay bundles Complete Care+ (4-yr warranty / 5-yr unlimited
+                  // visits) into the device price, so we preset the carePlan here
+                  // and skip the dedicated Care Plan wizard step. carePlan is
+                  // saved as null in the DB for private-pay (handleSave nulls it),
+                  // but the form state needs "complete" so the wizard PA modal,
+                  // Review step, and downstream displays render correctly.
+                  setForm(f => ({
+                    ...f,
+                    payType: t,
+                    carePlan: t === "private" ? "complete" : (f.carePlan === "complete" && f.payType === "private" ? "" : f.carePlan),
+                  }));
+                }}>
                   <div className="radio-pill-label">{t==="insurance"?"Insurance":"Private Pay"}</div>
-                  <div className="radio-pill-sub">{t==="insurance"?"Carrier + TPA plan":"Standard of Care – $5,500"}</div>
+                  <div className="radio-pill-sub">{t==="insurance"?"Carrier + TPA plan":"Complete Care+ included"}</div>
                 </div>
               ))}
             </div>
@@ -3649,8 +3739,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     })
                     .sort((a,b)=>a.planGroup.localeCompare(b.planGroup))
                     .map(plan=>(
-                      <div key={plan.planGroup}
-                        className={`plan-row ${form.planGroup===plan.planGroup?"active":""}`}
+                      <div key={`${plan.carrier}:${plan.planGroup}`}
+                        className={`plan-row ${form.planGroup===plan.planGroup&&form.carrier===plan.carrier?"active":""}`}
                         onClick={()=>{
                           upd("planGroup",plan.planGroup);
                           upd("carrier",plan.carrier);
@@ -5140,12 +5230,42 @@ export default function ProviderCRM({ staffId, clinicId }) {
     { label:"Teal",    value:"#0d9488" },
   ];
 
+  // Beltone deliberately excluded — we lack proprietary auth (Rexton-only per CLAUDE.md).
+  // 'standard' is the manufacturer-agnostic retail tier for clinic-wide pricing
+  // (kept first so existing legacy rows are immediately visible/editable).
+  const MANUFACTURER_CLASSES = [
+    { value:"standard", label:"Standard (general retail)" },
+    { value:"signia",   label:"Signia"  },
+    { value:"rexton",   label:"Rexton"  },
+    { value:"phonak",   label:"Phonak"  },
+    { value:"oticon",   label:"Oticon"  },
+    { value:"starkey",  label:"Starkey" },
+    { value:"widex",    label:"Widex"   },
+  ];
+
 
   const handleClinicSave = async () => {
     setClinic(clinicDraft);
     try { await saveClinicSettings(clinicId, clinicDraft); } catch {}
     setClinicSaved(true);
     setTimeout(() => setClinicSaved(false), 3000);
+  };
+
+  const handleSaveAnchors = async () => {
+    if (!clinicId) return;
+    const result = await saveRetailAnchors(clinicId, anchorsClass, anchorsDraft);
+    if (!result?.success) {
+      alert("Couldn't save anchors: " + (result?.error?.message || "unknown error — check console"));
+      return;
+    }
+    // Reload to pick up server-normalized values (ids, sort order, etc.)
+    const fresh = await loadRetailAnchors(clinicId, anchorsClass);
+    setAnchorsDraft((fresh || []).map(r => ({...r})));
+    // Refresh the global retailAnchors state if we just edited the class it holds
+    // (bootstrap loads 'signia'), so the pricing reveal sees fresh values without a reload.
+    if (anchorsClass === "signia") setRetailAnchors(fresh || []);
+    setAnchorsSaved(true);
+    setTimeout(() => setAnchorsSaved(false), 2500);
   };
 
 
@@ -5213,6 +5333,91 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 alert(`Backfill complete: ${result.enrolled} enrolled, ${result.skipped} skipped.${result.error ? ' ' + result.error : ''}`);
               }}>Backfill Existing Patients</button>
             </div>
+          </div>
+
+
+          <div className="settings-section">
+            <div className="settings-title">Retail Anchors</div>
+            <div style={{fontSize:12,color:"#9ca3af",marginBottom:14}}>
+              Per-tier retail price per aid, by manufacturer class. Drives the "full retail value" anchor on the patient pricing reveal.
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+              <label style={{fontSize:12,color:"#6b7280",fontWeight:500}}>Manufacturer class</label>
+              <select
+                value={anchorsClass}
+                onChange={e => setAnchorsClass(e.target.value)}
+                style={{padding:"6px 10px",borderRadius:6,border:"1px solid #e5e7eb",fontSize:13,fontFamily:"'Sora',sans-serif",background:"white"}}
+              >
+                {MANUFACTURER_CLASSES.map(c => (
+                  <option key={c.value} value={c.value}>{c.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {anchorsLoading ? (
+              <div style={{fontSize:12,color:"#9ca3af",padding:"10px 4px"}}>Loading…</div>
+            ) : (
+              <>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 150px 30px",gap:10,fontSize:10,color:"#9ca3af",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:8,padding:"0 4px"}}>
+                  <div>Tier label</div>
+                  <div style={{textAlign:"right"}}>Price/aid (USD)</div>
+                  <div></div>
+                </div>
+                {anchorsDraft.length === 0 && (
+                  <div style={{fontSize:12,color:"#9ca3af",padding:"10px 4px"}}>No anchors set for this manufacturer class yet.</div>
+                )}
+                {anchorsDraft.map((a, i) => {
+                  const fkey = `anchor:${i}`;
+                  const focused = focusedMoneyKey === fkey;
+                  return (
+                    <div key={a.id || `new-${i}`} style={{display:"grid",gridTemplateColumns:"1fr 150px 30px",gap:10,marginBottom:8,alignItems:"center"}}>
+                      <input
+                        value={a.label || ""}
+                        placeholder="e.g. Premium 7"
+                        onChange={e => {
+                          const v = e.target.value;
+                          setAnchorsDraft(d => d.map((row, j) => j === i ? {...row, label: v} : row));
+                        }}
+                        style={{padding:"6px 10px",borderRadius:6,border:"1px solid #e5e7eb",fontSize:13,fontFamily:"'Sora',sans-serif"}}
+                      />
+                      <div style={{display:"flex",alignItems:"center",gap:4}}>
+                        <span style={{fontSize:13,color:"#9ca3af"}}>$</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={focused ? (a.price_per_aid ?? "") : formatMoney(a.price_per_aid)}
+                          placeholder="—"
+                          onFocus={() => setFocusedMoneyKey(fkey)}
+                          onBlur={() => setFocusedMoneyKey(null)}
+                          onChange={e => {
+                            const raw = e.target.value;
+                            const next = raw === "" ? null : Math.max(0, Number(raw));
+                            setAnchorsDraft(d => d.map((row, j) => j === i ? {...row, price_per_aid: next} : row));
+                          }}
+                          style={{flex:1,padding:"6px 10px",borderRadius:6,border:"1px solid #e5e7eb",fontSize:13,fontFamily:"'Sora',sans-serif",textAlign:"right"}}
+                        />
+                      </div>
+                      <button
+                        onClick={() => setAnchorsDraft(d => d.filter((_, j) => j !== i))}
+                        style={{background:"none",border:"none",color:"#9ca3af",cursor:"pointer",fontSize:18,padding:0,lineHeight:1}}
+                        title="Delete row"
+                      >×</button>
+                    </div>
+                  );
+                })}
+                <button
+                  className="btn-ghost"
+                  style={{marginTop:6}}
+                  onClick={() => setAnchorsDraft(d => [...d, { label: "", price_per_aid: null }])}
+                >＋ Add Anchor</button>
+                <div style={{fontSize:11,color:"#9ca3af",marginTop:10}}>Display order matches the order shown above — saved automatically.</div>
+                <div style={{display:"flex",gap:10,marginTop:14,alignItems:"center"}}>
+                  <button className="btn-primary" onClick={handleSaveAnchors}>Save Anchors</button>
+                  {anchorsSaved && <div style={{fontSize:12,color:"#16a34a",fontWeight:600}}>✓ Saved</div>}
+                </div>
+              </>
+            )}
           </div>
 
 
@@ -5338,16 +5543,17 @@ export default function ProviderCRM({ staffId, clinicId }) {
             {p.devices && (p.carePlan || p.payType === "private") && (
               <button
                 style={{background:"#f0fdf4",color:"#15803d",border:"1px solid #86efac",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
-                onClick={() => {
+                onClick={async () => {
                   const isCROS = [p.devices?.left, p.devices?.right].some(r => r?.variant?.toLowerCase().includes("cros"));
                   const hasLeft = !!p.devices?.left;
                   const hasRight = !!p.devices?.right;
                   const fittingType = hasLeft && hasRight ? (isCROS ? "cros_bicros" : "bilateral") : hasLeft ? "monaural_left" : "monaural_right";
                   const counselingSections = p.audiology ? generateCounseling(p.audiology) : null;
-                  downloadQuote({
+                  const pricePerAid = p.payType === "private" ? 2750 : (p.insurance?.tierPrice || 0);
+                  const { blob, fileName } = downloadQuote({
                     patient: { name: p.name, phone: p.phone },
                     devices: { fittingType, left: p.devices?.left || null, right: p.devices?.right || null },
-                    pricePerAid: p.payType === "private" ? 2750 : (p.insurance?.tierPrice || 0),
+                    pricePerAid,
                     selectedCarePlan: p.carePlan || "complete",
                     payType: p.payType,
                     tpa: p.insurance?.tpa,
@@ -5357,6 +5563,31 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     clinic: staffProfile?.clinic || clinic,
                     provider: { fullName: staffProfile?.fullName || "Provider", activeLicense: staffProfile?.activeLicense || "" },
                   });
+                  try {
+                    const isBilateral = (fittingType === 'bilateral' || fittingType === 'cros_bicros');
+                    await uploadPatientDocument({
+                      patientId: p.id,
+                      clinicId,
+                      staffId,
+                      kind: 'quote',
+                      blob, fileName,
+                      metadata: {
+                        fittingType,
+                        pricePerAid,
+                        aidCount: isBilateral ? 2 : 1,
+                        selectedCarePlan: p.carePlan || "complete",
+                        payType: p.payType,
+                        carrier: p.insurance?.carrier || null,
+                        tpa: p.insurance?.tpa || null,
+                        leftFamily: p.devices?.left?.family || null,
+                        rightFamily: p.devices?.right?.family || null,
+                      },
+                    });
+                    await refreshDocuments();
+                  } catch (e) {
+                    console.error('Archive quote PDF:', e);
+                    alert('Quote downloaded, but failed to archive to chart: ' + (e.message || e));
+                  }
                 }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -5383,7 +5614,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
           const handleGeneratePDF = async (includeDelivery = false) => {
             const pricePerAid = p.payType === "private" ? 2750 : (p.insurance?.tierPrice || 0);
-            downloadPurchaseAgreement({
+            const isBilateral = (p.devices?.fittingType === 'bilateral' || p.devices?.fittingType === 'cros_bicros');
+            const aidCount = isBilateral ? 2 : 1;
+            const carePlanCost = cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0;
+            const { blob, fileName } = downloadPurchaseAgreement({
               patient: { name: p.name, address: p.address, phone: p.phone, dob: p.dob },
               devices: {
                 fittingType: p.devices?.fittingType || 'bilateral',
@@ -5404,6 +5638,37 @@ export default function ProviderCRM({ staffId, clinicId }) {
               deliveryDate: includeDelivery ? paDeliveryDate || null : null,
               signatureImageBase64: null,
             });
+
+            // Always archive to chart — paper trail required for compliance.
+            try {
+              await uploadPatientDocument({
+                patientId: p.id,
+                clinicId,
+                staffId,
+                kind: 'purchase_agreement',
+                blob, fileName,
+                metadata: {
+                  carePlan: cpId,
+                  pricePerAid,
+                  aidCount,
+                  deviceTotal: pricePerAid * aidCount,
+                  carePlanCost,
+                  totalPurchasePrice: (pricePerAid * aidCount) + carePlanCost,
+                  fittingType: p.devices?.fittingType || 'bilateral',
+                  payType: p.payType,
+                  patientSignature: paSignatureName.trim(),
+                  includesDelivery: includeDelivery,
+                  deliverySignature: includeDelivery ? (paDeliveryName.trim() || null) : null,
+                  deliveryDate: includeDelivery ? (paDeliveryDate || null) : null,
+                  providerName: staffProfile?.fullName || null,
+                },
+              });
+              await refreshDocuments();
+            } catch (e) {
+              console.error('Archive purchase agreement:', e);
+              alert('Purchase agreement downloaded, but failed to archive to chart: ' + (e.message || e));
+            }
+
             // Convert TNS patient to active when PA is signed
             if (p.patientStatus === "tns") {
               try {
@@ -5658,8 +5923,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
                         .sort((a,b)=>a.planGroup.localeCompare(b.planGroup))
                         .slice(0,30)
                         .map(plan=>(
-                          <div key={plan.planGroup}
-                            className={`plan-row ${editDraft.planGroup===plan.planGroup?"active":""}`}
+                          <div key={`${plan.carrier}:${plan.planGroup}`}
+                            className={`plan-row ${editDraft.planGroup===plan.planGroup&&editDraft.carrier===plan.carrier?"active":""}`}
                             onClick={()=>setEditDraft(d=>({...d,carrier:plan.carrier,planGroup:plan.planGroup,tpa:plan.tpa||"",tier:"",tierPrice:null}))}>
                             <div className="plan-row-name">{plan.planGroup}</div>
                             <div className="plan-row-tpa">{plan.carrier} · via {plan.tpa}</div>
@@ -6026,6 +6291,49 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 campaign={campaign}
               />
             ))}
+            {/* ── DOCUMENTS ───────────────────────────────────────────────────────── */}
+            {/* Archived PDFs: quotes, purchase agreements, kiosk intake receipts.   */}
+            {/* Signed URLs are short-lived (1h); the card calls refreshDocuments    */}
+            {/* after each upload and on patient-detail entry.                       */}
+            {patientDocuments.length > 0 && (
+              <div className="detail-card full">
+                <div className="detail-card-title">Documents</div>
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {patientDocuments.map(d => {
+                    const kindLabel = d.kind === 'purchase_agreement' ? 'Purchase Agreement'
+                                    : d.kind === 'kiosk_intake' ? 'Intake Form'
+                                    : 'Quote';
+                    const kindColor = d.kind === 'purchase_agreement' ? '#0a1628'
+                                    : d.kind === 'kiosk_intake' ? '#7c3aed'
+                                    : '#15803d';
+                    const kindBg    = d.kind === 'purchase_agreement' ? '#e2e8f0'
+                                    : d.kind === 'kiosk_intake' ? '#ede9fe'
+                                    : '#dcfce7';
+                    const sizeKb = d.byte_size ? Math.round(d.byte_size / 1024) : null;
+                    return (
+                      <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#f9fafb",borderRadius:8,border:"1px solid #e5e7eb"}}>
+                        <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20,background:kindBg,color:kindColor,letterSpacing:0.4,textTransform:"uppercase"}}>{kindLabel}</span>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13,fontWeight:600,color:"#0a1628",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.file_name}</div>
+                          <div style={{fontSize:11,color:"#9ca3af",marginTop:2}}>
+                            {fmtDate(d.created_at)}{sizeKb ? ` · ${sizeKb} KB` : ""}
+                          </div>
+                        </div>
+                        {d.signedUrl ? (
+                          <a href={d.signedUrl} target="_blank" rel="noopener noreferrer"
+                             style={{fontSize:12,fontWeight:600,color:"#0a1628",background:"white",border:"1px solid #e5e7eb",borderRadius:6,padding:"6px 12px",textDecoration:"none"}}>
+                            Open ↗
+                          </a>
+                        ) : (
+                          <span style={{fontSize:11,color:"#9ca3af"}}>link expired</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
 
             {/* ── CAMPAIGN JOURNEY ─────────────────────────────────────────────────── */}
             {/* TODO: restrict campaign edits to care_coordinator, admin once checkRole is enforced */}
@@ -6252,17 +6560,82 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [catMfrFilter, setCatMfrFilter] = useState("All");
 
 
-  const ChipEditor = ({ field, values }) => {
+  const renderChipEditor = (field, values) => {
     const key = `${catDraft?.id}-${field}`;
     const inputVal = catAddChip[key] || "";
+
+    // For techLevels, every chip change also syncs the parallel `tiers` array
+    // (add → append { tierName, msrp:null }, rename → update tierName, delete → drop matching row).
+    const applyChange = (mutator) => setCatDraft(d => {
+      const nextField = mutator(d[field] || []);
+      if (field !== "techLevels") return { ...d, [field]: nextField };
+      const oldNames = d[field] || [];
+      const tiers = d.tiers || [];
+      const keepNames = new Set(nextField);
+      // Detect rename: same length, exactly one position differs
+      let renamedFrom = null, renamedTo = null;
+      if (oldNames.length === nextField.length) {
+        const diffs = oldNames.map((n, i) => n !== nextField[i] ? i : -1).filter(i => i >= 0);
+        if (diffs.length === 1) { renamedFrom = oldNames[diffs[0]]; renamedTo = nextField[diffs[0]]; }
+      }
+      let nextTiers = tiers;
+      if (renamedFrom !== null) {
+        nextTiers = tiers.map(t => t.tierName === renamedFrom ? { ...t, tierName: renamedTo } : t);
+      } else {
+        // Drop tiers whose name no longer exists, then append rows for any new names
+        nextTiers = tiers.filter(t => keepNames.has(t.tierName));
+        const have = new Set(nextTiers.map(t => t.tierName));
+        for (const n of nextField) if (!have.has(n)) nextTiers.push({ tierName: n, msrp: null });
+      }
+      return { ...d, [field]: nextField, tiers: nextTiers };
+    });
+
+    const commitRename = () => {
+      const newVal = catChipEdit.value.trim();
+      const oldVal = values[catChipEdit.idx];
+      if (newVal && newVal !== oldVal) {
+        applyChange(arr => arr.map((v, j) => j === catChipEdit.idx ? newVal : v));
+      }
+      setCatChipEdit({ key: null, idx: null, value: "" });
+    };
+
     return (
       <div className="chip-row">
-        {values.map((v,i) => (
-          <div className="chip" key={i}>
-            {v}
-            <button className="chip-del" onClick={() => setCatDraft(d => ({...d, [field]: d[field].filter((_,j)=>j!==i)}))}>×</button>
-          </div>
-        ))}
+        {values.map((v,i) => {
+          const isEditing = catChipEdit.key === key && catChipEdit.idx === i;
+          if (isEditing) {
+            return (
+              <input
+                key={i}
+                className="chip-add-input"
+                style={{borderStyle:"solid",borderColor:"#0a1628"}}
+                value={catChipEdit.value}
+                autoFocus
+                onChange={e => setCatChipEdit(c => ({...c, value: e.target.value}))}
+                onBlur={commitRename}
+                onKeyDown={e => {
+                  if (e.key === "Enter") { e.preventDefault(); commitRename(); }
+                  else if (e.key === "Escape") { e.preventDefault(); setCatChipEdit({ key: null, idx: null, value: "" }); }
+                }}
+              />
+            );
+          }
+          return (
+            <div
+              className="chip"
+              key={i}
+              style={{cursor:"text"}}
+              title="Click to rename"
+              onClick={() => setCatChipEdit({ key, idx: i, value: v })}
+            >
+              {v}
+              <button
+                className="chip-del"
+                onClick={e => { e.stopPropagation(); applyChange(arr => arr.filter((_,j)=>j!==i)); }}
+              >×</button>
+            </div>
+          );
+        })}
         <input
           className="chip-add-input"
           placeholder="+ add…"
@@ -6271,11 +6644,64 @@ export default function ProviderCRM({ staffId, clinicId }) {
           onKeyDown={e => {
             if ((e.key === "Enter" || e.key === ",") && inputVal.trim()) {
               e.preventDefault();
-              setCatDraft(d => ({...d, [field]: [...(d[field]||[]), inputVal.trim()]}));
+              const v = inputVal.trim();
+              applyChange(arr => [...arr, v]);
               setCatAddChip(c => ({...c, [key]: ""}));
             }
           }}
         />
+      </div>
+    );
+  };
+
+
+  // Money display: show raw value while editing, format to 2 decimals when blurred.
+  const formatMoney = (v) => (v == null || v === "" ? "" : Number(v).toFixed(2));
+
+  const renderTierPricing = () => {
+    const tiers = catDraft?.tiers || [];
+    const techLevels = catDraft?.techLevels || [];
+    if (!techLevels.length) {
+      return <div style={{fontSize:12,color:"#9ca3af"}}>Add tech levels above to set per-tier pricing.</div>;
+    }
+    return (
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {techLevels.map(name => {
+          const idx = tiers.findIndex(t => t.tierName === name);
+          const msrp = idx >= 0 ? tiers[idx].msrp : null;
+          const fkey = `tier:${name}`;
+          const focused = focusedMoneyKey === fkey;
+          return (
+            <div key={name} style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{flex:1,fontSize:13,color:"#374151"}}>{name}</div>
+              <div style={{display:"flex",alignItems:"center",gap:4}}>
+                <span style={{fontSize:13,color:"#9ca3af"}}>$</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  placeholder="—"
+                  style={{width:110,padding:"5px 9px",borderRadius:6,border:"1px solid #e5e7eb",fontSize:13,fontFamily:"'Sora',sans-serif",textAlign:"right"}}
+                  value={focused ? (msrp ?? "") : formatMoney(msrp)}
+                  onFocus={() => setFocusedMoneyKey(fkey)}
+                  onBlur={() => setFocusedMoneyKey(null)}
+                  onChange={e => {
+                    const raw = e.target.value;
+                    const next = raw === "" ? null : Math.max(0, Number(raw));
+                    setCatDraft(d => {
+                      const tiers2 = [...(d.tiers || [])];
+                      const i2 = tiers2.findIndex(t => t.tierName === name);
+                      if (i2 >= 0) tiers2[i2] = { ...tiers2[i2], msrp: next };
+                      else tiers2.push({ tierName: name, msrp: next });
+                      return { ...d, tiers: tiers2 };
+                    });
+                  }}
+                />
+              </div>
+            </div>
+          );
+        })}
+        <div style={{fontSize:11,color:"#9ca3af"}}>MSRP per aid · USD</div>
       </div>
     );
   };
@@ -6295,6 +6721,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
       manufacturer: catMfrFilter !== "All" ? catMfrFilter : "",
       generation: "", family: "",
       styles: [], variants: [], techLevels: [], colors: [], battery: [],
+      tiers: [],
       active: true, notes: "",
     };
     setCatDraft(newEntry);
@@ -6311,7 +6738,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
       next = catalog.map(e => e.id === catDraft.id ? catDraft : e);
     }
     await saveCatalog(next);
-    setCatEditId(null); setCatDraft(null); setCatNewEntry(false);
+    // Keep the editor open after save. If this was a brand-new entry, transition
+    // it into the "editing existing" rendering path so the panel stays attached to
+    // its row in the list instead of vanishing with the New Entry form.
+    setCatEditId(catDraft.id);
+    setCatNewEntry(false);
+    setCatSaved(true);
+    setTimeout(() => setCatSaved(false), 2500);
   };
 
 
@@ -6370,6 +6803,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 <div style={{flex:1,fontWeight:700,color:"#0a1628",fontSize:14}}>New Entry</div>
               </div>
               <div className="catalog-edit-panel">
+                {catSaved && <div className="save-success">✓ Saved</div>}
                 <div className="cat-field-row">
                   <div className="cat-field"><label>Manufacturer</label>
                     <input value={catDraft.manufacturer} onChange={e=>setCatDraft(d=>({...d,manufacturer:e.target.value}))} placeholder="e.g. Signia" />
@@ -6393,16 +6827,19 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   </div>
                 </div>
                 <div className="cat-field"><label>Variants <span style={{fontWeight:400,textTransform:"none",letterSpacing:0}}>(one per line, Enter to add)</span></label>
-                  <ChipEditor field="variants" values={catDraft.variants} />
+                  {renderChipEditor("variants", catDraft.variants)}
                 </div>
                 <div className="cat-field"><label>Technology Levels</label>
-                  <ChipEditor field="techLevels" values={catDraft.techLevels} />
+                  {renderChipEditor("techLevels", catDraft.techLevels)}
+                </div>
+                <div className="cat-field"><label>Pricing per Tier (MSRP per aid)</label>
+                  {renderTierPricing()}
                 </div>
                 <div className="cat-field"><label>Colors</label>
-                  <ChipEditor field="colors" values={catDraft.colors} />
+                  {renderChipEditor("colors", catDraft.colors)}
                 </div>
                 <div className="cat-field"><label>Battery</label>
-                  <ChipEditor field="battery" values={catDraft.battery} />
+                  {renderChipEditor("battery", catDraft.battery)}
                 </div>
                 <div className="cat-field"><label>Notes (internal)</label>
                   <textarea value={catDraft.notes} onChange={e=>setCatDraft(d=>({...d,notes:e.target.value}))} />
@@ -6437,7 +6874,25 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     <button className="cat-btn" onClick={()=>toggleActive(entry.id)}>{entry.active?"Deactivate":"Activate"}</button>
                     <button className="cat-btn" onClick={()=>{
                       if (isEditing) { setCatEditId(null); setCatDraft(null); }
-                      else { setCatEditId(entry.id); setCatDraft({...entry, variants:[...entry.variants], techLevels:[...entry.techLevels], colors:[...entry.colors], battery:[...entry.battery], styles:[...entry.styles]}); }
+                      else {
+                        // Backfill a tier row for any techLevel that doesn't have one yet,
+                        // so the pricing grid always shows one input per tech level.
+                        const existingTiers = (entry.tiers || []).map(t => ({...t}));
+                        const have = new Set(existingTiers.map(t => t.tierName));
+                        for (const n of (entry.techLevels || [])) {
+                          if (!have.has(n)) existingTiers.push({ tierName: n, msrp: null });
+                        }
+                        setCatEditId(entry.id);
+                        setCatDraft({
+                          ...entry,
+                          variants:   [...entry.variants],
+                          techLevels: [...entry.techLevels],
+                          colors:     [...entry.colors],
+                          battery:    [...entry.battery],
+                          styles:     [...entry.styles],
+                          tiers:      existingTiers,
+                        });
+                      }
                     }}>{isEditing?"Cancel":"Edit"}</button>
                     <button className="cat-btn danger" onClick={()=>deleteEntry(entry.id)}>Delete</button>
                   </div>
@@ -6446,6 +6901,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
                 {isEditing && catDraft && (
                   <div className="catalog-edit-panel">
+                    {catSaved && <div className="save-success">✓ Saved</div>}
                     <div className="cat-field-row">
                       <div className="cat-field"><label>Manufacturer</label>
                         <input value={catDraft.manufacturer} onChange={e=>setCatDraft(d=>({...d,manufacturer:e.target.value}))} />
@@ -6469,16 +6925,19 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       </div>
                     </div>
                     <div className="cat-field"><label>Variants</label>
-                      <ChipEditor field="variants" values={catDraft.variants} />
+                      {renderChipEditor("variants", catDraft.variants)}
                     </div>
                     <div className="cat-field"><label>Technology Levels</label>
-                      <ChipEditor field="techLevels" values={catDraft.techLevels} />
+                      {renderChipEditor("techLevels", catDraft.techLevels)}
+                    </div>
+                    <div className="cat-field"><label>Pricing per Tier (MSRP per aid)</label>
+                      {renderTierPricing()}
                     </div>
                     <div className="cat-field"><label>Colors</label>
-                      <ChipEditor field="colors" values={catDraft.colors} />
+                      {renderChipEditor("colors", catDraft.colors)}
                     </div>
                     <div className="cat-field"><label>Battery</label>
-                      <ChipEditor field="battery" values={catDraft.battery} />
+                      {renderChipEditor("battery", catDraft.battery)}
                     </div>
                     <div className="cat-field"><label>Notes (internal)</label>
                       <textarea value={catDraft.notes} onChange={e=>setCatDraft(d=>({...d,notes:e.target.value}))} />
@@ -6673,21 +7132,31 @@ export default function ProviderCRM({ staffId, clinicId }) {
           {view === "campaigns" && <CampaignManager clinicId={clinicId} staffId={staffId} patients={patients} />}
           {view === "content" && <ContentLibrary clinicId={clinicId} staffId={staffId} />}
           {view === "lima-charlie" && <LimaCharlie clinicId={clinicId} staffId={staffId} />}
-          {view === "new" && (
+          {view === "new" && (() => {
+            // Private-pay bundles Complete Care+ — no separate Care Plan step.
+            // We hide step index 6 from the stepper and skip it in nav. The
+            // underlying STEPS indexes are unchanged; everything else still
+            // references step === 6 etc. by absolute index.
+            const skipCarePlan = form.payType === "private";
+            const visibleSteps = skipCarePlan
+              ? STEPS.map((s, i) => ({ s, i })).filter(({ i }) => i !== 6)
+              : STEPS.map((s, i) => ({ s, i }));
+            const visiblePos = visibleSteps.findIndex(({ i }) => i === step);
+            return (
             <>
               <div className="topbar">
                 <div>
                   <div className="topbar-title">New Patient</div>
-                  <div className="topbar-sub">Step {step+1} of {STEPS.length} · {STEPS[step]}</div>
+                  <div className="topbar-sub">Step {visiblePos + 1} of {visibleSteps.length} · {STEPS[step]}</div>
                 </div>
                 <button className="btn-ghost" onClick={()=>setView("dashboard")}>Cancel</button>
               </div>
               <div className="content">
                 <div className="wizard-wrap">
                   <div className="wizard-steps">
-                    {STEPS.map((s,i)=>(
-                      <div key={s} className={`wizard-step ${i<step?"done":""}`}>
-                        <div className={`step-dot ${i===step?"active":i<step?"done":""}`}>{i<step?"✓":i+1}</div>
+                    {visibleSteps.map(({ s, i }, pos)=>(
+                      <div key={s} className={`wizard-step ${pos<visiblePos?"done":""}`}>
+                        <div className={`step-dot ${i===step?"active":pos<visiblePos?"done":""}`}>{pos<visiblePos?"✓":pos+1}</div>
                         <div className={`step-name ${i===step?"active":""}`}>{s}</div>
                       </div>
                     ))}
@@ -6702,7 +7171,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     </div>
                   )}
                   <div className="wizard-nav">
-                    <button className="btn-ghost" onClick={()=>step===0?setView("dashboard"):setStep(s=>s-1)}>
+                    <button className="btn-ghost" onClick={()=>{
+                      if (step === 0) { setView("dashboard"); return; }
+                      // Private-pay skips Care Plan (step 6) — going Back from
+                      // Review (step 7) lands on Device Selection (step 5).
+                      if (skipCarePlan && step === 7) { setStep(5); return; }
+                      setStep(s=>s-1);
+                    }}>
                       {step===0?"Cancel":"← Back"}
                     </button>
                     {step < STEPS.length-1 ? (
@@ -6731,7 +7206,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
                               setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
                             }
                           } catch(e) { console.error("incremental save:", e); }
-                          setStep(s=>s+1);
+                          // Private-pay skips Care Plan — Continue from Device
+                          // Selection (step 5) jumps straight to Review (step 7).
+                          setStep(s => (skipCarePlan && s === 5) ? 7 : s + 1);
                         }}>
                           Continue →
                         </button>
@@ -6867,17 +7344,48 @@ export default function ProviderCRM({ staffId, clinicId }) {
                           <button
                             disabled={paSignatureName.trim().length<=2}
                             style={{width:"100%",marginTop:16,background:paSignatureName.trim().length>2?"#15803d":"#d1d5db",color:"white",border:"none",borderRadius:8,padding:"14px 20px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,cursor:paSignatureName.trim().length>2?"pointer":"not-allowed"}}
-                            onClick={()=>{
+                            onClick={async ()=>{
                               const sigDate = new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
-                              downloadPurchaseAgreement({
+                              const pricePerAid = form.payType==="private"?privatePayPrimaryPerAid():(form.tierPrice||0);
+                              const isBilateral = (fType === 'bilateral' || fType === 'cros_bicros');
+                              const aidCount = isBilateral ? 2 : 1;
+                              const carePlanCost = cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0;
+                              const { blob, fileName } = downloadPurchaseAgreement({
                                 patient:{name:pName,address:form.address,phone:form.phone,dob:form.dob},
                                 devices:{fittingType:fType,left:leftRec,right:rightRec},
-                                carePlan:cpId, pricePerAid:form.payType==="private"?privatePayPrimaryPerAid():(form.tierPrice||0),
+                                carePlan:cpId, pricePerAid,
                                 clinic:clinicObj,
                                 provider:{fullName:provName,activeLicense:provLic,signatureUrl:staffProfile?.signatureUrl||null},
                                 patientSignature:paSignatureName.trim(), patientSignatureDate:sigDate,
                                 deliverySignature:null, deliveryDate:null, signatureImageBase64:null,
                               });
+                              if (wizardPatientId) {
+                                try {
+                                  await uploadPatientDocument({
+                                    patientId: wizardPatientId,
+                                    clinicId,
+                                    staffId,
+                                    kind: 'purchase_agreement',
+                                    blob, fileName,
+                                    metadata: {
+                                      carePlan: cpId,
+                                      pricePerAid,
+                                      aidCount,
+                                      deviceTotal: pricePerAid * aidCount,
+                                      carePlanCost,
+                                      totalPurchasePrice: (pricePerAid * aidCount) + carePlanCost,
+                                      fittingType: fType,
+                                      payType: form.payType,
+                                      patientSignature: paSignatureName.trim(),
+                                      includesDelivery: false,
+                                      providerName: provName,
+                                    },
+                                  });
+                                } catch (e) {
+                                  console.error('Archive purchase agreement (wizard):', e);
+                                  alert('Purchase agreement downloaded, but failed to archive to chart: ' + (e.message || e));
+                                }
+                              }
                               setWizardPaSigned(true);
                               setWizardPaSignatureDate(new Date().toISOString());
                               setShowWizardPaModal(false);
@@ -6894,7 +7402,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 );
               })()}
             </>
-          )}
+            );
+          })()}
         </div>
       </div>
     </>
