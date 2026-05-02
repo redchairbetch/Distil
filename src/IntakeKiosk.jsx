@@ -561,7 +561,15 @@ function genIntakeId() {
 
 function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t) {
   const yn = (key) => answers[key] === true ? "Yes" : answers[key] === false ? "No" : "—";
-  const val = (key) => answers[key] || "—";
+  // Radio/multiChoice answers are stored as canonical option keys (e.g.
+  // "female", "android", "right"); look up the localized label for the
+  // printable PDF, falling back to the raw value for free-text fields
+  // and any value with no translation entry.
+  const val = (key) => {
+    const raw = answers[key];
+    if (raw == null || raw === "") return "—";
+    return t[raw] || raw;
+  };
   // DOB is stored as ISO YYYY-MM-DD — format as MM/DD/YYYY for the printed
   // intake since that's what providers expect to scan quickly on paper.
   const dobDisplay = (() => {
@@ -1005,8 +1013,8 @@ function FieldInput({ field, t, value, onChange, error, answers, setAnswer }) {
         <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>{lbl}</label>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           {field.options.map(opt => (
-            <button key={opt} onClick={() => onChange(t[opt] || opt)}
-              style={{ padding: "10px 18px", borderRadius: 10, border: `2px solid ${value === (t[opt] || opt) ? C.teal : C.border}`, background: value === (t[opt] || opt) ? C.tealL : "#fff", color: value === (t[opt] || opt) ? C.tealD : C.text, fontWeight: 700, fontSize: 15, cursor: "pointer", fontFamily: font, transition: "all 0.15s" }}>
+            <button key={opt} onClick={() => onChange(opt)}
+              style={{ padding: "10px 18px", borderRadius: 10, border: `2px solid ${value === opt ? C.teal : C.border}`, background: value === opt ? C.tealL : "#fff", color: value === opt ? C.tealD : C.text, fontWeight: 700, fontSize: 15, cursor: "pointer", fontFamily: font, transition: "all 0.15s" }}>
               {t[opt] || opt}
             </button>
           ))}
@@ -1429,8 +1437,8 @@ export default function IntakeKiosk() {
       <h2 style={{ fontFamily: serif, fontSize: 26, color: C.text, margin: "0 0 32px", lineHeight: 1.35 }}>{t[step.qKey]}</h2>
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
         {step.options.map(opt => (
-          <button key={opt} onClick={() => { setAnswer(step.ansKey, t[opt]||opt); setTimeout(() => setStepIdx(i => i+1), 300); }}
-            style={{ flex: 1, minWidth: 120, padding: "24px 16px", fontSize: 20, fontWeight: 800, borderRadius: 16, border: `3px solid ${answers[step.ansKey] === (t[opt]||opt) ? C.teal : C.border}`, background: answers[step.ansKey] === (t[opt]||opt) ? C.tealL : "#fff", color: answers[step.ansKey] === (t[opt]||opt) ? C.tealD : C.text, cursor: "pointer", fontFamily: font, transition: "all 0.15s" }}>
+          <button key={opt} onClick={() => { setAnswer(step.ansKey, opt); setTimeout(() => setStepIdx(i => i+1), 300); }}
+            style={{ flex: 1, minWidth: 120, padding: "24px 16px", fontSize: 20, fontWeight: 800, borderRadius: 16, border: `3px solid ${answers[step.ansKey] === opt ? C.teal : C.border}`, background: answers[step.ansKey] === opt ? C.tealL : "#fff", color: answers[step.ansKey] === opt ? C.tealD : C.text, cursor: "pointer", fontFamily: font, transition: "all 0.15s" }}>
             {t[opt] || opt}
           </button>
         ))}

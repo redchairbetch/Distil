@@ -2562,6 +2562,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     setWizardPatientId(newPatientId);
     setPendingIntakes(prev => prev.filter(i => i._meta?.intakeId !== intakeId));
     setShowIntakeQueue(false);
+    setIntakeToast(null);
     setStep(0); setSaved(false); setView("new");
     refreshPatients();
   };
