@@ -36,13 +36,18 @@ const ENVIRONMENTS = [
   { id: "crowds",     label: "Crowds / cocktail / concerts" },
 ];
 
-// Tier × environment coverage, 0–100. Same matrix Kurt and I aligned
-// on. Premium tops at 95% on cocktail-class environments — honest,
-// no industry chart pretends to fully solve those.
+// Tier × environment coverage, 0–100. Premium tops at 95% on
+// cocktail-class environments — honest, no industry chart pretends to
+// fully solve those. Levels 0/-1 (Signia "2"/"1") are below the
+// three-tier matrix; rendered behind the "Show all options" accordion
+// for patients with affordability constraints. Engine never picks
+// from these (pickRecommendedTier floors at rank ≥ 1).
 const COVERAGE_BY_RANK = {
   5: { home:100, tv:100, phone:100, religious:100, car:100, restaurant:100, groups:100, outdoors:100, crowds: 95 }, // Premium / Select
   3: { home:100, tv:100, phone:100, religious: 80, car: 85, restaurant: 80, groups: 80, outdoors: 75, crowds: 65 }, // Advanced
   1: { home:100, tv: 90, phone: 90, religious: 60, car: 60, restaurant: 50, groups: 50, outdoors: 40, crowds: 30 }, // Standard / entry
+    0: { home:100, tv: 80, phone: 80, religious: 50, car: 50, restaurant: 40, groups: 40, outdoors: 30, crowds: 28 }, // Level 2
+ '-1': { home: 95, tv: 70, phone: 70, religious: 40, car: 40, restaurant: 30, groups: 30, outdoors: 25, crowds: 25 }, // Level 1
 };
 
 // Intake answer (true) → environment IDs the patient struggles with.
@@ -66,6 +71,8 @@ const INTAKE_TO_ENVS = {
 // "Premium" is TruHearing's name; "Select" is private-pay's top tier.
 // Signia's manufacturer_class anchors use numeric level labels (7/5/3/2/1)
 // where 7≈Premium, 5≈Advanced, 3≈Standard. Levels 1 and 2 sit below the
+// three-tier matrix; pickRecommendedTier excludes them from the engine
+// pool but they get full coverage charts so the patient can compare.
 // three-tier coverage matrix and intentionally return null.
 function tierLabelToRank(label) {
   if (!label) return null;
@@ -73,6 +80,8 @@ function tierLabelToRank(label) {
   if (l === "premium" || l === "select" || l === "7") return 5;
   if (l === "advanced" || l === "5") return 3;
   if (l === "standard" || l === "3") return 1;
+  if (l === "level 2" || l === "2") return 0;
+  if (l === "level 1" || l === "1") return -1;
   return null;
 }
 
@@ -93,12 +102,17 @@ function flaggedEnvironments(intakeAnswers) {
 // Pick the tier the engine recommends, capped to what the plan covers.
 // If the engine's pick isn't available (TruHearing locks tier list),
 // fall back to the highest covered tier. Returns { tier, capped, originalRank }.
+//
+// The pool is floored at rank ≥ 1 (Standard) — levels 0 and -1 are
+// "value" tiers shown only behind the accordion, never auto-recommended.
 function pickRecommendedTier(engineRank, availableTiers) {
   if (!engineRank || availableTiers.length === 0) return { tier: null, capped: false };
   const ranked = availableTiers
     .map(t => ({ ...t, rank: tierLabelToRank(t.label) }))
-    .filter(t => t.rank != null)
+    .filter(t => t.rank != null && t.rank >= 1)
     .sort((a, b) => b.rank - a.rank); // highest rank first
+  // No primary tier (Std/Adv/Premium) maps for this plan — fall back
+  // to manual selection in the UI; provider picks from the value tiers.
   // Plan tiers can use labels outside the ranked set (e.g. "Level 1" / "Level 2").
   // When nothing maps, return no recommendation — the provider can still pick.
   if (ranked.length === 0) return { tier: null, capped: false, originalRank: engineRank };
@@ -113,6 +127,8 @@ function rankToLabel(rank) {
   if (rank === 5) return "Premium";
   if (rank === 3) return "Advanced";
   if (rank === 1) return "Standard";
+  if (rank === 0) return "Level 2";
+  if (rank === -1) return "Level 1";
   return "—";
 }
 
@@ -181,14 +197,39 @@ export default function TierSelection({
   );
   const flagged = useMemo(() => flaggedEnvironments(intakeAnswers), [intakeAnswers]);
 
-  // Auto-select the recommended tier on first arrival, if nothing is
-  // selected yet. Provider override stays sticky after that.
+  // Split tiers into primary (Std/Adv/Premium, rank ≥ 1) and value
+  // (Levels 1/2 and any unranked label). Primary cards render up front;
+  // value cards are gated behind an accordion so the patient defaults
+  // to the three options that match their lifestyle.
+  const { primaryTiers, valueTiers } = useMemo(() => {
+    const primary = [];
+    const value = [];
+    for (const t of availableTiers) {
+      const r = tierLabelToRank(t.label);
+      if (r != null && r >= 1) primary.push(t);
+      else value.push(t);
+    }
+    return { primaryTiers: primary, valueTiers: value };
+  }, [availableTiers]);
+
+  const [showValueTiers, setShowValueTiers] = useState(false);
+
+  // Mode: when the engine has produced a recommendation, the cards are
+  // read-only and the recommended tier is the visual anchor. When the
+  // engine errors or has no rankable tier in the plan, fall back to
+  // manual selection so the provider can pick.
+  const hasRecommendation = !loading && !engineError && recommended?.tier != null;
+  const allowManual = !loading && !hasRecommendation;
+
+  // Sync form.tier to the engine's pick whenever it changes. With cards
+  // read-only, the engine is the source of truth — re-entering the step
+  // after a back-nav must re-anchor on the current recommendation, not
+  // a stale prior selection.
   useEffect(() => {
-    if (selectedTier) return;
     if (recommended?.tier) {
       onSelectTier(recommended.tier.label, recommended.tier.price);
     }
-  }, [recommended?.tier?.label]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [recommended?.tier?.label, recommended?.tier?.price]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (availableTiers.length === 0) {
     return (
@@ -200,6 +241,23 @@ export default function TierSelection({
       </div>
     );
   }
+
+  const renderGrid = (tiers) => (
+    <div style={{ display:"grid", gridTemplateColumns:`repeat(${tiers.length}, 1fr)`, gap:16 }}>
+      {tiers.map(tier => (
+        <TierCard
+          key={tier.label}
+          tier={tier}
+          selected={selectedTier === tier.label}
+          recommended={recommended?.tier?.label === tier.label}
+          selectable={allowManual}
+          blurb={tierBlurbs[tier.label]}
+          flagged={flagged}
+          onSelect={() => onSelectTier(tier.label, tier.price)}
+        />
+      ))}
+    </div>
+  );
 
   return (
     <div className="card">
@@ -213,19 +271,37 @@ export default function TierSelection({
         flaggedCount={flagged.size}
       />
 
-      <div style={{ display:"grid", gridTemplateColumns:`repeat(${availableTiers.length}, 1fr)`, gap:16, marginTop:16 }}>
-        {availableTiers.map(tier => (
-          <TierCard
-            key={tier.label}
-            tier={tier}
-            selected={selectedTier === tier.label}
-            recommended={recommended?.tier?.label === tier.label}
-            blurb={tierBlurbs[tier.label]}
-            flagged={flagged}
-            onSelect={() => onSelectTier(tier.label, tier.price)}
-          />
-        ))}
-      </div>
+      {primaryTiers.length === 0 ? (
+        // Plan has no primary tier — render value tiers directly so the
+        // provider can pick something. No accordion needed.
+        <div style={{ marginTop:16 }}>{renderGrid(valueTiers)}</div>
+      ) : (
+        <>
+          <div style={{ marginTop:16 }}>{renderGrid(primaryTiers)}</div>
+          {valueTiers.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowValueTiers(s => !s)}
+                style={{
+                  display:"block", width:"100%",
+                  marginTop:20, marginBottom: showValueTiers ? 12 : 0,
+                  padding:"10px 16px",
+                  background:"transparent",
+                  border:`1px dashed ${BORDER}`, borderRadius:8,
+                  color:MUTED, fontSize:13, fontWeight:600,
+                  fontFamily:"inherit",
+                  cursor:"pointer",
+                  letterSpacing:"0.02em",
+                }}
+              >
+                {showValueTiers ? "Hide all options ▴" : "Show all options ▾"}
+              </button>
+              {showValueTiers && renderGrid(valueTiers)}
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -266,30 +342,37 @@ function RecommendationBanner({ loading, engineError, recommended, rationaleText
   );
 }
 
-function TierCard({ tier, selected, recommended, blurb, flagged, onSelect }) {
+function TierCard({ tier, selected, recommended, selectable, blurb, flagged, onSelect }) {
   const rank = tierLabelToRank(tier.label);
-  const coverage = rank ? COVERAGE_BY_RANK[rank] : null;
+  const coverage = rank != null ? COVERAGE_BY_RANK[rank] : null;
 
   // Split environments into "flagged for this patient" vs "other".
   // If the patient flagged none, show all in the "other" group.
   const flaggedEnvs = flagged.size > 0 ? ENVIRONMENTS.filter(e => flagged.has(e.id)) : [];
   const otherEnvs   = flagged.size > 0 ? ENVIRONMENTS.filter(e => !flagged.has(e.id)) : ENVIRONMENTS;
 
-  const borderColor = selected ? RECOMMEND : recommended ? TEAL : BORDER;
-  const borderWidth = selected ? 2 : 1;
+  // Recommended (engine pick) is the dominant visual state. The selected
+  // state only matters in the manual-fallback mode — when the engine has
+  // produced a pick, cards are read-only and `selectable` is false.
+  const showSelectionRing = selectable && selected;
+  const borderColor = recommended ? TEAL : showSelectionRing ? RECOMMEND : BORDER;
+  const borderWidth = recommended || showSelectionRing ? 2 : 1;
 
   return (
-    <div style={{
-      border:`${borderWidth}px solid ${borderColor}`,
-      borderRadius:10,
-      padding:0,
-      background:"#fff",
-      cursor:"pointer",
-      position:"relative",
-      display:"flex",
-      flexDirection:"column",
-      transition:"border-color 0.15s",
-    }} onClick={onSelect}>
+    <div
+      style={{
+        border:`${borderWidth}px solid ${borderColor}`,
+        borderRadius:10,
+        padding:0,
+        background:"#fff",
+        cursor: selectable ? "pointer" : "default",
+        position:"relative",
+        display:"flex",
+        flexDirection:"column",
+        transition:"border-color 0.15s",
+      }}
+      onClick={selectable ? onSelect : undefined}
+    >
       {recommended && (
         <div style={{
           position:"absolute", top:-10, left:14,
@@ -297,17 +380,12 @@ function TierCard({ tier, selected, recommended, blurb, flagged, onSelect }) {
           padding:"2px 10px", borderRadius:99,
           fontSize:11, fontWeight:700, letterSpacing:"0.04em",
         }}>
-          ⭐ ENGINE PICK
+          ⭐ Recommended
         </div>
       )}
 
       <div style={{ padding:"16px 16px 12px" }}>
-        <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between" }}>
-          <div style={{ fontSize:18, fontWeight:700, color:TEXT }}>{tier.label}</div>
-          <div style={{ fontSize:14, fontWeight:700, color:TEXT }}>
-            {tier.price === 0 ? "No charge" : `$${Math.round(tier.price).toLocaleString()} / aid`}
-          </div>
-        </div>
+        <div style={{ fontSize:18, fontWeight:700, color:TEXT }}>{tier.label}</div>
         {blurb && (
           <div style={{ marginTop:6, fontSize:12, lineHeight:1.45, color:"#475569" }}>{blurb}</div>
         )}
@@ -342,20 +420,22 @@ function TierCard({ tier, selected, recommended, blurb, flagged, onSelect }) {
         </div>
       )}
 
-      <div style={{ borderTop:`1px solid ${BORDER}`, padding:"10px 16px", textAlign:"center" }}>
-        <div style={{
-          display:"inline-block",
-          padding:"6px 18px",
-          background: selected ? RECOMMEND : "transparent",
-          color: selected ? "#fff" : MUTED,
-          border:`1px solid ${selected ? RECOMMEND : BORDER}`,
-          borderRadius:6,
-          fontSize:13, fontWeight:700,
-          fontFamily:"inherit",
-        }}>
-          {selected ? "✓ Selected" : `Select ${tier.label}`}
+      {selectable && (
+        <div style={{ borderTop:`1px solid ${BORDER}`, padding:"10px 16px", textAlign:"center" }}>
+          <div style={{
+            display:"inline-block",
+            padding:"6px 18px",
+            background: selected ? RECOMMEND : "transparent",
+            color: selected ? "#fff" : MUTED,
+            border:`1px solid ${selected ? RECOMMEND : BORDER}`,
+            borderRadius:6,
+            fontSize:13, fontWeight:700,
+            fontFamily:"inherit",
+          }}>
+            {selected ? "✓ Selected" : `Select ${tier.label}`}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
