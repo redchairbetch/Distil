@@ -756,6 +756,10 @@ export async function updatePatientAudiology(patientId, audiology, staffId) {
     const { error } = await supabase.from('audiogram_thresholds').insert(thresholdRows)
     if (error) console.error('audiogram_thresholds insert:', error)
   }
+
+  // Audiogram changed → invalidate cached tier recommendation so the
+  // next entry to the tier step re-runs the engine against new inputs.
+  await supersedeRecommendationsForPatient(patientId)
 }
 
 // Step 3 — save device fitting + sides for existing patient
@@ -1231,11 +1235,15 @@ export async function loadIntakesForPatient(patientId) {
 // edits persist without a Save button.
 export async function updateIntakeAnswers(intakeId, answers) {
   if (!intakeId) return
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('intakes')
     .update({ answers })
     .eq('id', intakeId)
-  if (error) console.error('updateIntakeAnswers:', error)
+    .select('patient_id')
+    .single()
+  if (error) { console.error('updateIntakeAnswers:', error); return }
+  // Intake answers changed → invalidate cached tier recommendation.
+  if (data?.patient_id) await supersedeRecommendationsForPatient(data.patient_id)
 }
 
 // Write the provider_notes JSONB object. Shape is keyed by intake field
@@ -2293,6 +2301,20 @@ export async function loadCurrentRecommendation(patientId) {
     .limit(1)
     .maybeSingle()
   return data || null
+}
+
+// Mark all current recommendation rows for a patient as superseded.
+// Called from updatePatientAudiology and updateIntakeAnswers so the
+// next visit to the tier step regenerates against the fresh inputs
+// instead of serving the cached row from before the change.
+export async function supersedeRecommendationsForPatient(patientId) {
+  if (!patientId) return
+  const { error } = await supabase
+    .from('recommendation_engine_output')
+    .update({ superseded_at: new Date().toISOString() })
+    .eq('patient_id', patientId)
+    .is('superseded_at', null)
+  if (error) console.error('supersedeRecommendationsForPatient:', error)
 }
 
 export async function saveProviderEditedRationale(recOutputId, text) {
