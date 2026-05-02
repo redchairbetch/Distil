@@ -193,6 +193,12 @@ export default function TierSelection({
     [engineResult, availableTiers]
   );
   const flagged = useMemo(() => flaggedEnvironments(intakeAnswers), [intakeAnswers]);
+  // Distinguish "no intake on file" from "intake exists but nothing flagged"
+  // so the banner copy doesn't tell a patient who answered every question
+  // that no intake answers were available.
+  const hasIntakeAnswers = intakeAnswers != null
+    && typeof intakeAnswers === "object"
+    && Object.keys(intakeAnswers).length > 0;
 
   // Split tiers into primary (Std/Adv/Premium, rank ≥ 1) and value
   // (Levels 1/2 and any unranked label). Primary cards render up front;
@@ -266,6 +272,7 @@ export default function TierSelection({
         recommended={recommended}
         rationaleText={engineResult?.generated_rationale_text}
         flaggedCount={flagged.size}
+        hasIntakeAnswers={hasIntakeAnswers}
       />
 
       {primaryTiers.length === 0 ? (
@@ -303,7 +310,7 @@ export default function TierSelection({
   );
 }
 
-function RecommendationBanner({ loading, engineError, recommended, rationaleText, flaggedCount }) {
+function RecommendationBanner({ loading, engineError, recommended, rationaleText, flaggedCount, hasIntakeAnswers }) {
   if (loading) {
     return (
       <div style={{ background:BG_SOFT, border:`1px solid ${BORDER}`, borderRadius:8, padding:"10px 14px", fontSize:13, color:MUTED }}>
@@ -323,9 +330,11 @@ function RecommendationBanner({ loading, engineError, recommended, rationaleText
   const cappedNote = recommended.capped
     ? ` The engine flagged a higher tier, but ${rankToLabel(recommended.originalRank)} isn't part of this plan — ${recommended.tier.label} is the strongest option available to you.`
     : "";
-  const sourceNote = flaggedCount === 0
-    ? " Recommendation is grounded in audiometric findings (no intake answers were available)."
-    : ` Recommendation reflects your audiogram and the ${flaggedCount === 1 ? "environment you flagged" : `${flaggedCount} environments you flagged`} in your intake.`;
+  const sourceNote = !hasIntakeAnswers
+    ? " Recommendation is grounded in audiometric findings — no intake on file."
+    : flaggedCount === 0
+      ? " Recommendation reflects your audiogram. Your intake answers didn't flag specific listening challenges, which the engine reads as a quieter listening profile."
+      : ` Recommendation reflects your audiogram and the ${flaggedCount === 1 ? "environment you flagged" : `${flaggedCount} environments you flagged`} in your intake.`;
 
   return (
     <div style={{ background:TEAL_BG, borderLeft:`4px solid ${TEAL}`, borderRadius:6, padding:"12px 16px" }}>
