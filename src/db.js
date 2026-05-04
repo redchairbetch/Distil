@@ -1340,8 +1340,10 @@ export async function loadIntakesForPatient(patientId) {
     .order('submitted_at', { ascending: false })
   if (error) { console.error('loadIntakesForPatient:', error); return [] }
   return (data || []).map(row => ({
-    answers:       row.answers       || {},
-    providerNotes: row.provider_notes || {},
+    answers:         row.answers       || {},
+    providerNotes:   row.provider_notes || {},
+    motivationScore: row.motivation_score ?? null,
+    softCommitment:  row.soft_commitment  || null,
     _meta: {
       intakeId:    row.id,
       patientId:   row.patient_id,
@@ -1379,6 +1381,23 @@ export async function updateIntakeProviderNotes(intakeId, providerNotes) {
     .update({ provider_notes: providerNotes })
     .eq('id', intakeId)
   if (error) console.error('updateIntakeProviderNotes:', error)
+}
+
+// Patch the provider's Chapter 1 assessment fields (motivation 1-10 +
+// soft-commitment enum). Captured during the Health History wizard step
+// so downstream chapters and the personalization engine can read them
+// off the most-recent intake. Pass only the fields you want to change.
+export async function updateIntakeAssessment(intakeId, fields) {
+  if (!intakeId) return
+  const update = {}
+  if ('motivationScore' in fields) update.motivation_score = fields.motivationScore
+  if ('softCommitment'  in fields) update.soft_commitment  = fields.softCommitment
+  if (Object.keys(update).length === 0) return
+  const { error } = await supabase
+    .from('intakes')
+    .update(update)
+    .eq('id', intakeId)
+  if (error) console.error('updateIntakeAssessment:', error)
 }
 
 // Mark an intake as dismissed
@@ -1430,6 +1449,8 @@ export function subscribeToIntakes(clinicId, onNewIntake) {
 function normalizeIntake(row) {
   return {
     answers: row.answers || {},
+    motivationScore: row.motivation_score ?? null,
+    softCommitment:  row.soft_commitment  || null,
     _meta: {
       intakeId:    row.id,
       status:      row.status,
@@ -2488,7 +2509,7 @@ export async function loadPersonalizationInputs(patientId) {
       .order('test_date', { ascending: false })
       .limit(1).maybeSingle(),
     supabase.from('intakes')
-      .select('answers, accepted_at')
+      .select('answers, accepted_at, motivation_score, soft_commitment')
       .eq('patient_id', patientId)
       .eq('status', 'accepted')
       .order('accepted_at', { ascending: false })

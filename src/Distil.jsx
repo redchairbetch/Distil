@@ -25,6 +25,7 @@ import CareJourney from "./views/CareJourney.jsx";
 import HealthHistory from "./views/HealthHistory.jsx";
 import IntakeResponsesAccordion from "./views/IntakeResponsesAccordion.jsx";
 import TierSelection from "./views/TierSelection.jsx";
+import ChapterIntro from "./components/ChapterIntro.jsx";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.mjs",
@@ -47,6 +48,7 @@ import {
   loadIntakesForPatient,
   updateIntakeAnswers,
   updateIntakeProviderNotes,
+  updateIntakeAssessment,
   createProviderIntake,
   dismissIntake,
   signOut,
@@ -1476,6 +1478,12 @@ function generateCounseling(aud){
 // ── WIZARD STEPS ──────────────────────────────────────────────────────────────
 const STEPS = ["Patient","Health History","Testing","Results","Technology Tier","Device Selection","Care Plan","Review"];
 
+// Narrative Thread (backlog #8) — each wizard step belongs to one of five
+// chapters. The intro overlay fires when the user first crosses into a
+// new chapter; chaptersSeen state suppresses the intro on back/forward.
+const STEP_TO_CHAPTER = [1, 1, 2, 2, 3, 3, 4, 5];
+const CHAPTER_TITLES = ["Patient story", "Evidence", "Recommendation", "Investment", "Commitment"];
+
 
 // ── ROLE CHECK UTILITY ─────────────────────────────────────────────────────────
 // Role categories: 'care_coordinator' | 'provider' | 'admin'
@@ -1501,6 +1509,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [saveError, setSaveError] = useState(null);
   const [wizardPatientId, setWizardPatientId] = useState(null);
   const [wizardIntake, setWizardIntake] = useState(null);
+  // Narrative Thread (backlog #8) — { 1: true, 2: false, ... } per wizard
+  // session. The intro overlay is suppressed for chapters already seen,
+  // so back/forward navigation doesn't re-pop. Reset on wizard cancel.
+  const [chaptersSeen, setChaptersSeen] = useState({});
   // Bumped after createProviderIntake mints a fresh row, so the loader
   // useEffect re-fires and picks up the new intake without waiting on a
   // step transition.
@@ -2480,6 +2492,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     setActiveSide("left");
     setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
     setWizardPatientId(null); setSaveToast(false);
+    setChaptersSeen({});
     setStep(0); setSaved(false); setView("new");
   };
 
@@ -3803,6 +3816,18 @@ export default function ProviderCRM({ staffId, clinicId }) {
             setWizardIntake(prev => prev ? { ...prev, providerNotes: nextNotes } : prev);
             try { await updateIntakeProviderNotes(intakeId, nextNotes); }
             catch (e) { console.error("updateIntakeProviderNotes:", e); }
+          }}
+          onUpdateAssessment={async (fields) => {
+            if (!intakeId) return;
+            // Optimistic local update so the carry-forward summary the
+            // next chapter intro renders matches what the provider just set.
+            setWizardIntake(prev => prev ? {
+              ...prev,
+              ...('motivationScore' in fields ? { motivationScore: fields.motivationScore } : {}),
+              ...('softCommitment'  in fields ? { softCommitment:  fields.softCommitment  } : {}),
+            } : prev);
+            try { await updateIntakeAssessment(intakeId, fields); }
+            catch (e) { console.error("updateIntakeAssessment:", e); }
           }}
           onStartGuidedConversation={
             wizardPatientId && clinicId
@@ -7289,6 +7314,55 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     ))}
                   </div>
                   {renderStep()}
+                  {(() => {
+                    // Narrative Thread (backlog #8) — show the chapter intro
+                    // overlay the first time the wizard crosses into a new
+                    // chapter. The card carries one line forward from the
+                    // prior chapter so the appointment reads as a story.
+                    const chapter = STEP_TO_CHAPTER[step];
+                    if (!chapter || chaptersSeen[chapter]) return null;
+
+                    let prevSummary = null;
+                    if (chapter === 2) {
+                      const m = wizardIntake?.motivationScore;
+                      const sc = wizardIntake?.softCommitment;
+                      prevSummary = "From Chapter 1 — " + [
+                        m != null ? `Motivation ${m}/10` : "Motivation not set",
+                        sc ? `soft commit: ${sc}` : "soft commit: not set",
+                      ].join(" · ");
+                    } else if (chapter === 3) {
+                      const r = form.audiology?.unaidedR;
+                      const l = form.audiology?.unaidedL;
+                      prevSummary = (r != null || l != null)
+                        ? `From Chapter 2 — Word recognition: R ${r ?? "—"}% · L ${l ?? "—"}%`
+                        : "From Chapter 2 — Hearing evaluation complete";
+                    } else if (chapter === 4) {
+                      prevSummary = (form.tier && form.tierPrice != null)
+                        ? `From Chapter 3 — Recommended: ${form.tier} tier · $${Number(form.tierPrice).toLocaleString()}/aid`
+                        : "From Chapter 3 — Devices selected";
+                    } else if (chapter === 5) {
+                      const isPrivate = form.payType === "private";
+                      const labelMap = { complete: "Complete Care+", punch: "Punch Card", paygo: "Pay-As-You-Go" };
+                      const carePlanLabel = isPrivate
+                        ? "Complete Care+ (included with private pay)"
+                        : (labelMap[form.carePlan] || "Care plan to be confirmed");
+                      prevSummary = `From Chapter 4 — ${carePlanLabel}`;
+                    }
+
+                    const complaintQuote = chapter === 1
+                      ? (wizardIntake?.answers?.visitReason || null)
+                      : null;
+
+                    return (
+                      <ChapterIntro
+                        number={chapter}
+                        title={CHAPTER_TITLES[chapter - 1]}
+                        prevSummary={prevSummary}
+                        complaintQuote={complaintQuote}
+                        onBegin={() => setChaptersSeen(prev => ({ ...prev, [chapter]: true }))}
+                      />
+                    );
+                  })()}
                   {saveError && (
                     <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"12px 16px",marginBottom:8,fontSize:13,color:"#dc2626"}}>
                       <strong>Save failed:</strong> {saveError}

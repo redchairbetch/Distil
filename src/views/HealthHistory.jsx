@@ -199,7 +199,7 @@ export function formatFieldValue(field, value, answers = {}) {
   }
 }
 
-export default function HealthHistory({ intake, onUpdateAnswer, onUpdateNote, onStartGuidedConversation }) {
+export default function HealthHistory({ intake, onUpdateAnswer, onUpdateNote, onUpdateAssessment, onStartGuidedConversation }) {
   // Notes that have a value on load are auto-expanded so the provider
   // sees prior context immediately. New notes start collapsed.
   const [expandedNotes, setExpandedNotes] = useState(() => new Set(
@@ -257,6 +257,13 @@ export default function HealthHistory({ intake, onUpdateAnswer, onUpdateNote, on
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:24 }}>
       <Header intake={intake} />
+      {onUpdateAssessment && (
+        <ProviderAssessment
+          motivationScore={intake.motivationScore ?? null}
+          softCommitment={intake.softCommitment ?? null}
+          onUpdate={onUpdateAssessment}
+        />
+      )}
       {SECTIONS
         .filter(sec => !sec.showWhen || sec.showWhen(answers))
         .map(sec => (
@@ -271,6 +278,71 @@ export default function HealthHistory({ intake, onUpdateAnswer, onUpdateNote, on
             onUpdateNote={onUpdateNote}
           />
         ))}
+    </div>
+  );
+}
+
+// Provider Assessment — Chapter 1 inputs the provider sets after talking
+// with the patient. Motivation 1-10 + soft-commitment enum. These feed
+// the Chapter 2-5 carry-forwards and (in future PRs) the prompter
+// sidebar's close-readiness signal + nurture-campaign personalization.
+function ProviderAssessment({ motivationScore, softCommitment, onUpdate }) {
+  const COMMIT_OPTIONS = [
+    ["high",    "High"],
+    ["medium",  "Medium"],
+    ["low",     "Low"],
+    ["unknown", "Unknown"],
+  ];
+  return (
+    <div>
+      <div style={{ fontSize:11, fontWeight:700, color:MUTED, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:8 }}>
+        Provider Assessment
+      </div>
+      <div style={{ border:`1px solid ${BORDER}`, borderRadius:8, background:"#fff", padding:"14px 16px", display:"flex", flexDirection:"column", gap:18 }}>
+        <div>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+            <label style={{ fontSize:12, fontWeight:600, color:MUTED }}>
+              How motivated is this patient to address their hearing today? (1–10)
+            </label>
+            <SaveIndicator fieldKey="assessment:motivation_score" />
+          </div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
+            {Array.from({ length: 10 }, (_, i) => i + 1).map(num => (
+              <button
+                key={num}
+                type="button"
+                onClick={() => { onUpdate({ motivationScore: num }); flashSaved("assessment:motivation_score"); }}
+                style={{
+                  ...pillStyle(motivationScore === num),
+                  minWidth: 32, padding: "6px 0", textAlign: "center",
+                }}
+              >
+                {num}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+            <label style={{ fontSize:12, fontWeight:600, color:MUTED }}>
+              Soft commitment — how ready do they signal they are?
+            </label>
+            <SaveIndicator fieldKey="assessment:soft_commitment" />
+          </div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+            {COMMIT_OPTIONS.map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => { onUpdate({ softCommitment: k }); flashSaved("assessment:soft_commitment"); }}
+                style={pillStyle(softCommitment === k)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
