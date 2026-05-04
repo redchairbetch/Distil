@@ -2366,7 +2366,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
     const primary = leftRec || rightRec;
     const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros"))
       || form.left.isCROS || form.right.isCROS;
-    const fittingType = leftRec && rightRec ? (isCROS ? "CROS/BiCROS" : "Bilateral") : leftRec ? "Monaural Left" : "Monaural Right";
+    // Lowercased to match the savePatient/createPatientDraft DB convention
+    // ('bilateral' | 'cros_bicros' | 'monaural_left' | 'monaural_right'),
+    // so the locally-built selectedPatient agrees with the next loadAllPatients.
+    const fittingType = leftRec && rightRec ? (isCROS ? "cros_bicros" : "bilateral") : leftRec ? "monaural_left" : "monaural_right";
     const years = form.payType === "insurance" && form.carePlan === "complete" ? 4 : 3;
     const warrantyStart = wizardPaSignatureDate
       ? new Date(new Date(wizardPaSignatureDate).getTime() + 14 * 86400000).toISOString().split("T")[0]
@@ -5717,7 +5720,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   <div style={{fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:11,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,marginBottom:8}}>Agreement Summary</div>
                   {hasDevices && (
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#374151"}}>{p.devices?.left?.manufacturer || p.devices?.right?.manufacturer} {p.devices?.left?.family || p.devices?.right?.family} ({p.devices?.fittingType === 'bilateral' ? 'pair' : 'single'})</span>
+                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#374151"}}>{p.devices?.left?.manufacturer || p.devices?.right?.manufacturer} {p.devices?.left?.family || p.devices?.right?.family} ({isBilateral ? 'pair' : 'single'})</span>
                       <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:600,color:"#0a1628"}}>${deviceTotal.toLocaleString('en-US',{minimumFractionDigits:2})}</span>
                     </div>
                   )}
