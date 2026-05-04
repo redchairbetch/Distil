@@ -2376,6 +2376,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
     if (wizardPatientId) {
       try {
         const carePlan = form.payType === "insurance" ? form.carePlan : null;
+        const privatePay = form.payType === "private" && form.tierPrice != null
+          ? { tier: form.tier, tierPrice: form.tierPrice }
+          : null;
         await finalizePatient(
           wizardPatientId,
           wizardPaSigned ? "active" : "tns",
@@ -2383,7 +2386,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
           carePlan,
           form.notes,
           form.appointments,
-          staffId, clinicId
+          staffId, clinicId,
+          privatePay
         );
         setSaved(true);
         await refreshPatients();
@@ -2396,6 +2400,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           dob: form.dob, phone: form.phone, email: form.email, address: form.address,
           payType: form.payType,
           insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
+          privatePay,
           devices: { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null, serialLeft: genId(), serialRight: genId() },
           audiology: form.audiology,
           carePlan: carePlan,
@@ -2425,6 +2430,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
       address: form.address,
       payType: form.payType,
       insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
+      privatePay: form.payType === "private" && form.tierPrice != null
+        ? { tier: form.tier, tierPrice: form.tierPrice }
+        : null,
       devices: {
         left: leftRec,
         right: rightRec,
@@ -5539,10 +5547,11 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   const hasRight = !!p.devices?.right;
                   const fittingType = hasLeft && hasRight ? (isCROS ? "cros_bicros" : "bilateral") : hasLeft ? "monaural_left" : "monaural_right";
                   const counselingSections = p.audiology ? generateCounseling(p.audiology) : null;
-                  // TODO Phase 2: persist private-pay tier+price on the patient
-                  // record so we can recover the correct per-tier anchor here
-                  // instead of falling back to the legacy $2,750.
-                  const pricePerAid = p.payType === "private" ? 2750 : (p.insurance?.tierPrice || 0);
+                  // Private pay reads from the snapshot persisted at finalize.
+                  // Legacy records (pre-migration) fall back to the historical $2,750.
+                  const pricePerAid = p.payType === "private"
+                    ? (p.privatePay?.tierPrice || 2750)
+                    : (p.insurance?.tierPrice || 0);
                   const { blob, fileName } = downloadQuote({
                     patient: { name: p.name, phone: p.phone },
                     devices: { fittingType, left: p.devices?.left || null, right: p.devices?.right || null },
@@ -5604,11 +5613,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
           const cpId = p.carePlan;
           const hasDevices = p.devices?.left || p.devices?.right;
           const canGenerate = paSignatureName.trim().length > 2;
-          // TODO Phase 2: persist private-pay tier+price on the patient
-          // record so we can recover the correct per-tier anchor here
-          // instead of falling back to the legacy $2,750.
+          // Private pay reads from the snapshot persisted at finalize.
+          // Legacy records (pre-migration) fall back to the historical $2,750.
           const isPrivate = p.payType === 'private';
-          const pricePerAid = isPrivate ? 2750 : (p.insurance?.tierPrice || 0);
+          const pricePerAid = isPrivate
+            ? (p.privatePay?.tierPrice || 2750)
+            : (p.insurance?.tierPrice || 0);
           const isBilateral = (p.devices?.fittingType === 'bilateral' || p.devices?.fittingType === 'cros_bicros');
           const aidCount = isBilateral ? 2 : 1;
           // Private pay bundles the care plan into the per-aid retail price.
