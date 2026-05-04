@@ -240,7 +240,12 @@ export async function listPatientDocuments(patientId, { signedUrlSeconds = 3600 
   if (signErr) throw signErr
 
   const urlByPath = new Map((signed || []).map(s => [s.path, s.signedUrl]))
-  return data.map(row => ({ ...row, signedUrl: urlByPath.get(row.storage_path) || null }))
+  const signedUrlAt = Date.now()
+  return data.map(row => ({
+    ...row,
+    signedUrl: urlByPath.get(row.storage_path) || null,
+    signedUrlAt,
+  }))
 }
 
 /**
@@ -363,6 +368,18 @@ function assemblePatient(row) {
     },
 
     patientStatus: row.patient_status || 'prospect',
+
+    // Follow-up queue inputs (populated by savePunch + provider edits).
+    lastVisitDate:        row.last_visit_date         || null,
+    followUpStatus:       row.follow_up_status        || 'none',
+    followUpContactedAt:  row.follow_up_contacted_date || null,
+    followUpNotes:        row.follow_up_notes         || '',
+
+    // Year-4 / off-warranty upgrade tracking.
+    carePlanStartDate:    row.care_plan_start_date    || null,
+    upgradeTierOffered:   row.upgrade_tier_offered    || '',
+    upgradeOutcome:       row.upgrade_outcome         || '',
+    donationRecipient:    row.donation_recipient      || '',
 
     appointments: appts.map(a => ({
       date: a.appointment_date,
@@ -814,9 +831,12 @@ export async function updatePatientCarePlan(patientId, carePlan) {
 
 // Final — promote draft to active/tns and set warranty/fitting info
 export async function finalizePatient(patientId, status, devices, carePlan, notes, appointments, staffId, clinicId) {
-  // Update patient status + notes
+  // Update patient status + notes. Stamp care_plan_start_date with the
+  // fitting date when the patient is being finalized with a care plan
+  // selected — gives the year-4 upgrade pathway a ground-truth anchor.
   const updates = { patient_status: status || 'active' }
   if (notes != null) updates.notes = notes
+  if (carePlan && devices?.fittingDate) updates.care_plan_start_date = devices.fittingDate
   const { error: patErr } = await supabase
     .from('patients')
     .update(updates)
@@ -899,16 +919,83 @@ export async function loadPunch(patientId) {
 }
 
 export async function savePunch(patientId, punchData) {
+  const log = punchData.log || []
   const { error } = await supabase
     .from('punch_cards')
     .upsert({
       patient_id:   patientId,
       cleanings:    punchData.cleanings,
       appointments: punchData.appointments,
-      log:          punchData.log || [],
+      log,
       updated_at:   new Date().toISOString(),
     }, { onConflict: 'patient_id' })
   if (error) console.error('savePunch:', error)
+
+  // Mirror the most recent appointment punch onto patients.last_visit_date
+  // so the follow-up queue can filter on a single column without scanning
+  // every patient's punch_card.log jsonb. Falls back to NULL on undo of the
+  // last appointment so the queue treats them as never-visited.
+  let lastVisit = null
+  for (const entry of log) {
+    if (entry?.type !== 'appointment' || !entry.date) continue
+    if (!lastVisit || new Date(entry.date) > new Date(lastVisit)) lastVisit = entry.date
+  }
+  const { error: pErr } = await supabase
+    .from('patients')
+    .update({ last_visit_date: lastVisit })
+    .eq('id', patientId)
+  if (pErr) console.error('savePunch: last_visit_date sync:', pErr)
+}
+
+
+// ============================================================
+// FOLLOW-UP QUEUE
+// ============================================================
+
+// Mark a patient as contacted from the follow-up queue. The queue UI
+// uses this to push a patient out of the "needs outreach" buckets for
+// a cooldown period without losing the audit trail of when/what.
+export async function markFollowUpContacted(patientId, notes) {
+  const { error } = await supabase
+    .from('patients')
+    .update({
+      follow_up_status:         'contacted',
+      follow_up_contacted_date: new Date().toISOString(),
+      follow_up_notes:          notes || null,
+    })
+    .eq('id', patientId)
+  if (error) console.error('markFollowUpContacted:', error)
+}
+
+// Reset a patient's follow-up tracking — used when a buckets-they-fell-into
+// problem is resolved (e.g. they came in for a visit) and we want them back
+// in the live queue if they trip a different bucket later.
+export async function clearFollowUp(patientId) {
+  const { error } = await supabase
+    .from('patients')
+    .update({
+      follow_up_status:         'none',
+      follow_up_contacted_date: null,
+      follow_up_notes:          null,
+    })
+    .eq('id', patientId)
+  if (error) console.error('clearFollowUp:', error)
+}
+
+// Record the outcome of a year-4 / off-warranty upgrade conversation.
+// outcome is free-form for now (e.g. 'pending', 'declined', 'upgraded',
+// 'donated'). donationRecipient is set when outcome === 'donated'.
+export async function recordUpgradeOutcome(patientId, { tierOffered, outcome, donationRecipient }) {
+  const updates = {}
+  if (tierOffered       !== undefined) updates.upgrade_tier_offered = tierOffered || null
+  if (outcome           !== undefined) updates.upgrade_outcome      = outcome     || null
+  if (donationRecipient !== undefined) updates.donation_recipient   = donationRecipient || null
+  if (Object.keys(updates).length === 0) return
+  const { error } = await supabase
+    .from('patients')
+    .update(updates)
+    .eq('id', patientId)
+  if (error) console.error('recordUpgradeOutcome:', error)
 }
 
 
@@ -1189,12 +1276,17 @@ export async function createProviderIntake(patientId, clinicId) {
 // signed-intake PDF archived at kiosk submit time when no patient_id was
 // known yet). The matching staff member's clinic must own the intake — RLS
 // already enforces this on the update.
-export async function linkIntakeToPatient(intakeId, patientId) {
-  if (!intakeId || !patientId) return
+//
+// `clinicId` is required and constrains both updates to rows in the
+// caller's clinic so a stray API call can't cross-link a kiosk PDF to
+// another clinic's patient.
+export async function linkIntakeToPatient(intakeId, patientId, clinicId) {
+  if (!intakeId || !patientId || !clinicId) return
   const { error } = await supabase
     .from('intakes')
     .update({ patient_id: patientId })
     .eq('id', intakeId)
+    .eq('clinic_id', clinicId)
   if (error) console.error('linkIntakeToPatient:', error)
 
   // Best-effort backfill — failures here shouldn't block the intake link.
@@ -1202,6 +1294,7 @@ export async function linkIntakeToPatient(intakeId, patientId) {
     .from('patient_documents')
     .update({ patient_id: patientId })
     .eq('intake_id', intakeId)
+    .eq('clinic_id', clinicId)
     .is('patient_id', null)
   if (docErr) console.error('linkIntakeToPatient: backfill patient_documents:', docErr)
 }
