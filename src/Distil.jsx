@@ -77,6 +77,8 @@ import {
   finalizePatient,
   uploadPatientDocument,
   listPatientDocuments,
+  getDocumentSignedUrl,
+  recordUpgradeOutcome,
 } from "./db.js";
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 import { downloadQuote } from "./generateQuote.js";
@@ -86,6 +88,7 @@ import ContentLibrary from "./views/ContentLibrary.jsx";
 import NurturePreview from "./views/NurturePreview.jsx";
 import CampaignManager from "./views/CampaignManager.jsx";
 import LimaCharlie from "./views/LimaCharlie.jsx";
+import FollowUpQueue, { countFollowUpPatients } from "./views/FollowUpQueue.jsx";
 
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
@@ -2456,7 +2459,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     try {
       await savePatient(patient, staffId, clinicId);
       if (form.intakeId) {
-        try { await linkIntakeToPatient(form.intakeId, patient.id); }
+        try { await linkIntakeToPatient(form.intakeId, patient.id, clinicId); }
         catch (e) { console.error('linkIntakeToPatient:', e); }
       }
       setSaved(true);
@@ -2541,7 +2544,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     }
 
     if (intakeId) {
-      try { await linkIntakeToPatient(intakeId, newPatientId); }
+      try { await linkIntakeToPatient(intakeId, newPatientId, clinicId); }
       catch (e) { console.error("linkIntakeToPatient on intake accept:", e); }
       try { await dbAcceptIntake(intakeId); } catch {}
     }
@@ -6322,6 +6325,26 @@ export default function ProviderCRM({ staffId, clinicId }) {
                         </div>
                         {d.signedUrl ? (
                           <a href={d.signedUrl} target="_blank" rel="noopener noreferrer"
+                             onClick={async (e) => {
+                               // Signed URLs expire 1h after fetch. If the page has been
+                               // open longer than ~50min, re-sign on click so the link
+                               // doesn't 401. Background the refresh into a new tab to
+                               // avoid hijacking middle-click / Ctrl+click behavior.
+                               const ageMs = Date.now() - (d.signedUrlAt || 0);
+                               if (ageMs <= 50 * 60 * 1000) return;
+                               e.preventDefault();
+                               try {
+                                 const fresh = await getDocumentSignedUrl(d.storage_path);
+                                 if (fresh) {
+                                   setPatientDocuments(rows => rows.map(r =>
+                                     r.id === d.id ? { ...r, signedUrl: fresh, signedUrlAt: Date.now() } : r
+                                   ));
+                                   window.open(fresh, "_blank", "noopener,noreferrer");
+                                 }
+                               } catch (err) {
+                                 console.error("getDocumentSignedUrl:", err);
+                               }
+                             }}
                              style={{fontSize:12,fontWeight:600,color:"#0a1628",background:"white",border:"1px solid #e5e7eb",borderRadius:6,padding:"6px 12px",textDecoration:"none"}}>
                             Open ↗
                           </a>
@@ -6332,6 +6355,87 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     );
                   })}
                 </div>
+              </div>
+            )}
+
+            {/* ── UPGRADE TRACKING ─────────────────────────────────────────────────── */}
+            {/* Year-4 / off-warranty conversation outcome. Surfaces in the           */}
+            {/* follow-up queue's "off warranty · no upgrade conversation" bucket;    */}
+            {/* logging an outcome here removes the patient from that bucket.        */}
+            {selectedPatient.devices && (
+              <div className="detail-card full">
+                <div className="detail-card-title">Upgrade Tracking</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14}}>
+                  <div>
+                    <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#9ca3af",display:"block",marginBottom:6}}>Care plan start</label>
+                    <div style={{fontSize:13,fontWeight:600,color:"#0a1628",padding:"8px 0"}}>
+                      {selectedPatient.carePlanStartDate ? fmtDate(selectedPatient.carePlanStartDate) : <span style={{color:"#9ca3af",fontWeight:400}}>—</span>}
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#9ca3af",display:"block",marginBottom:6}}>Tier offered</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Premium IX"
+                      defaultValue={selectedPatient.upgradeTierOffered || ""}
+                      onBlur={async (e) => {
+                        const v = e.target.value.trim();
+                        if (v === (selectedPatient.upgradeTierOffered || "")) return;
+                        try {
+                          await recordUpgradeOutcome(selectedPatient.id, { tierOffered: v });
+                          await refreshPatients();
+                          setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
+                        } catch (err) { console.error("recordUpgradeOutcome tier:", err); }
+                      }}
+                      style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:6,fontSize:13,fontFamily:"'Sora',sans-serif"}}
+                    />
+                  </div>
+                  <div>
+                    <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#9ca3af",display:"block",marginBottom:6}}>Outcome</label>
+                    <select
+                      value={selectedPatient.upgradeOutcome || ""}
+                      onChange={async (e) => {
+                        const v = e.target.value;
+                        try {
+                          await recordUpgradeOutcome(selectedPatient.id, {
+                            outcome: v,
+                            // Wipe donation recipient if outcome moves off "donated"
+                            ...(v !== "donated" ? { donationRecipient: "" } : {}),
+                          });
+                          await refreshPatients();
+                          setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
+                        } catch (err) { console.error("recordUpgradeOutcome outcome:", err); }
+                      }}
+                      style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:6,fontSize:13,fontFamily:"'Sora',sans-serif",background:"white"}}
+                    >
+                      <option value="">— not yet discussed —</option>
+                      <option value="pending">Pending — conversation started</option>
+                      <option value="declined">Declined upgrade</option>
+                      <option value="upgraded">Upgraded</option>
+                      <option value="donated">Donated old aids</option>
+                    </select>
+                  </div>
+                </div>
+                {selectedPatient.upgradeOutcome === "donated" && (
+                  <div style={{marginTop:14}}>
+                    <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#9ca3af",display:"block",marginBottom:6}}>Donation recipient</label>
+                    <input
+                      type="text"
+                      placeholder="Recipient name or organization"
+                      defaultValue={selectedPatient.donationRecipient || ""}
+                      onBlur={async (e) => {
+                        const v = e.target.value.trim();
+                        if (v === (selectedPatient.donationRecipient || "")) return;
+                        try {
+                          await recordUpgradeOutcome(selectedPatient.id, { donationRecipient: v });
+                          await refreshPatients();
+                          setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
+                        } catch (err) { console.error("recordUpgradeOutcome donation:", err); }
+                      }}
+                      style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:6,fontSize:13,fontFamily:"'Sora',sans-serif"}}
+                    />
+                  </div>
+                )}
               </div>
             )}
 
@@ -7056,15 +7160,20 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div style={{fontSize:12,color:"rgba(255,255,255,0.7)",fontWeight:500,lineHeight:1.3}}>{clinic.address}</div>
           </div>
           <div className="sidebar-nav">
-            {[["🏠","Dashboard","dashboard"],["👥","Patients","patients"],["📅","Schedule","schedule"],["📊","Reports","reports"],["📬","Campaigns","campaigns"],["📚","Content Library","content"],["🎖️","Lima Charlie","lima-charlie"],["📋","Product Catalog","catalog"],["⚙️","Settings","settings"]].map(([icon,label,id])=>(
+            {[["🏠","Dashboard","dashboard"],["👥","Patients","patients"],["🔔","Follow-up","followup"],["📅","Schedule","schedule"],["📊","Reports","reports"],["📬","Campaigns","campaigns"],["📚","Content Library","content"],["🎖️","Lima Charlie","lima-charlie"],["📋","Product Catalog","catalog"],["⚙️","Settings","settings"]].map(([icon,label,id])=>{
+              const badge = id === "followup" ? countFollowUpPatients(patients) : 0;
+              return (
               <div key={id} className={`nav-item ${view===id||(id==="dashboard"&&view==="new")||(id==="patients"&&(view==="dashboard"||view==="patient"))?"active":""}`}
                 onClick={()=>{
                   if(id==="dashboard"||id==="patients") setView("dashboard");
                   else setView(id);
                 }}>
                 <span className="nav-icon">{icon}</span>{label}
+                {badge > 0 && (
+                  <span style={{marginLeft:"auto",background:"#ef4444",color:"white",borderRadius:20,padding:"1px 7px",fontSize:10,fontWeight:700}}>{badge}</span>
+                )}
               </div>
-            ))}
+            )})}
           </div>
           {/* Intake queue button */}
           <div style={{padding:"12px 14px",borderTop:"1px solid rgba(255,255,255,0.07)"}}>
@@ -7133,6 +7242,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
           {view === "campaigns" && <CampaignManager clinicId={clinicId} staffId={staffId} patients={patients} />}
           {view === "content" && <ContentLibrary clinicId={clinicId} staffId={staffId} />}
           {view === "lima-charlie" && <LimaCharlie clinicId={clinicId} staffId={staffId} />}
+          {view === "followup" && (
+            <FollowUpQueue
+              patients={patients}
+              onSelectPatient={(p) => { setSelectedPatient(p); setView("patient"); }}
+              onRefresh={refreshPatients}
+            />
+          )}
           {view === "new" && (() => {
             // Private-pay bundles Complete Care+ — no separate Care Plan step.
             // We hide step index 6 from the stepper and skip it in nav. The
@@ -7191,7 +7307,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                               const pid = await createPatientDraft({ id: genId(), name, dob: form.dob, phone: form.phone, email: form.email, address: form.address, payType: form.payType, notes: form.notes, insurance: ins }, staffId, clinicId);
                               setWizardPatientId(pid);
                               if (form.intakeId) {
-                                try { await linkIntakeToPatient(form.intakeId, pid); }
+                                try { await linkIntakeToPatient(form.intakeId, pid, clinicId); }
                                 catch (e) { console.error('linkIntakeToPatient:', e); }
                               }
                               setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
