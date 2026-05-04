@@ -2306,18 +2306,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
     };
   };
 
-  // Private-pay pricing: Signia is $2,750/device (preferred partner),
-  // all other manufacturers are $3,250/device. Applied per ear.
-  const privatePayPriceForSide = (s) => {
-    if (!s) return 0;
-    if (!s.familyId && s.manufacturer !== "TruHearing") return 0;
-    return s.manufacturer === "Signia" ? 2750 : 3250;
-  };
-  const privatePayTotal = () =>
-    privatePayPriceForSide(form.left) + privatePayPriceForSide(form.right);
-  const privatePayPrimaryPerAid = () =>
-    privatePayPriceForSide(form.left) || privatePayPriceForSide(form.right);
-
   // ── Generate Quote PDF from wizard state ─────────────────────────────
   const handleGenerateQuote = async () => {
     const leftRec = buildSideRecord(form.left);
@@ -2325,7 +2313,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
     const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
     const fittingType = leftRec && rightRec ? (isCROS ? "cros_bicros" : "bilateral") : leftRec ? "monaural_left" : "monaural_right";
     const counselingSections = generateCounseling(form.audiology); // returns array of {heading,body} or null
-    const pricePerAid = form.payType === "private" ? privatePayPrimaryPerAid() : (form.tierPrice || 0);
+    // TierSelection writes the chosen tier's per-aid price (clinic_retail_anchors
+    // for private pay, insurance_plans for insurance) into form.tierPrice.
+    const pricePerAid = form.tierPrice || 0;
     const { blob, fileName } = downloadQuote({
       patient: { name: [form.firstName, form.lastName].filter(Boolean).join(" "), phone: form.phone },
       devices: { fittingType, left: leftRec, right: rightRec },
@@ -4683,13 +4673,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
       const leftOk  = isSideConfigured("left");
       const rightOk = isSideConfigured("right");
       const aidCount = (leftOk ? 1 : 0) + (rightOk ? 1 : 0);
-      const aidBase = form.payType === "private"
-        ? (aidCount > 0 ? privatePayTotal() : null)
-        : (form.tierPrice != null ? form.tierPrice * aidCount : null);
+      const aidBase = form.tierPrice != null ? form.tierPrice * aidCount : null;
       const aidTotal = aidBase;
-      const perAidFor = (side) => form.payType === "private"
-        ? privatePayPriceForSide(form[side])
-        : form.tierPrice;
+      const perAidFor = () => form.tierPrice;
       const isTruHearing = form.tpa === "TruHearing";
       const isTruHearingTPA = isTruHearing;
 
@@ -5553,6 +5539,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   const hasRight = !!p.devices?.right;
                   const fittingType = hasLeft && hasRight ? (isCROS ? "cros_bicros" : "bilateral") : hasLeft ? "monaural_left" : "monaural_right";
                   const counselingSections = p.audiology ? generateCounseling(p.audiology) : null;
+                  // TODO Phase 2: persist private-pay tier+price on the patient
+                  // record so we can recover the correct per-tier anchor here
+                  // instead of falling back to the legacy $2,750.
                   const pricePerAid = p.payType === "private" ? 2750 : (p.insurance?.tierPrice || 0);
                   const { blob, fileName } = downloadQuote({
                     patient: { name: p.name, phone: p.phone },
@@ -5615,12 +5604,19 @@ export default function ProviderCRM({ staffId, clinicId }) {
           const cpId = p.carePlan;
           const hasDevices = p.devices?.left || p.devices?.right;
           const canGenerate = paSignatureName.trim().length > 2;
+          // TODO Phase 2: persist private-pay tier+price on the patient
+          // record so we can recover the correct per-tier anchor here
+          // instead of falling back to the legacy $2,750.
+          const isPrivate = p.payType === 'private';
+          const pricePerAid = isPrivate ? 2750 : (p.insurance?.tierPrice || 0);
+          const isBilateral = (p.devices?.fittingType === 'bilateral' || p.devices?.fittingType === 'cros_bicros');
+          const aidCount = isBilateral ? 2 : 1;
+          // Private pay bundles the care plan into the per-aid retail price.
+          const carePlanCost = isPrivate ? 0 : (cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0);
+          const deviceTotal = pricePerAid * aidCount;
+          const totalPurchasePrice = deviceTotal + carePlanCost;
 
           const handleGeneratePDF = async (includeDelivery = false) => {
-            const pricePerAid = p.payType === "private" ? 2750 : (p.insurance?.tierPrice || 0);
-            const isBilateral = (p.devices?.fittingType === 'bilateral' || p.devices?.fittingType === 'cros_bicros');
-            const aidCount = isBilateral ? 2 : 1;
-            const carePlanCost = cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0;
             const { blob, fileName } = downloadPurchaseAgreement({
               patient: { name: p.name, address: p.address, phone: p.phone, dob: p.dob },
               devices: {
@@ -5630,6 +5626,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
               },
               carePlan: cpId,
               pricePerAid,
+              payType: p.payType,
               clinic: staffProfile?.clinic || clinic,
               provider: {
                 fullName: staffProfile?.fullName || 'Provider',
@@ -5655,9 +5652,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   carePlan: cpId,
                   pricePerAid,
                   aidCount,
-                  deviceTotal: pricePerAid * aidCount,
+                  deviceTotal,
                   carePlanCost,
-                  totalPurchasePrice: (pricePerAid * aidCount) + carePlanCost,
+                  totalPurchasePrice,
                   fittingType: p.devices?.fittingType || 'bilateral',
                   payType: p.payType,
                   patientSignature: paSignatureName.trim(),
@@ -5711,13 +5708,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   {hasDevices && (
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
                       <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#374151"}}>{p.devices?.left?.manufacturer || p.devices?.right?.manufacturer} {p.devices?.left?.family || p.devices?.right?.family} ({p.devices?.fittingType === 'bilateral' ? 'pair' : 'single'})</span>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:600,color:"#0a1628"}}>${((p.insurance?.tierPrice||0) * (p.devices?.fittingType === 'bilateral' || p.devices?.fittingType === 'cros_bicros' ? 2 : 1)).toLocaleString('en-US',{minimumFractionDigits:2})}</span>
+                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:600,color:"#0a1628"}}>${deviceTotal.toLocaleString('en-US',{minimumFractionDigits:2})}</span>
                     </div>
                   )}
                   {cpId && cpId !== 'paygo' && (
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
                       <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#374151"}}>{cpId === 'complete' ? 'Complete Care+' : 'Treatment Punch Card'}</span>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:600,color:"#0a1628"}}>{cpId === 'complete' ? '$1,250.00' : '$575.00'}</span>
+                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:600,color: isPrivate ? '#15803d' : '#0a1628'}}>{isPrivate ? 'Included' : (cpId === 'complete' ? '$1,250.00' : '$575.00')}</span>
                     </div>
                   )}
                   {cpId === 'paygo' && (
@@ -5728,7 +5725,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   )}
                   <div style={{borderTop:"1px solid #e5e7eb",marginTop:8,paddingTop:8,display:"flex",justifyContent:"space-between"}}>
                     <span style={{fontFamily:"'Sora',sans-serif",fontSize:14,fontWeight:700,color:"#0a1628"}}>Total</span>
-                    <span style={{fontFamily:"'Sora',sans-serif",fontSize:14,fontWeight:700,color:"#0a1628"}}>${(((p.insurance?.tierPrice||0) * (p.devices?.fittingType === 'bilateral' || p.devices?.fittingType === 'cros_bicros' ? 2 : 1)) + (cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0)).toLocaleString('en-US',{minimumFractionDigits:2})}</span>
+                    <span style={{fontFamily:"'Sora',sans-serif",fontSize:14,fontWeight:700,color:"#0a1628"}}>${totalPurchasePrice.toLocaleString('en-US',{minimumFractionDigits:2})}</span>
                   </div>
                 </div>
 
@@ -7463,14 +7460,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
                             style={{width:"100%",marginTop:16,background:paSignatureName.trim().length>2?"#15803d":"#d1d5db",color:"white",border:"none",borderRadius:8,padding:"14px 20px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,cursor:paSignatureName.trim().length>2?"pointer":"not-allowed"}}
                             onClick={async ()=>{
                               const sigDate = new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
-                              const pricePerAid = form.payType==="private"?privatePayPrimaryPerAid():(form.tierPrice||0);
+                              const pricePerAid = form.tierPrice || 0;
                               const isBilateral = (fType === 'bilateral' || fType === 'cros_bicros');
                               const aidCount = isBilateral ? 2 : 1;
-                              const carePlanCost = cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0;
+                              // Private pay bundles the care plan into the per-aid retail price.
+                              const isPrivate = form.payType === 'private';
+                              const carePlanCost = isPrivate ? 0 : (cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0);
                               const { blob, fileName } = downloadPurchaseAgreement({
                                 patient:{name:pName,address:form.address,phone:form.phone,dob:form.dob},
                                 devices:{fittingType:fType,left:leftRec,right:rightRec},
-                                carePlan:cpId, pricePerAid,
+                                carePlan:cpId, pricePerAid, payType:form.payType,
                                 clinic:clinicObj,
                                 provider:{fullName:provName,activeLicense:provLic,signatureUrl:staffProfile?.signatureUrl||null},
                                 patientSignature:paSignatureName.trim(), patientSignatureDate:sigDate,
