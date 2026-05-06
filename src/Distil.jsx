@@ -26,6 +26,7 @@ import HealthHistory from "./views/HealthHistory.jsx";
 import IntakeResponsesAccordion from "./views/IntakeResponsesAccordion.jsx";
 import TierSelection from "./views/TierSelection.jsx";
 import ChapterIntro from "./components/ChapterIntro.jsx";
+import PrompterSidebar from "./components/PrompterSidebar.jsx";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.mjs",
@@ -1513,6 +1514,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
   // session. The intro overlay is suppressed for chapters already seen,
   // so back/forward navigation doesn't re-pop. Reset on wizard cancel.
   const [chaptersSeen, setChaptersSeen] = useState({});
+  // Provider prompter drawer — open by default, toggleable via the handle
+  // pinned to the right edge of the screen. Provider-only.
+  const [prompterOpen, setPrompterOpen] = useState(true);
   // Bumped after createProviderIntake mints a fresh row, so the loader
   // useEffect re-fires and picks up the new intake without waiting on a
   // step transition.
@@ -7314,6 +7318,18 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     ))}
                   </div>
                   {renderStep()}
+                  <PrompterSidebar
+                    open={prompterOpen}
+                    onToggle={() => setPrompterOpen(o => !o)}
+                    chapter={STEP_TO_CHAPTER[step]}
+                    chapterTitle={CHAPTER_TITLES[STEP_TO_CHAPTER[step] - 1]}
+                    motivationScore={wizardIntake?.motivationScore ?? null}
+                    softCommitment={wizardIntake?.softCommitment ?? null}
+                    audiology={form.audiology}
+                    payType={form.payType}
+                    tier={form.tier}
+                    carePlan={form.carePlan}
+                  />
                   {(() => {
                     // Narrative Thread (backlog #8) — show the chapter intro
                     // overlay the first time the wizard crosses into a new
