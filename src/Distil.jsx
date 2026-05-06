@@ -25,6 +25,7 @@ import CareJourney from "./views/CareJourney.jsx";
 import HealthHistory from "./views/HealthHistory.jsx";
 import IntakeResponsesAccordion from "./views/IntakeResponsesAccordion.jsx";
 import TierSelection from "./views/TierSelection.jsx";
+import ChapterIntro from "./components/ChapterIntro.jsx";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.mjs",
@@ -47,6 +48,7 @@ import {
   loadIntakesForPatient,
   updateIntakeAnswers,
   updateIntakeProviderNotes,
+  updateIntakeAssessment,
   createProviderIntake,
   dismissIntake,
   signOut,
@@ -1476,6 +1478,12 @@ function generateCounseling(aud){
 // ── WIZARD STEPS ──────────────────────────────────────────────────────────────
 const STEPS = ["Patient","Health History","Testing","Results","Technology Tier","Device Selection","Care Plan","Review"];
 
+// Narrative Thread (backlog #8) — each wizard step belongs to one of five
+// chapters. The intro overlay fires when the user first crosses into a
+// new chapter; chaptersSeen state suppresses the intro on back/forward.
+const STEP_TO_CHAPTER = [1, 1, 2, 2, 3, 3, 4, 5];
+const CHAPTER_TITLES = ["Patient story", "Evidence", "Recommendation", "Investment", "Commitment"];
+
 
 // ── ROLE CHECK UTILITY ─────────────────────────────────────────────────────────
 // Role categories: 'care_coordinator' | 'provider' | 'admin'
@@ -1501,6 +1509,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [saveError, setSaveError] = useState(null);
   const [wizardPatientId, setWizardPatientId] = useState(null);
   const [wizardIntake, setWizardIntake] = useState(null);
+  // Narrative Thread (backlog #8) — { 1: true, 2: false, ... } per wizard
+  // session. The intro overlay is suppressed for chapters already seen,
+  // so back/forward navigation doesn't re-pop. Reset on wizard cancel.
+  const [chaptersSeen, setChaptersSeen] = useState({});
   // Bumped after createProviderIntake mints a fresh row, so the loader
   // useEffect re-fires and picks up the new intake without waiting on a
   // step transition.
@@ -2306,18 +2318,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
     };
   };
 
-  // Private-pay pricing: Signia is $2,750/device (preferred partner),
-  // all other manufacturers are $3,250/device. Applied per ear.
-  const privatePayPriceForSide = (s) => {
-    if (!s) return 0;
-    if (!s.familyId && s.manufacturer !== "TruHearing") return 0;
-    return s.manufacturer === "Signia" ? 2750 : 3250;
-  };
-  const privatePayTotal = () =>
-    privatePayPriceForSide(form.left) + privatePayPriceForSide(form.right);
-  const privatePayPrimaryPerAid = () =>
-    privatePayPriceForSide(form.left) || privatePayPriceForSide(form.right);
-
   // ── Generate Quote PDF from wizard state ─────────────────────────────
   const handleGenerateQuote = async () => {
     const leftRec = buildSideRecord(form.left);
@@ -2325,7 +2325,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
     const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
     const fittingType = leftRec && rightRec ? (isCROS ? "cros_bicros" : "bilateral") : leftRec ? "monaural_left" : "monaural_right";
     const counselingSections = generateCounseling(form.audiology); // returns array of {heading,body} or null
-    const pricePerAid = form.payType === "private" ? privatePayPrimaryPerAid() : (form.tierPrice || 0);
+    // TierSelection writes the chosen tier's per-aid price (clinic_retail_anchors
+    // for private pay, insurance_plans for insurance) into form.tierPrice.
+    const pricePerAid = form.tierPrice || 0;
     const { blob, fileName } = downloadQuote({
       patient: { name: [form.firstName, form.lastName].filter(Boolean).join(" "), phone: form.phone },
       devices: { fittingType, left: leftRec, right: rightRec },
@@ -2376,7 +2378,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
     const primary = leftRec || rightRec;
     const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros"))
       || form.left.isCROS || form.right.isCROS;
-    const fittingType = leftRec && rightRec ? (isCROS ? "CROS/BiCROS" : "Bilateral") : leftRec ? "Monaural Left" : "Monaural Right";
+    // Lowercased to match the savePatient/createPatientDraft DB convention
+    // ('bilateral' | 'cros_bicros' | 'monaural_left' | 'monaural_right'),
+    // so the locally-built selectedPatient agrees with the next loadAllPatients.
+    const fittingType = leftRec && rightRec ? (isCROS ? "cros_bicros" : "bilateral") : leftRec ? "monaural_left" : "monaural_right";
     const years = form.payType === "insurance" && form.carePlan === "complete" ? 4 : 3;
     const warrantyStart = wizardPaSignatureDate
       ? new Date(new Date(wizardPaSignatureDate).getTime() + 14 * 86400000).toISOString().split("T")[0]
@@ -2386,6 +2391,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
     if (wizardPatientId) {
       try {
         const carePlan = form.payType === "insurance" ? form.carePlan : null;
+        const privatePay = form.payType === "private" && form.tierPrice != null
+          ? { tier: form.tier, tierPrice: form.tierPrice }
+          : null;
         await finalizePatient(
           wizardPatientId,
           wizardPaSigned ? "active" : "tns",
@@ -2393,7 +2401,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
           carePlan,
           form.notes,
           form.appointments,
-          staffId, clinicId
+          staffId, clinicId,
+          privatePay
         );
         setSaved(true);
         await refreshPatients();
@@ -2406,6 +2415,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           dob: form.dob, phone: form.phone, email: form.email, address: form.address,
           payType: form.payType,
           insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
+          privatePay,
           devices: { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null, serialLeft: genId(), serialRight: genId() },
           audiology: form.audiology,
           carePlan: carePlan,
@@ -2435,6 +2445,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
       address: form.address,
       payType: form.payType,
       insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
+      privatePay: form.payType === "private" && form.tierPrice != null
+        ? { tier: form.tier, tierPrice: form.tierPrice }
+        : null,
       devices: {
         left: leftRec,
         right: rightRec,
@@ -2479,6 +2492,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     setActiveSide("left");
     setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
     setWizardPatientId(null); setSaveToast(false);
+    setChaptersSeen({});
     setStep(0); setSaved(false); setView("new");
   };
 
@@ -3803,6 +3817,18 @@ export default function ProviderCRM({ staffId, clinicId }) {
             try { await updateIntakeProviderNotes(intakeId, nextNotes); }
             catch (e) { console.error("updateIntakeProviderNotes:", e); }
           }}
+          onUpdateAssessment={async (fields) => {
+            if (!intakeId) return;
+            // Optimistic local update so the carry-forward summary the
+            // next chapter intro renders matches what the provider just set.
+            setWizardIntake(prev => prev ? {
+              ...prev,
+              ...('motivationScore' in fields ? { motivationScore: fields.motivationScore } : {}),
+              ...('softCommitment'  in fields ? { softCommitment:  fields.softCommitment  } : {}),
+            } : prev);
+            try { await updateIntakeAssessment(intakeId, fields); }
+            catch (e) { console.error("updateIntakeAssessment:", e); }
+          }}
           onStartGuidedConversation={
             wizardPatientId && clinicId
               ? async () => {
@@ -4683,13 +4709,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
       const leftOk  = isSideConfigured("left");
       const rightOk = isSideConfigured("right");
       const aidCount = (leftOk ? 1 : 0) + (rightOk ? 1 : 0);
-      const aidBase = form.payType === "private"
-        ? (aidCount > 0 ? privatePayTotal() : null)
-        : (form.tierPrice != null ? form.tierPrice * aidCount : null);
+      const aidBase = form.tierPrice != null ? form.tierPrice * aidCount : null;
       const aidTotal = aidBase;
-      const perAidFor = (side) => form.payType === "private"
-        ? privatePayPriceForSide(form[side])
-        : form.tierPrice;
+      const perAidFor = () => form.tierPrice;
       const isTruHearing = form.tpa === "TruHearing";
       const isTruHearingTPA = isTruHearing;
 
@@ -5553,7 +5575,11 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   const hasRight = !!p.devices?.right;
                   const fittingType = hasLeft && hasRight ? (isCROS ? "cros_bicros" : "bilateral") : hasLeft ? "monaural_left" : "monaural_right";
                   const counselingSections = p.audiology ? generateCounseling(p.audiology) : null;
-                  const pricePerAid = p.payType === "private" ? 2750 : (p.insurance?.tierPrice || 0);
+                  // Private pay reads from the snapshot persisted at finalize.
+                  // Legacy records (pre-migration) fall back to the historical $2,750.
+                  const pricePerAid = p.payType === "private"
+                    ? (p.privatePay?.tierPrice || 2750)
+                    : (p.insurance?.tierPrice || 0);
                   const { blob, fileName } = downloadQuote({
                     patient: { name: p.name, phone: p.phone },
                     devices: { fittingType, left: p.devices?.left || null, right: p.devices?.right || null },
@@ -5615,12 +5641,20 @@ export default function ProviderCRM({ staffId, clinicId }) {
           const cpId = p.carePlan;
           const hasDevices = p.devices?.left || p.devices?.right;
           const canGenerate = paSignatureName.trim().length > 2;
+          // Private pay reads from the snapshot persisted at finalize.
+          // Legacy records (pre-migration) fall back to the historical $2,750.
+          const isPrivate = p.payType === 'private';
+          const pricePerAid = isPrivate
+            ? (p.privatePay?.tierPrice || 2750)
+            : (p.insurance?.tierPrice || 0);
+          const isBilateral = (p.devices?.fittingType === 'bilateral' || p.devices?.fittingType === 'cros_bicros');
+          const aidCount = isBilateral ? 2 : 1;
+          // Private pay bundles the care plan into the per-aid retail price.
+          const carePlanCost = isPrivate ? 0 : (cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0);
+          const deviceTotal = pricePerAid * aidCount;
+          const totalPurchasePrice = deviceTotal + carePlanCost;
 
           const handleGeneratePDF = async (includeDelivery = false) => {
-            const pricePerAid = p.payType === "private" ? 2750 : (p.insurance?.tierPrice || 0);
-            const isBilateral = (p.devices?.fittingType === 'bilateral' || p.devices?.fittingType === 'cros_bicros');
-            const aidCount = isBilateral ? 2 : 1;
-            const carePlanCost = cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0;
             const { blob, fileName } = downloadPurchaseAgreement({
               patient: { name: p.name, address: p.address, phone: p.phone, dob: p.dob },
               devices: {
@@ -5630,6 +5664,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
               },
               carePlan: cpId,
               pricePerAid,
+              payType: p.payType,
               clinic: staffProfile?.clinic || clinic,
               provider: {
                 fullName: staffProfile?.fullName || 'Provider',
@@ -5655,9 +5690,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   carePlan: cpId,
                   pricePerAid,
                   aidCount,
-                  deviceTotal: pricePerAid * aidCount,
+                  deviceTotal,
                   carePlanCost,
-                  totalPurchasePrice: (pricePerAid * aidCount) + carePlanCost,
+                  totalPurchasePrice,
                   fittingType: p.devices?.fittingType || 'bilateral',
                   payType: p.payType,
                   patientSignature: paSignatureName.trim(),
@@ -5710,14 +5745,14 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   <div style={{fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:11,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,marginBottom:8}}>Agreement Summary</div>
                   {hasDevices && (
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#374151"}}>{p.devices?.left?.manufacturer || p.devices?.right?.manufacturer} {p.devices?.left?.family || p.devices?.right?.family} ({p.devices?.fittingType === 'bilateral' ? 'pair' : 'single'})</span>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:600,color:"#0a1628"}}>${((p.insurance?.tierPrice||0) * (p.devices?.fittingType === 'bilateral' || p.devices?.fittingType === 'cros_bicros' ? 2 : 1)).toLocaleString('en-US',{minimumFractionDigits:2})}</span>
+                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#374151"}}>{p.devices?.left?.manufacturer || p.devices?.right?.manufacturer} {p.devices?.left?.family || p.devices?.right?.family} ({isBilateral ? 'pair' : 'single'})</span>
+                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:600,color:"#0a1628"}}>${deviceTotal.toLocaleString('en-US',{minimumFractionDigits:2})}</span>
                     </div>
                   )}
                   {cpId && cpId !== 'paygo' && (
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
                       <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#374151"}}>{cpId === 'complete' ? 'Complete Care+' : 'Treatment Punch Card'}</span>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:600,color:"#0a1628"}}>{cpId === 'complete' ? '$1,250.00' : '$575.00'}</span>
+                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:600,color: isPrivate ? '#15803d' : '#0a1628'}}>{isPrivate ? 'Included' : (cpId === 'complete' ? '$1,250.00' : '$575.00')}</span>
                     </div>
                   )}
                   {cpId === 'paygo' && (
@@ -5728,7 +5763,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   )}
                   <div style={{borderTop:"1px solid #e5e7eb",marginTop:8,paddingTop:8,display:"flex",justifyContent:"space-between"}}>
                     <span style={{fontFamily:"'Sora',sans-serif",fontSize:14,fontWeight:700,color:"#0a1628"}}>Total</span>
-                    <span style={{fontFamily:"'Sora',sans-serif",fontSize:14,fontWeight:700,color:"#0a1628"}}>${(((p.insurance?.tierPrice||0) * (p.devices?.fittingType === 'bilateral' || p.devices?.fittingType === 'cros_bicros' ? 2 : 1)) + (cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0)).toLocaleString('en-US',{minimumFractionDigits:2})}</span>
+                    <span style={{fontFamily:"'Sora',sans-serif",fontSize:14,fontWeight:700,color:"#0a1628"}}>${totalPurchasePrice.toLocaleString('en-US',{minimumFractionDigits:2})}</span>
                   </div>
                 </div>
 
@@ -7279,6 +7314,55 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     ))}
                   </div>
                   {renderStep()}
+                  {(() => {
+                    // Narrative Thread (backlog #8) — show the chapter intro
+                    // overlay the first time the wizard crosses into a new
+                    // chapter. The card carries one line forward from the
+                    // prior chapter so the appointment reads as a story.
+                    const chapter = STEP_TO_CHAPTER[step];
+                    if (!chapter || chaptersSeen[chapter]) return null;
+
+                    let prevSummary = null;
+                    if (chapter === 2) {
+                      const m = wizardIntake?.motivationScore;
+                      const sc = wizardIntake?.softCommitment;
+                      prevSummary = "From Chapter 1 — " + [
+                        m != null ? `Motivation ${m}/10` : "Motivation not set",
+                        sc ? `soft commit: ${sc}` : "soft commit: not set",
+                      ].join(" · ");
+                    } else if (chapter === 3) {
+                      const r = form.audiology?.unaidedR;
+                      const l = form.audiology?.unaidedL;
+                      prevSummary = (r != null || l != null)
+                        ? `From Chapter 2 — Word recognition: R ${r ?? "—"}% · L ${l ?? "—"}%`
+                        : "From Chapter 2 — Hearing evaluation complete";
+                    } else if (chapter === 4) {
+                      prevSummary = (form.tier && form.tierPrice != null)
+                        ? `From Chapter 3 — Recommended: ${form.tier} tier · $${Number(form.tierPrice).toLocaleString()}/aid`
+                        : "From Chapter 3 — Devices selected";
+                    } else if (chapter === 5) {
+                      const isPrivate = form.payType === "private";
+                      const labelMap = { complete: "Complete Care+", punch: "Punch Card", paygo: "Pay-As-You-Go" };
+                      const carePlanLabel = isPrivate
+                        ? "Complete Care+ (included with private pay)"
+                        : (labelMap[form.carePlan] || "Care plan to be confirmed");
+                      prevSummary = `From Chapter 4 — ${carePlanLabel}`;
+                    }
+
+                    const complaintQuote = chapter === 1
+                      ? (wizardIntake?.answers?.visitReason || null)
+                      : null;
+
+                    return (
+                      <ChapterIntro
+                        number={chapter}
+                        title={CHAPTER_TITLES[chapter - 1]}
+                        prevSummary={prevSummary}
+                        complaintQuote={complaintQuote}
+                        onBegin={() => setChaptersSeen(prev => ({ ...prev, [chapter]: true }))}
+                      />
+                    );
+                  })()}
                   {saveError && (
                     <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"12px 16px",marginBottom:8,fontSize:13,color:"#dc2626"}}>
                       <strong>Save failed:</strong> {saveError}
@@ -7463,14 +7547,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
                             style={{width:"100%",marginTop:16,background:paSignatureName.trim().length>2?"#15803d":"#d1d5db",color:"white",border:"none",borderRadius:8,padding:"14px 20px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,cursor:paSignatureName.trim().length>2?"pointer":"not-allowed"}}
                             onClick={async ()=>{
                               const sigDate = new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
-                              const pricePerAid = form.payType==="private"?privatePayPrimaryPerAid():(form.tierPrice||0);
+                              const pricePerAid = form.tierPrice || 0;
                               const isBilateral = (fType === 'bilateral' || fType === 'cros_bicros');
                               const aidCount = isBilateral ? 2 : 1;
-                              const carePlanCost = cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0;
+                              // Private pay bundles the care plan into the per-aid retail price.
+                              const isPrivate = form.payType === 'private';
+                              const carePlanCost = isPrivate ? 0 : (cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0);
                               const { blob, fileName } = downloadPurchaseAgreement({
                                 patient:{name:pName,address:form.address,phone:form.phone,dob:form.dob},
                                 devices:{fittingType:fType,left:leftRec,right:rightRec},
-                                carePlan:cpId, pricePerAid,
+                                carePlan:cpId, pricePerAid, payType:form.payType,
                                 clinic:clinicObj,
                                 provider:{fullName:provName,activeLicense:provLic,signatureUrl:staffProfile?.signatureUrl||null},
                                 patientSignature:paSignatureName.trim(), patientSignatureDate:sigDate,

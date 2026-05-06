@@ -331,6 +331,16 @@ function assemblePatient(row) {
       tierPrice: coverage.tier_price_per_aid ? coverage.tier_price_per_aid / 100 : null,
     } : null,
 
+    // Mirrors the insurance block for private-pay flow. Snapshot of the
+    // tier label + per-aid retail price chosen at close, so re-generated
+    // quotes/PAs from the patient list match what the patient saw.
+    privatePay: (row.private_pay_tier || row.private_pay_price_per_aid != null) ? {
+      tier:      row.private_pay_tier || null,
+      tierPrice: row.private_pay_price_per_aid != null
+        ? row.private_pay_price_per_aid / 100
+        : null,
+    } : null,
+
     carePlan: coverage?.care_plan_type || null,
 
     devices: fitting ? {
@@ -460,6 +470,11 @@ export async function savePatient(patient, staffId, clinicId) {
       pay_type:  patient.payType,
       notes:     patient.notes     || null,
       patient_status: patient.patientStatus || 'prospect',
+      // Private-pay tier snapshot — null for insurance patients.
+      private_pay_tier:          patient.privatePay?.tier || null,
+      private_pay_price_per_aid: patient.privatePay?.tierPrice != null
+                                   ? Math.round(patient.privatePay.tierPrice * 100)
+                                   : null,
     })
     .select()
     .single()
@@ -673,6 +688,11 @@ export async function createPatientDraft(data, staffId, clinicId) {
       pay_type:       data.payType,
       notes:          data.notes     || null,
       patient_status: 'prospect',
+      // Private-pay tier snapshot — null for insurance patients.
+      private_pay_tier:          data.privatePay?.tier || null,
+      private_pay_price_per_aid: data.privatePay?.tierPrice != null
+                                   ? Math.round(data.privatePay.tierPrice * 100)
+                                   : null,
     })
     .select()
     .single()
@@ -830,13 +850,22 @@ export async function updatePatientCarePlan(patientId, carePlan) {
 }
 
 // Final — promote draft to active/tns and set warranty/fitting info
-export async function finalizePatient(patientId, status, devices, carePlan, notes, appointments, staffId, clinicId) {
+export async function finalizePatient(patientId, status, devices, carePlan, notes, appointments, staffId, clinicId, privatePay = null) {
   // Update patient status + notes. Stamp care_plan_start_date with the
   // fitting date when the patient is being finalized with a care plan
   // selected — gives the year-4 upgrade pathway a ground-truth anchor.
   const updates = { patient_status: status || 'active' }
   if (notes != null) updates.notes = notes
   if (carePlan && devices?.fittingDate) updates.care_plan_start_date = devices.fittingDate
+  // Snapshot private-pay tier + price at finalize time. The patient picks
+  // their tier mid-wizard (TierSelection), well after createPatientDraft
+  // ran, so this is the canonical write moment.
+  if (privatePay) {
+    updates.private_pay_tier = privatePay.tier || null
+    updates.private_pay_price_per_aid = privatePay.tierPrice != null
+      ? Math.round(privatePay.tierPrice * 100)
+      : null
+  }
   const { error: patErr } = await supabase
     .from('patients')
     .update(updates)
@@ -1311,8 +1340,10 @@ export async function loadIntakesForPatient(patientId) {
     .order('submitted_at', { ascending: false })
   if (error) { console.error('loadIntakesForPatient:', error); return [] }
   return (data || []).map(row => ({
-    answers:       row.answers       || {},
-    providerNotes: row.provider_notes || {},
+    answers:         row.answers       || {},
+    providerNotes:   row.provider_notes || {},
+    motivationScore: row.motivation_score ?? null,
+    softCommitment:  row.soft_commitment  || null,
     _meta: {
       intakeId:    row.id,
       patientId:   row.patient_id,
@@ -1350,6 +1381,23 @@ export async function updateIntakeProviderNotes(intakeId, providerNotes) {
     .update({ provider_notes: providerNotes })
     .eq('id', intakeId)
   if (error) console.error('updateIntakeProviderNotes:', error)
+}
+
+// Patch the provider's Chapter 1 assessment fields (motivation 1-10 +
+// soft-commitment enum). Captured during the Health History wizard step
+// so downstream chapters and the personalization engine can read them
+// off the most-recent intake. Pass only the fields you want to change.
+export async function updateIntakeAssessment(intakeId, fields) {
+  if (!intakeId) return
+  const update = {}
+  if ('motivationScore' in fields) update.motivation_score = fields.motivationScore
+  if ('softCommitment'  in fields) update.soft_commitment  = fields.softCommitment
+  if (Object.keys(update).length === 0) return
+  const { error } = await supabase
+    .from('intakes')
+    .update(update)
+    .eq('id', intakeId)
+  if (error) console.error('updateIntakeAssessment:', error)
 }
 
 // Mark an intake as dismissed
@@ -1401,6 +1449,8 @@ export function subscribeToIntakes(clinicId, onNewIntake) {
 function normalizeIntake(row) {
   return {
     answers: row.answers || {},
+    motivationScore: row.motivation_score ?? null,
+    softCommitment:  row.soft_commitment  || null,
     _meta: {
       intakeId:    row.id,
       status:      row.status,
@@ -2459,7 +2509,7 @@ export async function loadPersonalizationInputs(patientId) {
       .order('test_date', { ascending: false })
       .limit(1).maybeSingle(),
     supabase.from('intakes')
-      .select('answers, accepted_at')
+      .select('answers, accepted_at, motivation_score, soft_commitment')
       .eq('patient_id', patientId)
       .eq('status', 'accepted')
       .order('accepted_at', { ascending: false })

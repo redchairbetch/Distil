@@ -51,6 +51,7 @@ export function generatePurchaseAgreement({
   devices,
   carePlan,
   pricePerAid,
+  payType,
   clinic,
   provider,
   patientSignature = null,
@@ -65,7 +66,10 @@ export function generatePurchaseAgreement({
   const aidCount = isBilateral ? 2 : 1
   const deviceTotal = (pricePerAid || 0) * aidCount
   const carePlanPrice = cpMeta.price || 0
-  const totalPurchasePrice = deviceTotal + carePlanPrice
+  // Private pay bundles the care plan into the per-aid retail price, so the
+  // total reflects devices only and the care plan renders as a $0 line item.
+  const isPrivate = (payType || '').toLowerCase() === 'private'
+  const totalPurchasePrice = deviceTotal + (isPrivate ? 0 : carePlanPrice)
 
   let y = M
 
@@ -188,14 +192,17 @@ export function generatePurchaseAgreement({
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(8)
   doc.setTextColor(...NAVY)
-  doc.text('CARE PLAN', M, y)
+  doc.text(isPrivate ? 'INCLUDED CARE PLAN' : 'CARE PLAN', M, y)
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(8)
   doc.setTextColor(...BLACK)
-  doc.text(cpMeta.label, M + 70, y)
+  doc.text(cpMeta.label, M + 90, y)
 
-  if (cpMeta.price) {
+  if (isPrivate) {
+    doc.setTextColor(22, 163, 74) // green
+    doc.text('Included', colX[5] + 4, y)
+  } else if (cpMeta.price) {
     doc.text(fmt$(cpMeta.price), colX[5] + 4, y)
   }
 
@@ -203,7 +210,9 @@ export function generatePurchaseAgreement({
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(7)
   doc.setTextColor(...GRAY)
-  if (carePlan === 'complete') {
+  if (isPrivate) {
+    doc.text('Bundled with your device purchase — no separate charge', M, y)
+  } else if (carePlan === 'complete') {
     doc.text('Unlimited visits, cleanings, adjustments, and repairs for 5 years', M, y)
   } else if (carePlan === 'punch') {
     doc.text('All visits and cleanings covered for 4 years · 3-year manufacturer warranty', M, y)

@@ -149,7 +149,10 @@ export function generateQuote({
   const aidCount = isBilateral ? 2 : 1
   const deviceTotal = (pricePerAid || 0) * aidCount
   const carePlanPrice = cpMeta.price || 0
-  const totalPrice = deviceTotal + carePlanPrice
+  // Private pay bundles the care plan into the per-aid retail price, so the
+  // total reflects devices only and the care plan renders as a $0 line item.
+  const isPrivate = (payType || '').toLowerCase() === 'private'
+  const totalPrice = deviceTotal + (isPrivate ? 0 : carePlanPrice)
 
   // TPA-specific PAYG cost for savings calc
   const isTruHearing = (tpa || '').toLowerCase().includes('truhearing')
@@ -281,7 +284,7 @@ export function generateQuote({
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(10)
   doc.setTextColor(...NAVY)
-  doc.text('RECOMMENDED CARE PLAN', MARGIN, y)
+  doc.text(isPrivate ? 'INCLUDED CARE PLAN' : 'RECOMMENDED CARE PLAN', MARGIN, y)
   y += 14
 
   // Green accent box
@@ -294,21 +297,26 @@ export function generateQuote({
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(7)
   doc.setTextColor(...GREEN)
-  doc.text('YOUR PROVIDER RECOMMENDS', MARGIN + 14, y + 6)
+  doc.text(isPrivate ? 'INCLUDED WITH YOUR DEVICES' : 'YOUR PROVIDER RECOMMENDS', MARGIN + 14, y + 6)
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(11)
   doc.setTextColor(...NAVY)
   doc.text(cpMeta.label, MARGIN + 14, y + 20)
 
-  if (selectedCarePlan !== 'paygo' && cpMeta.price) {
+  if (isPrivate) {
+    doc.setTextColor(...GREEN)
+    doc.text('Included, no charge', PAGE_W - MARGIN - 14, y + 20, { align: 'right' })
+  } else if (selectedCarePlan !== 'paygo' && cpMeta.price) {
     doc.text(fmt$(cpMeta.price), PAGE_W - MARGIN - 14, y + 20, { align: 'right' })
   }
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8.5)
   doc.setTextColor(...GRAY)
-  if (selectedCarePlan === 'complete') {
+  if (isPrivate) {
+    doc.text('Bundled with your device purchase — no separate charge', MARGIN + 14, y + 34)
+  } else if (selectedCarePlan === 'complete') {
     doc.text('Unlimited visits, cleanings, adjustments, and repairs for 5 years', MARGIN + 14, y + 34)
   } else if (selectedCarePlan === 'punch') {
     doc.text('All visits and cleanings covered for 4 years', MARGIN + 14, y + 34)
@@ -383,8 +391,16 @@ export function generateQuote({
   })
   y += 22
 
+  // For private pay, Complete Care+ is bundled into the per-aid retail
+  // price — override the Cost row so the comparison matches page 1.
+  const compareRows = isPrivate
+    ? PLAN_COMPARE.map(r => r.label === 'Cost'
+        ? { ...r, complete: 'Included with devices' }
+        : r)
+    : PLAN_COMPARE
+
   // Data rows
-  PLAN_COMPARE.forEach((row, ri) => {
+  compareRows.forEach((row, ri) => {
     const rowH = 22
     const bgColor = ri % 2 === 0 ? [248, 250, 252] : WHITE
     doc.setFillColor(...bgColor)
@@ -416,9 +432,11 @@ export function generateQuote({
   y += 16
 
   // ── Savings vs Pay-As-You-Go ──
+  // Skip for private pay — Complete Care+ is bundled into the device price,
+  // so framing it as "savings vs paygo" misrepresents what they're paying.
   const punchSavings = paygo4yr - 575
   const completeSavings = paygo4yr - 1250
-  if (punchSavings > 0 || completeSavings > 0) {
+  if (!isPrivate && (punchSavings > 0 || completeSavings > 0)) {
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(9)
     doc.setTextColor(...NAVY)
