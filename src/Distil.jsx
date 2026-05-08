@@ -5187,7 +5187,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 <div className="review-row" key={k}><span className="review-key">{k}</span><span className="review-val">{v}</span></div>
               ))
             ) : (
-              <div className="review-row"><span className="review-key">Type</span><span className="review-val">Private Pay – $5,500 Standard of Care</span></div>
+              <div className="review-row"><span className="review-key">Type</span><span className="review-val">Private Pay · Complete Care+ included</span></div>
             )}
           </div>
           <div className="review-section">
@@ -6007,14 +6007,23 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 </div>
               ) : (
                 <div>
-                  {p.payType==="insurance" ? [
-                    ["Carrier",p.insurance?.carrier],["Plan",p.insurance?.planGroup],["TPA",p.insurance?.tpa],["Tier",p.insurance?.tier],["Copay",p.insurance?.tierPrice!=null?`$${p.insurance.tierPrice.toLocaleString()}/aid`:null]
-                  ].map(([k,v])=>(
-                    <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v||"—"}</span></div>
-                  )) : (
-                    <div className="detail-row"><span className="detail-key">Type</span><span className="detail-val">Private Pay – $5,500</span></div>
-                  )}
-                  {p.payType === "insurance" && <div className="detail-row"><span className="detail-key">Care Plan</span><span className="detail-val">{CARE_PLANS.find(c=>c.id===p.carePlan)?.label||"—"}</span></div>}
+                  {p.payType==="insurance" ? (<>
+                    {[
+                      ["Carrier",p.insurance?.carrier],["Plan",p.insurance?.planGroup],["TPA",p.insurance?.tpa],["Tier",p.insurance?.tier],["Copay",p.insurance?.tierPrice!=null?`$${p.insurance.tierPrice.toLocaleString()}/aid`:null]
+                    ].map(([k,v])=>(
+                      <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v||"—"}</span></div>
+                    ))}
+                    <div className="detail-row"><span className="detail-key">Care Plan</span><span className="detail-val">{CARE_PLANS.find(c=>c.id===p.carePlan)?.label||"—"}</span></div>
+                  </>) : (<>
+                    {[
+                      ["Type","Private Pay"],
+                      ["Tier",p.privatePay?.tier],
+                      ["Per aid",p.privatePay?.tierPrice!=null?`$${p.privatePay.tierPrice.toLocaleString()}/aid`:null],
+                      ["Care Plan","Complete Care+ included"],
+                    ].map(([k,v])=>(
+                      <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v||"—"}</span></div>
+                    ))}
+                  </>)}
                   {p.devices?.warrantyExpiry && <div className="detail-row"><span className="detail-key">Warranty Expiry</span><span className="detail-val">{fmtDate(p.devices.warrantyExpiry)}</span></div>}
                 </div>
               )}

@@ -220,22 +220,29 @@ export default function TierSelection({
 
   const [showValueTiers, setShowValueTiers] = useState(false);
 
-  // Mode: when the engine has produced a recommendation, the cards are
-  // read-only and the recommended tier is the visual anchor. When the
-  // engine errors or has no rankable tier in the plan, fall back to
-  // manual selection so the provider can pick.
-  const hasRecommendation = !loading && !engineError && recommended?.tier != null;
-  const allowManual = !loading && !hasRecommendation;
+  // Cards are selectable as soon as the tier list has loaded. The
+  // engine's recommendation stays visually anchored (⭐ badge + teal
+  // border on the recommended card) regardless of what the patient
+  // picks — so a patient can downgrade for affordability without
+  // losing the recommendation context, and pricing updates downstream.
+  const cardsSelectable = !loading && availableTiers.length > 0;
 
-  // Sync form.tier to the engine's pick whenever it changes. With cards
-  // read-only, the engine is the source of truth — re-entering the step
-  // after a back-nav must re-anchor on the current recommendation, not
-  // a stale prior selection.
+  // Adopt the engine's pick as the default selection when no tier is
+  // chosen yet, or when the prior choice is no longer valid for the
+  // current tier list (e.g. plan changed via back-nav). Once the user
+  // makes a deliberate selection, leave it alone — the recommendation
+  // stays highlighted but does not override.
   useEffect(() => {
-    if (recommended?.tier) {
+    if (!recommended?.tier) return;
+    const stillValid = selectedTier && availableTiers.some(t => t.label === selectedTier);
+    if (!stillValid) {
       onSelectTier(recommended.tier.label, recommended.tier.price);
     }
-  }, [recommended?.tier?.label, recommended?.tier?.price]); // eslint-disable-line react-hooks/exhaustive-deps
+    // selectedTier intentionally excluded from deps — re-anchor only
+    // when the engine pick or available tier list changes, not on
+    // user selection (which would create an override-defeating loop).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recommended?.tier?.label, recommended?.tier?.price, availableTiers]);
 
   if (availableTiers.length === 0) {
     return (
@@ -256,7 +263,7 @@ export default function TierSelection({
           tier={tier}
           selected={selectedTier === tier.label}
           recommended={recommended?.tier?.label === tier.label}
-          selectable={allowManual}
+          selectable={cardsSelectable}
           blurb={tierBlurbs[tier.label]}
           flagged={flagged}
           onSelect={() => onSelectTier(tier.label, tier.price)}
