@@ -3357,7 +3357,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const rightDerived = getSideDerived(form.right);
 
   // ── Pricing Reveal — compute from form state + retail anchors ──
-  const TIER_TO_ANCHOR = { "Premium":"select","Level 7":"select","Advanced":"advanced","Level 5":"advanced","Standard":"standard","Level 3":"standard","Level 2":"level2","Level 1":"level1" };
+  const TIER_TO_ANCHOR = { "Select":"select","Premium":"select","Level 7":"select","Advanced":"advanced","Level 5":"advanced","Standard":"standard","Level 3":"standard","Level 2":"level2","Level 1":"level1" };
   const pricingRevealData = useMemo(() => {
     if (form.tierPrice == null || !form.tier) return null;
     const anchorKey = TIER_TO_ANCHOR[form.tier];
@@ -4632,11 +4632,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
             {/* ── Pricing Reveal ── */}
             {(() => {
               const bothDone = leftConfigured && rightConfigured;
-              const aidCount = (leftConfigured ? 1 : 0) + (rightConfigured ? 1 : 0);
 
-              // Null state — plan not linked
               if (!pricingRevealData || form.tierPrice == null) {
-                if (!(leftConfigured || rightConfigured)) return null;
                 return (
                   <div style={{background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:12,padding:"20px 24px",marginTop:12,textAlign:"center",color:"#9ca3af",fontSize:13}}>
                     Select a plan to see your investment.
@@ -4645,12 +4642,20 @@ export default function ProviderCRM({ staffId, clinicId }) {
               }
 
               const { tierLabel, retailPerAid, copayPerAid, savingsPerAid, savingsPct } = pricingRevealData;
-              const investmentPair = copayPerAid * aidCount;
-              const retailPair = retailPerAid * aidCount;
-              const planCoversPair = retailPair - investmentPair;
+              // Per-aid until both ears configured, then snap to pair. Avoids
+              // the $0 headline when no device side has been picked yet.
+              const multiplier = bothDone ? 2 : 1;
+              const investmentDisplay = copayPerAid * multiplier;
+              const retailDisplay = retailPerAid * multiplier;
+              const planCoversDisplay = retailDisplay - investmentDisplay;
+              const savingsDisplay = savingsPerAid * multiplier;
 
-              // Chief complaint carry-forward quote
-              const chiefComplaint = form.notes || "";
+              // Strip "Intake ID:" trace lines that intake conversion appends to notes.
+              const chiefComplaint = (form.notes || "")
+                .split("\n")
+                .filter(line => !/^Intake ID:/i.test(line.trim()))
+                .join("\n")
+                .trim();
 
               return (
                 <div style={{background:"linear-gradient(135deg,#f0fdf4 0%,#f8fafc 100%)",border:"1px solid #bbf7d0",borderRadius:12,padding:"20px 24px",marginTop:12}}>
@@ -4670,8 +4675,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   <div style={{marginBottom:16}}>
                     <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}}>Your Investment Today</div>
                     <div style={{display:"flex",alignItems:"baseline",gap:8}}>
-                      <span style={{fontSize:28,fontWeight:800,color:"#0a1628"}}>${investmentPair.toLocaleString()}</span>
-                      <span style={{fontSize:12,color:"#6b7280"}}>{bothDone ? `pair (${aidCount} aids)` : "per aid"}</span>
+                      <span style={{fontSize:28,fontWeight:800,color:"#0a1628"}}>${investmentDisplay.toLocaleString()}</span>
+                      <span style={{fontSize:12,color:"#6b7280"}}>{bothDone ? "pair (2 aids)" : "per aid"}</span>
                     </div>
                     {/* Per-aid toggle when pair is shown */}
                     {bothDone && (
@@ -4684,19 +4689,19 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   {/* Plan covers */}
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
                     <span style={{color:"#6b7280"}}>Plan covers</span>
-                    <span style={{fontWeight:600,color:"#16a34a"}}>${planCoversPair.toLocaleString()}</span>
+                    <span style={{fontWeight:600,color:"#16a34a"}}>${planCoversDisplay.toLocaleString()}</span>
                   </div>
 
                   {/* Full retail value */}
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
                     <span style={{color:"#9ca3af"}}>Full retail value</span>
-                    <span style={{color:"#9ca3af",textDecoration:"line-through"}}>${retailPair.toLocaleString()}</span>
+                    <span style={{color:"#9ca3af",textDecoration:"line-through"}}>${retailDisplay.toLocaleString()}</span>
                   </div>
 
                   {/* Savings badge */}
                   <div style={{background:"#dcfce7",borderRadius:8,padding:"10px 14px",marginTop:8,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
                     <span style={{fontSize:13,fontWeight:700,color:"#166534"}}>
-                      You save ${(savingsPerAid * aidCount).toLocaleString()}
+                      You save ${savingsDisplay.toLocaleString()}
                     </span>
                     <span style={{background:"#16a34a",color:"white",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>
                       {savingsPct}% off
