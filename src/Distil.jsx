@@ -330,7 +330,7 @@ const CATALOG_DEFAULT = [
   { id:"sig-pure-ix", manufacturer:"Signia", generation:"IX",
     family:"Pure Charge&Go IX", styles:["ric"],
     variants:["Standard","T (Telecoil)","BCT (Bluetooth Classic)","CROS"],
-    techLevels:["7IX","5IX","3IX"],
+    techLevels:["7IX","5IX","3IX","2IX","1IX"],
     colors:["Black","Graphite","Dark Champagne","Silver","Pearl White","Fine Gold","Deep Brown","Sandy Brown","Rose Gold","Beige"],
     battery:["Rechargeable"], active:true, notes:"BCT & T variants launched Feb 2025." },
 
@@ -338,7 +338,7 @@ const CATALOG_DEFAULT = [
   { id:"sig-styletto-ix", manufacturer:"Signia", generation:"IX",
     family:"Styletto IX", styles:["ric"],
     variants:["Standard","CROS"],
-    techLevels:["7IX","5IX","3IX"],
+    techLevels:["7IX","5IX","3IX","2IX","1IX"],
     colors:["Black/Black Gloss","Black/Graphite","Black/Silver","Cosmic Blue/Rose Gold","Snow White/Rose Gold","Snow White/Silver","Snow White/Snow White Gloss"],
     battery:["Rechargeable"], active:true, notes:"Slim RIC. Launched March 2024." },
 
@@ -346,7 +346,7 @@ const CATALOG_DEFAULT = [
   { id:"sig-motion-ix", manufacturer:"Signia", generation:"IX",
     family:"Motion Charge&Go IX", styles:["bte"],
     variants:["M (Medium)","P (Power)","SP (Super Power)"],
-    techLevels:["7IX","5IX","3IX"],
+    techLevels:["7IX","5IX","3IX","2IX","1IX"],
     colors:["Black","Beige","Dark Champagne","Deep Brown","Fine Gold","Galactic Blue","Graphite","Pearl Pink","Pearl White","Rose Gold","Sandy Brown","Silver","Sporty Red","Turquoise"],
     battery:["Rechargeable"], active:true, notes:"SP for severe-profound. All variants include telecoil." },
 
@@ -354,7 +354,7 @@ const CATALOG_DEFAULT = [
   { id:"sig-silk-ix", manufacturer:"Signia", generation:"IX",
     family:"Silk Charge&Go IX", styles:["cic"],
     variants:["Standard","CROS"],
-    techLevels:["7IX","5IX","3IX"],
+    techLevels:["7IX","5IX","3IX","2IX","1IX"],
     colors:SKIN_TONES,
     battery:["Rechargeable"], active:true, notes:"Instant-fit CIC. No Bluetooth streaming." },
 
@@ -362,7 +362,7 @@ const CATALOG_DEFAULT = [
   { id:"sig-insio-iic-ix", manufacturer:"Signia", generation:"IX",
     family:"Insio IX IIC", styles:["iic"],
     variants:["Standard"],
-    techLevels:["7IX","5IX","3IX"],
+    techLevels:["7IX","5IX","3IX","2IX","1IX"],
     colors:["Mocha","Black","Deep Brown"],
     battery:["Size 10"], active:true, notes:"Launched Dec 2024. Binaural OneMic Directionality 2.0." },
 
@@ -370,7 +370,7 @@ const CATALOG_DEFAULT = [
   { id:"sig-insio-cic-ix", manufacturer:"Signia", generation:"IX",
     family:"Insio IX CIC", styles:["cic"],
     variants:["Standard","Rechargeable (Insio C&G IX)"],
-    techLevels:["7IX","5IX","3IX"],
+    techLevels:["7IX","5IX","3IX","2IX","1IX"],
     colors:["Mocha","Black","Deep Brown"],
     battery:["Size 10","Rechargeable"], active:true, notes:"Rechargeable CIC variant is world's first. Launched 2024." },
 
@@ -378,7 +378,7 @@ const CATALOG_DEFAULT = [
   { id:"sig-insio-itc-ix", manufacturer:"Signia", generation:"IX",
     family:"Insio IX ITC", styles:["itc"],
     variants:["Standard"],
-    techLevels:["7IX","5IX","3IX"],
+    techLevels:["7IX","5IX","3IX","2IX","1IX"],
     colors:SKIN_TONES,
     battery:["Size 312"], active:true, notes:"Launched Aug 2025." },
 
@@ -386,7 +386,7 @@ const CATALOG_DEFAULT = [
   { id:"sig-insio-ite-ix", manufacturer:"Signia", generation:"IX",
     family:"Insio IX ITE", styles:["ite"],
     variants:["Standard"],
-    techLevels:["7IX","5IX","3IX"],
+    techLevels:["7IX","5IX","3IX","2IX","1IX"],
     colors:SKIN_TONES,
     battery:["Size 13"], active:true, notes:"Launched Aug 2025." },
 
@@ -510,15 +510,15 @@ const CATALOG_DEFAULT = [
   { id:"oti-intent", manufacturer:"Oticon", generation:"Intent",
     family:"Intent", styles:["ric"],
     variants:["miniRITE R","miniRITE R T (Telecoil)","mRITE R (more power)","CROS"],
-    techLevels:["4","3","2","1"],
+    techLevels:["1","2","3","4"],
     colors:["Silver","Chestnut","Dust Rose","Champagne","Midnight Black","Beige","Steel Blue"],
-    battery:["Rechargeable"], active:true, notes:"Intent 4 = premium. mRITE R for moderate-severe loss." },
+    battery:["Rechargeable"], active:true, notes:"Intent 1 = premium, scales down to 4. mRITE R for moderate-severe loss." },
 
 
   { id:"oti-own-intent", manufacturer:"Oticon", generation:"Intent",
     family:"Own", styles:["ite","itc","cic","iic"],
     variants:["Standard"],
-    techLevels:["4","3","2","1"],
+    techLevels:["1","2","3","4"],
     colors:SKIN_TONES,
     battery:["Size 312","Size 10","Size 13"], active:true, notes:"Custom styles on Intent platform." },
 
@@ -526,7 +526,7 @@ const CATALOG_DEFAULT = [
   { id:"oti-xceed", manufacturer:"Oticon", generation:"Intent",
     family:"Xceed", styles:["bte"],
     variants:["SP","UP"],
-    techLevels:["3","2","1"],
+    techLevels:["1","2","3"],
     colors:["Silver","Beige","Dark Brown","Cobalt Black"],
     battery:["Rechargeable","Size 13","Size 675"], active:true, notes:"Super/Ultra power BTE." },
 
@@ -537,7 +537,7 @@ const CATALOG_DEFAULT = [
     variants:["miniRITE R","miniRITE R T (Telecoil)","mRITE R","CROS"],
     techLevels:["1","2","3"],
     colors:["Silver","Chestnut","Dust Rose","Champagne","Midnight Black","Beige"],
-    battery:["Rechargeable"], active:true, notes:"Previous generation, still dispensed. Tech levels ordered low→high." },
+    battery:["Rechargeable"], active:true, notes:"Previous generation, still dispensed. 1 = premium, scales down." },
 
 
   // ── STARKEY Genesis AI (2023–present) ────────────────────────────────────
