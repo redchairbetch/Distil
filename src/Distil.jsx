@@ -4675,6 +4675,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
               const retailDisplay = retailPerAid * multiplier;
               const planCoversDisplay = retailDisplay - investmentDisplay;
               const savingsDisplay = savingsPerAid * multiplier;
+              // Anchor prices end in $.50 (e.g. 4997.50). Default toLocaleString
+              // drops trailing zeros — "$4,997.5" — so force two decimals to
+              // match the quote/PA output ([Distil.jsx:7542+] uses the same).
+              const fmt = n => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
               // Strip "Intake ID:" trace lines that intake conversion appends to notes.
               const chiefComplaint = (form.notes || "")
@@ -4701,13 +4705,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   <div style={{marginBottom:16}}>
                     <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}}>Your Investment Today</div>
                     <div style={{display:"flex",alignItems:"baseline",gap:8}}>
-                      <span style={{fontSize:28,fontWeight:800,color:"#0a1628"}}>${investmentDisplay.toLocaleString()}</span>
+                      <span style={{fontSize:28,fontWeight:800,color:"#0a1628"}}>${fmt(investmentDisplay)}</span>
                       <span style={{fontSize:12,color:"#6b7280"}}>{bothDone ? "pair (2 aids)" : "per aid"}</span>
                     </div>
                     {/* Per-aid toggle when pair is shown */}
                     {bothDone && (
                       <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>
-                        ${copayPerAid.toLocaleString()} / aid
+                        ${fmt(copayPerAid)} / aid
                       </div>
                     )}
                   </div>
@@ -4715,19 +4719,19 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   {/* Plan covers */}
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
                     <span style={{color:"#6b7280"}}>Plan covers</span>
-                    <span style={{fontWeight:600,color:"#16a34a"}}>${planCoversDisplay.toLocaleString()}</span>
+                    <span style={{fontWeight:600,color:"#16a34a"}}>${fmt(planCoversDisplay)}</span>
                   </div>
 
                   {/* Full retail value */}
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
                     <span style={{color:"#9ca3af"}}>Full retail value</span>
-                    <span style={{color:"#9ca3af",textDecoration:"line-through"}}>${retailDisplay.toLocaleString()}</span>
+                    <span style={{color:"#9ca3af",textDecoration:"line-through"}}>${fmt(retailDisplay)}</span>
                   </div>
 
                   {/* Savings badge */}
                   <div style={{background:"#dcfce7",borderRadius:8,padding:"10px 14px",marginTop:8,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
                     <span style={{fontSize:13,fontWeight:700,color:"#166534"}}>
-                      You save ${savingsDisplay.toLocaleString()}
+                      You save ${fmt(savingsDisplay)}
                     </span>
                     <span style={{background:"#16a34a",color:"white",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>
                       {savingsPct}% off
