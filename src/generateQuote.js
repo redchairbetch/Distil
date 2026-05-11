@@ -134,6 +134,14 @@ export function generateQuote({
   patient,
   devices,
   pricePerAid,
+  // Optional per-ear prices (backlog #18). When provided, deviceTotal is
+  // computed as leftPrice + rightPrice — accurate for CROS/BICROS
+  // fittings where one ear is a $1,250 transmitter, and for the rare
+  // mixed-manufacturer case. Falls back to the legacy
+  // pricePerAid * aidCount formula when omitted so older callers still
+  // produce identical output.
+  leftPrice = null,
+  rightPrice = null,
   selectedCarePlan,
   payType,
   tpa,
@@ -147,7 +155,10 @@ export function generateQuote({
   const cpMeta = CARE_PLAN_META[selectedCarePlan] || CARE_PLAN_META.complete
   const isBilateral = devices.fittingType === 'bilateral' || devices.fittingType === 'cros_bicros'
   const aidCount = isBilateral ? 2 : 1
-  const deviceTotal = (pricePerAid || 0) * aidCount
+  const hasPerEar = leftPrice != null || rightPrice != null
+  const deviceTotal = hasPerEar
+    ? (leftPrice || 0) + (rightPrice || 0)
+    : (pricePerAid || 0) * aidCount
   const carePlanPrice = cpMeta.price || 0
   // Private pay bundles the care plan into the per-aid retail price, so the
   // total reflects devices only and the care plan renders as a $0 line item.
@@ -240,7 +251,7 @@ export function generateQuote({
   colLabels.forEach((label, i) => doc.text(label, colX[i] + 6, y + 2))
   y += 16
 
-  const renderDeviceRow = (sideLabel, side, bgColor) => {
+  const renderDeviceRow = (sideLabel, side, bgColor, sidePrice) => {
     if (!side) return
     doc.setFillColor(...bgColor)
     doc.rect(MARGIN, y - 10, CONTENT_W, 20, 'F')
@@ -251,23 +262,31 @@ export function generateQuote({
     doc.setFont('helvetica', 'normal')
     doc.setTextColor(...BLACK)
     doc.text(side.manufacturer || '—', colX[1] + 6, y + 2)
-    const model = [side.family, side.techLevel].filter(Boolean).join(' ')
+    // CROS units render the variant inline so the row reads as a CROS
+    // transmitter rather than a hearing aid model.
+    const isCrosSide = /^(CROS|BICROS)/i.test(side.variant || '')
+    const model = isCrosSide
+      ? `${side.variant || 'CROS'} unit`
+      : [side.family, side.techLevel].filter(Boolean).join(' ')
     doc.text(model || '—', colX[2] + 6, y + 2)
     const styleLabel = (side.style || '—').toUpperCase()
     doc.text(styleLabel, colX[3] + 6, y + 2)
     doc.text(side.battery || '—', colX[4] + 6, y + 2)
     doc.setFont('helvetica', 'bold')
-    doc.text(fmt$(pricePerAid), colX[5] + 6, y + 2)
+    // Per-ear price falls back to pricePerAid for legacy callers that
+    // didn't pass leftPrice/rightPrice through.
+    const rowPrice = sidePrice != null ? sidePrice : pricePerAid
+    doc.text(fmt$(rowPrice), colX[5] + 6, y + 2)
     y += 20
   }
 
   if (isBilateral) {
-    renderDeviceRow('Right', devices.right, [248, 250, 252])
-    renderDeviceRow('Left', devices.left, WHITE)
+    renderDeviceRow('Right', devices.right, [248, 250, 252], rightPrice)
+    renderDeviceRow('Left', devices.left, WHITE, leftPrice)
   } else if (devices.fittingType === 'monaural_right') {
-    renderDeviceRow('Right', devices.right, [248, 250, 252])
+    renderDeviceRow('Right', devices.right, [248, 250, 252], rightPrice)
   } else {
-    renderDeviceRow('Left', devices.left, [248, 250, 252])
+    renderDeviceRow('Left', devices.left, [248, 250, 252], leftPrice)
   }
 
   // Device subtotal

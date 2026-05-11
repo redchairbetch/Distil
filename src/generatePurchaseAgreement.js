@@ -51,6 +51,11 @@ export function generatePurchaseAgreement({
   devices,
   carePlan,
   pricePerAid,
+  // Optional per-ear prices (backlog #18). When provided, deviceTotal
+  // is leftPrice + rightPrice — correct for CROS/BICROS and mixed-mfr
+  // fittings. Falls back to pricePerAid * aidCount when omitted.
+  leftPrice = null,
+  rightPrice = null,
   payType,
   clinic,
   provider,
@@ -64,7 +69,10 @@ export function generatePurchaseAgreement({
   const cpMeta = CARE_PLAN_META[carePlan] || CARE_PLAN_META.complete
   const isBilateral = devices.fittingType === 'bilateral' || devices.fittingType === 'cros_bicros'
   const aidCount = isBilateral ? 2 : 1
-  const deviceTotal = (pricePerAid || 0) * aidCount
+  const hasPerEar = leftPrice != null || rightPrice != null
+  const deviceTotal = hasPerEar
+    ? (leftPrice || 0) + (rightPrice || 0)
+    : (pricePerAid || 0) * aidCount
   const carePlanPrice = cpMeta.price || 0
   // Private pay bundles the care plan into the per-aid retail price, so the
   // total reflects devices only and the care plan renders as a $0 line item.
@@ -146,7 +154,7 @@ export function generatePurchaseAgreement({
   })
   y += 12
 
-  const renderRow = (sideLabel, side, bg) => {
+  const renderRow = (sideLabel, side, bg, sidePrice) => {
     if (!side) return
     doc.setFillColor(...bg)
     doc.rect(M, y - 6, CW, 14, 'F')
@@ -157,7 +165,10 @@ export function generatePurchaseAgreement({
     doc.setFont('helvetica', 'normal')
     doc.setTextColor(...BLACK)
     doc.text(side.manufacturer || '—', colX[1] + 4, y + 3)
-    const model = [side.family, side.techLevel].filter(Boolean).join(' ')
+    const isCrosSide = /^(CROS|BICROS)/i.test(side.variant || '')
+    const model = isCrosSide
+      ? `${side.variant || 'CROS'} unit`
+      : [side.family, side.techLevel].filter(Boolean).join(' ')
     doc.setFontSize(7)
     doc.text(model || '—', colX[2] + 4, y + 3)
     doc.setFontSize(7.5)
@@ -165,17 +176,18 @@ export function generatePurchaseAgreement({
     doc.text(styleLabel, colX[3] + 4, y + 3)
     doc.text(side.battery || '—', colX[4] + 4, y + 3)
     doc.setFont('helvetica', 'bold')
-    doc.text(fmt$(pricePerAid), colX[5] + 4, y + 3)
+    const rowPrice = sidePrice != null ? sidePrice : pricePerAid
+    doc.text(fmt$(rowPrice), colX[5] + 4, y + 3)
     y += 14
   }
 
   if (isBilateral) {
-    renderRow('Right', devices.right, [248, 250, 252])
-    renderRow('Left', devices.left, WHITE)
+    renderRow('Right', devices.right, [248, 250, 252], rightPrice)
+    renderRow('Left', devices.left, WHITE, leftPrice)
   } else if (devices.fittingType === 'monaural_right') {
-    renderRow('Right', devices.right, [248, 250, 252])
+    renderRow('Right', devices.right, [248, 250, 252], rightPrice)
   } else {
-    renderRow('Left', devices.left, [248, 250, 252])
+    renderRow('Left', devices.left, [248, 250, 252], leftPrice)
   }
 
   // Subtotal
