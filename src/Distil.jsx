@@ -1550,9 +1550,15 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [tnsTags, setTnsTags] = useState([]); // selected tag ids for current patient
   const [tnsNote, setTnsNote] = useState("");
 
-  // Insurance plans from Supabase + retail anchors for pricing reveal
+  // Insurance plans from Supabase + retail anchors for pricing reveal.
+  // Two anchor sets: signia-class is the default for insurance flows (the
+  // recommendation engine maps insurance tiers to signia anchors), and
+  // standard-class is the manufacturer-agnostic baseline used by the
+  // private-pay flow. Loading both at bootstrap so payType-based branching
+  // in TierSelection + pricingRevealData has its data ready.
   const [insurancePlans, setInsurancePlans] = useState([]);
   const [retailAnchors, setRetailAnchors] = useState([]);
+  const [retailAnchorsStandard, setRetailAnchorsStandard] = useState([]);
   const [pricingReveal, setPricingReveal] = useState(null);
 
   // Retail anchors editor (Clinic Settings → Retail Anchors)
@@ -1864,8 +1870,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
       } catch {}
       try {
         if (clinicId) {
-          const anchors = await loadRetailAnchors(clinicId);
+          // Load both manufacturer classes in parallel. Signia is the default
+          // anchor set for insurance flows; standard is the manufacturer-
+          // agnostic baseline used by private-pay (matches TruHearing's
+          // Premium/Advanced/Standard vocabulary).
+          const [anchors, anchorsStandard] = await Promise.all([
+            loadRetailAnchors(clinicId),
+            loadRetailAnchors(clinicId, "standard"),
+          ]);
           if (anchors?.length) setRetailAnchors(anchors);
+          if (anchorsStandard?.length) setRetailAnchorsStandard(anchorsStandard);
         }
       } catch {}
       try {
@@ -3357,19 +3371,31 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const rightDerived = getSideDerived(form.right);
 
   // ── Pricing Reveal — compute from form state + retail anchors ──
-  const TIER_TO_ANCHOR = { "Select":"select","Premium":"select","Level 7":"select","Advanced":"advanced","Level 5":"advanced","Standard":"standard","Level 3":"standard","Level 2":"level2","Level 1":"level1" };
+  // TIER_TO_ANCHOR maps universal tier vocabulary (Premium/Advanced/Standard/
+  // Level 2/Level 1) plus TruHearing's legacy label set to the canonical
+  // anchor slug. Private-pay sources its tier cards directly from the
+  // standard-class anchors (labels already match the universal vocabulary)
+  // so the map is only strictly needed for insurance flows where plan tier
+  // labels can drift (e.g. "Level 7" = Premium-equivalent).
+  const TIER_TO_ANCHOR = { "Premium":"select","Level 7":"select","Advanced":"advanced","Level 5":"advanced","Standard":"standard","Level 3":"standard","Level 2":"level2","Level 1":"level1" };
   const pricingRevealData = useMemo(() => {
     if (form.tierPrice == null || !form.tier) return null;
-    const anchorKey = TIER_TO_ANCHOR[form.tier];
-    if (!anchorKey) return null;
-    const anchor = retailAnchors.find(a => a.id === anchorKey);
+    // Private-pay uses standard-class anchors (manufacturer-agnostic baseline).
+    // Tier was picked straight from this list, so match by label directly —
+    // skips the TIER_TO_ANCHOR indirection that was tripping over signia's
+    // numeric labels.
+    const isPrivatePay = form.payType === "private";
+    const anchorSet = isPrivatePay ? retailAnchorsStandard : retailAnchors;
+    const anchor = isPrivatePay
+      ? anchorSet.find(a => a.label === form.tier)
+      : anchorSet.find(a => a.id === TIER_TO_ANCHOR[form.tier]);
     if (!anchor) return null;
     const retailPerAid = parseFloat(anchor.price_per_aid);
     const copayPerAid = form.tierPrice;
     const savingsPerAid = retailPerAid - copayPerAid;
     const savingsPct = Math.round((savingsPerAid / retailPerAid) * 100);
     return { tierLabel: anchor.label, retailPerAid, copayPerAid, savingsPerAid, savingsPct };
-  }, [form.tier, form.tierPrice, retailAnchors]);
+  }, [form.tier, form.tierPrice, form.payType, retailAnchors, retailAnchorsStandard]);
 
   // Device family lookups
   const leftFamily = catalog.find(e => e.id === form.left.familyId);
@@ -4182,7 +4208,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           planTiers={privateLabelTiers}
           payType={form.payType}
           isPrivateLabel={isPrivateLabel}
-          retailAnchors={retailAnchors}
+          retailAnchors={form.payType === "private" ? retailAnchorsStandard : retailAnchors}
           intakeAnswers={wizardIntake?.answers || null}
           tierBlurbs={TH_TIER_BLURBS}
         />
@@ -5297,8 +5323,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
     const fresh = await loadRetailAnchors(clinicId, anchorsClass);
     setAnchorsDraft((fresh || []).map(r => ({...r})));
     // Refresh the global retailAnchors state if we just edited the class it holds
-    // (bootstrap loads 'signia'), so the pricing reveal sees fresh values without a reload.
+    // so the pricing reveal sees fresh values without a reload. Bootstrap loads
+    // both signia (insurance default) and standard (private-pay baseline).
     if (anchorsClass === "signia") setRetailAnchors(fresh || []);
+    if (anchorsClass === "standard") setRetailAnchorsStandard(fresh || []);
     setAnchorsSaved(true);
     setTimeout(() => setAnchorsSaved(false), 2500);
   };
