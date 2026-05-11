@@ -1550,9 +1550,15 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [tnsTags, setTnsTags] = useState([]); // selected tag ids for current patient
   const [tnsNote, setTnsNote] = useState("");
 
-  // Insurance plans from Supabase + retail anchors for pricing reveal
+  // Insurance plans from Supabase + retail anchors for pricing reveal.
+  // Two anchor sets: signia-class is the default for insurance flows (the
+  // recommendation engine maps insurance tiers to signia anchors), and
+  // standard-class is the manufacturer-agnostic baseline used by the
+  // private-pay flow. Loading both at bootstrap so payType-based branching
+  // in TierSelection + pricingRevealData has its data ready.
   const [insurancePlans, setInsurancePlans] = useState([]);
   const [retailAnchors, setRetailAnchors] = useState([]);
+  const [retailAnchorsStandard, setRetailAnchorsStandard] = useState([]);
   const [pricingReveal, setPricingReveal] = useState(null);
 
   // Retail anchors editor (Clinic Settings → Retail Anchors)
@@ -1864,8 +1870,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
       } catch {}
       try {
         if (clinicId) {
-          const anchors = await loadRetailAnchors(clinicId);
+          // Load both manufacturer classes in parallel. Signia is the default
+          // anchor set for insurance flows; standard is the manufacturer-
+          // agnostic baseline used by private-pay (matches TruHearing's
+          // Premium/Advanced/Standard vocabulary).
+          const [anchors, anchorsStandard] = await Promise.all([
+            loadRetailAnchors(clinicId),
+            loadRetailAnchors(clinicId, "standard"),
+          ]);
           if (anchors?.length) setRetailAnchors(anchors);
+          if (anchorsStandard?.length) setRetailAnchorsStandard(anchorsStandard);
         }
       } catch {}
       try {
@@ -3357,19 +3371,31 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const rightDerived = getSideDerived(form.right);
 
   // ── Pricing Reveal — compute from form state + retail anchors ──
+  // TIER_TO_ANCHOR maps universal tier vocabulary (Premium/Advanced/Standard/
+  // Level 2/Level 1) plus TruHearing's legacy label set to the canonical
+  // anchor slug. Private-pay sources its tier cards directly from the
+  // standard-class anchors (labels already match the universal vocabulary)
+  // so the map is only strictly needed for insurance flows where plan tier
+  // labels can drift (e.g. "Level 7" = Premium-equivalent).
   const TIER_TO_ANCHOR = { "Premium":"select","Level 7":"select","Advanced":"advanced","Level 5":"advanced","Standard":"standard","Level 3":"standard","Level 2":"level2","Level 1":"level1" };
   const pricingRevealData = useMemo(() => {
     if (form.tierPrice == null || !form.tier) return null;
-    const anchorKey = TIER_TO_ANCHOR[form.tier];
-    if (!anchorKey) return null;
-    const anchor = retailAnchors.find(a => a.id === anchorKey);
+    // Private-pay uses standard-class anchors (manufacturer-agnostic baseline).
+    // Tier was picked straight from this list, so match by label directly —
+    // skips the TIER_TO_ANCHOR indirection that was tripping over signia's
+    // numeric labels.
+    const isPrivatePay = form.payType === "private";
+    const anchorSet = isPrivatePay ? retailAnchorsStandard : retailAnchors;
+    const anchor = isPrivatePay
+      ? anchorSet.find(a => a.label === form.tier)
+      : anchorSet.find(a => a.id === TIER_TO_ANCHOR[form.tier]);
     if (!anchor) return null;
     const retailPerAid = parseFloat(anchor.price_per_aid);
     const copayPerAid = form.tierPrice;
     const savingsPerAid = retailPerAid - copayPerAid;
     const savingsPct = Math.round((savingsPerAid / retailPerAid) * 100);
     return { tierLabel: anchor.label, retailPerAid, copayPerAid, savingsPerAid, savingsPct };
-  }, [form.tier, form.tierPrice, retailAnchors]);
+  }, [form.tier, form.tierPrice, form.payType, retailAnchors, retailAnchorsStandard]);
 
   // Device family lookups
   const leftFamily = catalog.find(e => e.id === form.left.familyId);
@@ -4182,7 +4208,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           planTiers={privateLabelTiers}
           payType={form.payType}
           isPrivateLabel={isPrivateLabel}
-          retailAnchors={retailAnchors}
+          retailAnchors={form.payType === "private" ? retailAnchorsStandard : retailAnchors}
           intakeAnswers={wizardIntake?.answers || null}
           tierBlurbs={TH_TIER_BLURBS}
         />
@@ -4632,11 +4658,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
             {/* ── Pricing Reveal ── */}
             {(() => {
               const bothDone = leftConfigured && rightConfigured;
-              const aidCount = (leftConfigured ? 1 : 0) + (rightConfigured ? 1 : 0);
 
-              // Null state — plan not linked
               if (!pricingRevealData || form.tierPrice == null) {
-                if (!(leftConfigured || rightConfigured)) return null;
                 return (
                   <div style={{background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:12,padding:"20px 24px",marginTop:12,textAlign:"center",color:"#9ca3af",fontSize:13}}>
                     Select a plan to see your investment.
@@ -4645,12 +4668,24 @@ export default function ProviderCRM({ staffId, clinicId }) {
               }
 
               const { tierLabel, retailPerAid, copayPerAid, savingsPerAid, savingsPct } = pricingRevealData;
-              const investmentPair = copayPerAid * aidCount;
-              const retailPair = retailPerAid * aidCount;
-              const planCoversPair = retailPair - investmentPair;
+              // Per-aid until both ears configured, then snap to pair. Avoids
+              // the $0 headline when no device side has been picked yet.
+              const multiplier = bothDone ? 2 : 1;
+              const investmentDisplay = copayPerAid * multiplier;
+              const retailDisplay = retailPerAid * multiplier;
+              const planCoversDisplay = retailDisplay - investmentDisplay;
+              const savingsDisplay = savingsPerAid * multiplier;
+              // Anchor prices end in $.50 (e.g. 4997.50). Default toLocaleString
+              // drops trailing zeros — "$4,997.5" — so force two decimals to
+              // match the quote/PA output ([Distil.jsx:7542+] uses the same).
+              const fmt = n => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-              // Chief complaint carry-forward quote
-              const chiefComplaint = form.notes || "";
+              // Strip "Intake ID:" trace lines that intake conversion appends to notes.
+              const chiefComplaint = (form.notes || "")
+                .split("\n")
+                .filter(line => !/^Intake ID:/i.test(line.trim()))
+                .join("\n")
+                .trim();
 
               return (
                 <div style={{background:"linear-gradient(135deg,#f0fdf4 0%,#f8fafc 100%)",border:"1px solid #bbf7d0",borderRadius:12,padding:"20px 24px",marginTop:12}}>
@@ -4670,13 +4705,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   <div style={{marginBottom:16}}>
                     <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}}>Your Investment Today</div>
                     <div style={{display:"flex",alignItems:"baseline",gap:8}}>
-                      <span style={{fontSize:28,fontWeight:800,color:"#0a1628"}}>${investmentPair.toLocaleString()}</span>
-                      <span style={{fontSize:12,color:"#6b7280"}}>{bothDone ? `pair (${aidCount} aids)` : "per aid"}</span>
+                      <span style={{fontSize:28,fontWeight:800,color:"#0a1628"}}>${fmt(investmentDisplay)}</span>
+                      <span style={{fontSize:12,color:"#6b7280"}}>{bothDone ? "pair (2 aids)" : "per aid"}</span>
                     </div>
                     {/* Per-aid toggle when pair is shown */}
                     {bothDone && (
                       <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>
-                        ${copayPerAid.toLocaleString()} / aid
+                        ${fmt(copayPerAid)} / aid
                       </div>
                     )}
                   </div>
@@ -4684,19 +4719,19 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   {/* Plan covers */}
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
                     <span style={{color:"#6b7280"}}>Plan covers</span>
-                    <span style={{fontWeight:600,color:"#16a34a"}}>${planCoversPair.toLocaleString()}</span>
+                    <span style={{fontWeight:600,color:"#16a34a"}}>${fmt(planCoversDisplay)}</span>
                   </div>
 
                   {/* Full retail value */}
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
                     <span style={{color:"#9ca3af"}}>Full retail value</span>
-                    <span style={{color:"#9ca3af",textDecoration:"line-through"}}>${retailPair.toLocaleString()}</span>
+                    <span style={{color:"#9ca3af",textDecoration:"line-through"}}>${fmt(retailDisplay)}</span>
                   </div>
 
                   {/* Savings badge */}
                   <div style={{background:"#dcfce7",borderRadius:8,padding:"10px 14px",marginTop:8,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
                     <span style={{fontSize:13,fontWeight:700,color:"#166534"}}>
-                      You save ${(savingsPerAid * aidCount).toLocaleString()}
+                      You save ${fmt(savingsDisplay)}
                     </span>
                     <span style={{background:"#16a34a",color:"white",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>
                       {savingsPct}% off
@@ -5292,8 +5327,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
     const fresh = await loadRetailAnchors(clinicId, anchorsClass);
     setAnchorsDraft((fresh || []).map(r => ({...r})));
     // Refresh the global retailAnchors state if we just edited the class it holds
-    // (bootstrap loads 'signia'), so the pricing reveal sees fresh values without a reload.
+    // so the pricing reveal sees fresh values without a reload. Bootstrap loads
+    // both signia (insurance default) and standard (private-pay baseline).
     if (anchorsClass === "signia") setRetailAnchors(fresh || []);
+    if (anchorsClass === "standard") setRetailAnchorsStandard(fresh || []);
     setAnchorsSaved(true);
     setTimeout(() => setAnchorsSaved(false), 2500);
   };
