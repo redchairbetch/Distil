@@ -544,10 +544,10 @@ const CATALOG_DEFAULT = [
   // ── STARKEY Genesis AI (2023–present) ────────────────────────────────────
   { id:"sta-genesis-ric", manufacturer:"Starkey", generation:"Genesis AI",
     family:"Genesis AI mRIC R", styles:["ric"],
-    variants:["Standard","Omega AI (smaller form)"],
+    variants:["Standard"],
     techLevels:["24","20","16","12"],
     colors:["Silver","Black","Rose Gold","Champagne","Mocha","Brushed Titanium","Pewter"],
-    battery:["Rechargeable","Size 312"], active:true, notes:"Omega AI launched 2025 — adds AI fall detection." },
+    battery:["Rechargeable","Size 312"], active:true, notes:"" },
 
 
   { id:"sta-genesis-bte", manufacturer:"Starkey", generation:"Genesis AI",
@@ -564,6 +564,56 @@ const CATALOG_DEFAULT = [
     techLevels:["24","20","16","12"],
     colors:SKIN_TONES,
     battery:["Size 312","Size 10","Size 13","Rechargeable"], active:true, notes:"" },
+
+
+  // ── STARKEY Edge AI (2024–present) ───────────────────────────────────────
+  { id:"sta-edge-ai-ric", manufacturer:"Starkey", generation:"Edge AI",
+    family:"Edge AI mRIC R", styles:["ric"],
+    variants:["RIC RT (Rechargeable)","RIC 312"],
+    techLevels:["24","20","16","12"],
+    colors:["Silver","Black","Rose Gold","Champagne","Mocha","Brushed Titanium","Pewter"],
+    battery:["Rechargeable","Size 312"], active:true, notes:"G2 Neuro Processor. Both rechargeable and battery-operated receivers." },
+
+
+  { id:"sta-edge-ai-bte", manufacturer:"Starkey", generation:"Edge AI",
+    family:"Edge AI BTE", styles:["bte"],
+    variants:["BTE 13","BTE R"],
+    techLevels:["24","20","16","12"],
+    colors:["Silver","Black","Beige","Dark Brown"],
+    battery:["Rechargeable","Size 13"], active:true, notes:"" },
+
+
+  { id:"sta-edge-ai-custom", manufacturer:"Starkey", generation:"Edge AI",
+    family:"Edge AI Custom", styles:["ite","itc","cic","iic"],
+    variants:["ITE R","ITC R","CIC","IIC"],
+    techLevels:["24","20","16","12"],
+    colors:SKIN_TONES,
+    battery:["Rechargeable","Size 312","Size 10"], active:true, notes:"CIC/IIC are battery-operated; ITE R/ITC R are rechargeable." },
+
+
+  // ── STARKEY Omega AI (2025–present) ──────────────────────────────────────
+  { id:"sta-omega-ai-ric", manufacturer:"Starkey", generation:"Omega AI",
+    family:"Omega AI mRIC R", styles:["ric"],
+    variants:["RIC RT (Rechargeable)","mRIC RT"],
+    techLevels:["24","20","16"],
+    colors:["Silver","Black","Rose Gold","Champagne","Mocha","Brushed Titanium","Pewter"],
+    battery:["Rechargeable"], active:true, notes:"51-hour rechargeable. Auracast-ready. Streamlined to rechargeable RIC variants only." },
+
+
+  { id:"sta-omega-ai-bte", manufacturer:"Starkey", generation:"Omega AI",
+    family:"Omega AI BTE", styles:["bte"],
+    variants:["BTE R","Power Plus BTE R"],
+    techLevels:["24","20","16"],
+    colors:["Silver","Black","Beige","Dark Brown"],
+    battery:["Rechargeable"], active:true, notes:"Power Plus BTE R fitting range covers severe-to-profound loss." },
+
+
+  { id:"sta-omega-ai-custom", manufacturer:"Starkey", generation:"Omega AI",
+    family:"Omega AI Custom", styles:["ite","itc","cic","iic"],
+    variants:["ITE R","ITC R","CIC","IIC"],
+    techLevels:["24","20","16"],
+    colors:SKIN_TONES,
+    battery:["Rechargeable","Size 312","Size 10"], active:true, notes:"CIC/IIC are battery-operated; ITE R/ITC R are rechargeable." },
 
 
   // ── WIDEX Moment (current) ───────────────────────────────────────────────
