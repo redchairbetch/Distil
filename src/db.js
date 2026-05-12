@@ -2186,6 +2186,29 @@ export async function loadRetailAnchors(clinicId, manufacturerClass = 'signia') 
   return data || []
 }
 
+// Single-query alternative to N calls of loadRetailAnchors() — returns
+// an object keyed by manufacturer_class, each value an array of rows
+// already sorted by sort_order. Used by the per-ear pricing path which
+// needs to resolve a private-pay fitting against the *device's*
+// manufacturer class (signia/phonak/oticon/...) rather than the legacy
+// single-class default.
+export async function loadAllRetailAnchors(clinicId) {
+  const { data, error } = await supabase
+    .from('clinic_retail_anchors')
+    .select('id, label, price_per_aid, sort_order, manufacturer_class')
+    .eq('clinic_id', clinicId)
+    .order('manufacturer_class')
+    .order('sort_order')
+  if (error) { console.error('loadAllRetailAnchors:', error); return {} }
+  const byClass = {}
+  for (const row of (data || [])) {
+    const k = row.manufacturer_class
+    if (!byClass[k]) byClass[k] = []
+    byClass[k].push(row)
+  }
+  return byClass
+}
+
 export async function saveRetailAnchors(clinicId, manufacturerClass, anchors) {
   // Get existing rows for this clinic + manufacturer class
   const { data: existing, error: exErr } = await supabase

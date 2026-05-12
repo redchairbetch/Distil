@@ -61,6 +61,8 @@ import {
   resolveInsurancePlanId,
   loadPricingReveal,
   loadRetailAnchors,
+  loadAllRetailAnchors,
+  loadProductCatalogTiers,
   saveRetailAnchors,
   updatePatientContact,
   updateInsuranceCoverage,
@@ -330,7 +332,7 @@ const CATALOG_DEFAULT = [
   { id:"sig-pure-ix", manufacturer:"Signia", generation:"IX",
     family:"Pure Charge&Go IX", styles:["ric"],
     variants:["Standard","T (Telecoil)","BCT (Bluetooth Classic)","CROS"],
-    techLevels:["7IX","5IX","3IX"],
+    techLevels:["7IX","5IX","3IX","2IX","1IX"],
     colors:["Black","Graphite","Dark Champagne","Silver","Pearl White","Fine Gold","Deep Brown","Sandy Brown","Rose Gold","Beige"],
     battery:["Rechargeable"], active:true, notes:"BCT & T variants launched Feb 2025." },
 
@@ -338,7 +340,7 @@ const CATALOG_DEFAULT = [
   { id:"sig-styletto-ix", manufacturer:"Signia", generation:"IX",
     family:"Styletto IX", styles:["ric"],
     variants:["Standard","CROS"],
-    techLevels:["7IX","5IX","3IX"],
+    techLevels:["7IX","5IX","3IX","2IX","1IX"],
     colors:["Black/Black Gloss","Black/Graphite","Black/Silver","Cosmic Blue/Rose Gold","Snow White/Rose Gold","Snow White/Silver","Snow White/Snow White Gloss"],
     battery:["Rechargeable"], active:true, notes:"Slim RIC. Launched March 2024." },
 
@@ -346,7 +348,7 @@ const CATALOG_DEFAULT = [
   { id:"sig-motion-ix", manufacturer:"Signia", generation:"IX",
     family:"Motion Charge&Go IX", styles:["bte"],
     variants:["M (Medium)","P (Power)","SP (Super Power)"],
-    techLevels:["7IX","5IX","3IX"],
+    techLevels:["7IX","5IX","3IX","2IX","1IX"],
     colors:["Black","Beige","Dark Champagne","Deep Brown","Fine Gold","Galactic Blue","Graphite","Pearl Pink","Pearl White","Rose Gold","Sandy Brown","Silver","Sporty Red","Turquoise"],
     battery:["Rechargeable"], active:true, notes:"SP for severe-profound. All variants include telecoil." },
 
@@ -354,7 +356,7 @@ const CATALOG_DEFAULT = [
   { id:"sig-silk-ix", manufacturer:"Signia", generation:"IX",
     family:"Silk Charge&Go IX", styles:["cic"],
     variants:["Standard","CROS"],
-    techLevels:["7IX","5IX","3IX"],
+    techLevels:["7IX","5IX","3IX","2IX","1IX"],
     colors:SKIN_TONES,
     battery:["Rechargeable"], active:true, notes:"Instant-fit CIC. No Bluetooth streaming." },
 
@@ -362,7 +364,7 @@ const CATALOG_DEFAULT = [
   { id:"sig-insio-iic-ix", manufacturer:"Signia", generation:"IX",
     family:"Insio IX IIC", styles:["iic"],
     variants:["Standard"],
-    techLevels:["7IX","5IX","3IX"],
+    techLevels:["7IX","5IX","3IX","2IX","1IX"],
     colors:["Mocha","Black","Deep Brown"],
     battery:["Size 10"], active:true, notes:"Launched Dec 2024. Binaural OneMic Directionality 2.0." },
 
@@ -370,7 +372,7 @@ const CATALOG_DEFAULT = [
   { id:"sig-insio-cic-ix", manufacturer:"Signia", generation:"IX",
     family:"Insio IX CIC", styles:["cic"],
     variants:["Standard","Rechargeable (Insio C&G IX)"],
-    techLevels:["7IX","5IX","3IX"],
+    techLevels:["7IX","5IX","3IX","2IX","1IX"],
     colors:["Mocha","Black","Deep Brown"],
     battery:["Size 10","Rechargeable"], active:true, notes:"Rechargeable CIC variant is world's first. Launched 2024." },
 
@@ -378,7 +380,7 @@ const CATALOG_DEFAULT = [
   { id:"sig-insio-itc-ix", manufacturer:"Signia", generation:"IX",
     family:"Insio IX ITC", styles:["itc"],
     variants:["Standard"],
-    techLevels:["7IX","5IX","3IX"],
+    techLevels:["7IX","5IX","3IX","2IX","1IX"],
     colors:SKIN_TONES,
     battery:["Size 312"], active:true, notes:"Launched Aug 2025." },
 
@@ -386,7 +388,7 @@ const CATALOG_DEFAULT = [
   { id:"sig-insio-ite-ix", manufacturer:"Signia", generation:"IX",
     family:"Insio IX ITE", styles:["ite"],
     variants:["Standard"],
-    techLevels:["7IX","5IX","3IX"],
+    techLevels:["7IX","5IX","3IX","2IX","1IX"],
     colors:SKIN_TONES,
     battery:["Size 13"], active:true, notes:"Launched Aug 2025." },
 
@@ -510,15 +512,15 @@ const CATALOG_DEFAULT = [
   { id:"oti-intent", manufacturer:"Oticon", generation:"Intent",
     family:"Intent", styles:["ric"],
     variants:["miniRITE R","miniRITE R T (Telecoil)","mRITE R (more power)","CROS"],
-    techLevels:["4","3","2","1"],
+    techLevels:["1","2","3","4"],
     colors:["Silver","Chestnut","Dust Rose","Champagne","Midnight Black","Beige","Steel Blue"],
-    battery:["Rechargeable"], active:true, notes:"Intent 4 = premium. mRITE R for moderate-severe loss." },
+    battery:["Rechargeable"], active:true, notes:"Intent 1 = premium, scales down to 4. mRITE R for moderate-severe loss." },
 
 
   { id:"oti-own-intent", manufacturer:"Oticon", generation:"Intent",
     family:"Own", styles:["ite","itc","cic","iic"],
     variants:["Standard"],
-    techLevels:["4","3","2","1"],
+    techLevels:["1","2","3","4"],
     colors:SKIN_TONES,
     battery:["Size 312","Size 10","Size 13"], active:true, notes:"Custom styles on Intent platform." },
 
@@ -526,7 +528,7 @@ const CATALOG_DEFAULT = [
   { id:"oti-xceed", manufacturer:"Oticon", generation:"Intent",
     family:"Xceed", styles:["bte"],
     variants:["SP","UP"],
-    techLevels:["3","2","1"],
+    techLevels:["1","2","3"],
     colors:["Silver","Beige","Dark Brown","Cobalt Black"],
     battery:["Rechargeable","Size 13","Size 675"], active:true, notes:"Super/Ultra power BTE." },
 
@@ -537,7 +539,7 @@ const CATALOG_DEFAULT = [
     variants:["miniRITE R","miniRITE R T (Telecoil)","mRITE R","CROS"],
     techLevels:["1","2","3"],
     colors:["Silver","Chestnut","Dust Rose","Champagne","Midnight Black","Beige"],
-    battery:["Rechargeable"], active:true, notes:"Previous generation, still dispensed. Tech levels ordered low→high." },
+    battery:["Rechargeable"], active:true, notes:"Previous generation, still dispensed. 1 = premium, scales down." },
 
 
   // ── STARKEY Genesis AI (2023–present) ────────────────────────────────────
@@ -1497,6 +1499,115 @@ function checkRole(_staffRole, _allowedRoles) {
 }
 
 
+// ── PER-EAR PRICING ────────────────────────────────────────────────────────────
+// Backlog item #18: manufacturer- and tech-level-aware pricing. The wizard's
+// step 5 used to lock `form.tierPrice` to whatever step 4 wrote — meaning a
+// private-pay Signia 7IX patient saw the manufacturer-agnostic $4,997.50
+// Premium price instead of Signia's $3,997.50. Now each ear resolves its own
+// price from (manufacturer × techLevel × clinic_retail_anchors), with CROS/
+// BICROS pricing flat at $1,250/unit per Kurt.
+
+const CROS_PRICE_PER_UNIT = 1250;
+
+function isSideCros(side) {
+  if (!side) return false;
+  if (side.isCROS) return true;
+  return /^(CROS|BICROS)/i.test(side.variant || '');
+}
+
+// Map a catalog manufacturer name to a clinic_retail_anchors.manufacturer_class
+// key. Returns 'standard' for unrecognized labels (TruHearing private-label,
+// custom brands) so the pricing math gracefully falls back to the
+// manufacturer-agnostic baseline rather than producing a null.
+function manufacturerToClass(name) {
+  const m = (name || '').toLowerCase();
+  if (m === 'signia')  return 'signia';
+  if (m === 'phonak')  return 'phonak';
+  if (m === 'oticon')  return 'oticon';
+  if (m === 'starkey') return 'starkey';
+  if (m === 'widex')   return 'widex';
+  if (m === 'rexton')  return 'rexton';
+  if (m === 'resound') return 'resound';
+  return 'standard';
+}
+
+// (familyId, techLevel) → tier_rank lookup via the product_catalog_tier table.
+// Returns null when the family isn't in the catalog tier table yet (the row
+// would need to be seeded — see migration 008 for the Signia IX 2IX/1IX pass).
+function findTierRank(productCatalogTiers, familyId, techLevel) {
+  if (!familyId || !techLevel || !productCatalogTiers?.length) return null;
+  const row = productCatalogTiers.find(
+    t => t.productCatalogId === familyId && t.tierName === techLevel
+  );
+  return row?.tierRank ?? null;
+}
+
+// Anchor rows for a class are stored sorted by sort_order with sort 1 = top
+// tier (rank 5 / Premium). Universal mapping: rank = 6 - sort_order. Works
+// for both 4-tier (rank 5/4/3/2) and 5-tier (signia / standard) classes.
+function findAnchorForRank(anchors, rank) {
+  if (!anchors?.length || rank == null) return null;
+  return anchors.find(a => a.sort_order === (6 - rank)) || null;
+}
+
+// Resolve the per-aid price for one ear. Returns null when the configuration
+// isn't sufficient to derive a price (manufacturer/techLevel unset, anchor
+// row missing). Caller falls back to the tier baseline in that case.
+//
+// Shape: { price, source, class?, rank?, anchorLabel? }
+//   source:
+//     'cros'              — CROS/BICROS unit, $1,250 flat
+//     'insurance-copay'   — carrier copay (form.tierPrice), manufacturer
+//                            doesn't change patient out-of-pocket
+//     'class'             — resolved from manufacturer-class anchor
+//     'fallback'          — manufacturer class wasn't seeded; used standard
+function deriveEarPrice(side, opts) {
+  if (!side) return null;
+  if (isSideCros(side)) {
+    return { price: CROS_PRICE_PER_UNIT, source: 'cros' };
+  }
+  const { form, catalog, productCatalogTiers, anchorsByClass } = opts;
+  if (form?.payType === 'insurance') {
+    if (form.tierPrice == null) return null;
+    return { price: form.tierPrice, source: 'insurance-copay' };
+  }
+  // Private-pay branch — manufacturer + techLevel required.
+  const family = (catalog || []).find(e => e.id === side.familyId);
+  if (!family || !side.techLevel) return null;
+  const cls = manufacturerToClass(family.manufacturer);
+  const rank = findTierRank(productCatalogTiers, family.id, side.techLevel);
+  if (rank == null) return null;
+  let anchor = findAnchorForRank(anchorsByClass?.[cls], rank);
+  let source = 'class';
+  if (!anchor) {
+    anchor = findAnchorForRank(anchorsByClass?.standard, rank);
+    source = 'fallback';
+  }
+  if (!anchor) return null;
+  return {
+    price: parseFloat(anchor.price_per_aid),
+    source,
+    class: cls,
+    rank,
+    anchorLabel: anchor.label,
+  };
+}
+
+// Effective per-aid baseline for the back-compat `form.tierPrice` scalar
+// downstream. For CROS fittings, the "real aid" ear drives the baseline
+// (the CROS unit is a $1,250 add-on, not the per-aid price). For matched
+// bilateral fittings, both ears agree so either works. For mismatched
+// manufacturers the higher of the two wins — the UI shows a caution.
+function pickBaselinePerAid(leftEar, rightEar) {
+  const lp = leftEar && leftEar.source !== 'cros' ? leftEar.price : null;
+  const rp = rightEar && rightEar.source !== 'cros' ? rightEar.price : null;
+  if (lp == null && rp == null) return null;
+  if (lp == null) return rp;
+  if (rp == null) return lp;
+  return Math.max(lp, rp);
+}
+
+
 export default function ProviderCRM({ staffId, clinicId }) {
   const [clinic, setClinic] = useState(DEFAULT_CLINIC);
   const [clinicDraft, setClinicDraft] = useState(DEFAULT_CLINIC);
@@ -1559,6 +1670,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [insurancePlans, setInsurancePlans] = useState([]);
   const [retailAnchors, setRetailAnchors] = useState([]);
   const [retailAnchorsStandard, setRetailAnchorsStandard] = useState([]);
+  // Full anchor set keyed by manufacturer_class — used by deriveEarPrice
+  // for per-ear pricing resolution on the device-selection step.
+  const [retailAnchorsByClass, setRetailAnchorsByClass] = useState({});
+  // tier_name → tier_rank lookup per product family. Powers the
+  // techLevel → universal rank bridge that deriveEarPrice uses to pick
+  // an anchor row within a manufacturer class.
+  const [productCatalogTiers, setProductCatalogTiers] = useState([]);
   const [pricingReveal, setPricingReveal] = useState(null);
 
   // Retail anchors editor (Clinic Settings → Retail Anchors)
@@ -1870,17 +1988,22 @@ export default function ProviderCRM({ staffId, clinicId }) {
       } catch {}
       try {
         if (clinicId) {
-          // Load both manufacturer classes in parallel. Signia is the default
-          // anchor set for insurance flows; standard is the manufacturer-
-          // agnostic baseline used by private-pay (matches TruHearing's
-          // Premium/Advanced/Standard vocabulary).
-          const [anchors, anchorsStandard] = await Promise.all([
-            loadRetailAnchors(clinicId),
-            loadRetailAnchors(clinicId, "standard"),
-          ]);
-          if (anchors?.length) setRetailAnchors(anchors);
-          if (anchorsStandard?.length) setRetailAnchorsStandard(anchorsStandard);
+          // Single query returns all manufacturer classes keyed; we derive
+          // signia (insurance default) and standard (private-pay baseline)
+          // from that for the TierSelection step which still expects a
+          // single array, and pass the full byClass map to deriveEarPrice
+          // for per-ear pricing on the device-selection step.
+          const byClass = await loadAllRetailAnchors(clinicId);
+          if (byClass && Object.keys(byClass).length) {
+            setRetailAnchorsByClass(byClass);
+            if (byClass.signia?.length) setRetailAnchors(byClass.signia);
+            if (byClass.standard?.length) setRetailAnchorsStandard(byClass.standard);
+          }
         }
+      } catch {}
+      try {
+        const tiers = await loadProductCatalogTiers();
+        if (tiers?.length) setProductCatalogTiers(tiers);
       } catch {}
       try {
         if (staffId) {
@@ -2346,10 +2469,17 @@ export default function ProviderCRM({ staffId, clinicId }) {
     // TierSelection writes the chosen tier's per-aid price (clinic_retail_anchors
     // for private pay, insurance_plans for insurance) into form.tierPrice.
     const pricePerAid = form.tierPrice || 0;
+    // Per-ear prices for CROS-aware totals — null when the side isn't
+    // configured. generateQuote falls back to pricePerAid * aidCount
+    // when both are null.
+    const leftEarP  = leftRec  ? (leftEarPrice?.price  ?? pricePerAid) : null;
+    const rightEarP = rightRec ? (rightEarPrice?.price ?? pricePerAid) : null;
     const { blob, fileName } = downloadQuote({
       patient: { name: [form.firstName, form.lastName].filter(Boolean).join(" "), phone: form.phone },
       devices: { fittingType, left: leftRec, right: rightRec },
       pricePerAid,
+      leftPrice: leftEarP,
+      rightPrice: rightEarP,
       selectedCarePlan: form.carePlan || "complete",
       payType: form.payType,
       tpa: form.tpa,
@@ -3378,6 +3508,44 @@ export default function ProviderCRM({ staffId, clinicId }) {
   // so the map is only strictly needed for insurance flows where plan tier
   // labels can drift (e.g. "Level 7" = Premium-equivalent).
   const TIER_TO_ANCHOR = { "Premium":"select","Level 7":"select","Advanced":"advanced","Level 5":"advanced","Standard":"standard","Level 3":"standard","Level 2":"level2","Level 1":"level1" };
+
+  // Per-ear price resolution. Memoized so device-screen renders don't redo
+  // the lookups on every keystroke elsewhere in the form.
+  const earPriceOpts = useMemo(
+    () => ({ form, catalog, productCatalogTiers, anchorsByClass: retailAnchorsByClass }),
+    [form, catalog, productCatalogTiers, retailAnchorsByClass]
+  );
+  const leftEarPrice  = useMemo(() => deriveEarPrice(form.left,  earPriceOpts), [form.left,  earPriceOpts]);
+  const rightEarPrice = useMemo(() => deriveEarPrice(form.right, earPriceOpts), [form.right, earPriceOpts]);
+
+  // Detect mismatched manufacturers across configured ears so the UI can
+  // warn before quote generation. Both ears must have a familyId resolvable
+  // to a manufacturer; CROS-side ears are excluded since CROS variants
+  // legitimately ride alongside a non-CROS aid of any brand.
+  const manufacturerMismatch = useMemo(() => {
+    const l = catalog.find(e => e.id === form.left.familyId);
+    const r = catalog.find(e => e.id === form.right.familyId);
+    if (!l || !r) return false;
+    if (isSideCros(form.left) || isSideCros(form.right)) return false;
+    return l.manufacturer !== r.manufacturer;
+  }, [form.left, form.right, catalog]);
+
+  // Auto-recompute form.tierPrice when the patient picks a device on step 5.
+  // Only fires in private-pay mode — insurance copays are fixed by the
+  // carrier, manufacturer doesn't change the patient's out-of-pocket. Picks
+  // the higher of the two real-aid ears (matched bilateral case: both equal
+  // so it doesn't matter; CROS case: the non-CROS ear drives the per-aid
+  // baseline; mismatched manufacturer case: the higher one wins and the
+  // banner cautions the user). Skips when neither ear has resolved enough
+  // to derive a price — preserves the step-4 baseline.
+  useEffect(() => {
+    if (form.payType !== 'private') return;
+    const baseline = pickBaselinePerAid(leftEarPrice, rightEarPrice);
+    if (baseline == null) return;
+    if (form.tierPrice === baseline) return;
+    setForm(f => ({ ...f, tierPrice: baseline }));
+  }, [leftEarPrice, rightEarPrice, form.payType, form.tierPrice]);
+
   const pricingRevealData = useMemo(() => {
     if (form.tierPrice == null || !form.tier) return null;
     // Private-pay uses standard-class anchors (manufacturer-agnostic baseline).
@@ -3394,8 +3562,23 @@ export default function ProviderCRM({ staffId, clinicId }) {
     const copayPerAid = form.tierPrice;
     const savingsPerAid = retailPerAid - copayPerAid;
     const savingsPct = Math.round((savingsPerAid / retailPerAid) * 100);
-    return { tierLabel: anchor.label, retailPerAid, copayPerAid, savingsPerAid, savingsPct };
-  }, [form.tier, form.tierPrice, form.payType, retailAnchors, retailAnchorsStandard]);
+    // Per-ear breakdown for the UI to show when ears differ (CROS fittings,
+    // mfr mismatch, or unilateral configs). Pair total is the truth for
+    // quote/PA when at least one ear resolves.
+    const lp = leftEarPrice?.price ?? null;
+    const rp = rightEarPrice?.price ?? null;
+    const pairTotal = (lp != null || rp != null)
+      ? (lp || 0) + (rp || 0)
+      : null;
+    return {
+      tierLabel: anchor.label,
+      retailPerAid,
+      copayPerAid,
+      savingsPerAid,
+      savingsPct,
+      perEar: { left: leftEarPrice, right: rightEarPrice, pairTotal },
+    };
+  }, [form.tier, form.tierPrice, form.payType, retailAnchors, retailAnchorsStandard, leftEarPrice, rightEarPrice]);
 
   // Device family lookups
   const leftFamily = catalog.find(e => e.id === form.left.familyId);
@@ -4655,6 +4838,15 @@ export default function ProviderCRM({ staffId, clinicId }) {
               {renderSideColumn("right")}
             </div>
 
+            {/* ── Mismatched-manufacturer caution ── */}
+            {manufacturerMismatch && (
+              <div style={{background:"#fef9c3",border:"1px solid #fde047",borderRadius:8,padding:"10px 14px",marginTop:12,fontSize:13,color:"#854d0e"}}>
+                <strong>Mixed-manufacturer fitting flagged.</strong>{" "}
+                Left and right ears are configured with different manufacturers. Per-ear pricing below
+                reflects each device's anchor; verify this is intentional before generating the quote.
+              </div>
+            )}
+
             {/* ── Pricing Reveal ── */}
             {(() => {
               const bothDone = leftConfigured && rightConfigured;
@@ -4667,14 +4859,26 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 );
               }
 
-              const { tierLabel, retailPerAid, copayPerAid, savingsPerAid, savingsPct } = pricingRevealData;
+              const { tierLabel, retailPerAid, copayPerAid, savingsPerAid, savingsPct, perEar } = pricingRevealData;
               // Per-aid until both ears configured, then snap to pair. Avoids
               // the $0 headline when no device side has been picked yet.
               const multiplier = bothDone ? 2 : 1;
-              const investmentDisplay = copayPerAid * multiplier;
-              const retailDisplay = retailPerAid * multiplier;
+              // CROS-aware totals: when one ear is a CROS/BICROS unit the pair
+              // total is (real aid price + $1,250), not 2 x aid price. Use the
+              // per-ear breakdown when both ears resolve; otherwise fall back
+              // to the simple copay x multiplier so unilateral fittings and
+              // pre-device-pick states still render a sane headline.
+              const hasPerEarPair = bothDone && perEar?.pairTotal != null;
+              const investmentDisplay = hasPerEarPair ? perEar.pairTotal : copayPerAid * multiplier;
+              const hasCrosSide = perEar?.left?.source === 'cros' || perEar?.right?.source === 'cros';
+              // For CROS fittings, full retail = aid retail + $1,250 (CROS
+              // has no markup). Non-CROS bilateral retail stays at the
+              // per-aid anchor times 2.
+              const retailDisplay = (bothDone && hasCrosSide)
+                ? retailPerAid + CROS_PRICE_PER_UNIT
+                : retailPerAid * multiplier;
               const planCoversDisplay = retailDisplay - investmentDisplay;
-              const savingsDisplay = savingsPerAid * multiplier;
+              const savingsDisplay = Math.max(0, planCoversDisplay);
               // Anchor prices end in $.50 (e.g. 4997.50). Default toLocaleString
               // drops trailing zeros — "$4,997.5" — so force two decimals to
               // match the quote/PA output ([Distil.jsx:7542+] uses the same).
@@ -4708,12 +4912,38 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       <span style={{fontSize:28,fontWeight:800,color:"#0a1628"}}>${fmt(investmentDisplay)}</span>
                       <span style={{fontSize:12,color:"#6b7280"}}>{bothDone ? "pair (2 aids)" : "per aid"}</span>
                     </div>
-                    {/* Per-aid toggle when pair is shown */}
-                    {bothDone && (
-                      <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>
-                        ${fmt(copayPerAid)} / aid
-                      </div>
-                    )}
+                    {/* Per-aid toggle / per-ear breakdown. Shows the
+                        simple "$X / aid" when ears match, and a labeled
+                        per-ear breakdown when CROS or manufacturer
+                        mismatch makes the two ears differ. */}
+                    {bothDone && (() => {
+                      const lp = perEar?.left?.price ?? null;
+                      const rp = perEar?.right?.price ?? null;
+                      const earsDiffer = lp != null && rp != null && lp !== rp;
+                      if (!earsDiffer) {
+                        return (
+                          <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>
+                            ${fmt(copayPerAid)} / aid
+                          </div>
+                        );
+                      }
+                      const leftFam  = catalog.find(e => e.id === form.left.familyId);
+                      const rightFam = catalog.find(e => e.id === form.right.familyId);
+                      const leftLabel  = perEar.left.source === 'cros' ? 'CROS unit' : (leftFam?.family || '—');
+                      const rightLabel = perEar.right.source === 'cros' ? 'CROS unit' : (rightFam?.family || '—');
+                      return (
+                        <div style={{marginTop:8,fontSize:12,color:"#374151"}}>
+                          <div style={{display:"flex",justifyContent:"space-between",padding:"3px 0"}}>
+                            <span>👂 Right · {rightLabel}</span>
+                            <span style={{fontWeight:600}}>${fmt(rp)}</span>
+                          </div>
+                          <div style={{display:"flex",justifyContent:"space-between",padding:"3px 0"}}>
+                            <span>👂 Left · {leftLabel}</span>
+                            <span style={{fontWeight:600}}>${fmt(lp)}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* Plan covers */}
@@ -4748,9 +4978,17 @@ export default function ProviderCRM({ staffId, clinicId }) {
       const leftOk  = isSideConfigured("left");
       const rightOk = isSideConfigured("right");
       const aidCount = (leftOk ? 1 : 0) + (rightOk ? 1 : 0);
-      const aidBase = form.tierPrice != null ? form.tierPrice * aidCount : null;
+      // CROS-aware per-aid + pair totals. Falls back to tierPrice * aidCount
+      // when per-ear pricing hasn't resolved (rare — happens when device
+      // info isn't enough to pick an anchor row).
+      const leftEarP  = leftOk  ? (leftEarPrice?.price  ?? form.tierPrice) : null;
+      const rightEarP = rightOk ? (rightEarPrice?.price ?? form.tierPrice) : null;
+      const perEarSum = (leftEarP || 0) + (rightEarP || 0);
+      const aidBase = perEarSum > 0
+        ? perEarSum
+        : (form.tierPrice != null ? form.tierPrice * aidCount : null);
       const aidTotal = aidBase;
-      const perAidFor = () => form.tierPrice;
+      const perAidFor = (side) => side === 'left' ? leftEarP : side === 'right' ? rightEarP : form.tierPrice;
       const isTruHearing = form.tpa === "TruHearing";
       const isTruHearingTPA = isTruHearing;
 
@@ -5331,6 +5569,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
     // both signia (insurance default) and standard (private-pay baseline).
     if (anchorsClass === "signia") setRetailAnchors(fresh || []);
     if (anchorsClass === "standard") setRetailAnchorsStandard(fresh || []);
+    // Keep the byClass map (used by deriveEarPrice) in sync so a clinic
+    // editing prices in Settings sees their change reflected on the
+    // device-selection screen without a full reload.
+    setRetailAnchorsByClass(prev => ({ ...prev, [anchorsClass]: fresh || [] }));
     setAnchorsSaved(true);
     setTimeout(() => setAnchorsSaved(false), 2500);
   };
@@ -5621,10 +5863,19 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   const pricePerAid = p.payType === "private"
                     ? (p.privatePay?.tierPrice || 2750)
                     : (p.insurance?.tierPrice || 0);
+                  // Per-ear prices — CROS sides substitute $1,250. Patient-list
+                  // regen doesn't have access to the live manufacturer-aware
+                  // helper, so non-CROS sides keep the snapshotted pricePerAid
+                  // (the historical value the quote was first generated at).
+                  const sideHasCros = (s) => !!s && /^(CROS|BICROS)/i.test(s.variant || '');
+                  const leftEarP  = p.devices?.left  ? (sideHasCros(p.devices.left)  ? CROS_PRICE_PER_UNIT : pricePerAid) : null;
+                  const rightEarP = p.devices?.right ? (sideHasCros(p.devices.right) ? CROS_PRICE_PER_UNIT : pricePerAid) : null;
                   const { blob, fileName } = downloadQuote({
                     patient: { name: p.name, phone: p.phone },
                     devices: { fittingType, left: p.devices?.left || null, right: p.devices?.right || null },
                     pricePerAid,
+                    leftPrice: leftEarP,
+                    rightPrice: rightEarP,
                     selectedCarePlan: p.carePlan || "complete",
                     payType: p.payType,
                     tpa: p.insurance?.tpa,
@@ -5692,7 +5943,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
           const aidCount = isBilateral ? 2 : 1;
           // Private pay bundles the care plan into the per-aid retail price.
           const carePlanCost = isPrivate ? 0 : (cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0);
-          const deviceTotal = pricePerAid * aidCount;
+          // CROS sides flat at $1,250; non-CROS sides use the snapshotted
+          // pricePerAid. deviceTotal becomes the true pair total under CROS.
+          const sideHasCros = (s) => !!s && /^(CROS|BICROS)/i.test(s.variant || '');
+          const leftEarP  = p.devices?.left  ? (sideHasCros(p.devices.left)  ? CROS_PRICE_PER_UNIT : pricePerAid) : null;
+          const rightEarP = p.devices?.right ? (sideHasCros(p.devices.right) ? CROS_PRICE_PER_UNIT : pricePerAid) : null;
+          const deviceTotal = (leftEarP || 0) + (rightEarP || 0) || pricePerAid * aidCount;
           const totalPurchasePrice = deviceTotal + carePlanCost;
 
           const handleGeneratePDF = async (includeDelivery = false) => {
@@ -5705,6 +5961,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
               },
               carePlan: cpId,
               pricePerAid,
+              leftPrice: leftEarP,
+              rightPrice: rightEarP,
               payType: p.payType,
               clinic: staffProfile?.clinic || clinic,
               provider: {
@@ -7612,6 +7870,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
                               const pricePerAid = form.tierPrice || 0;
                               const isBilateral = (fType === 'bilateral' || fType === 'cros_bicros');
                               const aidCount = isBilateral ? 2 : 1;
+                              // Per-ear prices for CROS-aware totals — null when the side isn't
+                              // configured so generatePurchaseAgreement falls back to legacy math.
+                              const leftEarP  = leftRec  ? (leftEarPrice?.price  ?? pricePerAid) : null;
+                              const rightEarP = rightRec ? (rightEarPrice?.price ?? pricePerAid) : null;
                               // Private pay bundles the care plan into the per-aid retail price.
                               const isPrivate = form.payType === 'private';
                               const carePlanCost = isPrivate ? 0 : (cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0);
@@ -7619,6 +7881,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                                 patient:{name:pName,address:form.address,phone:form.phone,dob:form.dob},
                                 devices:{fittingType:fType,left:leftRec,right:rightRec},
                                 carePlan:cpId, pricePerAid, payType:form.payType,
+                                leftPrice: leftEarP, rightPrice: rightEarP,
                                 clinic:clinicObj,
                                 provider:{fullName:provName,activeLicense:provLic,signatureUrl:staffProfile?.signatureUrl||null},
                                 patientSignature:paSignatureName.trim(), patientSignatureDate:sigDate,
