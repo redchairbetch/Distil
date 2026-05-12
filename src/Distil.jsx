@@ -25,7 +25,6 @@ import CareJourney from "./views/CareJourney.jsx";
 import HealthHistory from "./views/HealthHistory.jsx";
 import IntakeResponsesAccordion from "./views/IntakeResponsesAccordion.jsx";
 import TierSelection from "./views/TierSelection.jsx";
-import ChapterIntro from "./components/ChapterIntro.jsx";
 import PrompterSidebar from "./components/PrompterSidebar.jsx";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -1481,9 +1480,8 @@ function generateCounseling(aud){
 // ── WIZARD STEPS ──────────────────────────────────────────────────────────────
 const STEPS = ["Patient","Health History","Testing","Results","Technology Tier","Device Selection","Care Plan","Review"];
 
-// Narrative Thread (backlog #8) — each wizard step belongs to one of five
-// chapters. The intro overlay fires when the user first crosses into a
-// new chapter; chaptersSeen state suppresses the intro on back/forward.
+// Narrative Thread — each wizard step belongs to one of five chapters.
+// Read by PrompterSidebar to surface chapter-keyed talking points.
 const STEP_TO_CHAPTER = [1, 1, 2, 2, 3, 3, 4, 5];
 const CHAPTER_TITLES = ["Patient story", "Evidence", "Recommendation", "Investment", "Commitment"];
 
@@ -1621,10 +1619,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [saveError, setSaveError] = useState(null);
   const [wizardPatientId, setWizardPatientId] = useState(null);
   const [wizardIntake, setWizardIntake] = useState(null);
-  // Narrative Thread (backlog #8) — { 1: true, 2: false, ... } per wizard
-  // session. The intro overlay is suppressed for chapters already seen,
-  // so back/forward navigation doesn't re-pop. Reset on wizard cancel.
-  const [chaptersSeen, setChaptersSeen] = useState({});
   // Provider prompter drawer — open by default, toggleable via the handle
   // pinned to the right edge of the screen. Provider-only.
   const [prompterOpen, setPrompterOpen] = useState(true);
@@ -2640,7 +2634,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
     setActiveSide("left");
     setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
     setWizardPatientId(null); setSaveToast(false);
-    setChaptersSeen({});
     setStep(0); setSaved(false); setView("new");
   };
 
@@ -4847,34 +4840,40 @@ export default function ProviderCRM({ staffId, clinicId }) {
               </div>
             )}
 
-            {/* ── Pricing Reveal ── */}
+            {/* ── Pricing Reveal ──
+                Held back until both ears are configured. `form.tierPrice`
+                pre-device-pick is the tier-step auto-selection, which can
+                disagree with the manufacturer-class anchor the per-ear
+                resolver will land on once devices are chosen — so revealing
+                it early can show a number that won't survive the final
+                resolution. */}
             {(() => {
               const bothDone = leftConfigured && rightConfigured;
 
-              if (!pricingRevealData || form.tierPrice == null) {
+              if (!bothDone || !pricingRevealData || form.tierPrice == null) {
+                const message = !bothDone
+                  ? "Configure both ears to see your investment."
+                  : "Select a plan to see your investment.";
                 return (
                   <div style={{background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:12,padding:"20px 24px",marginTop:12,textAlign:"center",color:"#9ca3af",fontSize:13}}>
-                    Select a plan to see your investment.
+                    {message}
                   </div>
                 );
               }
 
               const { tierLabel, retailPerAid, copayPerAid, savingsPerAid, savingsPct, perEar } = pricingRevealData;
-              // Per-aid until both ears configured, then snap to pair. Avoids
-              // the $0 headline when no device side has been picked yet.
-              const multiplier = bothDone ? 2 : 1;
+              // Both ears configured by this point — pair pricing always.
+              const multiplier = 2;
               // CROS-aware totals: when one ear is a CROS/BICROS unit the pair
               // total is (real aid price + $1,250), not 2 x aid price. Use the
-              // per-ear breakdown when both ears resolve; otherwise fall back
-              // to the simple copay x multiplier so unilateral fittings and
-              // pre-device-pick states still render a sane headline.
-              const hasPerEarPair = bothDone && perEar?.pairTotal != null;
+              // per-ear breakdown when both ears resolve.
+              const hasPerEarPair = perEar?.pairTotal != null;
               const investmentDisplay = hasPerEarPair ? perEar.pairTotal : copayPerAid * multiplier;
               const hasCrosSide = perEar?.left?.source === 'cros' || perEar?.right?.source === 'cros';
               // For CROS fittings, full retail = aid retail + $1,250 (CROS
               // has no markup). Non-CROS bilateral retail stays at the
               // per-aid anchor times 2.
-              const retailDisplay = (bothDone && hasCrosSide)
+              const retailDisplay = hasCrosSide
                 ? retailPerAid + CROS_PRICE_PER_UNIT
                 : retailPerAid * multiplier;
               const planCoversDisplay = retailDisplay - investmentDisplay;
@@ -4910,13 +4909,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}}>Your Investment Today</div>
                     <div style={{display:"flex",alignItems:"baseline",gap:8}}>
                       <span style={{fontSize:28,fontWeight:800,color:"#0a1628"}}>${fmt(investmentDisplay)}</span>
-                      <span style={{fontSize:12,color:"#6b7280"}}>{bothDone ? "pair (2 aids)" : "per aid"}</span>
+                      <span style={{fontSize:12,color:"#6b7280"}}>pair (2 aids)</span>
                     </div>
                     {/* Per-aid toggle / per-ear breakdown. Shows the
                         simple "$X / aid" when ears match, and a labeled
                         per-ear breakdown when CROS or manufacturer
                         mismatch makes the two ears differ. */}
-                    {bothDone && (() => {
+                    {(() => {
                       const lp = perEar?.left?.price ?? null;
                       const rp = perEar?.right?.price ?? null;
                       const earsDiffer = lp != null && rp != null && lp !== rp;
@@ -7634,55 +7633,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     tier={form.tier}
                     carePlan={form.carePlan}
                   />
-                  {(() => {
-                    // Narrative Thread (backlog #8) — show the chapter intro
-                    // overlay the first time the wizard crosses into a new
-                    // chapter. The card carries one line forward from the
-                    // prior chapter so the appointment reads as a story.
-                    const chapter = STEP_TO_CHAPTER[step];
-                    if (!chapter || chaptersSeen[chapter]) return null;
-
-                    let prevSummary = null;
-                    if (chapter === 2) {
-                      const m = wizardIntake?.motivationScore;
-                      const sc = wizardIntake?.softCommitment;
-                      prevSummary = "From Chapter 1 — " + [
-                        m != null ? `Motivation ${m}/10` : "Motivation not set",
-                        sc ? `soft commit: ${sc}` : "soft commit: not set",
-                      ].join(" · ");
-                    } else if (chapter === 3) {
-                      const r = form.audiology?.unaidedR;
-                      const l = form.audiology?.unaidedL;
-                      prevSummary = (r != null || l != null)
-                        ? `From Chapter 2 — Word recognition: R ${r ?? "—"}% · L ${l ?? "—"}%`
-                        : "From Chapter 2 — Hearing evaluation complete";
-                    } else if (chapter === 4) {
-                      prevSummary = (form.tier && form.tierPrice != null)
-                        ? `From Chapter 3 — Recommended: ${form.tier} tier · $${Number(form.tierPrice).toLocaleString()}/aid`
-                        : "From Chapter 3 — Devices selected";
-                    } else if (chapter === 5) {
-                      const isPrivate = form.payType === "private";
-                      const labelMap = { complete: "Complete Care+", punch: "Punch Card", paygo: "Pay-As-You-Go" };
-                      const carePlanLabel = isPrivate
-                        ? "Complete Care+ (included with private pay)"
-                        : (labelMap[form.carePlan] || "Care plan to be confirmed");
-                      prevSummary = `From Chapter 4 — ${carePlanLabel}`;
-                    }
-
-                    const complaintQuote = chapter === 1
-                      ? (wizardIntake?.answers?.visitReason || null)
-                      : null;
-
-                    return (
-                      <ChapterIntro
-                        number={chapter}
-                        title={CHAPTER_TITLES[chapter - 1]}
-                        prevSummary={prevSummary}
-                        complaintQuote={complaintQuote}
-                        onBegin={() => setChaptersSeen(prev => ({ ...prev, [chapter]: true }))}
-                      />
-                    );
-                  })()}
                   {saveError && (
                     <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"12px 16px",marginBottom:8,fontSize:13,color:"#dc2626"}}>
                       <strong>Save failed:</strong> {saveError}
