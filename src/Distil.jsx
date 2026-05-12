@@ -433,18 +433,18 @@ const CATALOG_DEFAULT = [
     battery:["Rechargeable"], active:true, notes:"" },
 
 
-  { id:"sig-silk-ax", manufacturer:"Signia", generation:"AX",
-    family:"Silk Charge&Go AX", styles:["cic"],
+  { id:"sig-insio-cg-ax-cic", manufacturer:"Signia", generation:"AX",
+    family:"Insio Charge&Go AX CIC", styles:["cic"],
     variants:["Standard"],
-    techLevels:["7AX","5AX","3AX"],
+    techLevels:["7AX","5AX","3AX","2AX","1AX"],
     colors:SKIN_TONES,
-    battery:["Rechargeable"], active:true, notes:"Instant-fit CIC on AX platform." },
+    battery:["Rechargeable"], active:true, notes:"Rechargeable custom CIC — pairs with Insio AX ITC/ITE family." },
 
 
   { id:"sig-insio-cg-ax-ite", manufacturer:"Signia", generation:"AX",
     family:"Insio Charge&Go AX ITE", styles:["ite"],
     variants:["Standard"],
-    techLevels:["7AX","5AX","3AX"],
+    techLevels:["7AX","5AX","3AX","2AX","1AX"],
     colors:SKIN_TONES,
     battery:["Rechargeable"], active:true, notes:"Rechargeable custom ITE — still active line alongside IX customs." },
 
@@ -452,7 +452,7 @@ const CATALOG_DEFAULT = [
   { id:"sig-insio-cg-ax-itc", manufacturer:"Signia", generation:"AX",
     family:"Insio Charge&Go AX ITC", styles:["itc"],
     variants:["Standard"],
-    techLevels:["7AX","5AX","3AX"],
+    techLevels:["7AX","5AX","3AX","2AX","1AX"],
     colors:SKIN_TONES,
     battery:["Rechargeable"], active:true, notes:"Rechargeable custom ITC — still active line." },
 
@@ -461,7 +461,7 @@ const CATALOG_DEFAULT = [
   { id:"pho-sphere-infinio", manufacturer:"Phonak", generation:"Infinio",
     family:"Audéo Sphere Infinio", styles:["ric"],
     variants:["Ultra Sphere","Sphere","Standard"],
-    techLevels:["90","70","50"],
+    techLevels:["90","70","50","30"],
     colors:["Silver","Champagne","Sandalwood","Slate","Midnight Black","Chestnut","Beige"],
     battery:["Rechargeable"], active:true, notes:"Ultra Sphere = dual-chip AI noise. Launched Aug 2024." },
 
@@ -485,7 +485,7 @@ const CATALOG_DEFAULT = [
   { id:"pho-virto-infinio", manufacturer:"Phonak", generation:"Infinio",
     family:"Virto Infinio", styles:["ite","itc","cic","iic"],
     variants:["Standard","Titanium (IIC only)"],
-    techLevels:["90","70","50"],
+    techLevels:["90","70","50","30"],
     colors:SKIN_TONES,
     battery:["Size 312","Size 10","Size 13"], active:true, notes:"Titanium IIC is ultra-small and durable." },
 
@@ -7502,7 +7502,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div style={{fontSize:12,color:"rgba(255,255,255,0.7)",fontWeight:500,lineHeight:1.3}}>{clinic.address}</div>
           </div>
           <div className="sidebar-nav">
-            {[["🏠","Dashboard","dashboard"],["👥","Patients","patients"],["🔔","Follow-up","followup"],["📅","Schedule","schedule"],["📊","Reports","reports"],["📬","Campaigns","campaigns"],["📚","Content Library","content"],["🎖️","Lima Charlie","lima-charlie"],["📋","Product Catalog","catalog"],["⚙️","Settings","settings"]].map(([icon,label,id])=>{
+            {[["🏠","Dashboard","dashboard"],["👥","Patients","patients"],["🔔","Follow-up","followup"],["📅","Nurture Schedule","schedule"],["📊","Reports","reports"],["📬","Campaigns","campaigns"],["📚","Content Library","content"],["🎖️","Lima Charlie","lima-charlie"],["📋","Product Catalog","catalog"],["⚙️","Settings","settings"]].map(([icon,label,id])=>{
               const badge = id === "followup" ? countFollowUpPatients(patients) : 0;
               return (
               <div key={id} className={`nav-item ${view===id||(id==="dashboard"&&view==="new")||(id==="patients"&&(view==="dashboard"||view==="patient"))?"active":""}`}
