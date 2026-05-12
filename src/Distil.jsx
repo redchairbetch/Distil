@@ -3591,20 +3591,54 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   const pricingRevealData = useMemo(() => {
     if (form.tierPrice == null || !form.tier) return null;
-    // Private-pay uses standard-class anchors (manufacturer-agnostic baseline).
-    // Tier was picked straight from this list, so match by label directly —
-    // skips the TIER_TO_ANCHOR indirection that was tripping over signia's
-    // numeric labels.
     const isPrivatePay = form.payType === "private";
-    const anchorSet = isPrivatePay ? retailAnchorsStandard : retailAnchors;
-    const anchor = isPrivatePay
-      ? anchorSet.find(a => a.label === form.tier)
-      : anchorSet.find(a => a.id === TIER_TO_ANCHOR[form.tier]);
-    if (!anchor) return null;
-    const retailPerAid = parseFloat(anchor.price_per_aid);
+
+    // Source retail from the manufacturer-class anchor that deriveEarPrice
+    // actually resolved on (private-pay), not the standard-class baseline.
+    // Without this, a Signia 7IX patient sees Signia's per-aid price
+    // ($3,997.50) next to standard's Premium retail ($4,997.50) and a fake
+    // $1,000 "Plan covers" — there's no plan in private-pay; that diff was
+    // just two anchor tables disagreeing. Mismatched-manufacturer ears
+    // follow pickBaselinePerAid semantics: higher-priced side drives the
+    // anchor lookup, matching the value form.tierPrice was auto-set to.
+    let retailPerAid = null;
+    let tierLabel = form.tier;
+    if (isPrivatePay) {
+      const lpx = leftEarPrice?.source !== 'cros' ? leftEarPrice : null;
+      const rpx = rightEarPrice?.source !== 'cros' ? rightEarPrice : null;
+      const dominant = (lpx && rpx) ? (lpx.price >= rpx.price ? lpx : rpx) : (lpx || rpx);
+      if (dominant) {
+        const classAnchors = retailAnchorsByClass[dominant.class] || retailAnchorsStandard;
+        const anchor = classAnchors.find(a => a.sort_order === (6 - dominant.rank));
+        if (anchor) {
+          retailPerAid = parseFloat(anchor.price_per_aid);
+          tierLabel = form.tier; // universal vocabulary — patient sees "Premium" not "7IX"
+        }
+      }
+      // Fallback: pre-device-pick state (shouldn't render with the both-ears
+      // gate, but the memo can be evaluated when leftEarPrice/rightEarPrice
+      // are still null on a back-nav). Use the standard-class anchor so we
+      // return non-null data and the gate decides whether to render.
+      if (retailPerAid == null) {
+        const fallback = retailAnchorsStandard.find(a => a.label === form.tier);
+        if (fallback) {
+          retailPerAid = parseFloat(fallback.price_per_aid);
+        }
+      }
+    } else {
+      const anchor = retailAnchors.find(a => a.id === TIER_TO_ANCHOR[form.tier]);
+      if (anchor) {
+        retailPerAid = parseFloat(anchor.price_per_aid);
+        tierLabel = anchor.label;
+      }
+    }
+    if (retailPerAid == null) return null;
+
     const copayPerAid = form.tierPrice;
     const savingsPerAid = retailPerAid - copayPerAid;
-    const savingsPct = Math.round((savingsPerAid / retailPerAid) * 100);
+    const savingsPct = retailPerAid > 0
+      ? Math.round((savingsPerAid / retailPerAid) * 100)
+      : 0;
     // Per-ear breakdown for the UI to show when ears differ (CROS fittings,
     // mfr mismatch, or unilateral configs). Pair total is the truth for
     // quote/PA when at least one ear resolves.
@@ -3614,14 +3648,14 @@ export default function ProviderCRM({ staffId, clinicId }) {
       ? (lp || 0) + (rp || 0)
       : null;
     return {
-      tierLabel: anchor.label,
+      tierLabel,
       retailPerAid,
       copayPerAid,
       savingsPerAid,
       savingsPct,
       perEar: { left: leftEarPrice, right: rightEarPrice, pairTotal },
     };
-  }, [form.tier, form.tierPrice, form.payType, retailAnchors, retailAnchorsStandard, leftEarPrice, rightEarPrice]);
+  }, [form.tier, form.tierPrice, form.payType, retailAnchors, retailAnchorsStandard, retailAnchorsByClass, leftEarPrice, rightEarPrice]);
 
   // Device family lookups
   const leftFamily = catalog.find(e => e.id === form.left.familyId);
@@ -4995,27 +5029,35 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     })()}
                   </div>
 
-                  {/* Plan covers */}
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
-                    <span style={{color:"#6b7280"}}>Plan covers</span>
-                    <span style={{fontWeight:600,color:"#16a34a"}}>${fmt(planCoversDisplay)}</span>
-                  </div>
+                  {/* Plan covers / Full retail / Savings — only shown when
+                      there's a real discount to surface. Private-pay with
+                      matched-manufacturer ears resolves savings = 0 (the
+                      retail anchor equals what the patient pays), so these
+                      three rows would otherwise read "$0 / strikethrough on
+                      the same number / 0% off" — visual noise that suggests
+                      there's a discount when there isn't one. */}
+                  {savingsDisplay > 0 && (
+                    <>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
+                        <span style={{color:"#6b7280"}}>Plan covers</span>
+                        <span style={{fontWeight:600,color:"#16a34a"}}>${fmt(planCoversDisplay)}</span>
+                      </div>
 
-                  {/* Full retail value */}
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
-                    <span style={{color:"#9ca3af"}}>Full retail value</span>
-                    <span style={{color:"#9ca3af",textDecoration:"line-through"}}>${fmt(retailDisplay)}</span>
-                  </div>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
+                        <span style={{color:"#9ca3af"}}>Full retail value</span>
+                        <span style={{color:"#9ca3af",textDecoration:"line-through"}}>${fmt(retailDisplay)}</span>
+                      </div>
 
-                  {/* Savings badge */}
-                  <div style={{background:"#dcfce7",borderRadius:8,padding:"10px 14px",marginTop:8,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-                    <span style={{fontSize:13,fontWeight:700,color:"#166534"}}>
-                      You save ${fmt(savingsDisplay)}
-                    </span>
-                    <span style={{background:"#16a34a",color:"white",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>
-                      {savingsPct}% off
-                    </span>
-                  </div>
+                      <div style={{background:"#dcfce7",borderRadius:8,padding:"10px 14px",marginTop:8,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                        <span style={{fontSize:13,fontWeight:700,color:"#166534"}}>
+                          You save ${fmt(savingsDisplay)}
+                        </span>
+                        <span style={{background:"#16a34a",color:"white",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>
+                          {savingsPct}% off
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
               );
             })()}
