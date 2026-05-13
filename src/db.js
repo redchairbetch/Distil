@@ -849,6 +849,27 @@ export async function updatePatientCarePlan(patientId, carePlan) {
   if (error) console.error('updatePatientCarePlan:', error)
 }
 
+// ============================================================
+// ANALYTICS
+// ============================================================
+
+// Fire-and-forget event logger. Writes to public.analytics_events with a
+// jsonb payload. Never throws — analytics must never break a user flow.
+// Callers should pass { patient_id, provider_id, clinic_id, ... }; the
+// provider_id must match the authenticated user (RLS enforces this).
+export async function logAnalyticsEvent(eventName, payload = {}) {
+  try {
+    const row = {
+      event_name: eventName,
+      payload: { ...payload, timestamp: payload.timestamp || new Date().toISOString() },
+    }
+    const { error } = await supabase.from('analytics_events').insert(row)
+    if (error) console.warn('logAnalyticsEvent:', eventName, error.message)
+  } catch (e) {
+    console.warn('logAnalyticsEvent threw:', eventName, e?.message)
+  }
+}
+
 // Final — promote draft to active/tns and set warranty/fitting info
 export async function finalizePatient(patientId, status, devices, carePlan, notes, appointments, staffId, clinicId, privatePay = null) {
   // Update patient status + notes. Stamp care_plan_start_date with the
