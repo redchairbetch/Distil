@@ -17,10 +17,12 @@ const MED_GRAY = [156, 163, 175]
 const BLACK = [0, 0, 0]
 const WHITE = [255, 255, 255]
 
+// Internal ids preserved for backward compatibility with existing patient
+// records; labels reflect current care-plan vocabulary.
 const CARE_PLAN_META = {
-  paygo:    { label: 'Pay-As-You-Go', warrantyYears: 3, price: null, fiveYearCost: 1625, ldCost: 275 },
-  punch:    { label: 'Treatment Punch Card', warrantyYears: 3, coverageYears: 4, price: 575, ldCost: 275 },
-  complete: { label: 'Complete Care+', warrantyYears: 5, coverageYears: 5, price: 1250, ldCost: 275 },
+  paygo:    { label: 'Standard Billing', warrantyYears: 3, price: null, ldCost: 275 },
+  punch:    { label: 'MHC Punch Card',   warrantyYears: 3, coverageYears: 4, price: 575,  ldCost: 275 },
+  complete: { label: 'Complete Care+',   warrantyYears: 5, coverageYears: 5, price: 1250, ldCost: 275 },
 }
 
 function fmt$(amount) {
@@ -214,6 +216,8 @@ export function generatePurchaseAgreement({
   if (isPrivate) {
     doc.setTextColor(22, 163, 74) // green
     doc.text('Included', colX[5] + 4, y)
+  } else if (carePlan === 'paygo') {
+    doc.text('$65 per visit', colX[5] + 4, y)
   } else if (cpMeta.price) {
     doc.text(fmt$(cpMeta.price), colX[5] + 4, y)
   }
@@ -225,11 +229,11 @@ export function generatePurchaseAgreement({
   if (isPrivate) {
     doc.text('Bundled with your device purchase — no separate charge', M, y)
   } else if (carePlan === 'complete') {
-    doc.text('Unlimited visits, cleanings, adjustments, and repairs for 5 years', M, y)
+    doc.text('All routine visits included · Loss & damage coverage · 4-year warranty (extended year included)', M, y)
   } else if (carePlan === 'punch') {
-    doc.text('All visits and cleanings covered for 4 years · 3-year manufacturer warranty', M, y)
+    doc.text('Prepaid visit package · Locked-in visit pricing · 3-year manufacturer warranty', M, y)
   } else {
-    doc.text(`$65/visit · Annual exams covered · Est. 5-year cost: ${fmt$(cpMeta.fiveYearCost)}`, M, y)
+    doc.text('Pay per visit as needed · No upfront commitment · 3-year manufacturer warranty', M, y)
   }
   y += 12
 

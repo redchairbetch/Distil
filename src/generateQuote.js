@@ -19,21 +19,22 @@ const BLACK = [0, 0, 0]
 const WHITE = [255, 255, 255]
 const GREEN = [22, 163, 74]
 
-// Care plan metadata
+// Care plan metadata. Internal ids preserved for backward compatibility
+// with existing patient records; labels reflect current vocabulary.
 const CARE_PLAN_META = {
-  paygo:    { label: 'Pay-As-You-Go', warrantyYears: 3, coverageYears: 0, price: null, fiveYearCost: 1625, ldCost: 275 },
-  punch:    { label: 'Treatment Punch Card', warrantyYears: 3, coverageYears: 4, price: 575, ldCost: 275 },
-  complete: { label: 'Complete Care+', warrantyYears: 5, coverageYears: 5, price: 1250, ldCost: 275 },
+  paygo:    { label: 'Standard Billing', warrantyYears: 3, coverageYears: 0, price: null, ldCost: 275 },
+  punch:    { label: 'MHC Punch Card',  warrantyYears: 3, coverageYears: 4, price: 575,  ldCost: 275 },
+  complete: { label: 'Complete Care+',  warrantyYears: 5, coverageYears: 5, price: 1250, ldCost: 275 },
 }
 
-// Plan comparison data
+// Plan comparison data — feature-by-feature side-by-side, no anchor math
 const PLAN_COMPARE = [
-  { label: 'Cost',                 paygo: '$65/visit',    punch: '$575 one-time',  complete: '$1,250 one-time' },
-  { label: 'Office Visits',        paygo: 'Per visit',    punch: 'All visits (4 yrs)',  complete: 'Unlimited (5 yrs)' },
-  { label: 'Cleanings',            paygo: 'Per visit',    punch: 'All included (4 yrs)', complete: 'Unlimited (5 yrs)' },
-  { label: 'Adjustments & Triage', paygo: 'Per visit',    punch: 'All included (4 yrs)', complete: 'Unlimited (5 yrs)' },
-  { label: 'Warranty',             paygo: '3 years',      punch: '3 years',        complete: '5 years' },
-  { label: 'Loss & Damage',       paygo: '$275/aid (3 yrs)', punch: '$275/aid (3 yrs)', complete: '$275/aid (5 yrs)' },
+  { label: 'Cost',                 paygo: '$65 per visit', punch: '$575 prepaid',         complete: '$1,250' },
+  { label: 'Office Visits',        paygo: 'Per visit',     punch: 'All visits (4 yrs)',   complete: 'Unlimited (5 yrs)' },
+  { label: 'Cleanings',            paygo: 'Per visit',     punch: 'All included (4 yrs)', complete: 'Unlimited (5 yrs)' },
+  { label: 'Adjustments & Triage', paygo: 'Per visit',     punch: 'All included (4 yrs)', complete: 'Unlimited (5 yrs)' },
+  { label: 'Warranty',             paygo: '3 years',       punch: '3 years',              complete: '5 years' },
+  { label: 'Loss & Damage',        paygo: '$275/aid (3 yrs)', punch: '$275/aid (3 yrs)',   complete: '$275/aid (5 yrs)' },
 ]
 
 // Coverage dot data per plan (9 visits over lifecycle)
@@ -165,10 +166,6 @@ export function generateQuote({
   const isPrivate = (payType || '').toLowerCase() === 'private'
   const totalPrice = deviceTotal + (isPrivate ? 0 : carePlanPrice)
 
-  // TPA-specific PAYG cost for savings calc
-  const isTruHearing = (tpa || '').toLowerCase().includes('truhearing')
-  const paygo4yr = isTruHearing ? 975 : 20 * 65
-
   let y = MARGIN
 
   // ═══════════════════════════════════════════════════════════
@@ -299,15 +296,15 @@ export function generateQuote({
   doc.text(fmt$(deviceTotal), colX[5] + 6, y + 2)
   y += 28
 
-  // ── Recommended Care Plan ──
+  // ── Selected Care Plan ──
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(10)
   doc.setTextColor(...NAVY)
-  doc.text(isPrivate ? 'INCLUDED CARE PLAN' : 'RECOMMENDED CARE PLAN', MARGIN, y)
+  doc.text(isPrivate ? 'INCLUDED CARE PLAN' : 'YOUR CARE PLAN', MARGIN, y)
   y += 14
 
-  // Green accent box
-  const recBoxH = selectedCarePlan === 'paygo' ? 72 : 50
+  // Light accent box (no recommendation framing — patient picked this peer-to-peer)
+  const recBoxH = 50
   doc.setFillColor(240, 253, 244) // light green bg
   doc.roundedRect(MARGIN, y - 6, CONTENT_W, recBoxH, 4, 4, 'F')
   doc.setFillColor(...GREEN)
@@ -316,7 +313,7 @@ export function generateQuote({
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(7)
   doc.setTextColor(...GREEN)
-  doc.text(isPrivate ? 'INCLUDED WITH YOUR DEVICES' : 'YOUR PROVIDER RECOMMENDS', MARGIN + 14, y + 6)
+  doc.text(isPrivate ? 'INCLUDED WITH YOUR DEVICES' : 'YOU SELECTED', MARGIN + 14, y + 6)
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(11)
@@ -326,7 +323,9 @@ export function generateQuote({
   if (isPrivate) {
     doc.setTextColor(...GREEN)
     doc.text('Included, no charge', PAGE_W - MARGIN - 14, y + 20, { align: 'right' })
-  } else if (selectedCarePlan !== 'paygo' && cpMeta.price) {
+  } else if (selectedCarePlan === 'paygo') {
+    doc.text('$65 per visit', PAGE_W - MARGIN - 14, y + 20, { align: 'right' })
+  } else if (cpMeta.price) {
     doc.text(fmt$(cpMeta.price), PAGE_W - MARGIN - 14, y + 20, { align: 'right' })
   }
 
@@ -336,12 +335,11 @@ export function generateQuote({
   if (isPrivate) {
     doc.text('Bundled with your device purchase — no separate charge', MARGIN + 14, y + 34)
   } else if (selectedCarePlan === 'complete') {
-    doc.text('Unlimited visits, cleanings, adjustments, and repairs for 5 years', MARGIN + 14, y + 34)
+    doc.text('All routine visits included · Loss & damage coverage · 4-year warranty', MARGIN + 14, y + 34)
   } else if (selectedCarePlan === 'punch') {
-    doc.text('All visits and cleanings covered for 4 years', MARGIN + 14, y + 34)
+    doc.text('Prepaid visit package · Locked-in visit pricing · 3-year warranty', MARGIN + 14, y + 34)
   } else {
-    doc.text('$65 per visit · Annual exams covered', MARGIN + 14, y + 34)
-    doc.text(`Estimated 5-year cost: ${fmt$(cpMeta.fiveYearCost)}`, MARGIN + 14, y + 48)
+    doc.text('Pay per visit as needed · No upfront commitment · 3-year warranty', MARGIN + 14, y + 34)
   }
 
   y += recBoxH + 14
@@ -352,7 +350,7 @@ export function generateQuote({
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(12)
   doc.setTextColor(...WHITE)
-  doc.text('RECOMMENDED INVESTMENT', MARGIN + 14, y + 14)
+  doc.text('TOTAL INVESTMENT', MARGIN + 14, y + 14)
   doc.text(fmt$(totalPrice), PAGE_W - MARGIN - 14, y + 14, { align: 'right' })
 
   y += 44
@@ -389,7 +387,7 @@ export function generateQuote({
   const labelColW = 130
   const planColW = (CONTENT_W - labelColW) / 3
   const planIds = ['paygo', 'punch', 'complete']
-  const planLabels = ['Pay-As-You-Go', 'Punch Card', 'Complete Care+']
+  const planLabels = ['Standard Billing', 'MHC Punch Card', 'Complete Care+']
 
   // Header row
   doc.setFillColor(...NAVY)
@@ -450,40 +448,6 @@ export function generateQuote({
   })
   y += 16
 
-  // ── Savings vs Pay-As-You-Go ──
-  // Skip for private pay — Complete Care+ is bundled into the device price,
-  // so framing it as "savings vs paygo" misrepresents what they're paying.
-  const punchSavings = paygo4yr - 575
-  const completeSavings = paygo4yr - 1250
-  if (!isPrivate && (punchSavings > 0 || completeSavings > 0)) {
-    doc.setFont('helvetica', 'bold')
-    doc.setFontSize(9)
-    doc.setTextColor(...NAVY)
-    doc.text('ESTIMATED SAVINGS vs. PAY-AS-YOU-GO', MARGIN, y)
-    y += 14
-    doc.setFont('helvetica', 'normal')
-    doc.setFontSize(9)
-    doc.setTextColor(...BLACK)
-    if (punchSavings > 0) {
-      doc.setTextColor(...GREEN)
-      doc.text(`Punch Card saves ${fmt$(punchSavings)} over the typical hearing aid lifecycle`, MARGIN + 8, y)
-      y += 14
-    }
-    if (completeSavings > 0) {
-      doc.setTextColor(...GREEN)
-      doc.text(`Complete Care+ saves ${fmt$(completeSavings)} over the typical hearing aid lifecycle`, MARGIN + 8, y)
-      y += 14
-    }
-    doc.setTextColor(...GRAY)
-    doc.setFont('helvetica', 'italic')
-    doc.setFontSize(7.5)
-    doc.text(isTruHearing
-      ? 'Based on TruHearing Select visit bundling over the warranty period.'
-      : 'Based on ~5 visits/year at $65/visit over a 4-year lifecycle.',
-      MARGIN + 8, y)
-    y += 20
-  }
-
   // ── Coverage Infographic ──
   y = checkPage(doc, y, 180)
 
@@ -502,7 +466,7 @@ export function generateQuote({
   const dotR = 6
   const dotSpacing = 42
   const dotStartX = MARGIN + 120
-  const rowLabels = ['Pay-As-You-Go', 'Punch Card', 'Complete Care+']
+  const rowLabels = ['Standard Billing', 'MHC Punch Card', 'Complete Care+']
   const rowKeys = ['paygo', 'punch', 'complete']
 
   rowKeys.forEach((key, ri) => {

@@ -27,7 +27,7 @@ const DEMO = {
   createdAt: "2024-11-14T10:30:00Z",
 };
 
-const CARE_PLAN_LABELS = { complete: "Complete Care+", punch: "Punch Card", paygo: "Pay-As-You-Go" };
+const CARE_PLAN_LABELS = { complete: "Complete Care+", punch: "MHC Punch Card", paygo: "Standard Billing" };
 
 function fmtDate(d) { return new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); }
 function daysUntil(dateStr) { return Math.ceil((new Date(dateStr) - new Date()) / 86400000); }
@@ -748,7 +748,7 @@ export default function PatientApp() {
           {p.carePlan === "punch" ? (
             <div className="punch-mini" onClick={()=>setTab("care")}>
               <div className="punch-mini-left">
-                <div className="punch-mini-title">Treatment Punch Card</div>
+                <div className="punch-mini-title">MHC Punch Card</div>
                 <div className="punch-mini-sub">Tap to use a visit · {(12 - punchUsed.cleanings) + (16 - punchUsed.appointments)} visits remaining</div>
               </div>
               <div className="punch-mini-pills">
@@ -892,7 +892,7 @@ export default function PatientApp() {
             const allUsed = totalLeft === 0;
             return (
               <div className="section pt-section">
-                <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>Treatment Punch Card</div>
+                <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>MHC Punch Card</div>
                 <div className="punch-card">
                   <div className="punch-card-header">
                     <div>

@@ -84,6 +84,7 @@ import {
   listPatientDocuments,
   getDocumentSignedUrl,
   recordUpgradeOutcome,
+  logAnalyticsEvent,
 } from "./db.js";
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 import { downloadQuote } from "./generateQuote.js";
@@ -967,10 +968,13 @@ function getDomeOptions(manufacturer, generation) {
   };
   return DOME_MAP[manufacturer] || [];
 }
+// Internal IDs preserved for backward compatibility with existing patient
+// records and downstream code (quote/PA generation, db.js, seed data).
+// Labels reflect the current Care Plan screen vocabulary.
 const CARE_PLANS = [
-  { id:"paygo", label:"Pay-As-You-Go", price:"$65/visit" },
+  { id:"paygo", label:"Standard Billing", price:"$65 per visit" },
   { id:"complete", label:"Complete Care+", price:"$1,250" },
-  { id:"punch", label:"Treatment Punch Card", price:"$575" },
+  { id:"punch", label:"MHC Punch Card", price:"$575" },
 ];
 const VISIT_TYPES = ["New Fitting","2-Week Follow-Up","4-Week Follow-Up","Quarterly Clean & Check","Annual Exam","Triage / Adjustment","Repair Appointment","Other"];
 
@@ -1701,7 +1705,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [showWizardPaModal, setShowWizardPaModal] = useState(false);
   const [wizardPaSigned, setWizardPaSigned] = useState(false);
   const [wizardPaSignatureDate, setWizardPaSignatureDate] = useState(null);
-  const [showBudgetOption, setShowBudgetOption] = useState(false);
 
   // Product catalog state
   const [catalog, setCatalog] = useState(CATALOG_DEFAULT);
@@ -2377,6 +2380,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     return () => { cancelled = true; };
   }, [step, wizardPatientId, intakeRefreshKey]);
 
+
   // Reset wizardIntake when the wizard itself resets (back to step 0 with
   // no patient yet, or returning to dashboard). Without this, leftover
   // state from a prior session would briefly flash on the next Health
@@ -2384,6 +2388,27 @@ export default function ProviderCRM({ staffId, clinicId }) {
   useEffect(() => {
     if (!wizardPatientId) setWizardIntake(null);
   }, [wizardPatientId]);
+
+  // Care plan analytics — fire care_plan_viewed once per (patient, step)
+  // when step 6 mounts. Reset trackers when the patient changes so each
+  // session gets fresh view/change events.
+  const carePlanViewedRef = useRef(null);
+  const carePlanChangeCountRef = useRef(0);
+  useEffect(() => {
+    carePlanViewedRef.current = null;
+    carePlanChangeCountRef.current = 0;
+  }, [wizardPatientId]);
+  useEffect(() => {
+    if (step !== 6 || !wizardPatientId) return;
+    const key = `${wizardPatientId}:6`;
+    if (carePlanViewedRef.current === key) return;
+    carePlanViewedRef.current = key;
+    logAnalyticsEvent("care_plan_viewed", {
+      patient_id: wizardPatientId,
+      provider_id: staffId,
+      clinic_id: clinicId,
+    });
+  }, [step, wizardPatientId, staffId, clinicId]);
 
   // Clear non-TruHearing device selections when a private-label plan is chosen
   useEffect(() => {
@@ -4992,8 +5017,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
       const isTruHearing = form.tpa === "TruHearing";
       const isTruHearingTPA = isTruHearing;
 
+      // Standard Billing has no upfront commitment — $65/visit billed as
+      // care is delivered, so grand total = device total only.
       const cpCostFor = (id) =>
-        id === "paygo"    ? (isTruHearing ? 975 : 0)
+        id === "paygo"    ? 0
         : id === "punch"  ? 575
         : 1250;
 
@@ -5049,32 +5076,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
         );
       };
 
-      // Warranty timeline helper for the care plan cards
-      const WarrantyTimeline = ({ years }) => (
-        <div style={{display:"flex",gap:4,marginTop:10}}>
-          {[1,2,3,4,5].map(y => {
-            const covered = y <= years;
-            return (
-              <div key={y} style={{flex:1,textAlign:"center"}}>
-                <div style={{
-                  height:32,borderRadius:8,
-                  background: covered ? "linear-gradient(135deg,#2d9d6a 0%,#1a6847 100%)" : "#f3f4f6",
-                  border: covered ? "none" : "1.5px solid #e5e7eb",
-                  display:"flex",alignItems:"center",justifyContent:"center",
-                  fontSize:11,fontWeight:700,color: covered ? "#fff" : "#d1d5db",
-                  transition:"all 0.3s ease",
-                }}>{covered ? "✓" : ""}</div>
-                <div style={{fontSize:10,color: covered?"#1a6847":"#9ca3af",marginTop:4,fontWeight: covered?600:400,fontFamily:"'DM Sans',sans-serif"}}>Year {y}</div>
-              </div>
-            );
-          })}
-        </div>
-      );
-
-      // Pay-As-You-Go price label (TPA-aware)
-      const paygoPriceLabel = isTruHearing ? "$975 est." : "$65/visit";
-      const paygoSubLabel   = isTruHearingTPA ? "est. over 4 yrs" : "per visit";
-
       const selectedPlan = CARE_PLANS.find(c => c.id === form.carePlan);
       const cpCost = form.carePlan ? cpCostFor(form.carePlan) : null;
       const grandTotal = aidTotal != null && cpCost != null
@@ -5082,6 +5083,75 @@ export default function ProviderCRM({ staffId, clinicId }) {
         : aidTotal != null ? aidTotal
         : cpCost != null ? cpCost
         : null;
+
+      // Three peer options. Internal ids ('paygo' | 'punch' | 'complete')
+      // are preserved for downstream code; only the patient-facing labels
+      // change here.
+      const CARE_PLAN_OPTIONS = [
+        {
+          id: "paygo",
+          title: "Standard Billing",
+          flag: null,
+          price: "$65 per visit",
+          bestFor: "Best for patients who prefer to pay only when they need care",
+          items: [
+            "Three-year manufacturer warranty",
+            "No upfront commitment",
+            "Pay per visit as needed",
+          ],
+        },
+        {
+          id: "punch",
+          title: "MHC Punch Card",
+          flag: "most savings",
+          price: "$575 prepaid (save $400)",
+          bestFor: "Best for low-maintenance ears and predictable care needs",
+          items: [
+            "Three-year manufacturer warranty",
+            "Prepaid visit package",
+            "Locked-in visit pricing",
+          ],
+        },
+        {
+          id: "complete",
+          title: "Complete Care+",
+          flag: "most coverage",
+          price: "$1,250",
+          bestFor: "Best for active lifestyles, moisture or wax-prone ears, maximum protection",
+          items: [
+            "Four-year warranty (extended year included)",
+            "Loss & damage coverage",
+            "All routine visits included",
+            "Priority scheduling",
+          ],
+        },
+      ];
+
+      const handleCarePlanSelect = (newId) => {
+        const fromId = form.carePlan || null;
+        if (fromId === newId) return;
+        carePlanChangeCountRef.current += 1;
+        logAnalyticsEvent("care_plan_changed", {
+          patient_id: wizardPatientId,
+          provider_id: staffId,
+          clinic_id: clinicId,
+          from_selection: fromId,
+          to_selection: newId,
+          change_count: carePlanChangeCountRef.current,
+        });
+        upd("carePlan", newId);
+      };
+
+      const fireCarePlanSelected = () => {
+        if (!form.carePlan) return;
+        logAnalyticsEvent("care_plan_selected", {
+          patient_id: wizardPatientId,
+          provider_id: staffId,
+          clinic_id: clinicId,
+          selection: form.carePlan,
+          change_count: carePlanChangeCountRef.current,
+        });
+      };
 
       return (
         <>
@@ -5091,197 +5161,76 @@ export default function ProviderCRM({ staffId, clinicId }) {
           {/* Care journey visualization */}
           <CareJourney />
 
-          {/* Plan selector — recommendation-first design */}
+          {/* Plan selector — three peer options, no pre-selection */}
           <div className="card">
             {form.payType !== "private" && (<>
             <div style={{marginBottom:20,fontFamily:"'DM Sans',sans-serif"}}>
-              <h2 style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:24,fontWeight:700,color:"#111827",margin:0,letterSpacing:"-0.02em"}}>Your Care Plan</h2>
-              <p style={{color:"#6b7280",fontSize:13,margin:"6px 0 0",lineHeight:1.5}}>Our recommendation for protecting your investment over the next five years.</p>
+              <h2 style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:24,fontWeight:700,color:"#111827",margin:0,letterSpacing:"-0.02em"}}>Choose your care plan</h2>
+              <p style={{color:"#6b7280",fontSize:13,margin:"6px 0 0",lineHeight:1.5}}>Three options. Pick the one that fits how you want to receive ongoing care.</p>
             </div>
 
-            {/* ===== COMPLETE CARE+ — The Recommendation ===== */}
-            <div
-              onClick={()=>upd("carePlan","complete")}
-              style={{
-                background: form.carePlan==="complete"
-                  ? "linear-gradient(135deg,#f0faf4 0%,#e6f4ed 100%)"
-                  : "#fafbfc",
-                border: form.carePlan==="complete" ? "2px solid #2d9d6a" : "2px solid #e5e7eb",
-                borderRadius:16, padding:"24px 24px 22px", cursor:"pointer",
-                transition:"all 0.25s ease", position:"relative",
-                boxShadow: form.carePlan==="complete" ? "0 4px 24px rgba(26,104,71,0.10)" : "0 1px 3px rgba(0,0,0,0.04)",
-                fontFamily:"'DM Sans',sans-serif",
-                marginTop:12,
-              }}
-            >
-              {/* Badges */}
-              <div style={{position:"absolute",top:-11,left:24,display:"flex",gap:6}}>
-                <div style={{background:"#1a6847",color:"#fff",fontSize:11,fontWeight:600,padding:"4px 14px",borderRadius:20,letterSpacing:"0.04em",textTransform:"uppercase"}}>Recommended</div>
-                <div style={{background:"#0e7490",color:"#fff",fontSize:11,fontWeight:600,padding:"4px 14px",borderRadius:20,letterSpacing:"0.04em",textTransform:"uppercase"}}>Most Coverage</div>
-              </div>
+            <div style={{display:"flex",gap:14,flexWrap:"wrap",alignItems:"stretch"}}>
+              {CARE_PLAN_OPTIONS.map(opt => {
+                const selected = form.carePlan === opt.id;
+                return (
+                  <div
+                    key={opt.id}
+                    onClick={()=>handleCarePlanSelect(opt.id)}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={selected}
+                    onKeyDown={(e)=>{ if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleCarePlanSelect(opt.id); } }}
+                    style={{
+                      flex:"1 1 260px",
+                      minWidth:0,
+                      display:"flex",
+                      flexDirection:"column",
+                      background:"#fff",
+                      border: selected ? "2px solid #0a1628" : "1.5px solid #e5e7eb",
+                      borderRadius:14,
+                      padding:"22px 20px 18px",
+                      cursor:"pointer",
+                      transition:"border-color 0.2s ease, box-shadow 0.2s ease",
+                      boxShadow: selected ? "0 4px 18px rgba(10,22,40,0.08)" : "0 1px 2px rgba(0,0,0,0.03)",
+                      fontFamily:"'DM Sans',sans-serif",
+                      position:"relative",
+                    }}
+                  >
+                    {/* Title + flag row */}
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",paddingRight:28}}>
+                      <h3 style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:20,fontWeight:700,color:"#111827",margin:0,letterSpacing:"-0.01em"}}>{opt.title}</h3>
+                      {opt.flag && (
+                        <span style={{fontSize:10,fontWeight:600,letterSpacing:"0.06em",textTransform:"uppercase",color:"#6b7280",background:"#f3f4f6",padding:"3px 8px",borderRadius:4,whiteSpace:"nowrap"}}>{opt.flag}</span>
+                      )}
+                    </div>
 
-              {/* Title row */}
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginTop:4}}>
-                <div>
-                  <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1a6847" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
-                    <h3 style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:22,fontWeight:700,color:"#111827",margin:0}}>Complete Care+</h3>
+                    {/* Price */}
+                    <div style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:26,fontWeight:700,color:"#0a1628",lineHeight:1.1,marginTop:14}}>
+                      {opt.price}
+                    </div>
+
+                    {/* Best-for */}
+                    <div style={{fontStyle:"italic",fontSize:12,color:"#6b7280",marginTop:8,lineHeight:1.5}}>
+                      {opt.bestFor}
+                    </div>
+
+                    {/* Items */}
+                    <div style={{marginTop:14,display:"flex",flexDirection:"column",gap:7,flexGrow:1}}>
+                      {opt.items.map(item => (
+                        <div key={item} style={{display:"flex",alignItems:"flex-start",gap:8,fontSize:13,color:"#374151",lineHeight:1.45}}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#374151" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0,marginTop:3}}><polyline points="20 6 9 17 4 12"/></svg>
+                          <span>{item}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Selection indicator */}
+                    <div style={{position:"absolute",top:18,right:18,width:18,height:18,borderRadius:"50%",border: selected ? "2px solid #0a1628" : "2px solid #d1d5db",display:"flex",alignItems:"center",justifyContent:"center",transition:"border-color 0.2s ease",background:"#fff"}}>
+                      {selected && <div style={{width:9,height:9,borderRadius:"50%",background:"#0a1628"}}/>}
+                    </div>
                   </div>
-                </div>
-                <div style={{textAlign:"right",flexShrink:0,marginLeft:16}}>
-                  <div style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:30,fontWeight:700,color:"#1a6847",lineHeight:1}}>$1,250</div>
-                  <div style={{fontSize:12,color:"#6b7280",marginTop:3}}>over 5 years</div>
-                </div>
-              </div>
-
-              {/* Annualized callout */}
-              <div style={{marginTop:14,padding:"8px 14px",background:"rgba(45,157,106,0.08)",borderRadius:10,display:"inline-block"}}>
-                <span style={{fontSize:13,fontWeight:600,color:"#1a6847"}}>$250/year</span>
-                <span style={{fontSize:13,color:"#4b5563"}}> for complete peace of mind</span>
-              </div>
-
-              {/* Feature list */}
-              <div style={{marginTop:16,display:"flex",flexDirection:"column",gap:8}}>
-                {[
-                  "Unlimited cleanings and appointments",
-                  "Repairs fully covered through year 4",
-                  "Loss & Damage protection for 4 years",
-                  "Year 1 visits included at no extra cost",
-                ].map(f => (
-                  <div key={f} style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:"#374151",lineHeight:1.4}}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2d9d6a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                    {f}
-                  </div>
-                ))}
-              </div>
-
-              {/* Warranty timeline */}
-              <div style={{marginTop:18}}>
-                <div style={{fontSize:11,color:"#6b7280",fontWeight:500,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:2}}>Warranty & Repair Coverage</div>
-                <WarrantyTimeline years={4} />
-                <div style={{fontSize:11,color:"#9ca3af",marginTop:6,lineHeight:1.5}}>Only year 5 falls outside warranty. Out-of-warranty repairs: $310/aid.</div>
-              </div>
-
-              {/* PAYG anchor line */}
-              <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid rgba(0,0,0,0.06)",fontSize:12,color:"#6b7280",lineHeight:1.55}}>
-                Patients who pay per visit typically spend <span style={{fontWeight:700,color:"#92400e"}}>$1,300+</span> over five years with shorter warranty coverage and $65 copays per appointment.
-              </div>
-
-              {/* Radio indicator */}
-              <div style={{position:"absolute",top:28,right:24,width:20,height:20,borderRadius:"50%",border:form.carePlan==="complete"?"2px solid #2d9d6a":"2px solid #d1d5db",display:"flex",alignItems:"center",justifyContent:"center",transition:"all 0.2s ease"}}>
-                {form.carePlan==="complete" && <div style={{width:10,height:10,borderRadius:"50%",background:"#2d9d6a"}}/>}
-              </div>
-            </div>
-
-            {/* ===== Budget disclosure toggle ===== */}
-            <button
-              onClick={()=>setShowBudgetOption(!showBudgetOption)}
-              style={{width:"100%",marginTop:16,background:"none",border:"none",padding:"10px 0",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6,fontSize:13,color:"#9ca3af",fontFamily:"'DM Sans',sans-serif",transition:"color 0.2s ease"}}
-            >
-              <span>Need a different option?</span>
-              <div style={{transform:showBudgetOption?"rotate(180deg)":"rotate(0deg)",transition:"transform 0.25s ease",display:"inline-flex"}}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-              </div>
-            </button>
-
-            {/* ===== PUNCH CARD + PAY-AS-YOU-GO — Collapsible fallback ===== */}
-            <div style={{maxHeight:showBudgetOption?800:0,overflow:"hidden",transition:"max-height 0.35s cubic-bezier(0.16,1,0.3,1)"}}>
-              {/* Punch Card */}
-              <div
-                onClick={()=>upd("carePlan","punch")}
-                style={{
-                  background: form.carePlan==="punch" ? "#f8f9fb" : "#fff",
-                  border: form.carePlan==="punch" ? "2px solid #6b7280" : "1.5px solid #e5e7eb",
-                  borderRadius:14, padding:"24px 20px 16px", cursor:"pointer",
-                  transition:"all 0.2s ease", position:"relative",
-                  fontFamily:"'DM Sans',sans-serif",
-                  marginTop:14,
-                }}
-              >
-                {/* Badge */}
-                <div style={{position:"absolute",top:-11,left:20,background:"#b45309",color:"#fff",fontSize:11,fontWeight:600,padding:"4px 14px",borderRadius:20,letterSpacing:"0.04em",textTransform:"uppercase"}}>Most Savings</div>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                  <div>
-                    <h4 style={{fontSize:16,fontWeight:600,color:"#374151",margin:0,fontFamily:"'DM Sans',sans-serif"}}>Treatment Punch Card</h4>
-                    <p style={{fontSize:12,color:"#6b7280",margin:"4px 0 0",lineHeight:1.5}}>Structured visits at a lower price point.</p>
-                  </div>
-                  <div style={{textAlign:"right",flexShrink:0,marginLeft:16}}>
-                    <div style={{fontSize:22,fontWeight:700,color:"#374151",fontFamily:"'Fraunces',Georgia,serif"}}>$575</div>
-                    <div style={{fontSize:11,color:"#9ca3af"}}>over 5 years</div>
-                  </div>
-                </div>
-
-                <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:5}}>
-                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#6b7280"}}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                    3 cleanings + 2 service visits per year
-                  </div>
-                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#92400e"}}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                    Standard 3-year warranty only
-                  </div>
-                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#92400e"}}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                    Out-of-warranty repairs: $250/aid year 4, $310/aid year 5
-                  </div>
-                </div>
-
-                <WarrantyTimeline years={3} />
-
-                <div style={{position:"absolute",top:20,right:20,width:18,height:18,borderRadius:"50%",border:form.carePlan==="punch"?"2px solid #6b7280":"2px solid #d1d5db",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                  {form.carePlan==="punch" && <div style={{width:9,height:9,borderRadius:"50%",background:"#6b7280"}}/>}
-                </div>
-              </div>
-
-              {/* Pay-As-You-Go */}
-              <div
-                onClick={()=>upd("carePlan","paygo")}
-                style={{
-                  background: form.carePlan==="paygo" ? "#f8f9fb" : "#fff",
-                  border: form.carePlan==="paygo" ? "2px solid #6b7280" : "1.5px solid #e5e7eb",
-                  borderRadius:14, padding:"18px 20px 16px", cursor:"pointer",
-                  transition:"all 0.2s ease", position:"relative",
-                  fontFamily:"'DM Sans',sans-serif",
-                  marginTop:10,
-                }}
-              >
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-                  <div>
-                    <h4 style={{fontSize:16,fontWeight:600,color:"#374151",margin:0,fontFamily:"'DM Sans',sans-serif"}}>Pay-As-You-Go</h4>
-                    <p style={{fontSize:12,color:"#6b7280",margin:"4px 0 0",lineHeight:1.5}}>{isTruHearingTPA ? "Year 1 visits covered by plan. Per-visit billing after." : "No upfront plan cost. Billed per visit."}</p>
-                  </div>
-                  <div style={{textAlign:"right",flexShrink:0,marginLeft:16}}>
-                    <div style={{fontSize:22,fontWeight:700,color:"#374151",fontFamily:"'Fraunces',Georgia,serif"}}>{paygoPriceLabel}</div>
-                    <div style={{fontSize:11,color:"#9ca3af"}}>{paygoSubLabel}</div>
-                  </div>
-                </div>
-
-                <div style={{marginTop:12,display:"flex",flexDirection:"column",gap:5}}>
-                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#92400e"}}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                    $65 copay per cleaning, adjustment, and follow-up
-                  </div>
-                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#92400e"}}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                    Standard 3-year warranty only
-                  </div>
-                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#92400e"}}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                    Out-of-warranty repairs: $250/aid year 4, $310/aid year 5
-                  </div>
-                </div>
-
-                <WarrantyTimeline years={3} />
-
-                <div style={{position:"absolute",top:20,right:20,width:18,height:18,borderRadius:"50%",border:form.carePlan==="paygo"?"2px solid #6b7280":"2px solid #d1d5db",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                  {form.carePlan==="paygo" && <div style={{width:9,height:9,borderRadius:"50%",background:"#6b7280"}}/>}
-                </div>
-              </div>
-            </div>
-
-            {/* Footnote */}
-            <div style={{marginTop:18,padding:"10px 16px",background:"#f9fafb",borderRadius:10,fontSize:11,color:"#9ca3af",lineHeight:1.6,fontFamily:"'DM Sans',sans-serif"}}>
-              All plans include a one-time Loss & Damage replacement per device ($275/device). Most manufacturers will not service devices older than six years.
+                );
+              })}
             </div>
             </>)}
 
@@ -5301,7 +5250,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       <span>{selectedPlan?.label}</span>
                       <span style={{fontWeight:600}}>
                         {form.carePlan==="paygo"
-                          ? (isTruHearing?"$975 est.":"$65/visit")
+                          ? "$65 per visit"
                           : `$${cpCost.toLocaleString()}`}
                       </span>
                     </div>
@@ -5313,7 +5262,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     {aidCount===1 && <div style={{fontSize:10,color:"rgba(255,255,255,0.3)",marginTop:2}}>One ear · configure second to update</div>}
                     {form.carePlan==="paygo" && (
                       <div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginTop:2}}>
-                        {isTruHearing?"est. · yr 1 covered, 15 visits yrs 2–4":"care plan billed per visit"}
+                        care plan billed per visit
                       </div>
                     )}
                   </div>
@@ -5321,9 +5270,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     <div style={{fontSize:32,fontWeight:800,color:"#4ade80",lineHeight:1}}>
                       {grandTotal===0?"No Charge":`$${grandTotal.toLocaleString()}`}
                     </div>
-                    {form.carePlan==="paygo" && isTruHearingTPA && (
-                      <div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginTop:3}}>estimated</div>
-                    )}
                   </div>
                 </div>
               </div>
@@ -5335,14 +5281,14 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 <button
                   disabled={!(form.payType === "private" || !!form.carePlan)}
                   style={{background:"#15803d",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",opacity:(form.payType === "private" || !!form.carePlan)?1:0.4,display:"flex",alignItems:"center",gap:8}}
-                  onClick={()=>{ setPaSignatureName(""); setPaStep("review"); setShowWizardPaModal(true); }}
+                  onClick={()=>{ fireCarePlanSelected(); setPaSignatureName(""); setPaStep("review"); setShowWizardPaModal(true); }}
                 >
                   <span style={{fontSize:16}}>📝</span> Sign Purchase Agreement
                 </button>
                 <button
                   disabled={!(form.payType === "private" || !!form.carePlan)}
                   style={{background:"#1e40af",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",opacity:(form.payType === "private" || !!form.carePlan)?1:0.4,display:"flex",alignItems:"center",gap:8}}
-                  onClick={handleGenerateQuote}
+                  onClick={()=>{ fireCarePlanSelected(); handleGenerateQuote(); }}
                 >
                   <span style={{fontSize:16}}>📄</span> Generate Quote
                 </button>
@@ -5362,6 +5308,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 disabled={!(form.payType === "private" || !!form.carePlan)}
                 style={{background:"none",border:"none",color:"#9ca3af",fontFamily:"'Sora',sans-serif",fontSize:12,cursor:"pointer",padding:"4px 12px",opacity:(form.payType === "private" || !!form.carePlan)?1:0.4}}
                 onClick={async()=>{
+                  fireCarePlanSelected();
                   if (wizardPatientId && form.carePlan) { try { await updatePatientCarePlan(wizardPatientId, form.carePlan); setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000); } catch(e) { console.error("care plan save:", e); } }
                   setStep(7);
                 }}
@@ -6050,13 +5997,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   )}
                   {cpId && cpId !== 'paygo' && (
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#374151"}}>{cpId === 'complete' ? 'Complete Care+' : 'Treatment Punch Card'}</span>
+                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#374151"}}>{cpId === 'complete' ? 'Complete Care+' : 'MHC Punch Card'}</span>
                       <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:600,color: isPrivate ? '#15803d' : '#0a1628'}}>{isPrivate ? 'Included' : (cpId === 'complete' ? '$1,250.00' : '$575.00')}</span>
                     </div>
                   )}
                   {cpId === 'paygo' && (
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#6b7280",fontStyle:"italic"}}>Pay-As-You-Go (est. 5-yr: $1,625)</span>
+                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#6b7280",fontStyle:"italic"}}>Standard Billing ($65 per visit)</span>
                       <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#6b7280"}}>$0.00</span>
                     </div>
                   )}
@@ -6895,7 +6842,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   <div className="punch-panel">
                     <div className="punch-panel-header">
                       <div>
-                        <div className="punch-panel-title">Treatment Punch Card</div>
+                        <div className="punch-panel-title">MHC Punch Card</div>
                         <div className="punch-panel-sub">Log a visit during the appointment · Patient sees balance update live</div>
                       </div>
                       <div className="punch-remaining">
@@ -7662,7 +7609,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                         : "From Chapter 3 — Devices selected";
                     } else if (chapter === 5) {
                       const isPrivate = form.payType === "private";
-                      const labelMap = { complete: "Complete Care+", punch: "Punch Card", paygo: "Pay-As-You-Go" };
+                      const labelMap = { complete: "Complete Care+", punch: "MHC Punch Card", paygo: "Standard Billing" };
                       const carePlanLabel = isPrivate
                         ? "Complete Care+ (included with private pay)"
                         : (labelMap[form.carePlan] || "Care plan to be confirmed");
@@ -7753,7 +7700,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 const ac = (fType==="bilateral"||fType==="cros_bicros")?2:1;
                 const devTotal = (form.tierPrice||0)*ac;
                 const cpId = form.carePlan||"complete";
-                const cpLabel = cpId==="complete"?"Complete Care+":(cpId==="punch"?"Treatment Punch Card":"Pay-As-You-Go");
+                const cpLabel = cpId==="complete"?"Complete Care+":(cpId==="punch"?"MHC Punch Card":"Standard Billing");
                 const cpPrice = cpId==="complete"?1250:(cpId==="punch"?575:0);
                 const cpWarranty = cpId==="complete"?5:3;
                 const cpDesc = cpId==="complete"?"Unlimited visits, cleanings, adjustments, and repairs for 5 years":(cpId==="punch"?"All visits and cleanings covered for 4 years · 3-year manufacturer warranty":"$65/visit · Annual exams covered");
