@@ -18,11 +18,15 @@ const BLACK = [0, 0, 0]
 const WHITE = [255, 255, 255]
 
 // Internal ids preserved for backward compatibility with existing patient
-// records; labels reflect current care-plan vocabulary.
+// records; labels reflect current care-plan vocabulary. Complete Care+
+// extends the manufacturer warranty by one year (3 + 1 = 4) and grants
+// a matching 4-year L&D window. Office visits / cleanings / adjustments
+// / triage are unlimited for the life of the hearing aids (rendered in
+// the description text below, not encoded as a year count).
 const CARE_PLAN_META = {
   paygo:    { label: 'Standard Billing', warrantyYears: 3, price: null, ldCost: 275 },
   punch:    { label: 'MHC Punch Card',   warrantyYears: 3, coverageYears: 4, price: 575,  ldCost: 275 },
-  complete: { label: 'Complete Care+',   warrantyYears: 5, coverageYears: 5, price: 1250, ldCost: 275 },
+  complete: { label: 'Complete Care+',   warrantyYears: 4, coverageYears: 4, price: 1250, ldCost: 275 },
 }
 
 function fmt$(amount) {
@@ -229,7 +233,7 @@ export function generatePurchaseAgreement({
   if (isPrivate) {
     doc.text('Bundled with your device purchase — no separate charge', M, y)
   } else if (carePlan === 'complete') {
-    doc.text('All routine visits included · Loss & damage coverage · 4-year warranty (extended year included)', M, y)
+    doc.text('Unlimited visits for the life of your aids · 4-year warranty & loss/damage coverage (extended year included)', M, y)
   } else if (carePlan === 'punch') {
     doc.text('Prepaid visit package · Locked-in visit pricing · 3-year manufacturer warranty', M, y)
   } else {

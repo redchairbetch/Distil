@@ -5120,8 +5120,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
           bestFor: "Best for active lifestyles, moisture or wax-prone ears, maximum protection",
           items: [
             "Four-year warranty (extended year included)",
-            "Loss & damage coverage",
-            "All routine visits included",
+            "Four-year loss & damage coverage",
+            "Unlimited visits for the life of your aids",
             "Priority scheduling",
           ],
         },
@@ -7702,8 +7702,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 const cpId = form.carePlan||"complete";
                 const cpLabel = cpId==="complete"?"Complete Care+":(cpId==="punch"?"MHC Punch Card":"Standard Billing");
                 const cpPrice = cpId==="complete"?1250:(cpId==="punch"?575:0);
-                const cpWarranty = cpId==="complete"?5:3;
-                const cpDesc = cpId==="complete"?"Unlimited visits, cleanings, adjustments, and repairs for 5 years":(cpId==="punch"?"All visits and cleanings covered for 4 years · 3-year manufacturer warranty":"$65/visit · Annual exams covered");
+                const cpWarranty = cpId==="complete"?4:3;
+                const cpDesc = cpId==="complete"?"Unlimited office visits, cleanings, adjustments & triage for the life of your hearing aids · 4-year warranty & loss/damage coverage":(cpId==="punch"?"All visits and cleanings covered for 4 years · 3-year manufacturer warranty":"$65 per visit · Annual exams covered");
                 const total = devTotal+cpPrice;
                 const provName = staffProfile?.fullName||"Provider";
                 const provLic = staffProfile?.activeLicense||"";

@@ -21,20 +21,23 @@ const GREEN = [22, 163, 74]
 
 // Care plan metadata. Internal ids preserved for backward compatibility
 // with existing patient records; labels reflect current vocabulary.
+// Complete Care+ adds one extra year of manufacturer warranty (3 + 1 = 4)
+// plus a matching 4-year L&D window. Office visits / cleanings /
+// adjustments / triage are unlimited for the life of the hearing aids.
 const CARE_PLAN_META = {
   paygo:    { label: 'Standard Billing', warrantyYears: 3, coverageYears: 0, price: null, ldCost: 275 },
   punch:    { label: 'MHC Punch Card',  warrantyYears: 3, coverageYears: 4, price: 575,  ldCost: 275 },
-  complete: { label: 'Complete Care+',  warrantyYears: 5, coverageYears: 5, price: 1250, ldCost: 275 },
+  complete: { label: 'Complete Care+',  warrantyYears: 4, coverageYears: 4, price: 1250, ldCost: 275 },
 }
 
 // Plan comparison data — feature-by-feature side-by-side, no anchor math
 const PLAN_COMPARE = [
   { label: 'Cost',                 paygo: '$65 per visit', punch: '$575 prepaid',         complete: '$1,250' },
-  { label: 'Office Visits',        paygo: 'Per visit',     punch: 'All visits (4 yrs)',   complete: 'Unlimited (5 yrs)' },
-  { label: 'Cleanings',            paygo: 'Per visit',     punch: 'All included (4 yrs)', complete: 'Unlimited (5 yrs)' },
-  { label: 'Adjustments & Triage', paygo: 'Per visit',     punch: 'All included (4 yrs)', complete: 'Unlimited (5 yrs)' },
-  { label: 'Warranty',             paygo: '3 years',       punch: '3 years',              complete: '5 years' },
-  { label: 'Loss & Damage',        paygo: '$275/aid (3 yrs)', punch: '$275/aid (3 yrs)',   complete: '$275/aid (5 yrs)' },
+  { label: 'Office Visits',        paygo: 'Per visit',     punch: 'All visits (4 yrs)',   complete: 'Unlimited (lifetime)' },
+  { label: 'Cleanings',            paygo: 'Per visit',     punch: 'All included (4 yrs)', complete: 'Unlimited (lifetime)' },
+  { label: 'Adjustments & Triage', paygo: 'Per visit',     punch: 'All included (4 yrs)', complete: 'Unlimited (lifetime)' },
+  { label: 'Warranty',             paygo: '3 years',       punch: '3 years',              complete: '4 years' },
+  { label: 'Loss & Damage',        paygo: '$275/aid (3 yrs)', punch: '$275/aid (3 yrs)',   complete: '$275/aid (4 yrs)' },
 ]
 
 // Coverage dot data per plan (9 visits over lifecycle)
@@ -335,7 +338,7 @@ export function generateQuote({
   if (isPrivate) {
     doc.text('Bundled with your device purchase — no separate charge', MARGIN + 14, y + 34)
   } else if (selectedCarePlan === 'complete') {
-    doc.text('All routine visits included · Loss & damage coverage · 4-year warranty', MARGIN + 14, y + 34)
+    doc.text('Unlimited visits for the life of your aids · 4-year warranty & loss/damage coverage', MARGIN + 14, y + 34)
   } else if (selectedCarePlan === 'punch') {
     doc.text('Prepaid visit package · Locked-in visit pricing · 3-year warranty', MARGIN + 14, y + 34)
   } else {
