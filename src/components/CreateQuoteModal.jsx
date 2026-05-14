@@ -255,23 +255,39 @@ export default function CreateQuoteModal({
     }
   }
 
-  const renderEarColumn = (label, active, setActive, side, which, price, setPrice) => {
+  const renderEarColumn = (label, active, setActive, side, which, price, setPrice, onCopyFromLeft) => {
     const opts = optionsFor(side)
     return (
       <div style={{ flex: 1, minWidth: 280 }}>
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          marginBottom: 10,
+          marginBottom: 10, gap: 8,
         }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{label}</div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.muted, cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={active}
-              onChange={(e) => setActive(e.target.checked)}
-            />
-            Include this ear
-          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {onCopyFromLeft && (
+              <button
+                type="button"
+                onClick={onCopyFromLeft}
+                style={{
+                  fontSize: 11, fontWeight: 600,
+                  padding: '4px 10px',
+                  background: 'white', color: C.accent,
+                  border: `1px solid ${C.accent}`, borderRadius: 6,
+                  cursor: 'pointer',
+                }}
+                title="Mirror the left ear's device and price to this ear"
+              >Copy from left →</button>
+            )}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.muted, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={active}
+                onChange={(e) => setActive(e.target.checked)}
+              />
+              Include this ear
+            </label>
+          </div>
         </div>
         <div style={{
           padding: 14,
@@ -283,7 +299,7 @@ export default function CreateQuoteModal({
             <label style={labelStyle}>Style</label>
             <select style={inputStyle} value={side.style} onChange={e => setSideField(which, 'style', e.target.value)}>
               <option value="">— Select style —</option>
-              {opts.styles.map(s => <option key={s} value={s}>{s}</option>)}
+              {opts.styles.map(s => <option key={s} value={s}>{s.toUpperCase()}</option>)}
             </select>
           </div>
           <div style={{ marginBottom: 10 }}>
@@ -432,7 +448,16 @@ export default function CreateQuoteModal({
 
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
             {renderEarColumn('Left ear',  hasLeft,  setHasLeft,  left,  'left',  leftPrice,  setLeftPrice)}
-            {renderEarColumn('Right ear', hasRight, setHasRight, right, 'right', rightPrice, setRightPrice)}
+            {renderEarColumn(
+              'Right ear', hasRight, setHasRight, right, 'right', rightPrice, setRightPrice,
+              (left.style || left.manufacturer || left.familyId)
+                ? () => {
+                    setHasRight(true)
+                    setRight({ ...left })
+                    setRightPrice(leftPrice)
+                  }
+                : null
+            )}
           </div>
 
           <div style={{ marginBottom: 16 }}>
