@@ -72,7 +72,7 @@ import {
   updateDeliveryDate,
   loadStaffProfile,
   loadTnsOutcomes,
-  saveTnsOutcome,
+  loadPatientTnsFlag,
   updatePatientStatus,
   convertTnsToActive,
   createPatientDraft,
@@ -89,7 +89,9 @@ import {
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 import { downloadQuote } from "./generateQuote.js";
 
-import { TNS_TAGS } from "./tns_tags.js";
+import TnsReasonsPicker from "./components/TnsReasonsPicker.jsx";
+import { TNS_TAG_BY_ID } from "./tns_tags.js";
+import CreateQuoteModal from "./components/CreateQuoteModal.jsx";
 import ContentLibrary from "./views/ContentLibrary.jsx";
 import NurturePreview from "./views/NurturePreview.jsx";
 import CampaignManager from "./views/CampaignManager.jsx";
@@ -1662,8 +1664,18 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [tnsQueue, setTnsQueue] = useState([]);
   const [tnsExpanded, setTnsExpanded] = useState(true);
   const [tnsReasoning, setTnsReasoning] = useState(null); // patient id currently being tagged
-  const [tnsTags, setTnsTags] = useState([]); // selected tag ids for current patient
-  const [tnsNote, setTnsNote] = useState("");
+  // Patient-profile-side TNS picker visibility (mirrors the dashboard widget,
+  // surfaced from the profile header so a TNS patient's reasons can be logged
+  // without bouncing back to the dashboard).
+  const [profileTnsActive, setProfileTnsActive] = useState(false);
+  // Latest tns_outcomes row for the patient currently open in the profile view.
+  // Loaded on selection change + refreshed after a save so the chart shows
+  // saved reasons inline instead of just the bare "TNS" pill.
+  const [patientTnsOutcome, setPatientTnsOutcome] = useState(null);
+  // Custom-quote modal — lets the provider pick arbitrary devices + override
+  // pricing without touching the patient's saved fitting. Distinct from the
+  // existing "Generate Quote" button which uses the saved configuration.
+  const [showCreateQuote, setShowCreateQuote] = useState(false);
 
   // Insurance plans from Supabase + retail anchors for pricing reveal.
   // Two anchor sets: signia-class is the default for insurance flows (the
@@ -2052,20 +2064,34 @@ export default function ProviderCRM({ staffId, clinicId }) {
     loadTnsQueue();
   }, [patients]);
 
-  const toggleTnsTag = (tagId) => {
-    setTnsTags(prev => prev.includes(tagId) ? prev.filter(t => t !== tagId) : [...prev, tagId]);
-  };
+  // Load the latest tns_outcomes row whenever the profile-opened patient
+  // changes. Re-fires when patientStatus flips to/from "tns" so the display
+  // block appears immediately after "Mark as TNS" without needing a refresh.
+  useEffect(() => {
+    if (!selectedPatient?.id || selectedPatient.patientStatus !== "tns") {
+      setPatientTnsOutcome(null);
+      return;
+    }
+    let cancelled = false;
+    loadPatientTnsFlag(selectedPatient.id)
+      .then(row => { if (!cancelled) setPatientTnsOutcome(row); })
+      .catch(() => { if (!cancelled) setPatientTnsOutcome(null); });
+    return () => { cancelled = true; };
+  }, [selectedPatient?.id, selectedPatient?.patientStatus]);
 
-  const saveTnsTags = async (patientId) => {
-    if (tnsTags.length === 0) return;
-    try {
-      await saveTnsOutcome(patientId, clinicId, staffId, tnsTags, tnsNote);
-      setTnsQueue(q => q.filter(p => p.id !== patientId));
-      setTnsReasoning(null);
-      setTnsTags([]);
-      setTnsNote("");
-    } catch (e) {
-      console.error("saveTnsTags:", e);
+  // TNS tag selection + persistence moved into <TnsReasonsPicker/>; this
+  // callback fires after a successful save so the dashboard queue can shed
+  // the now-tagged patient, the profile picker can collapse, and the
+  // chart's saved-reasons block can refresh to show the new row.
+  const handleTnsSaved = async (patientId) => {
+    setTnsQueue(q => q.filter(p => p.id !== patientId));
+    setTnsReasoning(null);
+    setProfileTnsActive(false);
+    if (selectedPatient?.id === patientId) {
+      try {
+        const row = await loadPatientTnsFlag(patientId);
+        setPatientTnsOutcome(row);
+      } catch {}
     }
   };
 
@@ -2669,6 +2695,46 @@ export default function ProviderCRM({ staffId, clinicId }) {
     setStep(0); setSaved(false); setView("new");
   };
 
+  // Re-enter the wizard for an established patient. Pre-fills identity and
+  // insurance from the existing record so the clinician confirms-and-skips
+  // through patient info, then performs a fresh visit (audiogram, devices,
+  // care plan). `wizardPatientId = p.id` makes downstream saves update the
+  // existing patient row rather than insert a new draft. Visit-specific
+  // fields (devices, audiology, carePlan, appointments, notes) stay blank
+  // so the new visit doesn't inherit stale data from the prior fitting.
+  const startNewVisitForPatient = (p) => {
+    if (!p) return;
+    const nameParts = (p.name || "").trim().split(/\s+/);
+    const firstName = nameParts[0] || "";
+    const lastName  = nameParts.slice(1).join(" ");
+    setForm({
+      intakeId: null,
+      firstName, lastName,
+      dob:     p.dob     || "",
+      phone:   p.phone   || "",
+      email:   p.email   || "",
+      address: p.address || "",
+      payType: p.payType || "insurance",
+      carrier:    p.insurance?.carrier   || "",
+      planGroup:  p.insurance?.planGroup || "",
+      tpa:        p.insurance?.tpa       || "",
+      tier:       p.insurance?.tier      || "",
+      tierPrice:  p.insurance?.tierPrice ?? null,
+      left:  EMPTY_SIDE(),
+      right: EMPTY_SIDE(),
+      audiology: { rightT:{}, leftT:{}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:null, unaidedL:null, aidedR:null, aidedL:null, wrMclR:null, wrMclL:null, sinBin:null, cctR:null, cctL:null, cctLevelR:null, cctLevelL:null },
+      carePlan: "",
+      appointments: [],
+      notes: "",
+    });
+    setActiveSide("left");
+    setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
+    setWizardPatientId(p.id);
+    setSaveToast(false);
+    setChaptersSeen({});
+    setStep(0); setSaved(false); setView("new");
+  };
+
 
   // ── Intake queue handlers ────────────────────────────────────────────
   // Accept an intake: immediately persist a draft patient from the intake
@@ -3226,7 +3292,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     const isTagging = tnsReasoning === p.id;
                     return (
                       <React.Fragment key={p.id}>
-                        <tr style={{ background: isTagging ? "#fffbeb" : "white" }}>
+                        <tr
+                          onClick={() => { setSelectedPatient(p); setView("patient"); }}
+                          style={{ cursor: "pointer", background: isTagging ? "#fffbeb" : "white" }}
+                        >
                           <td>
                             <div className="patient-name">{p.name}</div>
                             <div style={{ fontSize: 11, color: "#9ca3af" }}>{p.phone}</div>
@@ -3264,10 +3333,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
                                 padding: "6px 14px",
                                 background: isTagging ? "#f59e0b" : undefined
                               }}
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 setTnsReasoning(isTagging ? null : p.id);
-                                setTnsTags([]);
-                                setTnsNote("");
                               }}
                             >
                               {isTagging ? "Cancel" : "Tag Reasons"}
@@ -3276,63 +3344,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
                         </tr>
 
                         {isTagging && (
-                          <tr key={`${p.id}-reasons`}>
-                            <td colSpan={6} style={{ background: "#fffbeb", padding: "16px 20px" }}>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: "#92400e", marginBottom: 12 }}>
-                                What kept {p.name.split(" ")[0]} from moving forward? Select all that apply.
-                              </div>
-                              <div style={{
-                                display: "grid",
-                                gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))",
-                                gap: 8, marginBottom: 12,
-                              }}>
-                                {TNS_TAGS.map(tag => {
-                                  const selected = tnsTags.includes(tag.id);
-                                  return (
-                                    <button
-                                      key={tag.id}
-                                      onClick={() => toggleTnsTag(tag.id)}
-                                      style={{
-                                        display: "flex", alignItems: "center", gap: 8,
-                                        padding: "10px 14px",
-                                        background: selected ? "#fef3c7" : "white",
-                                        border: `1.5px solid ${selected ? "#f59e0b" : "#fde68a"}`,
-                                        borderRadius: 8, cursor: "pointer",
-                                        fontSize: 13, fontWeight: selected ? 600 : 500,
-                                        color: selected ? "#92400e" : "#374151",
-                                        textAlign: "left", transition: "all 0.12s",
-                                      }}
-                                    >
-                                      <span style={{ fontSize: 18 }}>{tag.emoji}</span>
-                                      {tag.label}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                              <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
-                                <input
-                                  placeholder={"Optional note \u2014 e.g. 'Husband skeptical, follow up in 2 weeks'"}
-                                  value={tnsNote}
-                                  onChange={e => setTnsNote(e.target.value)}
-                                  style={{
-                                    flex: 1, padding: "8px 12px",
-                                    border: "1.5px solid #fde68a", borderRadius: 8,
-                                    fontSize: 13, color: "#374151", boxSizing: "border-box",
-                                  }}
-                                />
-                                <button
-                                  onClick={() => saveTnsTags(p.id)}
-                                  disabled={tnsTags.length === 0}
-                                  className="btn-primary green"
-                                  style={{
-                                    fontSize: 13, padding: "8px 18px",
-                                    opacity: tnsTags.length === 0 ? 0.5 : 1,
-                                    cursor: tnsTags.length === 0 ? "not-allowed" : "pointer",
-                                  }}
-                                >
-                                  Save {tnsTags.length > 0 ? `(${tnsTags.length})` : ""}
-                                </button>
-                              </div>
+                          <tr key={`${p.id}-reasons`} onClick={(e) => e.stopPropagation()}>
+                            <td colSpan={6} style={{ padding: 0 }}>
+                              <TnsReasonsPicker
+                                patientId={p.id}
+                                patientName={p.name}
+                                clinicId={clinicId}
+                                staffId={staffId}
+                                onSaved={() => handleTnsSaved(p.id)}
+                                onCancel={() => setTnsReasoning(null)}
+                              />
                             </td>
                           </tr>
                         )}
@@ -5771,8 +5792,17 @@ export default function ProviderCRM({ staffId, clinicId }) {
           </div>
           <div style={{display:"flex",gap:10,alignItems:"center"}}>
             {p.patientStatus === "tns" ? (
-              <span style={{background:"#fef3c7",color:"#92400e",borderRadius:99,padding:"4px 12px",fontSize:11,fontWeight:700}}>TNS</span>
-            ) : p.patientStatus !== "tns" && (
+              <>
+                <span style={{background:"#fef3c7",color:"#92400e",borderRadius:99,padding:"4px 12px",fontSize:11,fontWeight:700}}>TNS</span>
+                <button
+                  className="btn-ghost"
+                  style={{fontSize:11,color:"#b45309"}}
+                  onClick={() => setProfileTnsActive(a => !a)}
+                >
+                  {profileTnsActive ? "Cancel" : "Tag Reasons"}
+                </button>
+              </>
+            ) : (
               <button
                 className="btn-ghost"
                 style={{fontSize:11,color:"#b45309"}}
@@ -5780,6 +5810,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   try {
                     await updatePatientStatus(p.id, "tns");
                     setSelectedPatient({...p, patientStatus: "tns"});
+                    setProfileTnsActive(true);
                     await refreshPatients();
                   } catch (e) { console.error("mark TNS:", e); }
                 }}
@@ -5787,6 +5818,14 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 Mark as TNS
               </button>
             )}
+            <button
+              style={{background:"#0f766e",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
+              onClick={() => startNewVisitForPatient(p)}
+              title="Start a new visit — opens the wizard pre-filled from this patient's record"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+              Start a New Visit
+            </button>
             {p.audiology && (getPTA(p.audiology.rightT)!=null || getPTA(p.audiology.leftT)!=null) && (
               <button
                 style={{background:"#4f46e5",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
@@ -5863,6 +5902,14 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 Generate Quote
               </button>
             )}
+            <button
+              style={{background:"#eff6ff",color:"#1d4ed8",border:"1px solid #bfdbfe",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
+              onClick={() => setShowCreateQuote(true)}
+              title="Custom quote — pick any devices, override pricing, archive to chart"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              Custom Quote
+            </button>
             {p.devices && (p.carePlan || p.payType === "private") && (
               <button
                 style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
@@ -5874,6 +5921,72 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <button className="btn-ghost" onClick={()=>setView("dashboard")}>{"\u2190"} Back</button>
           </div>
         </div>
+
+        {p.patientStatus === "tns" && patientTnsOutcome && !profileTnsActive && (
+          <div style={{ margin: "12px 24px 0" }}>
+            <div style={{
+              background: "#fffbeb", padding: "14px 18px",
+              borderRadius: 8, border: "1px solid #fde68a",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  TNS Reasons
+                </div>
+                <div style={{ fontSize: 11, color: "#92400e" }}>
+                  Tagged {fmtDate(patientTnsOutcome.created_at)}
+                </div>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {(patientTnsOutcome.outcome_reasons || []).map(rid => {
+                  const tag = TNS_TAG_BY_ID[rid];
+                  if (!tag) return null;
+                  return (
+                    <span key={rid} style={{
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      padding: "4px 10px", background: "#fef3c7",
+                      border: "1px solid #fde68a", borderRadius: 99,
+                      fontSize: 12, fontWeight: 600, color: "#92400e",
+                    }}>
+                      <span>{tag.emoji}</span> {tag.label}
+                    </span>
+                  );
+                })}
+              </div>
+              {patientTnsOutcome.outcome_notes && (
+                <div style={{ marginTop: 10, fontSize: 12, color: "#78350f", fontStyle: "italic" }}>
+                  "{patientTnsOutcome.outcome_notes}"
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {profileTnsActive && (
+          <div style={{ margin: "12px 24px 0" }}>
+            <TnsReasonsPicker
+              patientId={p.id}
+              patientName={p.name}
+              clinicId={clinicId}
+              staffId={staffId}
+              onSaved={() => handleTnsSaved(p.id)}
+              onCancel={() => setProfileTnsActive(false)}
+            />
+          </div>
+        )}
+
+        {showCreateQuote && (
+          <CreateQuoteModal
+            patient={p}
+            clinic={staffProfile?.clinic || clinic}
+            staffProfile={staffProfile}
+            clinicId={clinicId}
+            staffId={staffId}
+            catalog={catalog}
+            insurancePlans={insurancePlans}
+            onClose={() => setShowCreateQuote(false)}
+            onArchived={() => { refreshDocuments?.(); }}
+          />
+        )}
 
         {/* ── PURCHASE AGREEMENT MODAL ──────────────────────────────────── */}
         {showPurchaseAgreement && (() => {
