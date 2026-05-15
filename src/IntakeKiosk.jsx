@@ -70,7 +70,10 @@ async function htmlToPdfBlob(html) {
       windowWidth: 816,  // matches the iframe css width
       margin: [30, 30, 30, 30],
       autoPaging: "slice",
-      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+      // No explicit html2canvas.scale — jsPDF.html does its own width/windowWidth
+      // scaling math and a custom scale fights it, producing oversized output
+      // that pushes the logo + content off the visible page area.
+      html2canvas: { useCORS: true, backgroundColor: '#ffffff' },
     });
     return doc.output("blob");
   } finally {

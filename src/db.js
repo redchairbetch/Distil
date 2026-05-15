@@ -2523,10 +2523,12 @@ export async function loadPatientHeader(patientId) {
 }
 
 // Patient-has-TNS flag for Zone 1 clinical strip. Any row present → show warning.
+// Also drives the patient-profile "TNS Reasons" display block — outcome_notes
+// is included so the optional free-text note renders alongside the tag chips.
 export async function loadPatientTnsFlag(patientId) {
   const { data } = await supabase
     .from('tns_outcomes')
-    .select('outcome_reasons, created_at')
+    .select('outcome_reasons, outcome_notes, created_at')
     .eq('patient_id', patientId)
     .order('created_at', { ascending: false })
     .limit(1)

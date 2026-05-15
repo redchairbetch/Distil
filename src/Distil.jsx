@@ -72,6 +72,7 @@ import {
   updateDeliveryDate,
   loadStaffProfile,
   loadTnsOutcomes,
+  loadPatientTnsFlag,
   updatePatientStatus,
   convertTnsToActive,
   createPatientDraft,
@@ -89,6 +90,7 @@ import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 import { downloadQuote } from "./generateQuote.js";
 
 import TnsReasonsPicker from "./components/TnsReasonsPicker.jsx";
+import { TNS_TAG_BY_ID } from "./tns_tags.js";
 import CreateQuoteModal from "./components/CreateQuoteModal.jsx";
 import ContentLibrary from "./views/ContentLibrary.jsx";
 import NurturePreview from "./views/NurturePreview.jsx";
@@ -1666,6 +1668,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
   // surfaced from the profile header so a TNS patient's reasons can be logged
   // without bouncing back to the dashboard).
   const [profileTnsActive, setProfileTnsActive] = useState(false);
+  // Latest tns_outcomes row for the patient currently open in the profile view.
+  // Loaded on selection change + refreshed after a save so the chart shows
+  // saved reasons inline instead of just the bare "TNS" pill.
+  const [patientTnsOutcome, setPatientTnsOutcome] = useState(null);
   // Custom-quote modal — lets the provider pick arbitrary devices + override
   // pricing without touching the patient's saved fitting. Distinct from the
   // existing "Generate Quote" button which uses the saved configuration.
@@ -2058,13 +2064,35 @@ export default function ProviderCRM({ staffId, clinicId }) {
     loadTnsQueue();
   }, [patients]);
 
+  // Load the latest tns_outcomes row whenever the profile-opened patient
+  // changes. Re-fires when patientStatus flips to/from "tns" so the display
+  // block appears immediately after "Mark as TNS" without needing a refresh.
+  useEffect(() => {
+    if (!selectedPatient?.id || selectedPatient.patientStatus !== "tns") {
+      setPatientTnsOutcome(null);
+      return;
+    }
+    let cancelled = false;
+    loadPatientTnsFlag(selectedPatient.id)
+      .then(row => { if (!cancelled) setPatientTnsOutcome(row); })
+      .catch(() => { if (!cancelled) setPatientTnsOutcome(null); });
+    return () => { cancelled = true; };
+  }, [selectedPatient?.id, selectedPatient?.patientStatus]);
+
   // TNS tag selection + persistence moved into <TnsReasonsPicker/>; this
   // callback fires after a successful save so the dashboard queue can shed
-  // the now-tagged patient and the profile picker can collapse.
-  const handleTnsSaved = (patientId) => {
+  // the now-tagged patient, the profile picker can collapse, and the
+  // chart's saved-reasons block can refresh to show the new row.
+  const handleTnsSaved = async (patientId) => {
     setTnsQueue(q => q.filter(p => p.id !== patientId));
     setTnsReasoning(null);
     setProfileTnsActive(false);
+    if (selectedPatient?.id === patientId) {
+      try {
+        const row = await loadPatientTnsFlag(patientId);
+        setPatientTnsOutcome(row);
+      } catch {}
+    }
   };
 
   // ── Patient detail edit handlers ──────────────────────────────────────────
@@ -5893,6 +5921,45 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <button className="btn-ghost" onClick={()=>setView("dashboard")}>{"\u2190"} Back</button>
           </div>
         </div>
+
+        {p.patientStatus === "tns" && patientTnsOutcome && !profileTnsActive && (
+          <div style={{ margin: "12px 24px 0" }}>
+            <div style={{
+              background: "#fffbeb", padding: "14px 18px",
+              borderRadius: 8, border: "1px solid #fde68a",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  TNS Reasons
+                </div>
+                <div style={{ fontSize: 11, color: "#92400e" }}>
+                  Tagged {fmtDate(patientTnsOutcome.created_at)}
+                </div>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {(patientTnsOutcome.outcome_reasons || []).map(rid => {
+                  const tag = TNS_TAG_BY_ID[rid];
+                  if (!tag) return null;
+                  return (
+                    <span key={rid} style={{
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      padding: "4px 10px", background: "#fef3c7",
+                      border: "1px solid #fde68a", borderRadius: 99,
+                      fontSize: 12, fontWeight: 600, color: "#92400e",
+                    }}>
+                      <span>{tag.emoji}</span> {tag.label}
+                    </span>
+                  );
+                })}
+              </div>
+              {patientTnsOutcome.outcome_notes && (
+                <div style={{ marginTop: 10, fontSize: 12, color: "#78350f", fontStyle: "italic" }}>
+                  "{patientTnsOutcome.outcome_notes}"
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {profileTnsActive && (
           <div style={{ margin: "12px 24px 0" }}>
