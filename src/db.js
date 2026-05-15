@@ -185,9 +185,13 @@ export async function uploadPatientDocument({
     storagePath = `clinics/${clinicId}/patients/${patientId}/${kind}/${ts}_${cleanName}`
   }
 
+  // Use the blob's declared MIME type when available so HTML kiosk intakes
+  // are served as text/html (renders inline in a browser tab) instead of
+  // being mis-labeled as PDF (which makes the browser try to download them).
+  const contentType = blob.type || 'application/pdf'
   const { error: uploadErr } = await supabase.storage
     .from(DOCUMENTS_BUCKET)
-    .upload(storagePath, blob, { contentType: 'application/pdf', upsert: false })
+    .upload(storagePath, blob, { contentType, upsert: false })
   if (uploadErr) throw uploadErr
 
   const insertBuilder = supabase

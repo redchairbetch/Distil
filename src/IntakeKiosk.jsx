@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { jsPDF } from "jspdf";
 import { submitIntake, uploadPatientDocument } from "./db.js";
 
 // MHC logo for the intake-PDF header. Resolved via import.meta.glob so the
@@ -19,9 +18,10 @@ const MHC_LOGO_URL = (() => {
   return null;
 })();
 
-// Convert a remote image URL to a data URL so html2canvas (used by
-// jsPDF.html under the hood) renders it without same-origin / canvas-taint
-// issues. Returns null on failure — the HTML template falls back to a text
+// Convert a remote image URL to a data URL so the generated HTML stays
+// self-contained — when the archived intake is opened later from Supabase
+// storage, the logo still renders without depending on the kiosk origin.
+// Returns null on failure — the HTML template falls back to a text
 // wordmark in that case.
 async function imageUrlToDataUrl(url) {
   if (!url) return null;
@@ -36,43 +36,6 @@ async function imageUrlToDataUrl(url) {
   } catch (e) {
     console.warn('Intake logo load failed, falling back to text wordmark:', e);
     return null;
-  }
-}
-
-// Convert the printable intake HTML into a real letter-format PDF blob.
-// jsPDF.html() runs html2canvas internally — the source HTML must be in the
-// DOM for layout to resolve, so we mount a hidden iframe, render, snapshot,
-// then tear down. autoPaging:'text' paginates at text-line boundaries, which
-// gives clean per-page output for our flex-based layout (slice mode was
-// over-paginating, producing 10+ page PDFs from 2 pages of actual content).
-async function htmlToPdfBlob(html) {
-  const iframe = document.createElement("iframe");
-  iframe.style.position = "fixed";
-  iframe.style.left = "-10000px";
-  iframe.style.top = "0";
-  iframe.style.width = "816px"; // 8.5in @ 96dpi — letter width
-  iframe.style.height = "0";
-  iframe.style.border = "0";
-  document.body.appendChild(iframe);
-  iframe.contentDocument.open();
-  iframe.contentDocument.write(html);
-  iframe.contentDocument.close();
-  // Two RAFs + a short timeout = layout settled, fonts applied + embedded
-  // logo image decoded.
-  await new Promise(r => requestAnimationFrame(r));
-  await new Promise(r => requestAnimationFrame(r));
-  await new Promise(r => setTimeout(r, 100));
-  try {
-    const doc = new jsPDF({ unit: "pt", format: "letter" });
-    await doc.html(iframe.contentDocument.body, {
-      width: 552,        // 612pt page - 30pt margins on each side
-      windowWidth: 816,  // matches the iframe css width
-      margin: [30, 30, 30, 30],
-      autoPaging: "text",
-    });
-    return doc.output("blob");
-  } finally {
-    document.body.removeChild(iframe);
   }
 }
 
@@ -1308,55 +1271,47 @@ export default function IntakeKiosk() {
       setErrors({ sig: `Submission failed: ${e?.message || "unknown error"}. Please notify the front desk.` });
       return;
     }
-    // Render the printable intake HTML as a real PDF: download for the patient
-    // and upload to the patient_documents archive. The signed copy is the
-    // legal record we need for HIPAA + insurance acknowledgment compliance,
-    // so archive failure logs but does not block the submission.
-    // Resolve the MHC logo to a data URL so html2canvas (used by jsPDF.html)
-    // can embed it without same-origin / canvas-taint issues. Falls back to
-    // the text wordmark when the asset is missing or the fetch fails.
+    // Render the printable intake as a self-contained HTML file: download
+    // for the patient and upload to the patient_documents archive. HTML
+    // (not PDF) because jsPDF.html() mangled our flex layout — browsers
+    // render the same HTML perfectly when opened from the archive link.
+    // Logo + signature are embedded as data URLs so the file stays
+    // standalone (no broken-image links when opened from storage later).
     const logoDataUrl = await imageUrlToDataUrl(MHC_LOGO_URL);
     const html = generateHTML(answers, intakeId, sigDataUrl, timestamp, t, logoDataUrl);
-    const fileName = `Intake_${answers.lastName || "Patient"}_${answers.firstName || ""}_${new Date().toLocaleDateString("en-US").replace(/\//g,"-")}.pdf`;
-    let pdfBlob = null;
-    try {
-      pdfBlob = await htmlToPdfBlob(html);
-    } catch (e) {
-      console.error("Render intake PDF:", e);
-    }
-    if (pdfBlob) {
-      // User download
-      const url = URL.createObjectURL(pdfBlob);
-      const a = document.createElement("a");
-      a.href = url; a.download = fileName;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      // Archive (best-effort). returnRow:false skips the .select() chain so
-      // PostgREST issues a plain INSERT instead of INSERT...RETURNING — anon
-      // has no SELECT policy on patient_documents, and RETURNING would fail
-      // the SELECT RLS check on the new row (same workaround as submitIntake).
-      if (intakeRowId) {
-        try {
-          await uploadPatientDocument({
-            clinicId: KIOSK_CLINIC_ID,
-            intakeId: intakeRowId,
-            kind: "kiosk_intake",
-            blob: pdfBlob, fileName,
-            returnRow: false,
-            metadata: {
-              intakeRefId: intakeId,
-              submittedAt: timestamp,
-              lang,
-              firstName: answers.firstName || null,
-              lastName: answers.lastName || null,
-              dob: answers.dob || null,
-              privacyAgreed: !!answers.privacyAgreed,
-              insuranceAgreed: !!answers.insuranceAgreed,
-            },
-          });
-        } catch (e) {
-          console.error("Archive kiosk intake PDF:", e);
-        }
+    const fileName = `Intake_${answers.lastName || "Patient"}_${answers.firstName || ""}_${new Date().toLocaleDateString("en-US").replace(/\//g,"-")}.html`;
+    const htmlBlob = new Blob([html], { type: "text/html" });
+    // User download
+    const url = URL.createObjectURL(htmlBlob);
+    const a = document.createElement("a");
+    a.href = url; a.download = fileName;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    // Archive (best-effort). returnRow:false skips the .select() chain so
+    // PostgREST issues a plain INSERT instead of INSERT...RETURNING — anon
+    // has no SELECT policy on patient_documents, and RETURNING would fail
+    // the SELECT RLS check on the new row (same workaround as submitIntake).
+    if (intakeRowId) {
+      try {
+        await uploadPatientDocument({
+          clinicId: KIOSK_CLINIC_ID,
+          intakeId: intakeRowId,
+          kind: "kiosk_intake",
+          blob: htmlBlob, fileName,
+          returnRow: false,
+          metadata: {
+            intakeRefId: intakeId,
+            submittedAt: timestamp,
+            lang,
+            firstName: answers.firstName || null,
+            lastName: answers.lastName || null,
+            dob: answers.dob || null,
+            privacyAgreed: !!answers.privacyAgreed,
+            insuranceAgreed: !!answers.insuranceAgreed,
+          },
+        });
+      } catch (e) {
+        console.error("Archive kiosk intake HTML:", e);
       }
     }
     setSubmitted(true);
