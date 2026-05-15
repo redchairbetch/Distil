@@ -40,11 +40,11 @@ async function imageUrlToDataUrl(url) {
 }
 
 // Convert the printable intake HTML into a real letter-format PDF blob.
-// jsPDF.html() renders the HTML through html2canvas, snapshotting the laid-
-// out DOM as an image and slicing it across pages — autoPaging:'slice' is
-// the layout-preserving mode. The prior 'text' mode was extracting text and
-// reflowing it, which destroyed our grid columns and produced an unstyled
-// paragraph dump.
+// jsPDF.html() runs html2canvas internally — the source HTML must be in the
+// DOM for layout to resolve, so we mount a hidden iframe, render, snapshot,
+// then tear down. autoPaging:'text' paginates at text-line boundaries, which
+// gives clean per-page output for our flex-based layout (slice mode was
+// over-paginating, producing 10+ page PDFs from 2 pages of actual content).
 async function htmlToPdfBlob(html) {
   const iframe = document.createElement("iframe");
   iframe.style.position = "fixed";
@@ -57,23 +57,18 @@ async function htmlToPdfBlob(html) {
   iframe.contentDocument.open();
   iframe.contentDocument.write(html);
   iframe.contentDocument.close();
-  // Two RAFs + a short timeout = layout settled, fonts applied. Bumped to
-  // 200ms after the layout overhaul — the embedded logo and 3-col grids
-  // need more time to settle than the old single-column flow did.
+  // Two RAFs + a short timeout = layout settled, fonts applied + embedded
+  // logo image decoded.
   await new Promise(r => requestAnimationFrame(r));
   await new Promise(r => requestAnimationFrame(r));
-  await new Promise(r => setTimeout(r, 200));
+  await new Promise(r => setTimeout(r, 100));
   try {
     const doc = new jsPDF({ unit: "pt", format: "letter" });
     await doc.html(iframe.contentDocument.body, {
       width: 552,        // 612pt page - 30pt margins on each side
       windowWidth: 816,  // matches the iframe css width
       margin: [30, 30, 30, 30],
-      autoPaging: "slice",
-      // No explicit html2canvas.scale — jsPDF.html does its own width/windowWidth
-      // scaling math and a custom scale fights it, producing oversized output
-      // that pushes the logo + content off the visible page area.
-      html2canvas: { useCORS: true, backgroundColor: '#ffffff' },
+      autoPaging: "text",
     });
     return doc.output("blob");
   } finally {
@@ -757,66 +752,39 @@ function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t, logoDat
 <head>
 <meta charset="UTF-8"><title>Patient Intake — ${val("firstName")} ${val("lastName")}</title>
 <style>
-  /* Base */
-  body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #1A2B2D; margin: 0; padding: 22px 22px 14px; line-height: 1.35; }
-
-  /* Header — logo + clinic block on the left, intake meta on the right.
-     border-bottom is the brand teal so the page reads as letterhead. */
-  .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #0A7B8C; padding-bottom: 12px; margin-bottom: 14px; }
-  .header-left { display: flex; flex-direction: column; gap: 6px; }
-  .logo-img { display: block; height: 56px; width: auto; max-width: 320px; }
-  .logo-text { font-size: 22px; font-weight: 900; color: #0A7B8C; letter-spacing: 0.5px; }
+  body { font-family: Arial, sans-serif; font-size: 12px; color: #111; margin: 0; padding: 20px; }
+  .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0A7B8C; padding-bottom: 12px; margin-bottom: 16px; }
+  .header-left { display: flex; flex-direction: column; gap: 4px; }
+  .logo-img { display: block; height: 50px; width: auto; max-width: 280px; }
+  .logo-text { font-size: 20px; font-weight: bold; color: #0A7B8C; }
   .clinic-info { font-size: 10px; color: #555; line-height: 1.45; }
   .clinic-info .clinic-name { font-weight: 700; color: #0A7B8C; font-size: 11px; }
   .clinic-info .tagline { font-style: italic; color: #5A7274; font-size: 10px; }
-  .header-meta { text-align: right; font-size: 10px; color: #555; line-height: 1.55; }
-  .header-meta .title { font-weight: 700; font-size: 12px; color: #0A7B8C; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 3px; }
-  .header-meta .sycle-line { color: #888; font-size: 10px; }
-
-  /* Section heading */
-  h2 { font-size: 12px; color: #0A7B8C; border-bottom: 1.5px solid #0A7B8C; padding-bottom: 3px; margin: 14px 0 8px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
-
-  /* Field grids: 3-col for patient info, 2-col for medical/hearing,
-     wide rows span the full grid via field-wide. */
-  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; column-gap: 14px; row-gap: 8px; margin-bottom: 4px; }
-  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; column-gap: 14px; row-gap: 8px; margin-bottom: 4px; }
-  .field { display: flex; flex-direction: column; min-width: 0; }
-  .field label { display: block; font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; font-weight: 600; }
-  .field .val { font-size: 11px; color: #1A2B2D; border-bottom: 1px solid #D0DCDE; padding: 1px 0 3px; min-height: 14px; word-wrap: break-word; }
-  .field-wide { grid-column: 1 / -1; }
-
-  /* History columns — two equal columns side by side, each a stacked
-     list of Y/N rows. */
-  .history-cols { display: grid; grid-template-columns: 1fr 1fr; column-gap: 24px; margin-bottom: 10px; }
-  .history-col h3 { font-size: 11px; color: #0A7B8C; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 6px; padding-bottom: 3px; border-bottom: 1px solid #D0DCDE; font-weight: 700; }
-  .ynrow { display: flex; justify-content: space-between; align-items: flex-start; padding: 3px 0; border-bottom: 1px solid #F0F0F0; }
-  .ynq { flex: 1; font-size: 10px; color: #333; line-height: 1.35; padding-right: 8px; }
-  .yna { font-size: 10px; font-weight: 700; color: #0A7B8C; min-width: 28px; text-align: right; }
-
-  /* Sub-row inside hearing column: best ear + rating + resistance */
-  .hist-sub { margin-top: 6px; padding-top: 5px; border-top: 1px solid #D0DCDE; display: grid; grid-template-columns: 1fr 1fr; column-gap: 10px; row-gap: 6px; }
-
-  /* Family-history full-width line under the two-column grid */
-  .full-row { margin-top: 6px; }
-
-  /* Consent page — explicit page break so it always starts fresh. Single
-     column: privacy → insurance → signature, in order, top to bottom. */
-  .consent-page { page-break-before: always; padding-top: 4px; }
-  .consent-section { margin-bottom: 14px; }
-  .consent-section h3 { font-size: 12px; color: #0A7B8C; margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid #D0DCDE; padding-bottom: 4px; font-weight: 700; }
-  .consent-section p { font-size: 10px; line-height: 1.5; color: #333; margin: 5px 0; }
-  .consent-section ul { font-size: 10px; line-height: 1.45; color: #333; padding-left: 18px; margin: 5px 0; }
-  .consent-section li { margin-bottom: 3px; }
-
-  /* Signature block: two-column grid (signature image left, date right) */
-  .sig-block { margin-top: 14px; border-top: 2px solid #0A7B8C; padding-top: 10px; }
-  .cert-text { font-size: 9px; color: #444; line-height: 1.5; margin-bottom: 10px; }
-  .sig-grid { display: grid; grid-template-columns: 2fr 1fr; column-gap: 22px; align-items: end; }
-  .sig-label { font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; font-weight: 600; }
-  .sig-img { display: block; height: 54px; max-width: 100%; border-bottom: 1.5px solid #1A2B2D; }
-  .sig-blank { height: 54px; border-bottom: 1.5px solid #1A2B2D; }
-  .sig-date-val { font-size: 12px; color: #1A2B2D; padding: 20px 0 4px; border-bottom: 1px solid #1A2B2D; }
-
+  .meta { text-align: right; font-size: 11px; color: #555; }
+  h2 { font-size: 13px; color: #0A7B8C; border-bottom: 1px solid #D0DCDE; padding-bottom: 4px; margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .row { display: flex; gap: 16px; margin-bottom: 6px; }
+  .field { flex: 1; }
+  .field label { display: block; font-size: 10px; color: #777; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+  .field .val { font-size: 12px; color: #111; border-bottom: 1px solid #ccc; padding-bottom: 2px; min-height: 16px; }
+  /* History columns — flex pair so medical + hearing read side-by-side under
+     patient info. Same .ynrow rendering inside each column. */
+  .history-cols { display: flex; gap: 24px; margin-bottom: 8px; }
+  .history-col { flex: 1; min-width: 0; }
+  .ynrow { display: flex; justify-content: space-between; align-items: flex-start; padding: 4px 0; border-bottom: 1px solid #eee; }
+  .ynq { flex: 1; font-size: 11px; padding-right: 6px; }
+  .yna { font-size: 11px; font-weight: bold; color: #0A7B8C; width: 36px; text-align: right; }
+  .sig-section { margin-top: 20px; border-top: 2px solid #0A7B8C; padding-top: 12px; }
+  .sig-img { border: 1px solid #ccc; max-width: 300px; height: 80px; }
+  .cert-text { font-size: 10px; color: #444; line-height: 1.5; margin-bottom: 10px; }
+  /* Consent block flows naturally below the questionnaire: privacy →
+     insurance → signature. page-break-before keeps it on its own sheet
+     so the signed acknowledgment is archival in isolation. */
+  .consent-page { page-break-before: always; }
+  .consent-section { margin-bottom: 18px; }
+  .consent-section h3 { font-size: 13px; color: #0A7B8C; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid #D0DCDE; padding-bottom: 4px; }
+  .consent-section p { font-size: 11px; line-height: 1.55; color: #333; margin: 6px 0; }
+  .consent-section ul { font-size: 11px; line-height: 1.55; color: #333; padding-left: 20px; margin: 6px 0; }
+  .consent-section li { margin-bottom: 4px; }
   @page { margin: 15mm; size: letter; }
   @media print { body { margin: 0; padding: 0; } }
 </style>
@@ -827,57 +795,63 @@ function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t, logoDat
     ${logoBlock}
     ${clinicBlock}
   </div>
-  <div class="header-meta">
-    <div class="title">Patient Intake Form</div>
-    <div class="sycle-line">Sycle ID: ____________</div>
-    <div>Intake: ${intakeId}</div>
+  <div class="meta">
+    <div><strong>PATIENT INTAKE FORM</strong></div>
+    <div>Sycle ID: ___________</div>
+    <div>Intake ID: ${intakeId}</div>
     <div>Date: ${new Date(timestamp).toLocaleDateString()}</div>
   </div>
 </div>
 
 <h2>Patient Information</h2>
-<div class="grid-3">
+<div class="row">
   <div class="field"><label>First Name</label><div class="val">${val("firstName")}</div></div>
   <div class="field"><label>M.I.</label><div class="val">${val("mi")}</div></div>
   <div class="field"><label>Last Name</label><div class="val">${val("lastName")}</div></div>
-
+</div>
+<div class="row">
   <div class="field"><label>Date of Birth</label><div class="val">${dobDisplay}</div></div>
   <div class="field"><label>Gender</label><div class="val">${val("gender")}</div></div>
   <div class="field"><label>Primary Care Physician</label><div class="val">${val("pcp")}</div></div>
-
+</div>
+<div class="row">
+  <div class="field"><label>Address</label><div class="val">${addressLine}</div></div>
+</div>
+<div class="row">
   <div class="field"><label>Home Phone</label><div class="val">${val("homePhone")}</div></div>
   <div class="field"><label>Mobile Phone</label><div class="val">${val("mobilePhone")}</div></div>
   <div class="field"><label>Email</label><div class="val">${val("email")}</div></div>
-
-  <div class="field field-wide"><label>Address</label><div class="val">${addressLine}</div></div>
-
+</div>
+<div class="row">
   <div class="field"><label>Spouse</label><div class="val">${val("spouseName")}</div></div>
   <div class="field"><label>Spouse DOB</label><div class="val">${spouseDobDisplay}</div></div>
   <div class="field"><label>Spouse Phone</label><div class="val">${val("spousePhone")}</div></div>
-
+</div>
+<div class="row">
   <div class="field"><label>Emergency Contact</label><div class="val">${val("emergencyName")}</div></div>
   <div class="field"><label>Emergency Phone</label><div class="val">${val("emergencyPhone")}</div></div>
   <div class="field"><label>Referred By</label><div class="val">${referralDisplay}</div></div>
-
-  <div class="field field-wide"><label>Reason for Visit</label><div class="val">${val("visitReason")}</div></div>
+</div>
+<div class="row">
+  <div class="field"><label>Reason for Visit</label><div class="val">${val("visitReason")}</div></div>
 </div>
 
 <div class="history-cols">
   <div class="history-col">
-    <h3>Medical History</h3>
+    <h2>Medical History</h2>
     ${medRows}
-    <div class="full-row">
-      <div class="field"><label>Family with hearing loss / aids</label><div class="val">${familyDisplay}</div></div>
+    <div class="row" style="margin-top:8px">
+      <div class="field"><label>Family with hearing loss/aids</label><div class="val">${familyDisplay}</div></div>
     </div>
   </div>
   <div class="history-col">
-    <h3>Hearing History</h3>
+    <h2>Hearing History</h2>
     ${hearingRows}
-    <div class="hist-sub">
+    <div class="row" style="margin-top:8px">
       <div class="field"><label>Best ear</label><div class="val">${val("hear_best")}</div></div>
-      <div class="field"><label>Self-rated hearing (1–10)</label><div class="val">${val("hear_rating")}</div></div>
+      <div class="field"><label>Self-rated (1–10)</label><div class="val">${val("hear_rating")}</div></div>
     </div>
-    <div class="full-row">
+    <div class="row">
       <div class="field"><label>What has prevented addressing hearing</label><div class="val">${resistanceDisplay}</div></div>
     </div>
   </div>
@@ -885,24 +859,22 @@ function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t, logoDat
 
 ${answers.aids_q ? `
 <h2>Current Hearing Aids</h2>
-<div class="grid-3">
+<div class="row">
   <div class="field"><label>Which ear(s)</label><div class="val">${val("aids_ear")}</div></div>
   <div class="field"><label>How often worn</label><div class="val">${val("aids_howOften")}</div></div>
   <div class="field"><label>Age of aids</label><div class="val">${val("aids_howOld")}</div></div>
-
+</div>
+<div class="row">
   <div class="field"><label>Brand</label><div class="val">${val("aids_brand")}</div></div>
   <div class="field"><label>Style</label><div class="val">${val("aids_style")}</div></div>
   <div class="field"><label>Cost</label><div class="val">${val("aids_cost")}</div></div>
-
+</div>
+<div class="row">
   <div class="field"><label>Hearing well with current aids?</label><div class="val">${yn("aids_satisfied")}</div></div>
   <div class="field"><label>If not, why?</label><div class="val">${val("aids_whyNot")}</div></div>
   <div class="field"><label>Satisfaction (1–10)</label><div class="val">${val("aids_satisfRating")}</div></div>
 </div>` : ""}
 
-<!-- Page 2: privacy + insurance acknowledgment + signature, single column.
-     Stays on its own page so the signed acknowledgment is archival in
-     isolation. English regardless of kiosk language since it's the
-     clinic's file copy. -->
 <div class="consent-page">
   <div class="consent-section">
     <h3>${T.en.privacyTitle}</h3>
@@ -913,20 +885,12 @@ ${answers.aids_q ? `
     <h3>${T.en.insTitle}</h3>
     ${T.en.insText.split("\n\n").map(p => `<p>${p}</p>`).join("")}
   </div>
-  <div class="sig-block">
+  <div class="sig-section">
     <p class="cert-text">${T.en.sigCert}</p>
-    <div class="sig-grid">
-      <div>
-        <div class="sig-label">Patient Signature</div>
-        ${signatureDataUrl
-          ? `<img class="sig-img" src="${signatureDataUrl}" alt="Patient Signature" />`
-          : `<div class="sig-blank"></div>`
-        }
-      </div>
-      <div>
-        <div class="sig-label">Date Signed</div>
-        <div class="sig-date-val">${new Date(timestamp).toLocaleDateString()}</div>
-      </div>
+    ${signatureDataUrl ? `<img class="sig-img" src="${signatureDataUrl}" alt="Patient Signature" />` : ""}
+    <div class="row" style="margin-top:8px">
+      <div class="field"><label>Authorized Signature</label><div class="val">&nbsp;</div></div>
+      <div class="field"><label>Date</label><div class="val">${new Date(timestamp).toLocaleDateString()}</div></div>
     </div>
   </div>
 </div>
