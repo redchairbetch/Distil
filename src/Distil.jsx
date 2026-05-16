@@ -25,7 +25,6 @@ import CareJourney from "./views/CareJourney.jsx";
 import HealthHistory from "./views/HealthHistory.jsx";
 import IntakeResponsesAccordion from "./views/IntakeResponsesAccordion.jsx";
 import TierSelection from "./views/TierSelection.jsx";
-import ChapterIntro from "./components/ChapterIntro.jsx";
 import PrompterSidebar from "./components/PrompterSidebar.jsx";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -1488,8 +1487,7 @@ function generateCounseling(aud){
 const STEPS = ["Patient","Health History","Testing","Results","Technology Tier","Device Selection","Care Plan","Review"];
 
 // Narrative Thread (backlog #8) — each wizard step belongs to one of five
-// chapters. The intro overlay fires when the user first crosses into a
-// new chapter; chaptersSeen state suppresses the intro on back/forward.
+// chapters. Used to key the provider prompter sidebar to the current chapter.
 const STEP_TO_CHAPTER = [1, 1, 2, 2, 3, 3, 4, 5];
 const CHAPTER_TITLES = ["Patient story", "Evidence", "Recommendation", "Investment", "Commitment"];
 
@@ -1627,10 +1625,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [saveError, setSaveError] = useState(null);
   const [wizardPatientId, setWizardPatientId] = useState(null);
   const [wizardIntake, setWizardIntake] = useState(null);
-  // Narrative Thread (backlog #8) — { 1: true, 2: false, ... } per wizard
-  // session. The intro overlay is suppressed for chapters already seen,
-  // so back/forward navigation doesn't re-pop. Reset on wizard cancel.
-  const [chaptersSeen, setChaptersSeen] = useState({});
   // Provider prompter drawer — open by default, toggleable via the handle
   // pinned to the right edge of the screen. Provider-only.
   const [prompterOpen, setPrompterOpen] = useState(true);
@@ -2691,7 +2685,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
     setActiveSide("left");
     setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
     setWizardPatientId(null); setSaveToast(false);
-    setChaptersSeen({});
     setStep(0); setSaved(false); setView("new");
   };
 
@@ -2731,7 +2724,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
     setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
     setWizardPatientId(p.id);
     setSaveToast(false);
-    setChaptersSeen({});
     setStep(0); setSaved(false); setView("new");
   };
 
@@ -4078,8 +4070,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
           }}
           onUpdateAssessment={async (fields) => {
             if (!intakeId) return;
-            // Optimistic local update so the carry-forward summary the
-            // next chapter intro renders matches what the provider just set.
+            // Optimistic local update so the prompter sidebar reflects the
+            // motivation / soft-commitment values the provider just set.
             setWizardIntake(prev => prev ? {
               ...prev,
               ...('motivationScore' in fields ? { motivationScore: fields.motivationScore } : {}),
@@ -4896,11 +4888,14 @@ export default function ProviderCRM({ staffId, clinicId }) {
             {/* ── Pricing Reveal ── */}
             {(() => {
               const bothDone = leftConfigured && rightConfigured;
+              const anyConfigured = leftConfigured || rightConfigured;
 
-              if (!pricingRevealData || form.tierPrice == null) {
+              // Hold the reveal until a device is configured — tier alone (set
+              // on the prior step) only yields the bare baseline, not a real price.
+              if (!pricingRevealData || form.tierPrice == null || !anyConfigured) {
                 return (
                   <div style={{background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:12,padding:"20px 24px",marginTop:12,textAlign:"center",color:"#9ca3af",fontSize:13}}>
-                    Select a plan to see your investment.
+                    Select a device to see your investment.
                   </div>
                 );
               }
@@ -7694,55 +7689,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     tier={form.tier}
                     carePlan={form.carePlan}
                   />
-                  {(() => {
-                    // Narrative Thread (backlog #8) — show the chapter intro
-                    // overlay the first time the wizard crosses into a new
-                    // chapter. The card carries one line forward from the
-                    // prior chapter so the appointment reads as a story.
-                    const chapter = STEP_TO_CHAPTER[step];
-                    if (!chapter || chaptersSeen[chapter]) return null;
-
-                    let prevSummary = null;
-                    if (chapter === 2) {
-                      const m = wizardIntake?.motivationScore;
-                      const sc = wizardIntake?.softCommitment;
-                      prevSummary = "From Chapter 1 — " + [
-                        m != null ? `Motivation ${m}/10` : "Motivation not set",
-                        sc ? `soft commit: ${sc}` : "soft commit: not set",
-                      ].join(" · ");
-                    } else if (chapter === 3) {
-                      const r = form.audiology?.unaidedR;
-                      const l = form.audiology?.unaidedL;
-                      prevSummary = (r != null || l != null)
-                        ? `From Chapter 2 — Word recognition: R ${r ?? "—"}% · L ${l ?? "—"}%`
-                        : "From Chapter 2 — Hearing evaluation complete";
-                    } else if (chapter === 4) {
-                      prevSummary = (form.tier && form.tierPrice != null)
-                        ? `From Chapter 3 — Recommended: ${form.tier} tier · $${Number(form.tierPrice).toLocaleString()}/aid`
-                        : "From Chapter 3 — Devices selected";
-                    } else if (chapter === 5) {
-                      const isPrivate = form.payType === "private";
-                      const labelMap = { complete: "Complete Care+", punch: "MHC Punch Card", paygo: "Standard Billing" };
-                      const carePlanLabel = isPrivate
-                        ? "Complete Care+ (included with private pay)"
-                        : (labelMap[form.carePlan] || "Care plan to be confirmed");
-                      prevSummary = `From Chapter 4 — ${carePlanLabel}`;
-                    }
-
-                    const complaintQuote = chapter === 1
-                      ? (wizardIntake?.answers?.visitReason || null)
-                      : null;
-
-                    return (
-                      <ChapterIntro
-                        number={chapter}
-                        title={CHAPTER_TITLES[chapter - 1]}
-                        prevSummary={prevSummary}
-                        complaintQuote={complaintQuote}
-                        onBegin={() => setChaptersSeen(prev => ({ ...prev, [chapter]: true }))}
-                      />
-                    );
-                  })()}
                   {saveError && (
                     <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"12px 16px",marginBottom:8,fontSize:13,color:"#dc2626"}}>
                       <strong>Save failed:</strong> {saveError}
