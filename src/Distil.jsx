@@ -26,6 +26,7 @@ import HealthHistory from "./views/HealthHistory.jsx";
 import IntakeResponsesAccordion from "./views/IntakeResponsesAccordion.jsx";
 import TierSelection from "./views/TierSelection.jsx";
 import PrompterSidebar from "./components/PrompterSidebar.jsx";
+import CommitmentChecklist from "./components/CommitmentChecklist.jsx";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.mjs",
@@ -1484,7 +1485,7 @@ function generateCounseling(aud){
 
 
 // ── WIZARD STEPS ──────────────────────────────────────────────────────────────
-const STEPS = ["Patient","Health History","Testing","Results","Technology Tier","Device Selection","Care Plan","Review"];
+const STEPS = ["Patient","Health History","Testing","Results","Technology Tier","Device Selection","Care Plan","Commitment"];
 
 // Narrative Thread (backlog #8) — each wizard step belongs to one of five
 // chapters. Used to key the provider prompter sidebar to the current chapter.
@@ -2587,13 +2588,20 @@ export default function ProviderCRM({ staffId, clinicId }) {
         const privatePay = form.payType === "private" && form.tierPrice != null
           ? { tier: form.tier, tierPrice: form.tierPrice }
           : null;
+        // Day-2 follow-up call — auto-scheduled at finalize for a real
+        // fitting (PA signed), anchored to the fitting date.
+        const day2Date = new Date(new Date(warrantyStart).getTime() + 2 * 86400000)
+          .toISOString().split("T")[0];
+        const finalizeAppointments = wizardPaSigned
+          ? [...(form.appointments || []), { date: day2Date, type: "Day-2 Follow-Up Call" }]
+          : (form.appointments || []);
         await finalizePatient(
           wizardPatientId,
           wizardPaSigned ? "active" : "tns",
           { fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null },
           carePlan,
           form.notes,
-          form.appointments,
+          finalizeAppointments,
           staffId, clinicId,
           privatePay
         );
@@ -2612,7 +2620,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           devices: { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null, serialLeft: genId(), serialRight: genId() },
           audiology: form.audiology,
           carePlan: carePlan,
-          appointments: form.appointments,
+          appointments: finalizeAppointments,
           notes: form.notes,
           patientStatus: wizardPaSigned ? "active" : "tns",
         };
@@ -5409,7 +5417,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
       };
       return (
         <div className="card">
-          <div className="card-title">Review & Create Profile</div>
+          <div className="card-title">Commitment</div>
           <div className="review-section">
             <div className="review-label">Patient</div>
             {[[[form.firstName,form.lastName].filter(Boolean).join(" "),"Name"],[form.dob,"Date of Birth"],[form.phone,"Phone"],[form.email||"—","Email"]].map(([v,k])=>(
@@ -5443,6 +5451,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
             </div>
           )}
           <div className="field" style={{marginTop:16}}><label>Notes</label><textarea value={form.notes} onChange={e=>upd("notes",e.target.value)} rows={3} placeholder="Special considerations, follow-up notes, etc." /></div>
+          <CommitmentChecklist />
         </div>
       );
     }
