@@ -19,8 +19,8 @@ function catmullRomPath(pts, tension = 0.35) {
 }
 
 /* ── Chart constants ──────────────────────────────────────────────── */
-const W = 720, H = 300;
-const ML = 18, MR = 20, MT = 32, MB = 44; // margins
+const W = 720, H = 340;
+const ML = 18, MR = 20, MT = 32, MB = 84; // MB leaves a band for the warranty bar
 const PW = W - ML - MR;  // plot width
 const PH = H - MT - MB;  // plot height
 
@@ -59,7 +59,35 @@ const CURVE = [
 
 const curvePts = CURVE.map(([xPct, a]) => [msX(xPct), toY(a)]);
 
-export default function CareJourney() {
+// Ability at an arbitrary point along the journey (linear interpolation
+// between CURVE points) — used to drop the "you are here" marker on the line.
+function abilityAt(xPct) {
+  if (xPct <= CURVE[0][0]) return CURVE[0][1];
+  const last = CURVE[CURVE.length - 1];
+  if (xPct >= last[0]) return last[1];
+  for (let i = 0; i < CURVE.length - 1; i++) {
+    const [x0, a0] = CURVE[i];
+    const [x1, a1] = CURVE[i + 1];
+    if (xPct >= x0 && xPct <= x1) {
+      return a0 + (a1 - a0) * ((xPct - x0) / (x1 - x0));
+    }
+  }
+  return last[1];
+}
+
+/**
+ * "Your Hearing Journey" infographic.
+ *
+ * @param position      0–1, where the patient sits along the 5-year journey
+ *                      (0 = just getting hearing aids). Drops a "you are here"
+ *                      marker on the trend line.
+ * @param warrantyYears length of the warranty period, drawn as a coverage bar
+ *                      under the timeline (the full 5-year span = full width).
+ */
+export default function CareJourney({ position = 0, warrantyYears = 4 }) {
+  const pos = Math.max(0, Math.min(1, position));
+  const wYears = Math.max(0, Math.min(5, warrantyYears));
+
   const curvePath = catmullRomPath(curvePts, 0.35);
   // Fill path closes down to bottom of plot area
   const firstPt = curvePts[0];
@@ -67,6 +95,17 @@ export default function CareJourney() {
   const fillPath = `${curvePath} L ${lastPt[0]},${toY(0)} L ${firstPt[0]},${toY(0)} Z`;
 
   const normalY = toY(NORMAL);
+  const plotMidY = MT + PH / 2;
+
+  // "You are here" marker — placed on the trend line at the patient's position.
+  const posX = msX(pos);
+  const posY = toY(abilityAt(pos));
+  const posLabelAnchor = pos < 0.12 ? "start" : pos > 0.88 ? "end" : "middle";
+
+  // Warranty coverage bar geometry (sits in the bottom margin band).
+  const barY = MT + PH + 50;
+  const barH = 9;
+  const covW = (wYears / 5) * PW;
 
   return (
     <div style={{
@@ -96,8 +135,17 @@ export default function CareJourney() {
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block" }}>
         <defs>
           <linearGradient id="cjFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#2d9d6a" stopOpacity="0.18" />
-            <stop offset="100%" stopColor="#2d9d6a" stopOpacity="0.02" />
+            <stop offset="0%" stopColor="#16a34a" stopOpacity="0.16" />
+            <stop offset="100%" stopColor="#16a34a" stopOpacity="0.02" />
+          </linearGradient>
+          {/* Trend-line gradient — green near normal hearing, warming through
+              yellow and orange to red the further ability drops below it. */}
+          <linearGradient id="cjLine" gradientUnits="userSpaceOnUse"
+            x1="0" y1={toY(0.95)} x2="0" y2={toY(0.15)}>
+            <stop offset="0%" stopColor="#16a34a" />
+            <stop offset="38%" stopColor="#f59e0b" />
+            <stop offset="62%" stopColor="#f97316" />
+            <stop offset="100%" stopColor="#ef4444" />
           </linearGradient>
         </defs>
 
@@ -112,21 +160,21 @@ export default function CareJourney() {
         {/* ── Normal hearing reference ───────────────────── */}
         <line
           x1={ML} y1={normalY} x2={W - MR} y2={normalY}
-          stroke="#2d9d6a" strokeWidth="1.5" strokeDasharray="6 4" opacity="0.5"
+          stroke="#16a34a" strokeWidth="1.5" strokeDasharray="6 4" opacity="0.5"
         />
         <text x={W - MR - 2} y={normalY - 6}
           textAnchor="end" fontSize="10" fontFamily="'DM Sans', sans-serif"
-          fill="#2d9d6a" fontWeight="600" opacity="0.7"
+          fill="#16a34a" fontWeight="600" opacity="0.7"
         >
           Normal Hearing
         </text>
 
         {/* ── Y-axis label ───────────────────────────────── */}
         <text
-          x={10} y={H / 2}
+          x={10} y={plotMidY}
           textAnchor="middle" fontSize="9" fontFamily="'DM Sans', sans-serif"
           fill="#9ca3af" fontWeight="500"
-          transform={`rotate(-90, 10, ${H / 2})`}
+          transform={`rotate(-90, 10, ${plotMidY})`}
         >
           Hearing Ability
         </text>
@@ -134,10 +182,10 @@ export default function CareJourney() {
         {/* ── Gradient fill under curve ──────────────────── */}
         <path d={fillPath} fill="url(#cjFill)" />
 
-        {/* ── Main curve ─────────────────────────────────── */}
+        {/* ── Main curve — color shifts with hearing ability ─ */}
         <path
           d={curvePath}
-          fill="none" stroke="#2d9d6a" strokeWidth="2.5"
+          fill="none" stroke="url(#cjLine)" strokeWidth="3"
           strokeLinecap="round" strokeLinejoin="round"
         />
 
@@ -161,7 +209,7 @@ export default function CareJourney() {
               />
               {/* Circle on curve */}
               <circle cx={x} cy={cy} r="4.5"
-                fill="#fff" stroke="#2d9d6a" strokeWidth="2"
+                fill="#fff" stroke="url(#cjLine)" strokeWidth="2"
               />
               {/* Label below */}
               {lines.map((ln, li) => (
@@ -181,8 +229,33 @@ export default function CareJourney() {
         {/* ── Upgrade arrow indicator ────────────────────── */}
         <polygon
           points={`${msX(1.0) - 5},${toY(0.92) - 12} ${msX(1.0) + 5},${toY(0.92) - 12} ${msX(1.0)},${toY(0.92) - 20}`}
-          fill="#2d9d6a" opacity="0.7"
+          fill="#16a34a" opacity="0.7"
         />
+
+        {/* ── "You are here" position marker ─────────────── */}
+        <g>
+          <circle cx={posX} cy={posY} r="13" fill="#0a1628" opacity="0.12" />
+          <circle cx={posX} cy={posY} r="7"
+            fill="#0a1628" stroke="#ffffff" strokeWidth="2.5"
+          />
+          <text
+            x={posX} y={posY - 17}
+            textAnchor={posLabelAnchor} fontSize="9.5" fontWeight="700"
+            fill="#0a1628" fontFamily="'DM Sans', sans-serif"
+          >
+            You are here
+          </text>
+        </g>
+
+        {/* ── Warranty coverage bar ──────────────────────── */}
+        <text x={ML} y={barY - 9}
+          fontSize="10" fontWeight="700" fill="#374151"
+          fontFamily="'DM Sans', sans-serif"
+        >
+          {wYears}-Year Warranty Coverage
+        </text>
+        <rect x={ML} y={barY} width={PW} height={barH} rx={barH / 2} fill="#f3f4f6" />
+        <rect x={ML} y={barY} width={covW} height={barH} rx={barH / 2} fill="#16a34a" />
       </svg>
     </div>
   );
