@@ -1070,6 +1070,7 @@ export async function loadClinicSettings(clinicId) {
     address: data.address  || '',
     phone:   data.phone    || '',
     accent:  data.accent_color || '#16a34a',
+    defaultBundleMode: data.default_bundle_mode || 'bundled',
   }
 }
 
@@ -2325,6 +2326,129 @@ export async function loadPricingReveal(clinicId, patientId) {
 
 
 // ============================================================
+// PURCHASE CONFIGURATION
+// ============================================================
+
+// Care plan catalog for a clinic — Complete Care+, punch card, pay-as-you-go.
+// Zone 5 uses the Complete Care+ price for the bundled care-plan line item.
+export async function loadCarePlanCatalog(clinicId) {
+  const { data, error } = await supabase
+    .from('care_plan_catalog')
+    .select('plan_type, display_name, price, unit_label')
+    .eq('clinic_id', clinicId)
+    .eq('active', true)
+  if (error) { console.error('loadCarePlanCatalog:', error); return [] }
+  return (data || []).map(r => ({
+    planType:    r.plan_type,
+    displayName: r.display_name,
+    price:       r.price != null ? Number(r.price) : null,
+    unitLabel:   r.unit_label,
+  }))
+}
+
+// Load the patient's current (non-finalized) purchase configuration and
+// its line items, or null if none exists. Zone 5 of the device-selection
+// screen restores an in-progress purchase from this.
+export async function loadPurchaseConfiguration(patientId) {
+  const { data: config, error } = await supabase
+    .from('purchase_configuration')
+    .select('id, bundle_mode, total_displayed_price, finalized')
+    .eq('patient_id', patientId)
+    .eq('finalized', false)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error || !config) return null
+
+  const { data: items, error: itemsErr } = await supabase
+    .from('purchase_line_item')
+    .select('id, product_type, product_catalog_tier_id, care_plan_type, listed_price, adjusted_price, rebate_promo_id')
+    .eq('purchase_id', config.id)
+  if (itemsErr) console.error('loadPurchaseConfiguration items:', itemsErr)
+
+  return {
+    id:                  config.id,
+    bundleMode:          config.bundle_mode,
+    totalDisplayedPrice: config.total_displayed_price != null ? Number(config.total_displayed_price) : null,
+    finalized:           config.finalized,
+    lineItems: (items || []).map(it => ({
+      id:                   it.id,
+      productType:          it.product_type,
+      productCatalogTierId: it.product_catalog_tier_id,
+      carePlanType:         it.care_plan_type,
+      listedPrice:          it.listed_price != null ? Number(it.listed_price) : null,
+      adjustedPrice:        it.adjusted_price != null ? Number(it.adjusted_price) : null,
+      rebatePromoId:        it.rebate_promo_id,
+    })),
+  }
+}
+
+// Upsert the patient's draft purchase configuration and replace its line
+// items. Returns { success, error, configId }. Follows the saveRetailAnchors
+// delete-then-insert pattern. The config row is written first so its
+// clinic_id satisfies the purchase_line_item RLS policy, which gates on the
+// parent config's clinic.
+export async function savePurchaseConfiguration(patientId, clinicId, { bundleMode, lineItems, totalDisplayedPrice }) {
+  const { data: existing, error: exErr } = await supabase
+    .from('purchase_configuration')
+    .select('id')
+    .eq('patient_id', patientId)
+    .eq('finalized', false)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (exErr) { console.error('savePurchaseConfiguration scan:', exErr); return { success: false, error: exErr } }
+
+  let configId = existing?.id
+  if (configId) {
+    const { error: upErr } = await supabase
+      .from('purchase_configuration')
+      .update({
+        bundle_mode:           bundleMode,
+        total_displayed_price: totalDisplayedPrice,
+        updated_at:            new Date().toISOString(),
+      })
+      .eq('id', configId)
+    if (upErr) { console.error('savePurchaseConfiguration update:', upErr); return { success: false, error: upErr } }
+  } else {
+    const { data: inserted, error: insErr } = await supabase
+      .from('purchase_configuration')
+      .insert({
+        patient_id:            patientId,
+        clinic_id:             clinicId,
+        bundle_mode:           bundleMode,
+        total_displayed_price: totalDisplayedPrice,
+      })
+      .select('id')
+      .single()
+    if (insErr || !inserted) { console.error('savePurchaseConfiguration insert:', insErr); return { success: false, error: insErr } }
+    configId = inserted.id
+  }
+
+  const { error: delErr } = await supabase
+    .from('purchase_line_item')
+    .delete()
+    .eq('purchase_id', configId)
+  if (delErr) { console.error('savePurchaseConfiguration delete items:', delErr); return { success: false, error: delErr } }
+
+  const rows = (lineItems || []).map(li => ({
+    purchase_id:             configId,
+    product_type:            li.productType,
+    product_catalog_tier_id: li.productCatalogTierId || null,
+    care_plan_type:          li.carePlanType || null,
+    listed_price:            li.listedPrice,
+  }))
+  if (rows.length) {
+    const { error: itemsErr } = await supabase
+      .from('purchase_line_item')
+      .insert(rows)
+    if (itemsErr) { console.error('savePurchaseConfiguration insert items:', itemsErr); return { success: false, error: itemsErr } }
+  }
+  return { success: true, configId }
+}
+
+
+// ============================================================
 // TNS OUTCOMES
 // ============================================================
 
@@ -2520,7 +2644,7 @@ export async function saveProviderEditedRationale(recOutputId, text) {
 export async function loadPatientHeader(patientId) {
   const { data } = await supabase
     .from('patients')
-    .select('id, first_name, last_name, dob')
+    .select('id, first_name, last_name, dob, pay_type')
     .eq('id', patientId)
     .maybeSingle()
   return data || null

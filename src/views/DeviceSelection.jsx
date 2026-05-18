@@ -8,6 +8,10 @@ import {
   loadRetailAnchors,
   loadProductCatalogTiers,
   loadPatientTnsFlag,
+  loadClinicSettings,
+  loadCarePlanCatalog,
+  loadPurchaseConfiguration,
+  savePurchaseConfiguration,
   saveProviderEditedRationale,
 } from '../db.js'
 import {
@@ -86,14 +90,32 @@ function pickTierForRank(allTiers, rank) {
   return allTiers.find(t => t.tierRank === rank) || null
 }
 
-// Per-tier-card pricing. Same tier as covered → copay. Upgrade →
-// copay + retail delta. Downgrade → copay (TH does not refund).
-function computeCardPricing(targetRank, pricing, anchorsByKey) {
-  if (!pricing || !anchorsByKey) return null
+// Per-tier-card pricing.
+// Private pay: patient cost = clinic retail anchor for the rank.
+// Insurance: same tier as covered → copay; upgrade → copay + retail delta;
+// downgrade → copay (TH does not refund).
+function computeCardPricing(targetRank, pricing, anchorsByKey, payType) {
+  if (!anchorsByKey) return null
   const targetKey = ANCHOR_KEY_BY_RANK[targetRank]
   const targetAnchor = anchorsByKey[targetKey]
   if (!targetAnchor) return null
   const targetRetail = Number(targetAnchor.price_per_aid)
+
+  // Private pay: no insurance copay — the patient pays clinic retail.
+  if (payType === 'private') {
+    return {
+      patientCost: targetRetail,
+      retail: targetRetail,
+      tierLabel: targetAnchor.label,
+      payType: 'private',
+      isCovered: false,
+      isUpgrade: false,
+      upgradeDelta: 0,
+    }
+  }
+
+  // Insurance: needs a pricing reveal (copay + covered tier).
+  if (!pricing) return null
   const coveredRetail = pricing.retailPerAid
   const copay = pricing.copayPerAid
 
@@ -102,6 +124,7 @@ function computeCardPricing(targetRank, pricing, anchorsByKey) {
       patientCost: copay,
       retail: targetRetail,
       tierLabel: targetAnchor.label,
+      payType: 'insurance',
       isCovered: true,
       isUpgrade: false,
       upgradeDelta: 0,
@@ -113,6 +136,7 @@ function computeCardPricing(targetRank, pricing, anchorsByKey) {
       patientCost: copay + delta,
       retail: targetRetail,
       tierLabel: targetAnchor.label,
+      payType: 'insurance',
       isCovered: false,
       isUpgrade: true,
       upgradeDelta: delta,
@@ -122,6 +146,7 @@ function computeCardPricing(targetRank, pricing, anchorsByKey) {
     patientCost: copay,
     retail: targetRetail,
     tierLabel: targetAnchor.label,
+    payType: 'insurance',
     isCovered: false,
     isUpgrade: false,
     upgradeDelta: 0,
@@ -137,13 +162,17 @@ export default function DeviceSelection({ patientId, staffId, clinicId }) {
   const [anchors, setAnchors] = useState([])
   const [tiers, setTiers] = useState([])
   const [tnsFlag, setTnsFlag] = useState(null)
+  const [clinicSettings, setClinicSettings] = useState(null)
+  const [carePlans, setCarePlans] = useState([])
+  const [existingPurchase, setExistingPurchase] = useState(null)
+  const [selectedRank, setSelectedRank] = useState(null)
 
   useEffect(() => {
     if (!patientId || !clinicId) return
     let cancelled = false
     ;(async () => {
       try {
-        const [patientRow, existingRec, inputs, pricingRow, anchorRows, tierRows, tnsRow] =
+        const [patientRow, existingRec, inputs, pricingRow, anchorRows, tierRows, tnsRow, clinicRow, carePlanRows, purchaseRow] =
           await Promise.all([
             loadPatientHeader(patientId),
             loadCurrentRecommendation(patientId),
@@ -152,6 +181,9 @@ export default function DeviceSelection({ patientId, staffId, clinicId }) {
             loadRetailAnchors(clinicId, 'signia'),
             loadProductCatalogTiers(),
             loadPatientTnsFlag(patientId),
+            loadClinicSettings(clinicId),
+            loadCarePlanCatalog(clinicId),
+            loadPurchaseConfiguration(patientId),
           ])
         if (cancelled) return
 
@@ -175,6 +207,12 @@ export default function DeviceSelection({ patientId, staffId, clinicId }) {
         setAnchors(anchorRows || [])
         setTiers(tierRows || [])
         setTnsFlag(tnsRow)
+        setClinicSettings(clinicRow)
+        setCarePlans(carePlanRows || [])
+        setExistingPurchase(purchaseRow)
+        const savedTierId = purchaseRow?.lineItems?.find(li => li.productType === 'device_left' || li.productType === 'device_right')?.productCatalogTierId
+        const savedRank = savedTierId ? (tierRows || []).find(t => t.id === savedTierId)?.tierRank : null
+        setSelectedRank(savedRank ?? current?.recommended_tier_rank ?? null)
         setState({ loading: false, error: null })
       } catch (e) {
         if (!cancelled) setState({ loading: false, error: e.message || String(e) })
@@ -233,6 +271,7 @@ export default function DeviceSelection({ patientId, staffId, clinicId }) {
         intake={normalizedIntake}
         audiogramRow={recInputs?.audiogram}
         pricing={pricing}
+        payType={patient?.pay_type}
         tnsFlag={tnsFlag}
       />
 
@@ -241,9 +280,25 @@ export default function DeviceSelection({ patientId, staffId, clinicId }) {
         tiers={tiers}
         pricing={pricing}
         anchorsByKey={anchorsByKey}
+        payType={patient?.pay_type}
+        selectedRank={selectedRank}
+        onSelectRank={setSelectedRank}
       />
 
       <RationaleEditor rec={rec} onSaved={updated => setRec(r => ({ ...r, ...updated }))} />
+
+      <Zone5
+        selectedRank={selectedRank}
+        tiers={tiers}
+        pricing={pricing}
+        anchorsByKey={anchorsByKey}
+        payType={patient?.pay_type}
+        carePlans={carePlans}
+        defaultBundleMode={clinicSettings?.defaultBundleMode || 'bundled'}
+        existingPurchase={existingPurchase}
+        patientId={patientId}
+        clinicId={clinicId}
+      />
     </div>
   )
 }
@@ -279,12 +334,12 @@ function Header({ patientName, age, dob, patientId }) {
 // ZONE 1 — Clinical context strip
 // ============================================================
 
-function Zone1({ audio, intake, audiogramRow, pricing, tnsFlag }) {
+function Zone1({ audio, intake, audiogramRow, pricing, payType, tnsFlag }) {
   return (
     <div style={styles.zone1}>
       <AudiogramBlock audio={audio} audiogramRow={audiogramRow} />
       <IntakeBlock intake={intake} />
-      <InsuranceBlock pricing={pricing} />
+      <InsuranceBlock pricing={pricing} payType={payType} />
       <TnsBlock flag={tnsFlag} />
     </div>
   )
@@ -378,7 +433,18 @@ function IntakeBlock({ intake }) {
   )
 }
 
-function InsuranceBlock({ pricing }) {
+function InsuranceBlock({ pricing, payType }) {
+  if (payType === 'private') {
+    return (
+      <div style={styles.stripCell}>
+        <div style={styles.stripLabel}>Coverage</div>
+        <div style={{ ...styles.stripVal, fontWeight: 700 }}>Private pay</div>
+        <div style={{ fontSize: 11, color: COLOR.muted, marginTop: 4 }}>
+          Self-funded — clinic retail pricing applies.
+        </div>
+      </div>
+    )
+  }
   if (!pricing) {
     return (
       <div style={styles.stripCell}>
@@ -437,14 +503,14 @@ function TnsBlock({ flag }) {
 // ZONE 2 — Three tier cards
 // ============================================================
 
-function Zone2({ rec, tiers, pricing, anchorsByKey }) {
+function Zone2({ rec, tiers, pricing, anchorsByKey, payType, selectedRank, onSelectRank }) {
   return (
     <div>
       <div style={styles.zoneLabel}>Recommendation</div>
       <div style={styles.cardsRow}>
         {CARD_RANKS.map(rank => {
           const tier = pickTierForRank(tiers, rank)
-          const cardPricing = computeCardPricing(rank, pricing, anchorsByKey)
+          const cardPricing = computeCardPricing(rank, pricing, anchorsByKey, payType)
           const isRecommended = rec?.recommended_tier_rank === rank
           return (
             <TierCard
@@ -453,6 +519,8 @@ function Zone2({ rec, tiers, pricing, anchorsByKey }) {
               tier={tier}
               pricing={cardPricing}
               isRecommended={isRecommended}
+              isSelected={selectedRank === rank}
+              onSelect={() => onSelectRank(rank)}
             />
           )
         })}
@@ -461,19 +529,26 @@ function Zone2({ rec, tiers, pricing, anchorsByKey }) {
   )
 }
 
-function TierCard({ rank, tier, pricing, isRecommended }) {
+function TierCard({ rank, tier, pricing, isRecommended, isSelected, onSelect }) {
   const label = pricing?.tierLabel || `Tier ${rank}`
   return (
     <div
+      onClick={onSelect}
       style={{
         ...styles.card,
-        borderColor: isRecommended ? COLOR.accent : COLOR.line,
-        borderWidth: isRecommended ? 3 : 1,
-        boxShadow: isRecommended ? '0 8px 24px rgba(15, 118, 110, 0.15)' : 'none',
+        cursor: 'pointer',
+        borderColor: isSelected ? COLOR.ink : isRecommended ? COLOR.accent : COLOR.line,
+        borderWidth: isSelected || isRecommended ? 3 : 1,
+        boxShadow: isSelected
+          ? '0 8px 24px rgba(10, 22, 40, 0.18)'
+          : isRecommended ? '0 8px 24px rgba(15, 118, 110, 0.15)' : 'none',
       }}
     >
       {isRecommended && (
         <div style={styles.recBadge}>Engine recommended</div>
+      )}
+      {isSelected && (
+        <div style={styles.selectedBadge}>✓ Selected</div>
       )}
       <div style={{ fontFamily: "'Fraunces', Georgia, serif", fontSize: 24, fontWeight: 700, color: COLOR.ink }}>
         {label}
@@ -489,23 +564,29 @@ function TierCard({ rank, tier, pricing, isRecommended }) {
         <div style={styles.priceBlock}>
           <div style={styles.priceLabel}>Your cost, per aid</div>
           <div style={styles.priceBig}>{formatMoney(pricing.patientCost)}</div>
-          <div style={styles.priceRetail}>
-            full retail value {formatMoney(pricing.retail)}
-          </div>
-          {pricing.isCovered && (
-            <div style={{ ...styles.priceNote, color: COLOR.good }}>
-              Covered by your plan
-            </div>
-          )}
-          {pricing.isUpgrade && (
-            <div style={styles.priceNote}>
-              Plan copay + {formatMoney(pricing.upgradeDelta)} upgrade to {label}
-            </div>
-          )}
-          {!pricing.isCovered && !pricing.isUpgrade && (
-            <div style={styles.priceNote}>
-              Your plan covers this tier at its copay
-            </div>
+          {pricing.payType === 'private' ? (
+            <div style={styles.priceNote}>Private pay — clinic retail</div>
+          ) : (
+            <>
+              <div style={styles.priceRetail}>
+                full retail value {formatMoney(pricing.retail)}
+              </div>
+              {pricing.isCovered && (
+                <div style={{ ...styles.priceNote, color: COLOR.good }}>
+                  Covered by your plan
+                </div>
+              )}
+              {pricing.isUpgrade && (
+                <div style={styles.priceNote}>
+                  Plan copay + {formatMoney(pricing.upgradeDelta)} upgrade to {label}
+                </div>
+              )}
+              {!pricing.isCovered && !pricing.isUpgrade && (
+                <div style={styles.priceNote}>
+                  Your plan covers this tier at its copay
+                </div>
+              )}
+            </>
           )}
         </div>
       ) : (
@@ -603,6 +684,157 @@ function RationaleEditor({ rec, onSaved }) {
         Saves automatically when you click away. Engine-generated text is kept as the
         fallback; your edits replace it on the presentation screen.
       </div>
+    </div>
+  )
+}
+
+// ============================================================
+// ZONE 5 — Purchase configuration & pricing
+// ============================================================
+
+// Derive the aids selection ('pair' | 'left' | 'right') from saved line items.
+function aidsFromLineItems(lineItems) {
+  const hasL = (lineItems || []).some(li => li.productType === 'device_left')
+  const hasR = (lineItems || []).some(li => li.productType === 'device_right')
+  if (hasL && hasR) return 'pair'
+  if (hasR) return 'right'
+  return hasL ? 'left' : 'pair'
+}
+
+function Zone5({ selectedRank, tiers, pricing, anchorsByKey, payType, carePlans, defaultBundleMode, existingPurchase, patientId, clinicId }) {
+  const [bundleMode, setBundleMode] = useState(existingPurchase?.bundleMode || defaultBundleMode || 'bundled')
+  const [aids, setAids] = useState(existingPurchase ? aidsFromLineItems(existingPurchase.lineItems) : 'pair')
+  const [save, setSave] = useState({ saving: false, savedAt: null, error: null })
+
+  const selectedTier = useMemo(() => pickTierForRank(tiers, selectedRank), [tiers, selectedRank])
+  const selectedPricing = useMemo(
+    () => computeCardPricing(selectedRank, pricing, anchorsByKey, payType),
+    [selectedRank, pricing, anchorsByKey, payType],
+  )
+  const ccPlan = useMemo(() => (carePlans || []).find(p => p.planType === 'complete'), [carePlans])
+
+  const perAid = selectedPricing?.patientCost ?? null
+  const ccPrice = ccPlan?.price ?? null
+  const bundled = bundleMode === 'bundled'
+  const aidCount = aids === 'pair' ? 2 : 1
+
+  // Line items in the shape savePurchaseConfiguration expects. CC+ is its
+  // own line; in unbundled mode it is not purchased, so it is omitted.
+  const lineItems = useMemo(() => {
+    if (perAid == null) return []
+    const items = []
+    if (aids === 'pair' || aids === 'left')
+      items.push({ productType: 'device_left', productCatalogTierId: selectedTier?.id || null, listedPrice: perAid })
+    if (aids === 'pair' || aids === 'right')
+      items.push({ productType: 'device_right', productCatalogTierId: selectedTier?.id || null, listedPrice: perAid })
+    if (bundled && ccPrice != null)
+      items.push({ productType: 'care_plan', carePlanType: 'complete', listedPrice: ccPrice })
+    return items
+  }, [perAid, aids, bundled, ccPrice, selectedTier])
+
+  const deviceTotal = perAid != null ? perAid * aidCount : null
+  const total = deviceTotal != null ? deviceTotal + (bundled && ccPrice != null ? ccPrice : 0) : null
+
+  async function handleSave() {
+    if (perAid == null) return
+    setSave({ saving: true, savedAt: null, error: null })
+    const result = await savePurchaseConfiguration(patientId, clinicId, {
+      bundleMode,
+      lineItems,
+      totalDisplayedPrice: total,
+    })
+    if (result?.success) setSave({ saving: false, savedAt: Date.now(), error: null })
+    else setSave({ saving: false, savedAt: null, error: result?.error?.message || 'Save failed' })
+  }
+
+  if (perAid == null) {
+    return (
+      <div style={styles.zone5}>
+        <div style={styles.zoneLabel}>Purchase</div>
+        <div style={styles.stripEmpty}>Select a device tier above to configure the purchase.</div>
+      </div>
+    )
+  }
+
+  const tierLabel = selectedPricing.tierLabel
+
+  return (
+    <div style={styles.zone5}>
+      <div style={styles.zoneLabel}>Purchase</div>
+
+      <div style={styles.purchaseRowControls}>
+        <span style={styles.controlLabel}>Aids</span>
+        {[['pair', 'Pair'], ['left', 'Left only'], ['right', 'Right only']].map(([opt, lbl]) => (
+          <button
+            key={opt}
+            type="button"
+            onClick={() => setAids(opt)}
+            style={{ ...styles.segBtn, ...(aids === opt ? styles.segBtnActive : {}) }}
+          >
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      <div style={styles.purchaseRowControls}>
+        <span style={styles.controlLabel}>Care plan</span>
+        {[['bundled', 'Bundled — Complete Care+ included'], ['unbundled', 'Unbundled — declined']].map(([mode, lbl]) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => setBundleMode(mode)}
+            style={{ ...styles.segBtn, ...(bundleMode === mode ? styles.segBtnActive : {}) }}
+          >
+            {lbl}
+          </button>
+        ))}
+      </div>
+
+      <div style={styles.lineItemList}>
+        {(aids === 'pair' || aids === 'left') && (
+          <LineItemRow label={`Left aid — ${tierLabel}`} amount={perAid} />
+        )}
+        {(aids === 'pair' || aids === 'right') && (
+          <LineItemRow label={`Right aid — ${tierLabel}`} amount={perAid} />
+        )}
+        {ccPrice != null && (
+          <LineItemRow
+            label={ccPlan.displayName || 'Complete Care+'}
+            amount={ccPrice}
+            muted={!bundled}
+            note={bundled ? null : 'Declined'}
+          />
+        )}
+      </div>
+
+      <div style={styles.purchaseTotalRow}>
+        <span style={styles.purchaseTotalLabel}>
+          Total{payType === 'private' ? '' : ' · patient cost'}
+        </span>
+        <span style={styles.purchaseTotalValue}>{formatMoney(total)}</span>
+      </div>
+
+      <div style={styles.purchaseSaveRow}>
+        <button type="button" onClick={handleSave} disabled={save.saving} style={styles.saveBtn}>
+          {save.saving ? 'Saving…' : 'Save purchase'}
+        </button>
+        {save.savedAt && <span style={styles.savedChip}>Saved</span>}
+        {save.error && <span style={{ color: '#b91c1c', fontSize: 12 }}>{save.error}</span>}
+      </div>
+    </div>
+  )
+}
+
+function LineItemRow({ label, amount, muted, note }) {
+  return (
+    <div style={{ ...styles.lineItemRow, opacity: muted ? 0.55 : 1 }}>
+      <span style={styles.lineItemLabel}>
+        {label}
+        {note ? <span style={styles.lineItemNote}> · {note}</span> : null}
+      </span>
+      <span style={{ ...styles.lineItemAmount, textDecoration: muted ? 'line-through' : 'none' }}>
+        {formatMoney(amount)}
+      </span>
     </div>
   )
 }
@@ -833,6 +1065,106 @@ const styles = {
     padding: '5px 10px',
     fontSize: 12,
     color: COLOR.muted,
+    cursor: 'pointer',
+  },
+  selectedBadge: {
+    position: 'absolute',
+    top: -10,
+    right: 16,
+    background: COLOR.ink,
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    padding: '4px 10px',
+    borderRadius: 12,
+  },
+  zone5: {
+    background: 'white',
+    border: `1px solid ${COLOR.line}`,
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 24,
+  },
+  purchaseRowControls: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+    flexWrap: 'wrap',
+  },
+  controlLabel: {
+    fontSize: 11,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    color: COLOR.muted,
+    width: 72,
+  },
+  segBtn: {
+    background: 'white',
+    border: `1px solid ${COLOR.line}`,
+    borderRadius: 8,
+    padding: '6px 12px',
+    fontSize: 12,
+    color: COLOR.muted,
+    cursor: 'pointer',
+  },
+  segBtnActive: {
+    background: COLOR.ink,
+    borderColor: COLOR.ink,
+    color: 'white',
+    fontWeight: 600,
+  },
+  lineItemList: {
+    borderTop: `1px solid ${COLOR.line}`,
+    marginTop: 6,
+  },
+  lineItemRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '10px 0',
+    borderBottom: `1px solid ${COLOR.line}`,
+    fontSize: 14,
+  },
+  lineItemLabel: { color: COLOR.ink },
+  lineItemNote: { color: COLOR.warn, fontWeight: 600, fontSize: 12 },
+  lineItemAmount: { color: COLOR.ink, fontWeight: 600 },
+  purchaseTotalRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    padding: '14px 0 4px',
+  },
+  purchaseTotalLabel: {
+    fontSize: 12,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    color: COLOR.muted,
+  },
+  purchaseTotalValue: {
+    fontFamily: "'Fraunces', Georgia, serif",
+    fontSize: 30,
+    fontWeight: 700,
+    color: COLOR.ink,
+  },
+  purchaseSaveRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 12,
+  },
+  saveBtn: {
+    background: COLOR.accent,
+    color: 'white',
+    border: 'none',
+    borderRadius: 8,
+    padding: '9px 18px',
+    fontSize: 13,
+    fontWeight: 700,
     cursor: 'pointer',
   },
 }
