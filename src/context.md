@@ -242,7 +242,7 @@ export async function loadPricingReveal(clinicId, patientId) {
 12. **Push notifications** — patient engagement reminders (cleaning, appointments, warranty alerts, year-4 upgrade conversation). Phased delivery:
     - **Phase 1** ✅ DONE (Apr 2026) — VAPID keys generated, `push_subscriptions` table (migration 003), SW `push`/`notificationclick`/`pushsubscriptionchange` handlers, cache bumped to `aided-v2`.
     - **Phase 2** ✅ DONE (Apr 2026) — `subscribe-push` edge fn (POST upsert / DELETE deactivate), DOB gate on first launch (3 attempts → 60s lockout), contextual opt-in card on Schedule tab, all-or-nothing toggle in Help tab. Reconciliation on patient change re-POSTs the current endpoint to handle browser-rotated subscriptions.
-    - **Phase 3** — `send-push` edge fn + manual "Send notification" button in Distil CRM patient detail.
+    - **Phase 3** ✅ DONE (2026-05-18) — `send-push` edge fn (VAPID-signed Web Push to a patient's active subscriptions; retires dead 404/410 endpoints; rejects callers without a real provider session). `sendPushNotification` in `db.js` + `SendNotificationModal` + a "Notify Patient" button in Distil patient detail. **Not yet deployed** — needs `VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` secrets set and `send-push` deployed (separate from the Vercel build).
     - **Phase 4** — pg_cron scheduled scan: appointment reminder 24h ahead, monthly cleaning prompt, warranty 90d/30d/expired, year-4 upgrade ping. 410-response handling marks subscriptions inactive.
 13. Patient engagement: educational content, short videos
 14. Year 4 Donate & Upgrade pathway — punch card incentive, charity donation flow
