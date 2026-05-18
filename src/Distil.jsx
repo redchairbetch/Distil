@@ -26,6 +26,7 @@ import HealthHistory from "./views/HealthHistory.jsx";
 import IntakeResponsesAccordion from "./views/IntakeResponsesAccordion.jsx";
 import TierSelection from "./views/TierSelection.jsx";
 import PrompterSidebar from "./components/PrompterSidebar.jsx";
+import CommitmentChecklist from "./components/CommitmentChecklist.jsx";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.mjs",
@@ -1484,7 +1485,7 @@ function generateCounseling(aud){
 
 
 // ── WIZARD STEPS ──────────────────────────────────────────────────────────────
-const STEPS = ["Patient","Health History","Testing","Results","Technology Tier","Device Selection","Care Plan","Review"];
+const STEPS = ["Patient","Health History","Testing","Results","Technology Tier","Device Selection","Care Plan","Commitment"];
 
 // Narrative Thread (backlog #8) — each wizard step belongs to one of five
 // chapters. Used to key the provider prompter sidebar to the current chapter.
@@ -2587,13 +2588,20 @@ export default function ProviderCRM({ staffId, clinicId }) {
         const privatePay = form.payType === "private" && form.tierPrice != null
           ? { tier: form.tier, tierPrice: form.tierPrice }
           : null;
+        // Day-2 follow-up call — auto-scheduled at finalize for a real
+        // fitting (PA signed), anchored to the fitting date.
+        const day2Date = new Date(new Date(warrantyStart).getTime() + 2 * 86400000)
+          .toISOString().split("T")[0];
+        const finalizeAppointments = wizardPaSigned
+          ? [...(form.appointments || []), { date: day2Date, type: "Day-2 Follow-Up Call" }]
+          : (form.appointments || []);
         await finalizePatient(
           wizardPatientId,
           wizardPaSigned ? "active" : "tns",
           { fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null },
           carePlan,
           form.notes,
-          form.appointments,
+          finalizeAppointments,
           staffId, clinicId,
           privatePay
         );
@@ -2612,7 +2620,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           devices: { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null, serialLeft: genId(), serialRight: genId() },
           audiology: form.audiology,
           carePlan: carePlan,
-          appointments: form.appointments,
+          appointments: finalizeAppointments,
           notes: form.notes,
           patientStatus: wizardPaSigned ? "active" : "tns",
         };
@@ -5409,7 +5417,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
       };
       return (
         <div className="card">
-          <div className="card-title">Review & Create Profile</div>
+          <div className="card-title">Commitment</div>
           <div className="review-section">
             <div className="review-label">Patient</div>
             {[[[form.firstName,form.lastName].filter(Boolean).join(" "),"Name"],[form.dob,"Date of Birth"],[form.phone,"Phone"],[form.email||"—","Email"]].map(([v,k])=>(
@@ -5443,6 +5451,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
             </div>
           )}
           <div className="field" style={{marginTop:16}}><label>Notes</label><textarea value={form.notes} onChange={e=>upd("notes",e.target.value)} rows={3} placeholder="Special considerations, follow-up notes, etc." /></div>
+          <CommitmentChecklist />
         </div>
       );
     }
@@ -7710,29 +7719,41 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     {step < STEPS.length-1 ? (
                       step === 6 ? null : (
                         <button className="btn-primary" disabled={!canProceed} style={{opacity:canProceed?1:0.4}} onClick={async()=>{
-                          try {
-                            if (step === 0 && !wizardPatientId) {
-                              const name = [form.firstName, form.lastName].filter(Boolean).join(" ");
-                              const ins = form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null;
+                          // Step 0 persists the patient profile before advancing
+                          // so an abandoned wizard never loses the patient — a
+                          // failure here must surface and block, never be swallowed.
+                          if (step === 0 && !wizardPatientId) {
+                            const name = [form.firstName, form.lastName].filter(Boolean).join(" ");
+                            const ins = form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null;
+                            try {
                               const pid = await createPatientDraft({ id: genId(), name, dob: form.dob, phone: form.phone, email: form.email, address: form.address, payType: form.payType, notes: form.notes, insurance: ins }, staffId, clinicId);
                               setWizardPatientId(pid);
                               if (form.intakeId) {
                                 try { await linkIntakeToPatient(form.intakeId, pid, clinicId); }
                                 catch (e) { console.error('linkIntakeToPatient:', e); }
                               }
+                              setSaveError(null);
                               setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
-                            } else if (step === 2 && wizardPatientId) {
-                              await updatePatientAudiology(wizardPatientId, form.audiology, staffId);
-                              setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
-                            } else if (step === 5 && wizardPatientId) {
-                              const leftRec = buildSideRecord(form.left);
-                              const rightRec = buildSideRecord(form.right);
-                              const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
-                              const fittingType = leftRec && rightRec ? (isCROS ? "cros_bicros" : "bilateral") : leftRec ? "monaural_left" : "monaural_right";
-                              await updatePatientDevices(wizardPatientId, { left: leftRec, right: rightRec, fittingType, serialLeft: genId(), serialRight: genId() }, staffId);
-                              setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
+                            } catch (e) {
+                              console.error("createPatientDraft (wizard step 0):", e);
+                              setSaveError((e?.message || e?.toString() || "Unknown error") + " — patient profile not saved. Fix the issue and click Continue again.");
+                              return;
                             }
-                          } catch(e) { console.error("incremental save:", e); }
+                          } else {
+                            try {
+                              if (step === 2 && wizardPatientId) {
+                                await updatePatientAudiology(wizardPatientId, form.audiology, staffId);
+                                setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
+                              } else if (step === 5 && wizardPatientId) {
+                                const leftRec = buildSideRecord(form.left);
+                                const rightRec = buildSideRecord(form.right);
+                                const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
+                                const fittingType = leftRec && rightRec ? (isCROS ? "cros_bicros" : "bilateral") : leftRec ? "monaural_left" : "monaural_right";
+                                await updatePatientDevices(wizardPatientId, { left: leftRec, right: rightRec, fittingType, serialLeft: genId(), serialRight: genId() }, staffId);
+                                setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
+                              }
+                            } catch(e) { console.error("incremental save:", e); }
+                          }
                           // Private-pay skips Care Plan — Continue from Device
                           // Selection (step 5) jumps straight to Review (step 7).
                           setStep(s => (skipCarePlan && s === 5) ? 7 : s + 1);
