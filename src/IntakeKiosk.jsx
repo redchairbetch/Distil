@@ -1,38 +1,41 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { jsPDF } from "jspdf";
 import { submitIntake, uploadPatientDocument } from "./db.js";
 
-// Convert the printable intake HTML into a real letter-format PDF blob.
-// jsPDF.html() runs html2canvas internally — the source HTML must be in the
-// DOM for layout to resolve, so we mount a hidden iframe, render, snapshot,
-// then tear down. autoPaging splits long content across pages.
-async function htmlToPdfBlob(html) {
-  const iframe = document.createElement("iframe");
-  iframe.style.position = "fixed";
-  iframe.style.left = "-10000px";
-  iframe.style.top = "0";
-  iframe.style.width = "816px"; // 8.5in @ 96dpi — letter width
-  iframe.style.height = "0";
-  iframe.style.border = "0";
-  document.body.appendChild(iframe);
-  iframe.contentDocument.open();
-  iframe.contentDocument.write(html);
-  iframe.contentDocument.close();
-  // Two RAFs + a short timeout = layout settled, fonts applied.
-  await new Promise(r => requestAnimationFrame(r));
-  await new Promise(r => requestAnimationFrame(r));
-  await new Promise(r => setTimeout(r, 60));
+// MHC logo for the intake-PDF header. Resolved via import.meta.glob so the
+// build picks up whichever extension lives in src/assets/logos/MHC.* —
+// drop a PNG/SVG/JPG with that base name and it's used automatically.
+// Prefers PNG over SVG when both are present (image fidelity through
+// html2canvas is more reliable for raster than vector at small sizes).
+const MHC_LOGO_URL = (() => {
+  const matches = import.meta.glob('./assets/logos/MHC.*', {
+    eager: true, query: '?url', import: 'default',
+  });
+  const order = ['.png', '.jpg', '.jpeg', '.webp', '.svg'];
+  for (const ext of order) {
+    const hit = Object.entries(matches).find(([k]) => k.toLowerCase().endsWith(ext));
+    if (hit) return hit[1];
+  }
+  return null;
+})();
+
+// Convert a remote image URL to a data URL so the generated HTML stays
+// self-contained — when the archived intake is opened later from Supabase
+// storage, the logo still renders without depending on the kiosk origin.
+// Returns null on failure — the HTML template falls back to a text
+// wordmark in that case.
+async function imageUrlToDataUrl(url) {
+  if (!url) return null;
   try {
-    const doc = new jsPDF({ unit: "pt", format: "letter" });
-    await doc.html(iframe.contentDocument.body, {
-      width: 552,        // 612pt page - 30pt margins on each side
-      windowWidth: 816,  // matches the iframe css width
-      margin: [30, 30, 30, 30],
-      autoPaging: "text",
+    const blob = await fetch(url).then(r => r.ok ? r.blob() : Promise.reject(new Error('logo fetch failed')));
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
     });
-    return doc.output("blob");
-  } finally {
-    document.body.removeChild(iframe);
+  } catch (e) {
+    console.warn('Intake logo load failed, falling back to text wordmark:', e);
+    return null;
   }
 }
 
@@ -559,7 +562,18 @@ function genIntakeId() {
   return `MHC-${datePart}-${rand}`;
 }
 
-function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t) {
+// Clinic info for the intake-PDF header. Pulled from build-time env vars so
+// each kiosk deployment can be branded to its host clinic without a DB
+// round-trip (the kiosk runs anon and the clinic record is per-clinic, not
+// per-kiosk-instance). Falls back to a blank line when unset — header still
+// renders cleanly, just without the address/phone block.
+const CLINIC_INFO = {
+  name:    import.meta.env.VITE_CLINIC_NAME    || "",
+  address: import.meta.env.VITE_CLINIC_ADDRESS || "",
+  phone:   import.meta.env.VITE_CLINIC_PHONE   || "",
+};
+
+function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t, logoDataUrl) {
   const yn = (key) => answers[key] === true ? "Yes" : answers[key] === false ? "No" : "—";
   // Radio/multiChoice answers are stored as canonical option keys (e.g.
   // "female", "android", "right"); look up the localized label for the
@@ -623,6 +637,79 @@ function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t) {
   const occupNoiseDisplay = multiDisplay("med_noise_occupational_types", NOISE_OPTIONS_OCCUPATIONAL, "other", "med_noise_occupational_other");
   const recNoiseDisplay   = multiDisplay("med_noise_recreational_types", NOISE_OPTIONS_RECREATIONAL, "other", "med_noise_recreational_other");
   const resistanceDisplay = multiDisplay("resistancePoints", RESISTANCE_OPTIONS, "other", "resistancePointsOther");
+  // Address line collapses optional apt and trailing spaces so the printed
+  // value reads naturally regardless of which fields the patient filled in.
+  const addressLine = [
+    [val("street"), val("apt") !== "—" ? val("apt") : ""].filter(s => s && s !== "—").join(" "),
+    val("city") !== "—" ? val("city") : "",
+    [stateDisplay, val("zip") !== "—" ? val("zip") : ""].filter(Boolean).join(" "),
+  ].filter(Boolean).join(", ") || "—";
+
+  // Clinic info block — rendered when env vars are set; absent block when
+  // unset (so blank deployments still look clean rather than printing
+  // empty placeholder lines).
+  const clinicBlock = (CLINIC_INFO.name || CLINIC_INFO.address || CLINIC_INFO.phone)
+    ? `<div class="clinic-info">
+         ${CLINIC_INFO.name    ? `<div class="clinic-name">${CLINIC_INFO.name}</div>`       : ""}
+         ${CLINIC_INFO.address ? `<div>${CLINIC_INFO.address}</div>`                         : ""}
+         ${CLINIC_INFO.phone   ? `<div>${CLINIC_INFO.phone}</div>`                           : ""}
+       </div>`
+    : `<div class="clinic-info"><div class="tagline">We Change Lives Through Better Hearing</div></div>`;
+
+  // Logo header — embedded image (data URL) when supplied, text wordmark
+  // fallback otherwise. Both render through html2canvas without same-origin
+  // concerns because the data URL is inlined.
+  const logoBlock = logoDataUrl
+    ? `<img class="logo-img" src="${logoDataUrl}" alt="My Hearing Centers" />`
+    : `<div class="logo-text">)) MY HEARING CENTERS</div>`;
+
+  // Medical history Q&A rendered into the left column of the two-column
+  // history grid. Suffixes inline diabetic type, doctor visit date, and
+  // noise-exposure type lists so the answer carries its qualifier without
+  // a separate field row.
+  const medRows = [
+    ["Pain or discomfort in ear(s)?",            "med_pain"],
+    ["Drainage in ear(s)?",                       "med_drain"],
+    ["Sudden/rapid hearing loss in past 90 days?","med_sudden"],
+    ["Ringing or other sounds in ears?",          "med_ring"],
+    ["Dizziness or vertigo?",                     "med_dizzy"],
+    ["Ears feel full or blocked?",                "med_full"],
+    ["Seen doctor regarding above?",              "med_doctor"],
+    ["Ever had ear surgery?",                     "med_surgery"],
+    ["Taking blood thinning medication?",         "med_thinner"],
+    ["Diabetic?",                                 "med_diabetic"],
+    ["Occupational noise exposure?",              "med_noise_occupational"],
+    ["Recreational noise exposure?",              "med_noise_recreational"],
+  ].map(([q, k]) => {
+    let suffix = "";
+    if (k === "med_diabetic"            && answers["med_diabetic_type"]) suffix = " — " + answers["med_diabetic_type"];
+    if (k === "med_doctor"              && answers["med_doctor_when"])   suffix = " (" + answers["med_doctor_when"] + ")";
+    if (k === "med_noise_occupational"  && occupNoiseDisplay !== "—")    suffix = " — " + occupNoiseDisplay;
+    if (k === "med_noise_recreational"  && recNoiseDisplay   !== "—")    suffix = " — " + recNoiseDisplay;
+    return `<div class="ynrow"><div class="ynq">${q}${suffix}</div><div class="yna">${yn(k)}</div></div>`;
+  }).join("");
+
+  const hearingRows = [
+    ["Had hearing tested before?",                "hear_tested"],
+    ["People seem to mumble?",                    "hear_mumble"],
+    ["Frequently ask people to repeat?",          "hear_repeat"],
+    ["Hear speaking but don't understand?",       "hear_understand"],
+    ["Difficulty hearing in noisy places?",       "hear_noisy"],
+    ["Told you speak loudly?",                    "hear_loud"],
+    ["Told you turn TV too loud?",                "hear_tv"],
+    ["Difficulty with children's voices?",        "hear_kids"],
+    ["Were aids recommended?",                    "hear_aids_recommended"],
+    ["Ready to improve if loss diagnosed?",       "hear_ready"],
+  ].map(([q, k]) => {
+    let suffix = "";
+    if (k === "hear_tested" && answers["hear_tested_when"]) {
+      const sevKey   = answers["hear_tested_results"];
+      const sevLabel = sevKey ? (t[sevKey] || sevKey) : null;
+      suffix = " — Last: " + answers["hear_tested_when"] + (sevLabel ? ", " + sevLabel : "");
+    }
+    return `<div class="ynrow"><div class="ynq">${q}${suffix}</div><div class="yna">${yn(k)}</div></div>`;
+  }).join("");
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -630,25 +717,31 @@ function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t) {
 <style>
   body { font-family: Arial, sans-serif; font-size: 12px; color: #111; margin: 0; padding: 20px; }
   .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0A7B8C; padding-bottom: 12px; margin-bottom: 16px; }
+  .header-left { display: flex; flex-direction: column; gap: 4px; }
+  .logo-img { display: block; height: 50px; width: auto; max-width: 280px; }
   .logo-text { font-size: 20px; font-weight: bold; color: #0A7B8C; }
-  .logo-sub { font-size: 10px; color: #555; }
+  .clinic-info { font-size: 10px; color: #555; line-height: 1.45; }
+  .clinic-info .clinic-name { font-weight: 700; color: #0A7B8C; font-size: 11px; }
+  .clinic-info .tagline { font-style: italic; color: #5A7274; font-size: 10px; }
   .meta { text-align: right; font-size: 11px; color: #555; }
   h2 { font-size: 13px; color: #0A7B8C; border-bottom: 1px solid #D0DCDE; padding-bottom: 4px; margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.06em; }
   .row { display: flex; gap: 16px; margin-bottom: 6px; }
   .field { flex: 1; }
   .field label { display: block; font-size: 10px; color: #777; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
   .field .val { font-size: 12px; color: #111; border-bottom: 1px solid #ccc; padding-bottom: 2px; min-height: 16px; }
-  .ynrow { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid #eee; }
-  .ynq { flex: 1; font-size: 11px; }
-  .yna { font-size: 11px; font-weight: bold; color: #0A7B8C; width: 40px; text-align: right; }
+  /* History columns — flex pair so medical + hearing read side-by-side under
+     patient info. Same .ynrow rendering inside each column. */
+  .history-cols { display: flex; gap: 24px; margin-bottom: 8px; }
+  .history-col { flex: 1; min-width: 0; }
+  .ynrow { display: flex; justify-content: space-between; align-items: flex-start; padding: 4px 0; border-bottom: 1px solid #eee; }
+  .ynq { flex: 1; font-size: 11px; padding-right: 6px; }
+  .yna { font-size: 11px; font-weight: bold; color: #0A7B8C; width: 36px; text-align: right; }
   .sig-section { margin-top: 20px; border-top: 2px solid #0A7B8C; padding-top: 12px; }
   .sig-img { border: 1px solid #ccc; max-width: 300px; height: 80px; }
   .cert-text { font-size: 10px; color: #444; line-height: 1.5; margin-bottom: 10px; }
-  /* Consent page — starts on a fresh sheet via page-break-before. Content
-     flows naturally from top (privacy) → insurance → signature at the end
-     of whatever space it takes. Previous attempts at bottom-anchoring the
-     signature with flex + min-height caused overflow and extra blank
-     pages; natural flow stays under one letter page every time. */
+  /* Consent block flows naturally below the questionnaire: privacy →
+     insurance → signature. page-break-before keeps it on its own sheet
+     so the signed acknowledgment is archival in isolation. */
   .consent-page { page-break-before: always; }
   .consent-section { margin-bottom: 18px; }
   .consent-section h3 { font-size: 13px; color: #0A7B8C; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid #D0DCDE; padding-bottom: 4px; }
@@ -661,9 +754,9 @@ function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t) {
 </head>
 <body>
 <div class="header">
-  <div>
-    <div class="logo-text">)) MY HEARING CENTERS</div>
-    <div class="logo-sub">We Change Lives Through Better Hearing</div>
+  <div class="header-left">
+    ${logoBlock}
+    ${clinicBlock}
   </div>
   <div class="meta">
     <div><strong>PATIENT INTAKE FORM</strong></div>
@@ -682,9 +775,10 @@ function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t) {
 <div class="row">
   <div class="field"><label>Date of Birth</label><div class="val">${dobDisplay}</div></div>
   <div class="field"><label>Gender</label><div class="val">${val("gender")}</div></div>
+  <div class="field"><label>Primary Care Physician</label><div class="val">${val("pcp")}</div></div>
 </div>
 <div class="row">
-  <div class="field"><label>Address</label><div class="val">${val("street")} ${val("apt") !== "—" ? val("apt") : ""}, ${val("city")}, ${stateDisplay} ${val("zip")}</div></div>
+  <div class="field"><label>Address</label><div class="val">${addressLine}</div></div>
 </div>
 <div class="row">
   <div class="field"><label>Home Phone</label><div class="val">${val("homePhone")}</div></div>
@@ -697,60 +791,33 @@ function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t) {
   <div class="field"><label>Spouse Phone</label><div class="val">${val("spousePhone")}</div></div>
 </div>
 <div class="row">
-  <div class="field"><label>Emergency Contact</label><div class="val">${val("emergencyName")} — ${val("emergencyPhone")}</div></div>
-  <div class="field"><label>Primary Care Physician</label><div class="val">${val("pcp")}</div></div>
+  <div class="field"><label>Emergency Contact</label><div class="val">${val("emergencyName")}</div></div>
+  <div class="field"><label>Emergency Phone</label><div class="val">${val("emergencyPhone")}</div></div>
+  <div class="field"><label>Referred By</label><div class="val">${referralDisplay}</div></div>
 </div>
 <div class="row">
   <div class="field"><label>Reason for Visit</label><div class="val">${val("visitReason")}</div></div>
-  <div class="field"><label>Referred By</label><div class="val">${referralDisplay}</div></div>
 </div>
 
-<h2>Medical History</h2>
-${[
-  ["Do you have pain or discomfort in your ear(s)?", "med_pain"],
-  ["Do you have any drainage in your ear(s)?", "med_drain"],
-  ["Sudden or rapid hearing loss in past 90 days?", "med_sudden"],
-  ["Ringing or other sounds in your ears?", "med_ring"],
-  ["Acute or recurring dizziness or vertigo?", "med_dizzy"],
-  ["Do your ears feel full or blocked?", "med_full"],
-  ["Seen a doctor regarding the above?", "med_doctor"],
-  ["Ever had ear surgery?", "med_surgery"],
-  ["Taking blood thinning medication?", "med_thinner"],
-  ["Are you diabetic?", "med_diabetic"],
-  ["Significant occupational noise exposure?", "med_noise_occupational"],
-  ["Significant recreational noise exposure?", "med_noise_recreational"],
-].map(([q,k]) => `<div class="ynrow"><div class="ynq">${q}${answers["med_diabetic_type"] && k === "med_diabetic" ? " — "+answers["med_diabetic_type"] : ""}${answers["med_doctor_when"] && k === "med_doctor" ? " ("+answers["med_doctor_when"]+")" : ""}${k === "med_noise_occupational" && occupNoiseDisplay !== "—" ? " — "+occupNoiseDisplay : ""}${k === "med_noise_recreational" && recNoiseDisplay !== "—" ? " — "+recNoiseDisplay : ""}</div><div class="yna">${yn(k)}</div></div>`).join("")}
-<div class="row" style="margin-top:8px">
-  <div class="field"><label>Family with hearing loss/aids</label><div class="val">${familyDisplay}</div></div>
-</div>
-
-<h2>Hearing History</h2>
-${[
-  ["Had hearing tested before?", "hear_tested"],
-  ["People seem to mumble?", "hear_mumble"],
-  ["Frequently ask people to repeat?", "hear_repeat"],
-  ["Hear speaking but don't understand?", "hear_understand"],
-  ["Difficult to hear in noisy places?", "hear_noisy"],
-  ["Told you speak loudly?", "hear_loud"],
-  ["Told you turn TV too loud?", "hear_tv"],
-  ["Difficulty with children's voices?", "hear_kids"],
-  ["Were aids recommended?", "hear_aids_recommended"],
-  ["Ready to improve if loss diagnosed?", "hear_ready"],
-].map(([q,k]) => {
-  let suffix = "";
-  if (k === "hear_tested" && answers["hear_tested_when"]) {
-    const sevKey = answers["hear_tested_results"];
-    const sevLabel = sevKey ? (t[sevKey] || sevKey) : null;
-    suffix = " — Last tested: " + answers["hear_tested_when"] + (sevLabel ? ", Results: " + sevLabel : "");
-  }
-  return `<div class="ynrow"><div class="ynq">${q}${suffix}</div><div class="yna">${yn(k)}</div></div>`;
-}).join("")}
-<div class="row" style="margin-top:8px">
-  <div class="field"><label>Best ear</label><div class="val">${val("hear_best")}</div></div>
-  <div class="field"><label>Self-rated hearing (1–10)</label><div class="val">${val("hear_rating")}</div></div>
-</div>
-<div class="row">
-  <div class="field"><label>What has prevented addressing hearing</label><div class="val">${resistanceDisplay}</div></div>
+<div class="history-cols">
+  <div class="history-col">
+    <h2>Medical History</h2>
+    ${medRows}
+    <div class="row" style="margin-top:8px">
+      <div class="field"><label>Family with hearing loss/aids</label><div class="val">${familyDisplay}</div></div>
+    </div>
+  </div>
+  <div class="history-col">
+    <h2>Hearing History</h2>
+    ${hearingRows}
+    <div class="row" style="margin-top:8px">
+      <div class="field"><label>Best ear</label><div class="val">${val("hear_best")}</div></div>
+      <div class="field"><label>Self-rated (1–10)</label><div class="val">${val("hear_rating")}</div></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>What has prevented addressing hearing</label><div class="val">${resistanceDisplay}</div></div>
+    </div>
+  </div>
 </div>
 
 ${answers.aids_q ? `
@@ -768,13 +835,9 @@ ${answers.aids_q ? `
 <div class="row">
   <div class="field"><label>Hearing well with current aids?</label><div class="val">${yn("aids_satisfied")}</div></div>
   <div class="field"><label>If not, why?</label><div class="val">${val("aids_whyNot")}</div></div>
-  <div class="field"><label>Satisfaction rating (1–10)</label><div class="val">${val("aids_satisfRating")}</div></div>
+  <div class="field"><label>Satisfaction (1–10)</label><div class="val">${val("aids_satisfRating")}</div></div>
 </div>` : ""}
 
-<!-- Page 2: consent verbiage + signature. The clinic keeps this printed
-     alongside the patient's record so the signed acknowledgment is
-     archival, not just clicked-through-and-lost. English regardless of
-     kiosk language since it's for the clinic's files. -->
 <div class="consent-page">
   <div class="consent-section">
     <h3>${T.en.privacyTitle}</h3>
@@ -1208,51 +1271,47 @@ export default function IntakeKiosk() {
       setErrors({ sig: `Submission failed: ${e?.message || "unknown error"}. Please notify the front desk.` });
       return;
     }
-    // Render the printable intake HTML as a real PDF: download for the patient
-    // and upload to the patient_documents archive. The signed copy is the
-    // legal record we need for HIPAA + insurance acknowledgment compliance,
-    // so archive failure logs but does not block the submission.
-    const html = generateHTML(answers, intakeId, sigDataUrl, timestamp, t);
-    const fileName = `Intake_${answers.lastName || "Patient"}_${answers.firstName || ""}_${new Date().toLocaleDateString("en-US").replace(/\//g,"-")}.pdf`;
-    let pdfBlob = null;
-    try {
-      pdfBlob = await htmlToPdfBlob(html);
-    } catch (e) {
-      console.error("Render intake PDF:", e);
-    }
-    if (pdfBlob) {
-      // User download
-      const url = URL.createObjectURL(pdfBlob);
-      const a = document.createElement("a");
-      a.href = url; a.download = fileName;
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      // Archive (best-effort). returnRow:false skips the .select() chain so
-      // PostgREST issues a plain INSERT instead of INSERT...RETURNING — anon
-      // has no SELECT policy on patient_documents, and RETURNING would fail
-      // the SELECT RLS check on the new row (same workaround as submitIntake).
-      if (intakeRowId) {
-        try {
-          await uploadPatientDocument({
-            clinicId: KIOSK_CLINIC_ID,
-            intakeId: intakeRowId,
-            kind: "kiosk_intake",
-            blob: pdfBlob, fileName,
-            returnRow: false,
-            metadata: {
-              intakeRefId: intakeId,
-              submittedAt: timestamp,
-              lang,
-              firstName: answers.firstName || null,
-              lastName: answers.lastName || null,
-              dob: answers.dob || null,
-              privacyAgreed: !!answers.privacyAgreed,
-              insuranceAgreed: !!answers.insuranceAgreed,
-            },
-          });
-        } catch (e) {
-          console.error("Archive kiosk intake PDF:", e);
-        }
+    // Render the printable intake as a self-contained HTML file: download
+    // for the patient and upload to the patient_documents archive. HTML
+    // (not PDF) because jsPDF.html() mangled our flex layout — browsers
+    // render the same HTML perfectly when opened from the archive link.
+    // Logo + signature are embedded as data URLs so the file stays
+    // standalone (no broken-image links when opened from storage later).
+    const logoDataUrl = await imageUrlToDataUrl(MHC_LOGO_URL);
+    const html = generateHTML(answers, intakeId, sigDataUrl, timestamp, t, logoDataUrl);
+    const fileName = `Intake_${answers.lastName || "Patient"}_${answers.firstName || ""}_${new Date().toLocaleDateString("en-US").replace(/\//g,"-")}.html`;
+    const htmlBlob = new Blob([html], { type: "text/html" });
+    // User download
+    const url = URL.createObjectURL(htmlBlob);
+    const a = document.createElement("a");
+    a.href = url; a.download = fileName;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    // Archive (best-effort). returnRow:false skips the .select() chain so
+    // PostgREST issues a plain INSERT instead of INSERT...RETURNING — anon
+    // has no SELECT policy on patient_documents, and RETURNING would fail
+    // the SELECT RLS check on the new row (same workaround as submitIntake).
+    if (intakeRowId) {
+      try {
+        await uploadPatientDocument({
+          clinicId: KIOSK_CLINIC_ID,
+          intakeId: intakeRowId,
+          kind: "kiosk_intake",
+          blob: htmlBlob, fileName,
+          returnRow: false,
+          metadata: {
+            intakeRefId: intakeId,
+            submittedAt: timestamp,
+            lang,
+            firstName: answers.firstName || null,
+            lastName: answers.lastName || null,
+            dob: answers.dob || null,
+            privacyAgreed: !!answers.privacyAgreed,
+            insuranceAgreed: !!answers.insuranceAgreed,
+          },
+        });
+      } catch (e) {
+        console.error("Archive kiosk intake HTML:", e);
       }
     }
     setSubmitted(true);

@@ -185,9 +185,13 @@ export async function uploadPatientDocument({
     storagePath = `clinics/${clinicId}/patients/${patientId}/${kind}/${ts}_${cleanName}`
   }
 
+  // Use the blob's declared MIME type when available so HTML kiosk intakes
+  // are served as text/html (renders inline in a browser tab) instead of
+  // being mis-labeled as PDF (which makes the browser try to download them).
+  const contentType = blob.type || 'application/pdf'
   const { error: uploadErr } = await supabase.storage
     .from(DOCUMENTS_BUCKET)
-    .upload(storagePath, blob, { contentType: 'application/pdf', upsert: false })
+    .upload(storagePath, blob, { contentType, upsert: false })
   if (uploadErr) throw uploadErr
 
   const insertBuilder = supabase
@@ -2523,10 +2527,12 @@ export async function loadPatientHeader(patientId) {
 }
 
 // Patient-has-TNS flag for Zone 1 clinical strip. Any row present → show warning.
+// Also drives the patient-profile "TNS Reasons" display block — outcome_notes
+// is included so the optional free-text note renders alongside the tag chips.
 export async function loadPatientTnsFlag(patientId) {
   const { data } = await supabase
     .from('tns_outcomes')
-    .select('outcome_reasons, created_at')
+    .select('outcome_reasons, outcome_notes, created_at')
     .eq('patient_id', patientId)
     .order('created_at', { ascending: false })
     .limit(1)
