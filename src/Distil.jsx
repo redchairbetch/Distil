@@ -7719,29 +7719,41 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     {step < STEPS.length-1 ? (
                       step === 6 ? null : (
                         <button className="btn-primary" disabled={!canProceed} style={{opacity:canProceed?1:0.4}} onClick={async()=>{
-                          try {
-                            if (step === 0 && !wizardPatientId) {
-                              const name = [form.firstName, form.lastName].filter(Boolean).join(" ");
-                              const ins = form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null;
+                          // Step 0 persists the patient profile before advancing
+                          // so an abandoned wizard never loses the patient — a
+                          // failure here must surface and block, never be swallowed.
+                          if (step === 0 && !wizardPatientId) {
+                            const name = [form.firstName, form.lastName].filter(Boolean).join(" ");
+                            const ins = form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null;
+                            try {
                               const pid = await createPatientDraft({ id: genId(), name, dob: form.dob, phone: form.phone, email: form.email, address: form.address, payType: form.payType, notes: form.notes, insurance: ins }, staffId, clinicId);
                               setWizardPatientId(pid);
                               if (form.intakeId) {
                                 try { await linkIntakeToPatient(form.intakeId, pid, clinicId); }
                                 catch (e) { console.error('linkIntakeToPatient:', e); }
                               }
+                              setSaveError(null);
                               setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
-                            } else if (step === 2 && wizardPatientId) {
-                              await updatePatientAudiology(wizardPatientId, form.audiology, staffId);
-                              setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
-                            } else if (step === 5 && wizardPatientId) {
-                              const leftRec = buildSideRecord(form.left);
-                              const rightRec = buildSideRecord(form.right);
-                              const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
-                              const fittingType = leftRec && rightRec ? (isCROS ? "cros_bicros" : "bilateral") : leftRec ? "monaural_left" : "monaural_right";
-                              await updatePatientDevices(wizardPatientId, { left: leftRec, right: rightRec, fittingType, serialLeft: genId(), serialRight: genId() }, staffId);
-                              setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
+                            } catch (e) {
+                              console.error("createPatientDraft (wizard step 0):", e);
+                              setSaveError((e?.message || e?.toString() || "Unknown error") + " — patient profile not saved. Fix the issue and click Continue again.");
+                              return;
                             }
-                          } catch(e) { console.error("incremental save:", e); }
+                          } else {
+                            try {
+                              if (step === 2 && wizardPatientId) {
+                                await updatePatientAudiology(wizardPatientId, form.audiology, staffId);
+                                setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
+                              } else if (step === 5 && wizardPatientId) {
+                                const leftRec = buildSideRecord(form.left);
+                                const rightRec = buildSideRecord(form.right);
+                                const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
+                                const fittingType = leftRec && rightRec ? (isCROS ? "cros_bicros" : "bilateral") : leftRec ? "monaural_left" : "monaural_right";
+                                await updatePatientDevices(wizardPatientId, { left: leftRec, right: rightRec, fittingType, serialLeft: genId(), serialRight: genId() }, staffId);
+                                setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
+                              }
+                            } catch(e) { console.error("incremental save:", e); }
+                          }
                           // Private-pay skips Care Plan — Continue from Device
                           // Selection (step 5) jumps straight to Review (step 7).
                           setStep(s => (skipCarePlan && s === 5) ? 7 : s + 1);
