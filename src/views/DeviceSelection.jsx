@@ -12,6 +12,8 @@ import {
   loadCarePlanCatalog,
   loadPurchaseConfiguration,
   savePurchaseConfiguration,
+  verifyStaffCredentials,
+  logPriceAdjustment,
   saveProviderEditedRationale,
 } from '../db.js'
 import {
@@ -295,6 +297,7 @@ export default function DeviceSelection({ patientId, staffId, clinicId }) {
         payType={patient?.pay_type}
         carePlans={carePlans}
         defaultBundleMode={clinicSettings?.defaultBundleMode || 'bundled'}
+        overrideThresholdPercent={clinicSettings?.overrideManagerAuthThresholdPercent ?? 40}
         existingPurchase={existingPurchase}
         patientId={patientId}
         clinicId={clinicId}
@@ -701,10 +704,12 @@ function aidsFromLineItems(lineItems) {
   return hasL ? 'left' : 'pair'
 }
 
-function Zone5({ selectedRank, tiers, pricing, anchorsByKey, payType, carePlans, defaultBundleMode, existingPurchase, patientId, clinicId }) {
+function Zone5({ selectedRank, tiers, pricing, anchorsByKey, payType, carePlans, defaultBundleMode, overrideThresholdPercent, existingPurchase, patientId, clinicId }) {
   const [bundleMode, setBundleMode] = useState(existingPurchase?.bundleMode || defaultBundleMode || 'bundled')
   const [aids, setAids] = useState(existingPurchase ? aidsFromLineItems(existingPurchase.lineItems) : 'pair')
   const [save, setSave] = useState({ saving: false, savedAt: null, error: null })
+  const [adjustment, setAdjustment] = useState(null)
+  const [modalOpen, setModalOpen] = useState(false)
 
   const selectedTier = useMemo(() => pickTierForRank(tiers, selectedRank), [tiers, selectedRank])
   const selectedPricing = useMemo(
@@ -734,6 +739,12 @@ function Zone5({ selectedRank, tiers, pricing, anchorsByKey, payType, carePlans,
 
   const deviceTotal = perAid != null ? perAid * aidCount : null
   const total = deviceTotal != null ? deviceTotal + (bundled && ccPrice != null ? ccPrice : 0) : null
+  // An applied price override replaces the displayed and persisted total.
+  const effectiveTotal = adjustment ? adjustment.adjustedTotal : total
+
+  // A change to the configuration (tier, aids, bundle) invalidates a prior
+  // override — clear it so a stale adjusted price is never shown.
+  useEffect(() => { setAdjustment(null) }, [perAid, aids, bundled, ccPrice])
 
   async function handleSave() {
     if (perAid == null) return
@@ -741,7 +752,7 @@ function Zone5({ selectedRank, tiers, pricing, anchorsByKey, payType, carePlans,
     const result = await savePurchaseConfiguration(patientId, clinicId, {
       bundleMode,
       lineItems,
-      totalDisplayedPrice: total,
+      totalDisplayedPrice: effectiveTotal,
     })
     if (result?.success) setSave({ saving: false, savedAt: Date.now(), error: null })
     else setSave({ saving: false, savedAt: null, error: result?.error?.message || 'Save failed' })
@@ -757,6 +768,9 @@ function Zone5({ selectedRank, tiers, pricing, anchorsByKey, payType, carePlans,
   }
 
   const tierLabel = selectedPricing.tierLabel
+  const reasonLabel = adjustment
+    ? (REASON_CODES.find(r => r.value === adjustment.reasonCode)?.label || adjustment.reasonCode)
+    : null
 
   return (
     <div style={styles.zone5}>
@@ -811,16 +825,37 @@ function Zone5({ selectedRank, tiers, pricing, anchorsByKey, payType, carePlans,
         <span style={styles.purchaseTotalLabel}>
           Total{payType === 'private' ? '' : ' · patient cost'}
         </span>
-        <span style={styles.purchaseTotalValue}>{formatMoney(total)}</span>
+        <span style={styles.purchaseTotalValue}>{formatMoney(effectiveTotal)}</span>
       </div>
+      {adjustment && (
+        <div style={styles.adjustmentNote}>
+          Price adjusted — list total {formatMoney(adjustment.originalTotal)} · reason: {reasonLabel}
+        </div>
+      )}
 
       <div style={styles.purchaseSaveRow}>
         <button type="button" onClick={handleSave} disabled={save.saving} style={styles.saveBtn}>
           {save.saving ? 'Saving…' : 'Save purchase'}
         </button>
+        <button type="button" onClick={() => setModalOpen(true)} style={styles.adjustBtn}>
+          {adjustment ? 'Re-adjust price' : 'Adjust price'}
+        </button>
         {save.savedAt && <span style={styles.savedChip}>Saved</span>}
         {save.error && <span style={{ color: '#b91c1c', fontSize: 12 }}>{save.error}</span>}
       </div>
+
+      {modalOpen && (
+        <PriceAdjustmentModal
+          currentTotal={total}
+          thresholdPercent={overrideThresholdPercent}
+          patientId={patientId}
+          clinicId={clinicId}
+          bundleMode={bundleMode}
+          lineItems={lineItems}
+          onCancel={() => setModalOpen(false)}
+          onConfirmed={adj => { setAdjustment(adj); setModalOpen(false) }}
+        />
+      )}
     </div>
   )
 }
@@ -835,6 +870,185 @@ function LineItemRow({ label, amount, muted, note }) {
       <span style={{ ...styles.lineItemAmount, textDecoration: muted ? 'line-through' : 'none' }}>
         {formatMoney(amount)}
       </span>
+    </div>
+  )
+}
+
+// ============================================================
+// PRICE ADJUSTMENT
+// ============================================================
+
+const REASON_CODES = [
+  { value: 'preferred_provider_courtesy', label: 'Preferred-provider courtesy' },
+  { value: 'hardship_consideration',      label: 'Hardship consideration' },
+  { value: 'bundle_adjustment',           label: 'Bundle adjustment' },
+  { value: 'price_match',                 label: 'Price match' },
+  { value: 'loyalty_returning_patient',   label: 'Loyalty / returning patient' },
+  { value: 'clinical_judgment',           label: 'Clinical judgment' },
+  { value: 'other',                       label: 'Other' },
+]
+
+// Price-override authorization modal (spec §6). The provider re-enters
+// credentials and a reason; adjustments past the clinic threshold also
+// require a manager. Every confirmed adjustment is written to
+// price_adjustment_log. Verification, persistence, and logging all happen
+// here so any failure surfaces before the modal closes.
+function PriceAdjustmentModal({ currentTotal, thresholdPercent, patientId, clinicId, bundleMode, lineItems, onCancel, onConfirmed }) {
+  const [provEmail, setProvEmail] = useState('')
+  const [provPw, setProvPw] = useState('')
+  const [reasonCode, setReasonCode] = useState('')
+  const [reasonText, setReasonText] = useState('')
+  const [newPrice, setNewPrice] = useState('')
+  const [mgrEmail, setMgrEmail] = useState('')
+  const [mgrPw, setMgrPw] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+
+  const newTotal = newPrice.trim() === '' ? null : Number(newPrice)
+  const validNumber = newTotal != null && !Number.isNaN(newTotal) && newTotal >= 0
+  const deltaAmount = validNumber ? newTotal - currentTotal : null
+  const deltaPercent = !validNumber ? null : (currentTotal ? (deltaAmount / currentTotal) * 100 : 0)
+  const requiresManager = deltaPercent != null && Math.abs(deltaPercent) > thresholdPercent
+
+  async function handleConfirm() {
+    setError(null)
+    if (!validNumber) { setError('Enter a valid new price.'); return }
+    if (!reasonCode) { setError('Select a reason code.'); return }
+    if (reasonCode === 'other' && !reasonText.trim()) { setError('A justification is required for "Other".'); return }
+    if (!provEmail.trim() || !provPw) { setError('Enter the provider email and password.'); return }
+    if (requiresManager && (!mgrEmail.trim() || !mgrPw)) {
+      setError('This adjustment exceeds the threshold — manager authorization is required.'); return
+    }
+
+    setBusy(true)
+    try {
+      const prov = await verifyStaffCredentials(provEmail.trim(), provPw)
+      if (!prov.valid || !prov.staff) { setError('Provider credentials not recognized.'); setBusy(false); return }
+      if (prov.staff.clinic_id !== clinicId) { setError('That provider is not at this clinic.'); setBusy(false); return }
+
+      let managerId = null
+      if (requiresManager) {
+        const mgr = await verifyStaffCredentials(mgrEmail.trim(), mgrPw)
+        if (!mgr.valid || !mgr.staff) { setError('Manager credentials not recognized.'); setBusy(false); return }
+        if (mgr.staff.clinic_id !== clinicId) { setError('That manager is not at this clinic.'); setBusy(false); return }
+        if (!mgr.staff.is_manager) { setError('That staff member is not authorized as a manager.'); setBusy(false); return }
+        managerId = mgr.staff.id
+      }
+
+      const saved = await savePurchaseConfiguration(patientId, clinicId, {
+        bundleMode, lineItems, totalDisplayedPrice: newTotal,
+      })
+      if (!saved?.success) { setError(saved?.error?.message || 'Could not save the purchase.'); setBusy(false); return }
+
+      const logged = await logPriceAdjustment({
+        patientId, clinicId,
+        providerId: prov.staff.id,
+        managerId,
+        purchaseId: saved.configId,
+        productType: 'bundle',
+        originalPrice: currentTotal,
+        adjustedPrice: newTotal,
+        deltaAmount,
+        deltaPercent,
+        reasonCode,
+        reasonText: reasonText.trim() || null,
+        requiredManagerAuth: requiresManager,
+      })
+      if (!logged?.success) { setError(logged?.error?.message || 'Could not write the adjustment log.'); setBusy(false); return }
+
+      onConfirmed({
+        adjustedTotal: newTotal,
+        originalTotal: currentTotal,
+        deltaAmount,
+        deltaPercent,
+        reasonCode,
+        requiredManagerAuth: requiresManager,
+      })
+    } catch (e) {
+      setError(e?.message || 'Authorization failed.')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div style={styles.modalOverlay}>
+      <div style={styles.modalPanel}>
+        <div style={styles.modalTitle}>Price Adjustment Authorization</div>
+        <div style={styles.modalSub}>
+          Every adjustment is recorded. The provider documents this exception on the patient's behalf.
+        </div>
+
+        <div style={styles.modalPriceRow}>
+          <div>
+            <div style={styles.modalFieldLabel}>Current price</div>
+            <div style={styles.modalCurrentPrice}>{formatMoney(currentTotal)}</div>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={styles.modalFieldLabel}>New price</div>
+            <input
+              type="number"
+              value={newPrice}
+              onChange={e => setNewPrice(e.target.value)}
+              placeholder="0"
+              style={styles.modalInput}
+            />
+          </div>
+        </div>
+
+        {deltaAmount != null && (
+          <div style={styles.modalDelta}>
+            Delta: {deltaAmount >= 0 ? '+' : '-'}{formatMoney(Math.abs(deltaAmount))}
+            {' ('}{deltaPercent >= 0 ? '+' : '-'}{Math.abs(deltaPercent).toFixed(1)}{'%)'}
+            {requiresManager && (
+              <span style={styles.modalThresholdFlag}> · exceeds {thresholdPercent}% — manager required</span>
+            )}
+          </div>
+        )}
+
+        <div style={styles.modalField}>
+          <div style={styles.modalFieldLabel}>Reason</div>
+          <select value={reasonCode} onChange={e => setReasonCode(e.target.value)} style={styles.modalInput}>
+            <option value="">Select a reason…</option>
+            {REASON_CODES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+          </select>
+        </div>
+
+        {reasonCode === 'other' && (
+          <div style={styles.modalField}>
+            <div style={styles.modalFieldLabel}>Justification</div>
+            <textarea value={reasonText} onChange={e => setReasonText(e.target.value)} rows={2} style={styles.modalInput} />
+          </div>
+        )}
+
+        <div style={styles.modalCredHeader}>Provider authorization</div>
+        <div style={styles.modalField}>
+          <input type="email" value={provEmail} onChange={e => setProvEmail(e.target.value)} placeholder="Provider email" style={styles.modalInput} />
+        </div>
+        <div style={styles.modalField}>
+          <input type="password" value={provPw} onChange={e => setProvPw(e.target.value)} placeholder="Provider password" style={styles.modalInput} />
+        </div>
+
+        {requiresManager && (
+          <>
+            <div style={styles.modalCredHeader}>Manager authorization</div>
+            <div style={styles.modalField}>
+              <input type="email" value={mgrEmail} onChange={e => setMgrEmail(e.target.value)} placeholder="Manager email" style={styles.modalInput} />
+            </div>
+            <div style={styles.modalField}>
+              <input type="password" value={mgrPw} onChange={e => setMgrPw(e.target.value)} placeholder="Manager password" style={styles.modalInput} />
+            </div>
+          </>
+        )}
+
+        {error && <div style={styles.modalError}>{error}</div>}
+
+        <div style={styles.modalActions}>
+          <button type="button" onClick={onCancel} disabled={busy} style={styles.modalCancelBtn}>Cancel</button>
+          <button type="button" onClick={handleConfirm} disabled={busy} style={styles.modalConfirmBtn}>
+            {busy ? 'Authorizing…' : 'Confirm adjustment'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1163,6 +1377,140 @@ const styles = {
     border: 'none',
     borderRadius: 8,
     padding: '9px 18px',
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  adjustBtn: {
+    background: 'white',
+    border: `1px solid ${COLOR.line}`,
+    borderRadius: 8,
+    padding: '9px 16px',
+    fontSize: 13,
+    fontWeight: 600,
+    color: COLOR.ink,
+    cursor: 'pointer',
+  },
+  adjustmentNote: {
+    fontSize: 11,
+    color: COLOR.warn,
+    marginTop: 4,
+  },
+  modalOverlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(10, 22, 40, 0.92)',
+    zIndex: 9999,
+    overflowY: 'auto',
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    padding: '40px 16px',
+  },
+  modalPanel: {
+    background: 'white',
+    borderRadius: 16,
+    width: 520,
+    maxWidth: '100%',
+    padding: '28px 32px 32px',
+    boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+  },
+  modalTitle: {
+    fontFamily: "'Fraunces', Georgia, serif",
+    fontSize: 22,
+    fontWeight: 700,
+    color: COLOR.ink,
+  },
+  modalSub: {
+    fontSize: 12,
+    color: COLOR.muted,
+    marginTop: 4,
+    marginBottom: 18,
+    lineHeight: 1.5,
+  },
+  modalPriceRow: {
+    display: 'flex',
+    gap: 16,
+    alignItems: 'flex-end',
+    marginBottom: 10,
+  },
+  modalCurrentPrice: {
+    fontFamily: "'Fraunces', Georgia, serif",
+    fontSize: 24,
+    fontWeight: 700,
+    color: COLOR.ink,
+  },
+  modalDelta: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: COLOR.ink,
+    marginBottom: 14,
+  },
+  modalThresholdFlag: {
+    color: COLOR.warn,
+    fontWeight: 600,
+  },
+  modalField: {
+    marginBottom: 10,
+  },
+  modalFieldLabel: {
+    fontSize: 10,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    color: COLOR.muted,
+    marginBottom: 4,
+  },
+  modalInput: {
+    width: '100%',
+    border: `1px solid ${COLOR.line}`,
+    borderRadius: 8,
+    padding: '9px 11px',
+    fontSize: 14,
+    fontFamily: 'inherit',
+    color: COLOR.ink,
+    boxSizing: 'border-box',
+  },
+  modalCredHeader: {
+    fontSize: 11,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    color: COLOR.accent,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  modalError: {
+    background: '#fef2f2',
+    border: '1px solid #fecaca',
+    borderRadius: 8,
+    padding: '8px 12px',
+    fontSize: 13,
+    color: '#b91c1c',
+    marginTop: 10,
+  },
+  modalActions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 20,
+  },
+  modalCancelBtn: {
+    background: 'white',
+    border: `1px solid ${COLOR.line}`,
+    borderRadius: 8,
+    padding: '9px 18px',
+    fontSize: 13,
+    fontWeight: 600,
+    color: COLOR.muted,
+    cursor: 'pointer',
+  },
+  modalConfirmBtn: {
+    background: COLOR.accent,
+    color: 'white',
+    border: 'none',
+    borderRadius: 8,
+    padding: '9px 20px',
     fontSize: 13,
     fontWeight: 700,
     cursor: 'pointer',

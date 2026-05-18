@@ -5,7 +5,8 @@
 // so Distil.jsx needs minimal changes.
 // ============================================================
 
-import { supabase } from './supabase.js'
+import { createClient } from '@supabase/supabase-js'
+import { supabase, supabaseUrl, supabaseAnonKey } from './supabase.js'
 import { CONTENT_LIBRARY, CAMPAIGN_TIMELINE } from './nurture_seed_data.js'
 import { runRecommendationEngine } from './recommendationEngine.js'
 
@@ -40,6 +41,30 @@ export async function getCurrentStaff() {
     .single()
   if (error) return null
   return data
+}
+
+// Verify a staff member's email + password without disrupting the active
+// session — uses a throwaway, non-persisting Supabase client so the current
+// login is untouched. Used by the price-adjustment authorization modal.
+// Returns { valid, staff }.
+export async function verifyStaffCredentials(email, password) {
+  const probe = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+  try {
+    const { data, error } = await probe.auth.signInWithPassword({ email, password })
+    if (error || !data?.user) return { valid: false, staff: null }
+    const { data: staff } = await probe
+      .from('staff')
+      .select('id, clinic_id, full_name, role, is_manager')
+      .eq('id', data.user.id)
+      .single()
+    return { valid: true, staff: staff || null }
+  } catch {
+    return { valid: false, staff: null }
+  } finally {
+    try { await probe.auth.signOut({ scope: 'local' }) } catch { /* throwaway client */ }
+  }
 }
 
 // Subscribe to auth state changes (call in App useEffect)
@@ -1071,6 +1096,8 @@ export async function loadClinicSettings(clinicId) {
     phone:   data.phone    || '',
     accent:  data.accent_color || '#16a34a',
     defaultBundleMode: data.default_bundle_mode || 'bundled',
+    overrideManagerAuthThresholdPercent: data.override_manager_auth_threshold_percent != null
+      ? Number(data.override_manager_auth_threshold_percent) : 40,
   }
 }
 
@@ -2445,6 +2472,28 @@ export async function savePurchaseConfiguration(patientId, clinicId, { bundleMod
     if (itemsErr) { console.error('savePurchaseConfiguration insert items:', itemsErr); return { success: false, error: itemsErr } }
   }
   return { success: true, configId }
+}
+
+// Append a price-override row to the price_adjustment_log audit table.
+// Returns { success, error }.
+export async function logPriceAdjustment(entry) {
+  const { error } = await supabase.from('price_adjustment_log').insert({
+    patient_id:            entry.patientId,
+    clinic_id:             entry.clinicId,
+    provider_id:           entry.providerId,
+    manager_id:            entry.managerId || null,
+    purchase_id:           entry.purchaseId || null,
+    product_type:          entry.productType || 'bundle',
+    original_price:        entry.originalPrice,
+    adjusted_price:        entry.adjustedPrice,
+    delta_amount:          entry.deltaAmount,
+    delta_percent:         entry.deltaPercent,
+    reason_code:           entry.reasonCode,
+    reason_text:           entry.reasonText || null,
+    required_manager_auth: !!entry.requiredManagerAuth,
+  })
+  if (error) { console.error('logPriceAdjustment:', error); return { success: false, error } }
+  return { success: true }
 }
 
 
