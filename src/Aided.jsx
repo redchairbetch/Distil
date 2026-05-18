@@ -67,10 +67,10 @@ const ACHIEVEMENT_DISPLAY = {
 
 // ── Web Push helpers ─────────────────────────────────────────────────────────
 // Public VAPID key — safe to ship in the client; the matching private key
-// signs send-push requests on the edge function side. If we ever rotate keys,
-// existing subscriptions get a 410 from the push service and clients
-// re-subscribe on next launch.
-const VAPID_PUBLIC_KEY = 'BEixWcDNQsqiZJJ-bDLWdtThqhdCgH3mM6Udp7W9OPTAfxNGfhpmJN6rLTWx0kVyBT8LuHa3hGdkTSQdq5t-Quc';
+// signs send-push requests on the edge function side. Rotating the key
+// invalidates any existing subscriptions: a device must clear its old
+// subscription and re-subscribe before it can receive pushes again.
+const VAPID_PUBLIC_KEY = 'BJCKzkGWeA724r7lKUs2xwq19HGIazobrVD8FzZhr6kLgcBn9E1mSLatAGehFNjhYaM7KSA3iCrPGhNPZkmxPrk';
 
 function urlBase64ToUint8Array(b64) {
   const padding = '='.repeat((4 - b64.length % 4) % 4);

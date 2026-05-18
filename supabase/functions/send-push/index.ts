@@ -18,7 +18,7 @@ import webpush from 'npm:web-push@3.6.7';
 // Public half of the VAPID keypair — already shipped in the Aided client
 // (src/Aided.jsx). Safe to embed here; the private key is an edge secret.
 const VAPID_PUBLIC_KEY =
-  'BEixWcDNQsqiZJJ-bDLWdtThqhdCgH3mM6Udp7W9OPTAfxNGfhpmJN6rLTWx0kVyBT8LuHa3hGdkTSQdq5t-Quc';
+  'BJCKzkGWeA724r7lKUs2xwq19HGIazobrVD8FzZhr6kLgcBn9E1mSLatAGehFNjhYaM7KSA3iCrPGhNPZkmxPrk';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',

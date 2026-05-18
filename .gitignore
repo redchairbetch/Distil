@@ -2,3 +2,7 @@ node_modules/
 dist/
 .env
 .claude/
+
+# Local-only VAPID private key — set it as the VAPID_PRIVATE_KEY Supabase
+# secret, then delete this file. Never commit it.
+VAPID_PRIVATE_KEY.local.txt
