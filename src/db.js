@@ -431,6 +431,7 @@ function assemblePatient(row) {
     appointments: appts.map(a => ({
       date: a.appointment_date,
       type: a.appointment_type,
+      note: a.notes,
       status: a.status,
     })),
   }
@@ -951,18 +952,30 @@ export async function finalizePatient(patientId, status, devices, carePlan, note
     if (error) console.error('finalizePatient coverage:', error)
   }
 
-  // Insert appointments
+  // Insert appointments — guarded against a duplicate finalize (the Finalize
+  // Patient button has no click-guard) so the care arc isn't re-inserted.
   if (appointments?.length) {
-    const apptRows = appointments.map(appt => ({
-      patient_id:       patientId,
-      clinic_id:        clinicId,
-      staff_id:         staffId,
-      appointment_date: appt.date,
-      appointment_type: appt.type || null,
-      status:           'scheduled',
-    }))
-    const { error } = await supabase.from('appointments').insert(apptRows)
-    if (error) console.error('finalizePatient appointments:', error)
+    const dateKey = d => (d || '').split('T')[0]
+    const { data: existingAppts } = await supabase
+      .from('appointments')
+      .select('appointment_type, appointment_date')
+      .eq('patient_id', patientId)
+    const existingKeys = new Set((existingAppts || []).map(r => `${r.appointment_type}|${dateKey(r.appointment_date)}`))
+    const apptRows = appointments
+      .filter(appt => !existingKeys.has(`${appt.type || null}|${dateKey(appt.date)}`))
+      .map(appt => ({
+        patient_id:       patientId,
+        clinic_id:        clinicId,
+        staff_id:         staffId,
+        appointment_date: appt.date,
+        appointment_type: appt.type || null,
+        notes:            appt.note || null,
+        status:           'scheduled',
+      }))
+    if (apptRows.length) {
+      const { error } = await supabase.from('appointments').insert(apptRows)
+      if (error) console.error('finalizePatient appointments:', error)
+    }
   }
 
   // Auto-enroll in default campaign

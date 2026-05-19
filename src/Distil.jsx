@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import { parseMedRxPdf } from "./parsers/medrxParser.js";
 import { parseNHAX } from "./parsers/nhaxParser.js";
@@ -980,6 +980,51 @@ const CARE_PLANS = [
   { id:"punch", label:"MHC Punch Card", price:"$575" },
 ];
 const VISIT_TYPES = ["New Fitting","2-Week Follow-Up","4-Week Follow-Up","Quarterly Clean & Check","Annual Exam","Triage / Adjustment","Repair Appointment","Other"];
+// Regimented care arc auto-generated at fitting (backlog #5) — offsets are from the fitting date.
+const CARE_ARC = [
+  { offset: 0,  unit: "days",   type: "Fitting & Orientation",
+    note: "Orient the patient on device use and care; program to a comfortable starting level with acclimatization management enabled to ramp amplification toward prescriptive targets over four weeks." },
+  { offset: 2,  unit: "days",   type: "Day-2 Follow-Up Call",
+    note: "Phone check-in on first impressions, comfort, and any immediate concerns." },
+  { offset: 2,  unit: "weeks",  type: "2-Week Follow-Up",
+    note: "First in-office fine-tune; review device maintenance and daily care." },
+  { offset: 4,  unit: "weeks",  type: "4-Week Follow-Up",
+    note: "Perform real-ear measurement; set the acclimatization manager to reach prescriptive targets over the next two weeks." },
+  { offset: 6,  unit: "weeks",  type: "6-Week Follow-Up",
+    note: "Confirm the patient is comfortable and understanding well before transitioning to the quarterly clean-and-check cadence." },
+  { offset: 3,  unit: "months", type: "Quarterly Clean & Check",
+    note: "Routine cleaning and performance check." },
+  { offset: 6,  unit: "months", type: "Quarterly Clean & Check",
+    note: "Routine cleaning and performance check." },
+  { offset: 9,  unit: "months", type: "Quarterly Clean & Check",
+    note: "Routine cleaning and performance check." },
+  { offset: 12, unit: "months", type: "Annual Exam — Year 1",
+    note: "Annual audiometric re-evaluation and device performance review (covers this quarter's clean & check)." },
+  { offset: 15, unit: "months", type: "Quarterly Clean & Check",
+    note: "Routine cleaning and performance check." },
+  { offset: 18, unit: "months", type: "Quarterly Clean & Check",
+    note: "Routine cleaning and performance check." },
+  { offset: 21, unit: "months", type: "Quarterly Clean & Check",
+    note: "Routine cleaning and performance check." },
+  { offset: 24, unit: "months", type: "Annual Exam — Year 2",
+    note: "Annual audiometric re-evaluation and device performance review (covers this quarter's clean & check)." },
+  { offset: 27, unit: "months", type: "Quarterly Clean & Check",
+    note: "Routine cleaning and performance check." },
+  { offset: 30, unit: "months", type: "Quarterly Clean & Check",
+    note: "Routine cleaning and performance check." },
+  { offset: 33, unit: "months", type: "Quarterly Clean & Check",
+    note: "Routine cleaning and performance check." },
+  { offset: 36, unit: "months", type: "Annual Exam — Year 3",
+    note: "Annual audiometric re-evaluation and device performance review (covers this quarter's clean & check)." },
+  { offset: 39, unit: "months", type: "Quarterly Clean & Check",
+    note: "Routine cleaning and performance check." },
+  { offset: 42, unit: "months", type: "Quarterly Clean & Check",
+    note: "Routine cleaning and performance check." },
+  { offset: 45, unit: "months", type: "Quarterly Clean & Check",
+    note: "Routine cleaning and performance check." },
+  { offset: 48, unit: "months", type: "Year-4 Upgrade Consultation",
+    note: "Review device performance and warranty status; discuss upgrade options." },
+];
 
 const summarizeAudiogram = (p) => {
   if (!p.audiology) return null;
@@ -1015,6 +1060,21 @@ function warrantyDate(fittingDate, years=3) {
   const d = new Date(fittingDate);
   d.setFullYear(d.getFullYear() + years);
   return d.toISOString().split("T")[0];
+}
+// Expand CARE_ARC into concrete dated appointments (backlog #5). Dates are built
+// in local time from the 'YYYY-MM-DD' fitting date to avoid a UTC-parse day skew.
+function buildCareArc(fittingDate) {
+  if (!fittingDate) return [];
+  const [y, m, day] = String(fittingDate).slice(0, 10).split("-").map(Number);
+  if (!y || !m || !day) return [];
+  const pad = n => String(n).padStart(2, "0");
+  return CARE_ARC.map(({ offset, unit, type, note }) => {
+    const d = new Date(y, m - 1, day);
+    if (unit === "days") d.setDate(d.getDate() + offset);
+    else if (unit === "weeks") d.setDate(d.getDate() + offset * 7);
+    else if (unit === "months") d.setMonth(d.getMonth() + offset);
+    return { date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, type, note };
+  });
 }
 function daysUntil(dateStr) {
   return Math.ceil((new Date(dateStr) - new Date()) / 86400000);
@@ -1128,11 +1188,12 @@ const PHONEMES=[
   {label:'ch',freq:2500,db:54, displayFreq:2400,displayDb:54},
   {label:'sh',freq:2500,db:56, displayFreq:2650,displayDb:58},
   {label:'k',freq:3000,db:40, displayFreq:3000,displayDb:40},
+  {label:'t',freq:4000,db:30, displayFreq:3850,displayDb:30},
   {label:'f',freq:4000,db:44, displayFreq:4000,displayDb:44},
   {label:'s',freq:5000,db:40, displayFreq:5000,displayDb:40},
   {label:'th',freq:6000,db:44, displayFreq:6000,displayDb:44},
 ];
-const HIGH_FREQ_CONSONANTS=['s','th','f','sh','ch','k','p'];
+const HIGH_FREQ_CONSONANTS=['s','th','f','sh','ch','k','t','p'];
 
 // Pre-annotated paragraph for hearing simulation. Each segment: {t:text, ph:phoneme|null}
 // Paragraph intentionally loads high-frequency consonants (s,f,th,sh,ch,k,p).
@@ -1149,23 +1210,23 @@ const HEARING_SIM_TEXT = [
   {t:"I",ph:"a"},{t:" "},
   {t:"k",ph:"k"},{t:"ee",ph:"i"},{t:"p",ph:"p"},{t:" "},
   {t:"th",ph:"th"},{t:"e",ph:"e"},{t:" "},
-  {t:"t",ph:"d"},{t:"e",ph:"e"},{t:"l",ph:"l"},{t:"e",ph:"e"},{t:"v",ph:"v"},{t:"i",ph:"i"},{t:"s",ph:"z"},{t:"i",ph:"i"},{t:"o",ph:"o"},{t:"n",ph:"n"},{t:" "},
-  {t:"t",ph:"d"},{t:"oo",ph:"u"},{t:" "},
+  {t:"t",ph:"t"},{t:"e",ph:"e"},{t:"l",ph:"l"},{t:"e",ph:"e"},{t:"v",ph:"v"},{t:"i",ph:"i"},{t:"s",ph:"z"},{t:"i",ph:"i"},{t:"o",ph:"o"},{t:"n",ph:"n"},{t:" "},
+  {t:"t",ph:"t"},{t:"oo",ph:"u"},{t:" "},
   {t:"l",ph:"l"},{t:"ou",ph:"o"},{t:"d",ph:"d"},{t:","},{t:" "},
   // "but the sound seems fine to me. "
-  {t:"b",ph:"b"},{t:"u",ph:"u"},{t:"t",ph:"d"},{t:" "},
+  {t:"b",ph:"b"},{t:"u",ph:"u"},{t:"t",ph:"t"},{t:" "},
   {t:"th",ph:"th"},{t:"e",ph:"e"},{t:" "},
   {t:"s",ph:"s"},{t:"ou",ph:"o"},{t:"n",ph:"n"},{t:"d",ph:"d"},{t:" "},
   {t:"s",ph:"s"},{t:"ee",ph:"i"},{t:"m",ph:"m"},{t:"s",ph:"z"},{t:" "},
   {t:"f",ph:"f"},{t:"i",ph:"a"},{t:"n",ph:"n"},{t:"e"},{t:" "},
-  {t:"t",ph:"d"},{t:"o",ph:"u"},{t:" "},
+  {t:"t",ph:"t"},{t:"o",ph:"u"},{t:" "},
   {t:"m",ph:"m"},{t:"e",ph:"i"},{t:"."},{t:" "},
   // "She thinks I should get my hearing checked. "
   {t:"Sh",ph:"sh"},{t:"e",ph:"i"},{t:" "},
   {t:"th",ph:"th"},{t:"i",ph:"i"},{t:"n",ph:"n"},{t:"k",ph:"k"},{t:"s",ph:"s"},{t:" "},
   {t:"I",ph:"a"},{t:" "},
   {t:"sh",ph:"sh"},{t:"ou",ph:"u"},{t:"l",ph:"l"},{t:"d",ph:"d"},{t:" "},
-  {t:"g",ph:"g"},{t:"e",ph:"e"},{t:"t",ph:"d"},{t:" "},
+  {t:"g",ph:"g"},{t:"e",ph:"e"},{t:"t",ph:"t"},{t:" "},
   {t:"m",ph:"m"},{t:"y",ph:"a"},{t:" "},
   {t:"h",ph:"h"},{t:"ea",ph:"i"},{t:"r",ph:"r"},{t:"i",ph:"i"},{t:"n",ph:"n"},{t:"g",ph:"g"},{t:" "},
   {t:"ch",ph:"ch"},{t:"e",ph:"e"},{t:"ck",ph:"k"},{t:"e",ph:"e"},{t:"d",ph:"d"},{t:"."},{t:" "},
@@ -1176,11 +1237,11 @@ const HEARING_SIM_TEXT = [
   {t:"p",ph:"p"},{t:"eo",ph:"i"},{t:"p",ph:"p"},{t:"l",ph:"l"},{t:"e",ph:"e"},{t:" "},
   {t:"s",ph:"s"},{t:"p",ph:"p"},{t:"ea",ph:"i"},{t:"k",ph:"k"},{t:"i",ph:"i"},{t:"n",ph:"n"},{t:"g",ph:"g"},{t:","},{t:" "},
   // "but sometimes the words just aren't clear "
-  {t:"b",ph:"b"},{t:"u",ph:"u"},{t:"t",ph:"d"},{t:" "},
-  {t:"s",ph:"s"},{t:"o",ph:"o"},{t:"m",ph:"m"},{t:"e",ph:"e"},{t:"t",ph:"d"},{t:"i",ph:"a"},{t:"m",ph:"m"},{t:"e",ph:"e"},{t:"s",ph:"z"},{t:" "},
+  {t:"b",ph:"b"},{t:"u",ph:"u"},{t:"t",ph:"t"},{t:" "},
+  {t:"s",ph:"s"},{t:"o",ph:"o"},{t:"m",ph:"m"},{t:"e",ph:"e"},{t:"t",ph:"t"},{t:"i",ph:"a"},{t:"m",ph:"m"},{t:"e",ph:"e"},{t:"s",ph:"z"},{t:" "},
   {t:"th",ph:"th"},{t:"e",ph:"e"},{t:" "},
   {t:"w",ph:"v"},{t:"or",ph:"r"},{t:"d",ph:"d"},{t:"s",ph:"z"},{t:" "},
-  {t:"j",ph:"j"},{t:"u",ph:"u"},{t:"s",ph:"s"},{t:"t",ph:"d"},{t:" "},
+  {t:"j",ph:"j"},{t:"u",ph:"u"},{t:"s",ph:"s"},{t:"t",ph:"t"},{t:" "},
   {t:"a",ph:"a"},{t:"r",ph:"r"},{t:"e",ph:"e"},{t:"n",ph:"n"},{t:"'t"},{t:" "},
   {t:"c",ph:"k"},{t:"l",ph:"l"},{t:"ea",ph:"i"},{t:"r",ph:"r"},{t:" "},
   // "— especially in a restaurant "
@@ -1188,15 +1249,15 @@ const HEARING_SIM_TEXT = [
   {t:"e",ph:"e"},{t:"s",ph:"s"},{t:"p",ph:"p"},{t:"e",ph:"e"},{t:"ci",ph:"sh"},{t:"a",ph:"a"},{t:"ll",ph:"l"},{t:"y",ph:"i"},{t:" "},
   {t:"i",ph:"i"},{t:"n",ph:"n"},{t:" "},
   {t:"a",ph:"a"},{t:" "},
-  {t:"r",ph:"r"},{t:"e",ph:"e"},{t:"s",ph:"s"},{t:"t",ph:"d"},{t:"au",ph:"o"},{t:"r",ph:"r"},{t:"a",ph:"a"},{t:"n",ph:"n"},{t:"t",ph:"d"},{t:" "},
+  {t:"r",ph:"r"},{t:"e",ph:"e"},{t:"s",ph:"s"},{t:"t",ph:"t"},{t:"au",ph:"o"},{t:"r",ph:"r"},{t:"a",ph:"a"},{t:"n",ph:"n"},{t:"t",ph:"t"},{t:" "},
   // "or when the kids are talking fast."
   {t:"or",ph:"r"},{t:" "},
   {t:"wh",ph:"v"},{t:"e",ph:"e"},{t:"n",ph:"n"},{t:" "},
   {t:"th",ph:"th"},{t:"e",ph:"e"},{t:" "},
   {t:"k",ph:"k"},{t:"i",ph:"i"},{t:"d",ph:"d"},{t:"s",ph:"z"},{t:" "},
   {t:"a",ph:"a"},{t:"r",ph:"r"},{t:"e"},{t:" "},
-  {t:"t",ph:"d"},{t:"a",ph:"a"},{t:"l",ph:"l"},{t:"k",ph:"k"},{t:"i",ph:"i"},{t:"n",ph:"n"},{t:"g",ph:"g"},{t:" "},
-  {t:"f",ph:"f"},{t:"a",ph:"a"},{t:"s",ph:"s"},{t:"t",ph:"d"},{t:"."},
+  {t:"t",ph:"t"},{t:"a",ph:"a"},{t:"l",ph:"l"},{t:"k",ph:"k"},{t:"i",ph:"i"},{t:"n",ph:"n"},{t:"g",ph:"g"},{t:" "},
+  {t:"f",ph:"f"},{t:"a",ph:"a"},{t:"s",ph:"s"},{t:"t",ph:"t"},{t:"."},
 ];
 
 
@@ -1613,6 +1674,69 @@ function pickBaselinePerAid(leftEar, rightEar) {
   return Math.max(lp, rp);
 }
 
+
+// Patient-detail appointment list — collapsed to the next visit by default; expands to the full arc (backlog #5).
+function AppointmentSchedule({ appointments }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!appointments?.length) return null;
+  const sorted = [...appointments].sort((a, b) => new Date(a.date) - new Date(b.date));
+  const upcoming = sorted.filter(a => daysUntil(a.date) >= 0);
+  const past = sorted.filter(a => daysUntil(a.date) < 0).reverse();
+  const next = upcoming[0] || null;
+  const restUpcoming = upcoming.slice(1);
+  const hiddenCount = restUpcoming.length + past.length;
+  const relHint = (dateStr) => {
+    const d = daysUntil(dateStr);
+    return d <= 0 ? "today" : d === 1 ? "tomorrow" : `in ${d} days`;
+  };
+  const row = (a, key, muted) => (
+    <div className="detail-row" key={key}>
+      <span className="detail-key" style={muted ? { color: "#9ca3af" } : undefined}>{a.type}</span>
+      <span className="detail-val" style={muted ? { color: "#9ca3af" } : undefined}>{fmtDate(a.date)}</span>
+    </div>
+  );
+  return (
+    <div className="detail-card full">
+      <div className="detail-card-title">
+        Appointment Schedule{upcoming.length > 0 ? ` · ${upcoming.length} upcoming` : ""}
+      </div>
+      {next ? (
+        <div style={{ background: "#eff6ff", borderLeft: "3px solid #1d4ed8", borderRadius: 4, padding: "6px 8px", margin: "3px 0" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "#0a1628" }}>
+              {next.type}
+              <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, color: "#1d4ed8", background: "#dbeafe", borderRadius: 4, padding: "1px 5px", letterSpacing: 0.5 }}>NEXT</span>
+            </span>
+            <span style={{ fontSize: 13, color: "#374151", whiteSpace: "nowrap" }}>
+              {fmtDate(next.date)}
+              <span style={{ marginLeft: 6, fontSize: 11, color: "#6b7280" }}>({relHint(next.date)})</span>
+            </span>
+          </div>
+          {next.note && <div style={{ fontSize: 11, color: "#6b7280", marginTop: 3, lineHeight: 1.4 }}>{next.note}</div>}
+        </div>
+      ) : (
+        <div style={{ fontSize: 12, color: "#9ca3af", padding: "4px 0" }}>No upcoming appointments.</div>
+      )}
+      {expanded && (
+        <>
+          {restUpcoming.map((a, i) => row(a, `u${i}`, false))}
+          {past.length > 0 && (
+            <>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: "#9ca3af", margin: "10px 0 2px" }}>Past</div>
+              {past.map((a, i) => row(a, `p${i}`, true))}
+            </>
+          )}
+        </>
+      )}
+      {hiddenCount > 0 && (
+        <button onClick={() => setExpanded(e => !e)}
+          style={{ background: "none", border: "none", color: "#1d4ed8", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer", padding: "6px 0 0" }}>
+          {expanded ? "Show less" : `Show full schedule (${hiddenCount} more)`}
+        </button>
+      )}
+    </div>
+  );
+}
 
 export default function ProviderCRM({ staffId, clinicId }) {
   const [clinic, setClinic] = useState(DEFAULT_CLINIC);
@@ -2435,6 +2559,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
     });
   }, [step, wizardPatientId, staffId, clinicId]);
 
+  // .main keeps its scroll offset across step swaps — reset it when Care Plan (6) loads.
+  const mainRef = useRef(null);
+  useLayoutEffect(() => {
+    if (step === 6) mainRef.current?.scrollTo(0, 0);
+  }, [step]);
+
   // Clear non-TruHearing device selections when a private-label plan is chosen
   useEffect(() => {
     if (!isPrivateLabel) return;
@@ -2592,13 +2722,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
         const privatePay = form.payType === "private" && form.tierPrice != null
           ? { tier: form.tier, tierPrice: form.tierPrice }
           : null;
-        // Day-2 follow-up call — auto-scheduled at finalize for a real
-        // fitting (PA signed), anchored to the fitting date.
-        const day2Date = new Date(new Date(warrantyStart).getTime() + 2 * 86400000)
-          .toISOString().split("T")[0];
-        const finalizeAppointments = wizardPaSigned
-          ? [...(form.appointments || []), { date: day2Date, type: "Day-2 Follow-Up Call" }]
-          : (form.appointments || []);
+        // Regimented care arc — full 4-year schedule auto-generated at finalize for a signed fitting (backlog #5).
+        const existingApptKeys = new Set((form.appointments || []).map(a => `${a.type}|${a.date}`));
+        const careArc = wizardPaSigned
+          ? buildCareArc(warrantyStart).filter(a => !existingApptKeys.has(`${a.type}|${a.date}`))
+          : [];
+        const finalizeAppointments = [...(form.appointments || []), ...careArc];
         await finalizePatient(
           wizardPatientId,
           wizardPaSigned ? "active" : "tns",
@@ -5024,6 +5153,32 @@ export default function ProviderCRM({ staffId, clinicId }) {
               );
             })()}
           </div>
+          {/* Private-pay skips the step-6 Care Plan fork — surface PA + Quote here instead. */}
+          {form.payType === "private" && (isSideConfigured("left") || isSideConfigured("right")) && (
+            <div style={{marginTop:24,display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
+              <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:8,padding:"10px 16px",display:"flex",alignItems:"center",gap:8,maxWidth:520}}>
+                <span style={{fontSize:16}}>✓</span>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:"#15803d"}}>Complete Care+ included</div>
+                  <div style={{fontSize:11,color:"#16a34a"}}>Bundled with the device purchase — no separate charge.</div>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:12,width:"100%",justifyContent:"center",flexWrap:"wrap"}}>
+                <button
+                  style={{background:"#15803d",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:8}}
+                  onClick={()=>{ setPaSignatureName(""); setPaStep("review"); setShowWizardPaModal(true); }}
+                >
+                  <span style={{fontSize:16}}>📝</span> Sign Purchase Agreement
+                </button>
+                <button
+                  style={{background:"#1e40af",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:8}}
+                  onClick={handleGenerateQuote}
+                >
+                  <span style={{fontSize:16}}>📄</span> Generate Quote
+                </button>
+              </div>
+            </div>
+          )}
         </>
       );
     }
@@ -6702,14 +6857,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
             })()}
 
 
-            {p.appointments?.length > 0 && (
-              <div className="detail-card full">
-                <div className="detail-card-title">Appointment Schedule</div>
-                {p.appointments.sort((a,b)=>new Date(a.date)-new Date(b.date)).map((a,i)=>(
-                  <div className="detail-row" key={i}><span className="detail-key">{a.type}</span><span className="detail-val">{fmtDate(a.date)}</span></div>
-                ))}
-              </div>
-            )}
+            <AppointmentSchedule appointments={p.appointments} />
 
 
             {/* ── PERSONALIZATION PREVIEW (read-only) ──────────────────────────────── */}
@@ -7633,7 +7781,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
         </div>
 
 
-        <div className="main">
+        <div className="main" ref={mainRef}>
           {/* Save toast */}
           {saveToast && (
             <div style={{position:"fixed",top:16,right:16,zIndex:9999,background:"#0a1628",color:"#4ade80",padding:"10px 20px",borderRadius:10,fontSize:13,fontWeight:700,fontFamily:"'Sora',sans-serif",boxShadow:"0 4px 20px rgba(0,0,0,0.25)",display:"flex",alignItems:"center",gap:8,animation:"fadeIn 0.2s ease"}}>
