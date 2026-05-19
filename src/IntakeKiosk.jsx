@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { submitIntake, uploadPatientDocument } from "./db.js";
+import { generateIntakePdf } from "./generateIntakePdf.js";
 
 // MHC logo for the intake-PDF header. Resolved via import.meta.glob so the
 // build picks up whichever extension lives in src/assets/logos/MHC.* —
 // drop a PNG/SVG/JPG with that base name and it's used automatically.
-// Prefers PNG over SVG when both are present (image fidelity through
-// html2canvas is more reliable for raster than vector at small sizes).
+// Prefers PNG over SVG when both are present — jsPDF embeds a raster
+// image more predictably than a vector at the small header size.
 const MHC_LOGO_URL = (() => {
   const matches = import.meta.glob('./assets/logos/MHC.*', {
     eager: true, query: '?url', import: 'default',
@@ -18,10 +19,9 @@ const MHC_LOGO_URL = (() => {
   return null;
 })();
 
-// Convert a remote image URL to a data URL so the generated HTML stays
-// self-contained — when the archived intake is opened later from Supabase
-// storage, the logo still renders without depending on the kiosk origin.
-// Returns null on failure — the HTML template falls back to a text
+// Convert the bundled logo URL to a data URL so jsPDF can embed it via
+// addImage at PDF-generation time without a separate network round-trip.
+// Returns null on failure — generateIntakePdf falls back to a text
 // wordmark in that case.
 async function imageUrlToDataUrl(url) {
   if (!url) return null;
@@ -77,7 +77,7 @@ const US_STATES = [
 ];
 
 // Auto-format (XXX) XXX-XXXX as the user types. Stores the formatted string
-// (not raw digits) so generateHTML prints phones correctly without extra work.
+// (not raw digits) so the intake PDF prints phones correctly without extra work.
 function formatPhone(raw = "") {
   const digits = String(raw).replace(/\D/g, "").slice(0, 10);
   if (digits.length >= 7) return `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
@@ -157,6 +157,7 @@ const T = {
     ref_event: "Event or health fair",
     ref_walkin: "Walk-in",
     ref_other: "Other",
+    referrerNamePrompt: "Who referred you? (their name)",
 
     medQ_pain: "Do you have pain or discomfort in your ear(s)?",
     medQ_drain: "Do you have any drainage in your ear(s)?",
@@ -316,6 +317,7 @@ const T = {
     ref_event: "Evento o feria de salud",
     ref_walkin: "Sin cita previa",
     ref_other: "Otro",
+    referrerNamePrompt: "¿Quién lo/la recomendó? (su nombre)",
 
     medQ_pain: "¿Tiene dolor o molestia en su(s) oído(s)?",
     medQ_drain: "¿Tiene algún drenaje en su(s) oído(s)?",
@@ -426,7 +428,7 @@ const T = {
 };
 
 // ── Option tables ─────────────────────────────────────────────────────────────
-// Stored keys are stable across translations and consumed by generateHTML +
+// Stored keys are stable across translations and consumed by generateIntakePdf +
 // the provider-side Health History step. Display names come from the
 // translation dictionaries via the paired translation key.
 const REFERRAL_OPTIONS = [
@@ -504,7 +506,10 @@ const STEPS = [
   { id: "visit", type: "form", title: "visitTitle", sec: "secPersonal", fields: [
     { key: "visitReason", label: "visitReason", req: false, type: "textarea", width: "100%" },
     { key: "referralSource", label: "referral", req: false, type: "buttonGrid", width: "100%",
-      options: REFERRAL_OPTIONS, otherKey: "other", otherValueKey: "referralOther" },
+      options: REFERRAL_OPTIONS, reveals: [
+        { when: "other",         valueKey: "referralOther", placeholder: "otherDescribe" },
+        { when: "friend_family", valueKey: "referrerName",  placeholder: "referrerNamePrompt" },
+      ] },
   ]},
   { id: "med_pain", type: "yesno", sec: "secMedical", qKey: "medQ_pain", ansKey: "med_pain" },
   { id: "med_drain", type: "yesno", sec: "secMedical", qKey: "medQ_drain", ansKey: "med_drain" },
@@ -572,293 +577,6 @@ const CLINIC_INFO = {
   address: import.meta.env.VITE_CLINIC_ADDRESS || "",
   phone:   import.meta.env.VITE_CLINIC_PHONE   || "",
 };
-
-function generateHTML(answers, intakeId, signatureDataUrl, timestamp, t, logoDataUrl) {
-  const yn = (key) => answers[key] === true ? "Yes" : answers[key] === false ? "No" : "—";
-  // Radio/multiChoice answers are stored as canonical option keys (e.g.
-  // "female", "android", "right"); look up the localized label for the
-  // printable PDF, falling back to the raw value for free-text fields
-  // and any value with no translation entry.
-  const val = (key) => {
-    const raw = answers[key];
-    if (raw == null || raw === "") return "—";
-    return t[raw] || raw;
-  };
-  // DOB is stored as ISO YYYY-MM-DD — format as MM/DD/YYYY for the printed
-  // intake since that's what providers expect to scan quickly on paper.
-  const dobDisplay = (() => {
-    const p = parseIsoDob(answers.dob || "");
-    if (!p.year || !p.month || !p.day) return "—";
-    return `${String(p.month).padStart(2,"0")}/${String(p.day).padStart(2,"0")}/${p.year}`;
-  })();
-  const spouseDobDisplay = (() => {
-    const p = parseIsoDob(answers.spouseDob || "");
-    if (!p.year || !p.month || !p.day) return "—";
-    return `${String(p.month).padStart(2,"0")}/${String(p.day).padStart(2,"0")}/${p.year}`;
-  })();
-  // State is stored as 2-letter code; render the full name so the printed
-  // intake reads naturally.
-  const stateDisplay = (() => {
-    const code = answers.state;
-    if (!code) return "";
-    const found = US_STATES.find(([c]) => c === code);
-    return found ? found[1] : code;
-  })();
-  // Referral: render the selected source name + freeform "other" text when
-  // the user picked "Other".
-  const referralDisplay = (() => {
-    const src = answers.referralSource;
-    if (!src) return "—";
-    const found = REFERRAL_OPTIONS.find(([k]) => k === src);
-    const name = found ? (t[found[1]] || found[1]) : src;
-    if (src === "other" && answers.referralOther) return `${name} — ${answers.referralOther}`;
-    return name;
-  })();
-  // Multi-select arrays → comma-separated list of translated names, with
-  // "other" freeform text appended when present.
-  const multiDisplay = (arrKey, options, otherKey, otherValueKey) => {
-    const arr = Array.isArray(answers[arrKey]) ? answers[arrKey] : [];
-    if (!arr.length) return "—";
-    const names = arr
-      .filter(k => k !== otherKey)
-      .map(k => {
-        const found = options.find(([kk]) => kk === k);
-        return found ? (t[found[1]] || found[1]) : k;
-      });
-    if (arr.includes(otherKey)) {
-      const otherName = options.find(([k]) => k === otherKey);
-      const label = otherName ? (t[otherName[1]] || otherName[1]) : "Other";
-      const extra = answers[otherValueKey] ? `${label} (${answers[otherValueKey]})` : label;
-      names.push(extra);
-    }
-    return names.join(", ");
-  };
-  const familyDisplay     = multiDisplay("medFamilyHistory", FAMILY_OPTIONS, null, null);
-  const occupNoiseDisplay = multiDisplay("med_noise_occupational_types", NOISE_OPTIONS_OCCUPATIONAL, "other", "med_noise_occupational_other");
-  const recNoiseDisplay   = multiDisplay("med_noise_recreational_types", NOISE_OPTIONS_RECREATIONAL, "other", "med_noise_recreational_other");
-  const resistanceDisplay = multiDisplay("resistancePoints", RESISTANCE_OPTIONS, "other", "resistancePointsOther");
-  // Address line collapses optional apt and trailing spaces so the printed
-  // value reads naturally regardless of which fields the patient filled in.
-  const addressLine = [
-    [val("street"), val("apt") !== "—" ? val("apt") : ""].filter(s => s && s !== "—").join(" "),
-    val("city") !== "—" ? val("city") : "",
-    [stateDisplay, val("zip") !== "—" ? val("zip") : ""].filter(Boolean).join(" "),
-  ].filter(Boolean).join(", ") || "—";
-
-  // Clinic info block — rendered when env vars are set; absent block when
-  // unset (so blank deployments still look clean rather than printing
-  // empty placeholder lines).
-  const clinicBlock = (CLINIC_INFO.name || CLINIC_INFO.address || CLINIC_INFO.phone)
-    ? `<div class="clinic-info">
-         ${CLINIC_INFO.name    ? `<div class="clinic-name">${CLINIC_INFO.name}</div>`       : ""}
-         ${CLINIC_INFO.address ? `<div>${CLINIC_INFO.address}</div>`                         : ""}
-         ${CLINIC_INFO.phone   ? `<div>${CLINIC_INFO.phone}</div>`                           : ""}
-       </div>`
-    : `<div class="clinic-info"><div class="tagline">We Change Lives Through Better Hearing</div></div>`;
-
-  // Logo header — embedded image (data URL) when supplied, text wordmark
-  // fallback otherwise. Both render through html2canvas without same-origin
-  // concerns because the data URL is inlined.
-  const logoBlock = logoDataUrl
-    ? `<img class="logo-img" src="${logoDataUrl}" alt="My Hearing Centers" />`
-    : `<div class="logo-text">)) MY HEARING CENTERS</div>`;
-
-  // Medical history Q&A rendered into the left column of the two-column
-  // history grid. Suffixes inline diabetic type, doctor visit date, and
-  // noise-exposure type lists so the answer carries its qualifier without
-  // a separate field row.
-  const medRows = [
-    ["Pain or discomfort in ear(s)?",            "med_pain"],
-    ["Drainage in ear(s)?",                       "med_drain"],
-    ["Sudden/rapid hearing loss in past 90 days?","med_sudden"],
-    ["Ringing or other sounds in ears?",          "med_ring"],
-    ["Dizziness or vertigo?",                     "med_dizzy"],
-    ["Ears feel full or blocked?",                "med_full"],
-    ["Seen doctor regarding above?",              "med_doctor"],
-    ["Ever had ear surgery?",                     "med_surgery"],
-    ["Taking blood thinning medication?",         "med_thinner"],
-    ["Diabetic?",                                 "med_diabetic"],
-    ["Occupational noise exposure?",              "med_noise_occupational"],
-    ["Recreational noise exposure?",              "med_noise_recreational"],
-  ].map(([q, k]) => {
-    let suffix = "";
-    if (k === "med_diabetic"            && answers["med_diabetic_type"]) suffix = " — " + answers["med_diabetic_type"];
-    if (k === "med_doctor"              && answers["med_doctor_when"])   suffix = " (" + answers["med_doctor_when"] + ")";
-    if (k === "med_noise_occupational"  && occupNoiseDisplay !== "—")    suffix = " — " + occupNoiseDisplay;
-    if (k === "med_noise_recreational"  && recNoiseDisplay   !== "—")    suffix = " — " + recNoiseDisplay;
-    return `<div class="ynrow"><div class="ynq">${q}${suffix}</div><div class="yna">${yn(k)}</div></div>`;
-  }).join("");
-
-  const hearingRows = [
-    ["Had hearing tested before?",                "hear_tested"],
-    ["People seem to mumble?",                    "hear_mumble"],
-    ["Frequently ask people to repeat?",          "hear_repeat"],
-    ["Hear speaking but don't understand?",       "hear_understand"],
-    ["Difficulty hearing in noisy places?",       "hear_noisy"],
-    ["Told you speak loudly?",                    "hear_loud"],
-    ["Told you turn TV too loud?",                "hear_tv"],
-    ["Difficulty with children's voices?",        "hear_kids"],
-    ["Were aids recommended?",                    "hear_aids_recommended"],
-    ["Ready to improve if loss diagnosed?",       "hear_ready"],
-  ].map(([q, k]) => {
-    let suffix = "";
-    if (k === "hear_tested" && answers["hear_tested_when"]) {
-      const sevKey   = answers["hear_tested_results"];
-      const sevLabel = sevKey ? (t[sevKey] || sevKey) : null;
-      suffix = " — Last: " + answers["hear_tested_when"] + (sevLabel ? ", " + sevLabel : "");
-    }
-    return `<div class="ynrow"><div class="ynq">${q}${suffix}</div><div class="yna">${yn(k)}</div></div>`;
-  }).join("");
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"><title>Patient Intake — ${val("firstName")} ${val("lastName")}</title>
-<style>
-  body { font-family: Arial, sans-serif; font-size: 12px; color: #111; margin: 0; padding: 20px; }
-  .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0A7B8C; padding-bottom: 12px; margin-bottom: 16px; }
-  .header-left { display: flex; flex-direction: column; gap: 4px; }
-  .logo-img { display: block; height: 50px; width: auto; max-width: 280px; }
-  .logo-text { font-size: 20px; font-weight: bold; color: #0A7B8C; }
-  .clinic-info { font-size: 10px; color: #555; line-height: 1.45; }
-  .clinic-info .clinic-name { font-weight: 700; color: #0A7B8C; font-size: 11px; }
-  .clinic-info .tagline { font-style: italic; color: #5A7274; font-size: 10px; }
-  .meta { text-align: right; font-size: 11px; color: #555; }
-  h2 { font-size: 13px; color: #0A7B8C; border-bottom: 1px solid #D0DCDE; padding-bottom: 4px; margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.06em; }
-  .row { display: flex; gap: 16px; margin-bottom: 6px; }
-  .field { flex: 1; }
-  .field label { display: block; font-size: 10px; color: #777; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
-  .field .val { font-size: 12px; color: #111; border-bottom: 1px solid #ccc; padding-bottom: 2px; min-height: 16px; }
-  /* History columns — flex pair so medical + hearing read side-by-side under
-     patient info. Same .ynrow rendering inside each column. */
-  .history-cols { display: flex; gap: 24px; margin-bottom: 8px; }
-  .history-col { flex: 1; min-width: 0; }
-  .ynrow { display: flex; justify-content: space-between; align-items: flex-start; padding: 4px 0; border-bottom: 1px solid #eee; }
-  .ynq { flex: 1; font-size: 11px; padding-right: 6px; }
-  .yna { font-size: 11px; font-weight: bold; color: #0A7B8C; width: 36px; text-align: right; }
-  .sig-section { margin-top: 20px; border-top: 2px solid #0A7B8C; padding-top: 12px; }
-  .sig-img { border: 1px solid #ccc; max-width: 300px; height: 80px; }
-  .cert-text { font-size: 10px; color: #444; line-height: 1.5; margin-bottom: 10px; }
-  /* Consent block flows naturally below the questionnaire: privacy →
-     insurance → signature. page-break-before keeps it on its own sheet
-     so the signed acknowledgment is archival in isolation. */
-  .consent-page { page-break-before: always; }
-  .consent-section { margin-bottom: 18px; }
-  .consent-section h3 { font-size: 13px; color: #0A7B8C; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid #D0DCDE; padding-bottom: 4px; }
-  .consent-section p { font-size: 11px; line-height: 1.55; color: #333; margin: 6px 0; }
-  .consent-section ul { font-size: 11px; line-height: 1.55; color: #333; padding-left: 20px; margin: 6px 0; }
-  .consent-section li { margin-bottom: 4px; }
-  @page { margin: 15mm; size: letter; }
-  @media print { body { margin: 0; padding: 0; } }
-</style>
-</head>
-<body>
-<div class="header">
-  <div class="header-left">
-    ${logoBlock}
-    ${clinicBlock}
-  </div>
-  <div class="meta">
-    <div><strong>PATIENT INTAKE FORM</strong></div>
-    <div>Sycle ID: ___________</div>
-    <div>Intake ID: ${intakeId}</div>
-    <div>Date: ${new Date(timestamp).toLocaleDateString()}</div>
-  </div>
-</div>
-
-<h2>Patient Information</h2>
-<div class="row">
-  <div class="field"><label>First Name</label><div class="val">${val("firstName")}</div></div>
-  <div class="field"><label>M.I.</label><div class="val">${val("mi")}</div></div>
-  <div class="field"><label>Last Name</label><div class="val">${val("lastName")}</div></div>
-</div>
-<div class="row">
-  <div class="field"><label>Date of Birth</label><div class="val">${dobDisplay}</div></div>
-  <div class="field"><label>Gender</label><div class="val">${val("gender")}</div></div>
-  <div class="field"><label>Primary Care Physician</label><div class="val">${val("pcp")}</div></div>
-</div>
-<div class="row">
-  <div class="field"><label>Address</label><div class="val">${addressLine}</div></div>
-</div>
-<div class="row">
-  <div class="field"><label>Home Phone</label><div class="val">${val("homePhone")}</div></div>
-  <div class="field"><label>Mobile Phone</label><div class="val">${val("mobilePhone")}</div></div>
-  <div class="field"><label>Email</label><div class="val">${val("email")}</div></div>
-</div>
-<div class="row">
-  <div class="field"><label>Spouse</label><div class="val">${val("spouseName")}</div></div>
-  <div class="field"><label>Spouse DOB</label><div class="val">${spouseDobDisplay}</div></div>
-  <div class="field"><label>Spouse Phone</label><div class="val">${val("spousePhone")}</div></div>
-</div>
-<div class="row">
-  <div class="field"><label>Emergency Contact</label><div class="val">${val("emergencyName")}</div></div>
-  <div class="field"><label>Emergency Phone</label><div class="val">${val("emergencyPhone")}</div></div>
-  <div class="field"><label>Referred By</label><div class="val">${referralDisplay}</div></div>
-</div>
-<div class="row">
-  <div class="field"><label>Reason for Visit</label><div class="val">${val("visitReason")}</div></div>
-</div>
-
-<div class="history-cols">
-  <div class="history-col">
-    <h2>Medical History</h2>
-    ${medRows}
-    <div class="row" style="margin-top:8px">
-      <div class="field"><label>Family with hearing loss/aids</label><div class="val">${familyDisplay}</div></div>
-    </div>
-  </div>
-  <div class="history-col">
-    <h2>Hearing History</h2>
-    ${hearingRows}
-    <div class="row" style="margin-top:8px">
-      <div class="field"><label>Best ear</label><div class="val">${val("hear_best")}</div></div>
-      <div class="field"><label>Self-rated (1–10)</label><div class="val">${val("hear_rating")}</div></div>
-    </div>
-    <div class="row">
-      <div class="field"><label>What has prevented addressing hearing</label><div class="val">${resistanceDisplay}</div></div>
-    </div>
-  </div>
-</div>
-
-${answers.aids_q ? `
-<h2>Current Hearing Aids</h2>
-<div class="row">
-  <div class="field"><label>Which ear(s)</label><div class="val">${val("aids_ear")}</div></div>
-  <div class="field"><label>How often worn</label><div class="val">${val("aids_howOften")}</div></div>
-  <div class="field"><label>Age of aids</label><div class="val">${val("aids_howOld")}</div></div>
-</div>
-<div class="row">
-  <div class="field"><label>Brand</label><div class="val">${val("aids_brand")}</div></div>
-  <div class="field"><label>Style</label><div class="val">${val("aids_style")}</div></div>
-  <div class="field"><label>Cost</label><div class="val">${val("aids_cost")}</div></div>
-</div>
-<div class="row">
-  <div class="field"><label>Hearing well with current aids?</label><div class="val">${yn("aids_satisfied")}</div></div>
-  <div class="field"><label>If not, why?</label><div class="val">${val("aids_whyNot")}</div></div>
-  <div class="field"><label>Satisfaction (1–10)</label><div class="val">${val("aids_satisfRating")}</div></div>
-</div>` : ""}
-
-<div class="consent-page">
-  <div class="consent-section">
-    <h3>${T.en.privacyTitle}</h3>
-    <p>${T.en.privacyIntro}</p>
-    <ul>${T.en.privacyBullets.map(b => `<li>${b}</li>`).join("")}</ul>
-  </div>
-  <div class="consent-section">
-    <h3>${T.en.insTitle}</h3>
-    ${T.en.insText.split("\n\n").map(p => `<p>${p}</p>`).join("")}
-  </div>
-  <div class="sig-section">
-    <p class="cert-text">${T.en.sigCert}</p>
-    ${signatureDataUrl ? `<img class="sig-img" src="${signatureDataUrl}" alt="Patient Signature" />` : ""}
-    <div class="row" style="margin-top:8px">
-      <div class="field"><label>Authorized Signature</label><div class="val">&nbsp;</div></div>
-      <div class="field"><label>Date</label><div class="val">${new Date(timestamp).toLocaleDateString()}</div></div>
-    </div>
-  </div>
-</div>
-</body></html>`;
-}
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 function ProgressBar({ pct }) {
@@ -964,11 +682,15 @@ function StateDropdown({ value, onChange, error }) {
   );
 }
 
-// ── Single-select button grid (with optional "other" freeform) ────────────────
+// ── Single-select button grid (with optional conditional text reveals) ────────
 // Used for the referral source. Options live in `options` as [storageKey,
-// translationKey] pairs; selection writes storageKey to value; picking the
-// "other"-flagged key reveals a text input that writes to otherValue.
-function ButtonGrid({ options, value, onChange, otherKey, otherValue, onOtherChange, t }) {
+// translationKey] pairs; selection writes storageKey to value. `reveals` is a
+// list of { when, valueKey, placeholder }: when the selected option matches a
+// `when`, a freeform text input appears writing to answers[valueKey] — e.g.
+// "Other" → describe, "Friend or family referral" → name the referrer.
+function ButtonGrid({ options, value, onChange, reveals = [], answers, setAnswer, t }) {
+  // Single-select, so at most one reveal is active at a time.
+  const activeReveal = reveals.find(r => r.when === value);
   return (
     <>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
@@ -982,10 +704,11 @@ function ButtonGrid({ options, value, onChange, otherKey, otherValue, onOtherCha
           );
         })}
       </div>
-      {value === otherKey && (
+      {activeReveal && (
         <div style={{ marginTop: 12 }}>
-          <input type="text" value={otherValue || ""} onChange={e => onOtherChange(e.target.value)}
-            placeholder={t.otherDescribe}
+          <input type="text" value={answers?.[activeReveal.valueKey] || ""}
+            onChange={e => setAnswer(activeReveal.valueKey, e.target.value)}
+            placeholder={t[activeReveal.placeholder] || ""}
             style={{ width: "100%", boxSizing: "border-box", fontSize: 16, padding: "10px 14px", border: `2px solid ${C.border}`, borderRadius: 10, color: C.text, fontFamily: font, outline: "none" }} />
         </div>
       )}
@@ -1062,9 +785,9 @@ function FieldInput({ field, t, value, onChange, error, answers, setAnswer }) {
       <div style={{ ...st, marginBottom: 16 }}>
         <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>{lbl}</label>
         <ButtonGrid options={field.options} value={value} onChange={onChange}
-          otherKey={field.otherKey}
-          otherValue={answers?.[field.otherValueKey]}
-          onOtherChange={v => setAnswer(field.otherValueKey, v)}
+          reveals={field.reveals}
+          answers={answers}
+          setAnswer={setAnswer}
           t={t} />
         {error && <p style={{ color: C.red, fontSize: 12, marginTop: 4 }}>{error}</p>}
       </div>
@@ -1271,22 +994,27 @@ export default function IntakeKiosk() {
       setErrors({ sig: `Submission failed: ${e?.message || "unknown error"}. Please notify the front desk.` });
       return;
     }
-    // Render the printable intake as a self-contained HTML file: download
-    // for the patient and upload to the patient_documents archive. HTML
-    // (not PDF) because jsPDF.html() mangled our flex layout — browsers
-    // render the same HTML perfectly when opened from the archive link.
-    // Logo + signature are embedded as data URLs so the file stays
-    // standalone (no broken-image links when opened from storage later).
+    // Render the signed intake as a text-selectable PDF: generateIntakePdf
+    // lays the fields out directly with jsPDF so the archived copy is
+    // searchable and copy-pasteable. Logo + signature embed as images;
+    // every field value is real text. The same PDF is downloaded for the
+    // patient and uploaded to the patient_documents archive.
     const logoDataUrl = await imageUrlToDataUrl(MHC_LOGO_URL);
-    const html = generateHTML(answers, intakeId, sigDataUrl, timestamp, t, logoDataUrl);
-    const fileName = `Intake_${answers.lastName || "Patient"}_${answers.firstName || ""}_${new Date().toLocaleDateString("en-US").replace(/\//g,"-")}.html`;
-    const htmlBlob = new Blob([html], { type: "text/html" });
-    // User download
-    const url = URL.createObjectURL(htmlBlob);
-    const a = document.createElement("a");
-    a.href = url; a.download = fileName;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const doc = generateIntakePdf({
+      answers, intakeId, signatureDataUrl: sigDataUrl, timestamp, lang, T,
+      logoDataUrl, clinic: CLINIC_INFO,
+      lookups: {
+        referral: REFERRAL_OPTIONS,
+        family: FAMILY_OPTIONS,
+        noiseOccupational: NOISE_OPTIONS_OCCUPATIONAL,
+        noiseRecreational: NOISE_OPTIONS_RECREATIONAL,
+        resistance: RESISTANCE_OPTIONS,
+        states: US_STATES,
+      },
+    });
+    const fileName = `Intake_${answers.lastName || "Patient"}_${answers.firstName || ""}_${new Date().toLocaleDateString("en-US").replace(/\//g,"-")}.pdf`;
+    const pdfBlob = doc.output("blob");
+    doc.save(fileName); // patient's downloaded copy
     // Archive (best-effort). returnRow:false skips the .select() chain so
     // PostgREST issues a plain INSERT instead of INSERT...RETURNING — anon
     // has no SELECT policy on patient_documents, and RETURNING would fail
@@ -1297,7 +1025,7 @@ export default function IntakeKiosk() {
           clinicId: KIOSK_CLINIC_ID,
           intakeId: intakeRowId,
           kind: "kiosk_intake",
-          blob: htmlBlob, fileName,
+          blob: pdfBlob, fileName,
           returnRow: false,
           metadata: {
             intakeRefId: intakeId,
@@ -1311,7 +1039,7 @@ export default function IntakeKiosk() {
           },
         });
       } catch (e) {
-        console.error("Archive kiosk intake HTML:", e);
+        console.error("Archive kiosk intake PDF:", e);
       }
     }
     setSubmitted(true);
