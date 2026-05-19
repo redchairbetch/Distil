@@ -266,6 +266,39 @@ export async function getDocumentSignedUrl(storagePath, expiresIn = 3600) {
 
 
 // ============================================================
+// PUSH NOTIFICATIONS
+// ============================================================
+
+/**
+ * Send a Web Push notification to every active subscription the patient has
+ * registered from the Aided app. Routes through the `send-push` edge
+ * function, which holds the VAPID private key and does the payload
+ * encryption. The provider's session token is forwarded so the edge function
+ * can confirm a real authenticated caller (it rejects the bare anon key).
+ *
+ * Returns { ok, sent, failed }. `sent: 0` means the patient has no active
+ * subscription yet (hasn't enabled notifications in Aided).
+ */
+export async function sendPushNotification(patientId, { title, body, url = '/aided', tag = null }) {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not signed in')
+
+  const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-push`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ patient_id: patientId, title, body, url, tag }),
+  })
+
+  const result = await resp.json().catch(() => ({}))
+  if (!resp.ok) throw new Error(result.error || 'Failed to send notification')
+  return result
+}
+
+
+// ============================================================
 // HELPERS
 // ============================================================
 

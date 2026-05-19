@@ -92,6 +92,7 @@ import { downloadQuote } from "./generateQuote.js";
 import TnsReasonsPicker from "./components/TnsReasonsPicker.jsx";
 import { TNS_TAG_BY_ID } from "./tns_tags.js";
 import CreateQuoteModal from "./components/CreateQuoteModal.jsx";
+import SendNotificationModal from "./components/SendNotificationModal.jsx";
 import ContentLibrary from "./views/ContentLibrary.jsx";
 import NurturePreview from "./views/NurturePreview.jsx";
 import CampaignManager from "./views/CampaignManager.jsx";
@@ -1671,6 +1672,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
   // pricing without touching the patient's saved fitting. Distinct from the
   // existing "Generate Quote" button which uses the saved configuration.
   const [showCreateQuote, setShowCreateQuote] = useState(false);
+  // "Notify Patient" modal — sends a one-off Web Push to the patient's Aided
+  // app through the send-push edge function.
+  const [showSendNotification, setShowSendNotification] = useState(false);
 
   // Insurance plans from Supabase + retail anchors for pricing reveal.
   // Two anchor sets: signia-class is the default for insurance flows (the
@@ -5922,6 +5926,14 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 <span style={{fontSize:14}}>📄</span> Generate Purchase Agreement
               </button>
             )}
+            <button
+              style={{background:"#f1f5f9",color:"#475569",border:"1px solid #cbd5e1",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
+              onClick={() => setShowSendNotification(true)}
+              title="Send a push notification to this patient's Aided app"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+              Notify Patient
+            </button>
             <button className="btn-ghost" onClick={()=>setView("dashboard")}>{"\u2190"} Back</button>
           </div>
         </div>
@@ -5989,6 +6001,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
             insurancePlans={insurancePlans}
             onClose={() => setShowCreateQuote(false)}
             onArchived={() => { refreshDocuments?.(); }}
+          />
+        )}
+
+        {showSendNotification && (
+          <SendNotificationModal
+            patient={p}
+            onClose={() => setShowSendNotification(false)}
           />
         )}
 
