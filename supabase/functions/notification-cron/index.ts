@@ -7,8 +7,11 @@
 //
 //   POST /notification-cron  →  { ok, due, sent }
 //
-// Auth: the bearer token must equal the service-role key. Only the cron job
-// (or an operator) holds it — this is not a user-facing endpoint.
+// Auth: the bearer token must equal the cron shared secret. It is stored in
+// Vault (secret name: service_role_key) and read back via the
+// get_cron_auth_secret() RPC; the pg_cron job sends the same Vault secret, so
+// the two always agree. Not a user-facing endpoint; verify_jwt is disabled and
+// this token check is the gate.
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
@@ -77,12 +80,18 @@ const json = (body: unknown, status = 200) =>
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'method not allowed' }, 405);
 
-  // ── Auth: only the cron job (service-role key holder) may invoke this ─────
-  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-  const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
-  if (token !== serviceRoleKey) return json({ error: 'unauthorized' }, 401);
+  const admin = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+  );
 
-  const admin = createClient(Deno.env.get('SUPABASE_URL')!, serviceRoleKey);
+  // Auth: the caller must present the cron shared secret. get_cron_auth_secret()
+  // returns the Vault secret the pg_cron job also sends, so the two agree no
+  // matter which Supabase API-key format is in use. The RPC is service-role only.
+  const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
+  const { data: expectedToken, error: authErr } = await admin.rpc('get_cron_auth_secret');
+  if (authErr) return json({ error: 'auth check unavailable' }, 500);
+  if (!expectedToken || token !== expectedToken) return json({ error: 'unauthorized' }, 401);
 
   try {
     const { data: due, error } = await admin.rpc('get_due_notifications');
