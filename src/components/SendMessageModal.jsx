@@ -1,10 +1,14 @@
 import { useState } from 'react'
-import { sendPushNotification } from '../db.js'
+import { sendPatientMessage } from '../db.js'
 
-// "Notify Patient" modal launched from the patient profile. Sends a one-off
-// Web Push notification to every device the patient has registered through
-// the Aided app. Delivery runs through the send-push edge function (db.js →
-// sendPushNotification); this component only collects the message.
+// "Send Message" modal launched from the patient profile. Persists a message
+// to the patient's Aided inbox AND (if they've enabled notifications) fires a
+// Web Push with a deep-link back to the saved message. Delivery runs through
+// db.js → sendPatientMessage → send-push edge function.
+//
+// Replaces the earlier "Notify Patient" modal — the inbox makes this a real
+// messaging surface (longer bodies, persistent history, read receipts) rather
+// than a fire-and-forget toast.
 
 const C = {
   ink:    '#0a1628',
@@ -51,7 +55,11 @@ const PRESETS = [
   },
 ]
 
-export default function SendNotificationModal({ patient, onClose }) {
+// Soft character cap — not enforced, just shown so providers know when the
+// push preview will start truncating. Inbox body can be much longer.
+const PUSH_PREVIEW_LIMIT = 140
+
+export default function SendMessageModal({ patient, staffId, clinicId, onClose, onSent }) {
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [tag, setTag] = useState(null)
@@ -75,19 +83,24 @@ export default function SendNotificationModal({ patient, onClose }) {
     setSending(true)
     clearStatus()
     try {
-      const res = await sendPushNotification(patient.id, {
+      const res = await sendPatientMessage(patient.id, {
         title: title.trim(),
-        body: body.trim(),
+        body:  body.trim(),
         tag,
+        staffId,
+        clinicId,
       })
       setResult(res)
+      onSent?.(res)
     } catch (e) {
-      console.error('Send notification:', e)
+      console.error('Send message:', e)
       setError(e?.message || String(e))
     } finally {
       setSending(false)
     }
   }
+
+  const bodyOverLimit = body.length > PUSH_PREVIEW_LIMIT
 
   return (
     <div
@@ -103,7 +116,7 @@ export default function SendNotificationModal({ patient, onClose }) {
         onClick={e => e.stopPropagation()}
         style={{
           background: 'white', borderRadius: 12,
-          maxWidth: 520, width: '100%',
+          maxWidth: 560, width: '100%',
           boxShadow: '0 24px 60px rgba(0,0,0,0.25)',
           fontFamily: "'Sora', sans-serif",
         }}
@@ -113,9 +126,9 @@ export default function SendNotificationModal({ patient, onClose }) {
           padding: '20px 26px', borderBottom: `1px solid ${C.line}`,
         }}>
           <div>
-            <div style={{ fontSize: 17, fontWeight: 700, color: C.ink }}>Notify Patient</div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: C.ink }}>Send Message</div>
             <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
-              {patient?.name} · Push notification to their Aided app
+              {patient?.name} · Saved to their Aided inbox + push notification
             </div>
           </div>
           <button
@@ -149,7 +162,7 @@ export default function SendNotificationModal({ patient, onClose }) {
           </div>
 
           <div style={{ marginBottom: 14 }}>
-            <label style={labelStyle}>Notification title</label>
+            <label style={labelStyle}>Title</label>
             <input
               type="text"
               value={title}
@@ -159,32 +172,45 @@ export default function SendNotificationModal({ patient, onClose }) {
             />
           </div>
 
-          <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 8 }}>
             <label style={labelStyle}>Message</label>
             <textarea
               value={body}
               onChange={e => { setBody(e.target.value); clearStatus() }}
-              placeholder="What should the patient see?"
-              rows={3}
-              style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.5, minHeight: 70 }}
+              placeholder="What should the patient see? Longer notes, follow-ups, even the occasional lame joke."
+              rows={6}
+              style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.5, minHeight: 130 }}
             />
+            <div style={{
+              fontSize: 11, color: bodyOverLimit ? '#b45309' : C.muted,
+              marginTop: 4, display: 'flex', justifyContent: 'space-between',
+            }}>
+              <span>
+                {bodyOverLimit
+                  ? 'Push preview will be truncated — full message stays in their inbox.'
+                  : 'Full message appears in their Aided inbox; push shows a preview.'}
+              </span>
+              <span>{body.length} chars</span>
+            </div>
           </div>
 
           {result && (
             <div style={{
-              background: result.sent > 0 ? '#f0fdf4' : C.bgSoft,
-              color: result.sent > 0 ? '#15803d' : C.muted,
-              border: `1px solid ${result.sent > 0 ? '#bbf7d0' : C.line}`,
+              marginTop: 14,
+              background: result.pushSent > 0 ? '#f0fdf4' : C.bgSoft,
+              color: result.pushSent > 0 ? '#15803d' : C.muted,
+              border: `1px solid ${result.pushSent > 0 ? '#bbf7d0' : C.line}`,
               padding: '10px 14px', borderRadius: 6, fontSize: 13,
             }}>
-              {result.sent > 0
-                ? `Sent to ${result.sent} device${result.sent === 1 ? '' : 's'}.${result.failed ? ` ${result.failed} failed.` : ''}`
-                : "This patient hasn't turned on notifications in the Aided app yet."}
+              {result.pushSent > 0
+                ? `Saved to inbox · pushed to ${result.pushSent} device${result.pushSent === 1 ? '' : 's'}.${result.pushFailed ? ` ${result.pushFailed} push failed.` : ''}`
+                : 'Saved to inbox · push not sent (patient hasn’t enabled notifications yet).'}
             </div>
           )}
 
           {error && (
             <div style={{
+              marginTop: 14,
               background: '#fef2f2', color: '#991b1b',
               padding: '10px 14px', borderRadius: 6,
               fontSize: 13, border: '1px solid #fecaca',
@@ -214,7 +240,7 @@ export default function SendNotificationModal({ patient, onClose }) {
               color: 'white', border: 'none', borderRadius: 6,
               cursor: canSend ? 'pointer' : 'not-allowed',
             }}
-          >{sending ? 'Sending…' : 'Send Notification'}</button>
+          >{sending ? 'Sending…' : 'Send Message'}</button>
         </div>
       </div>
     </div>

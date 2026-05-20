@@ -299,6 +299,149 @@ export async function sendPushNotification(patientId, { title, body, url = '/aid
 
 
 // ============================================================
+// PATIENT MESSAGES (Inbox)
+// ============================================================
+
+// Truncate notification preview to fit the OS notification surface — mobile
+// platforms typically display ~120 chars before truncating anyway, and we
+// want the full body to live in the inbox, not the toast.
+const PUSH_PREVIEW_MAX = 140
+
+function previewForPush(body) {
+  const trimmed = (body || '').trim().replace(/\s+/g, ' ')
+  if (trimmed.length <= PUSH_PREVIEW_MAX) return trimmed
+  return trimmed.slice(0, PUSH_PREVIEW_MAX - 1).trimEnd() + '…'
+}
+
+/**
+ * Send a longer-form message to a patient. Persists to patient_messages so
+ * it shows up in their Aided inbox, then (optionally) fires a Web Push
+ * notification with a deep-link back to the saved message.
+ *
+ * Returns { messageId, pushSent, pushFailed }. pushSent === 0 means the
+ * patient hasn't enabled notifications yet (the message is still in the
+ * inbox, they'll see it next time they open Aided).
+ */
+export async function sendPatientMessage(patientId, {
+  title, body, tag = null, staffId, clinicId, firePush = true,
+}) {
+  if (!patientId) throw new Error('patientId required')
+  if (!title?.trim() || !body?.trim()) throw new Error('title and body required')
+  if (!staffId || !clinicId) throw new Error('staffId and clinicId required')
+
+  // 1. Insert the message — push_url is filled in once we know the id.
+  const { data: row, error: insertErr } = await supabase
+    .from('patient_messages')
+    .insert({
+      patient_id:      patientId,
+      clinic_id:       clinicId,
+      sender_role:     'clinic',
+      sender_staff_id: staffId,
+      title:           title.trim(),
+      body:            body.trim(),
+      tag:             tag || null,
+    })
+    .select('id')
+    .single()
+  if (insertErr) throw insertErr
+
+  const messageId = row.id
+  const pushUrl = `/aided?tab=inbox&msg=${messageId}`
+
+  // 2. Save the deep-link on the row so future re-sends or audits have it.
+  await supabase
+    .from('patient_messages')
+    .update({ push_url: pushUrl })
+    .eq('id', messageId)
+
+  // 3. Fire the push (optional). The push payload carries a preview, not the
+  //    full body — the inbox is the canonical place to read it.
+  let pushSent = 0
+  let pushFailed = 0
+  if (firePush) {
+    try {
+      const result = await sendPushNotification(patientId, {
+        title:  title.trim(),
+        body:   previewForPush(body),
+        url:    pushUrl,
+        tag,
+      })
+      pushSent = result?.sent || 0
+      pushFailed = result?.failed || 0
+      if (pushSent > 0) {
+        await supabase
+          .from('patient_messages')
+          .update({
+            push_fired_at:   new Date().toISOString(),
+            push_sent_count: pushSent,
+          })
+          .eq('id', messageId)
+      }
+    } catch (e) {
+      // Push failed but inbox row is saved — surface the error so the UI can
+      // distinguish "saved + push failed" from "fully saved + sent".
+      console.warn('sendPatientMessage: push delivery failed', e)
+      pushFailed = 1
+    }
+  }
+
+  return { messageId, pushSent, pushFailed }
+}
+
+/**
+ * Distil-side history list — every message sent to this patient, newest first.
+ * Includes read state and sender so the patient profile can show "Read MM/DD"
+ * vs. "Unread" next to each entry.
+ */
+export async function listMessagesForPatient(patientId) {
+  const { data, error } = await supabase
+    .from('patient_messages')
+    .select('id, title, body, tag, sender_role, sender_staff_id, push_fired_at, push_sent_count, read_at, created_at')
+    .eq('patient_id', patientId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
+/**
+ * Aided-side inbox list — same rows, but only the fields the patient app
+ * actually needs. Anon-readable thanks to the "Anon read messages" policy.
+ */
+export async function listInboxMessages(patientId) {
+  const { data, error } = await supabase
+    .from('patient_messages')
+    .select('id, title, body, tag, sender_role, read_at, created_at')
+    .eq('patient_id', patientId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
+/**
+ * Idempotent flip of read_at -> now() via the mark_message_read RPC.
+ * Anon-callable (SECURITY DEFINER) — see migration 014.
+ */
+export async function markMessageRead(messageId) {
+  if (!messageId) return
+  const { error } = await supabase.rpc('mark_message_read', { p_message_id: messageId })
+  if (error) throw error
+}
+
+/**
+ * Count of unread messages for the inbox nav badge in Aided. Anon-readable.
+ */
+export async function countUnreadMessages(patientId) {
+  const { count, error } = await supabase
+    .from('patient_messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('patient_id', patientId)
+    .is('read_at', null)
+  if (error) throw error
+  return count || 0
+}
+
+
+// ============================================================
 // HELPERS
 // ============================================================
 

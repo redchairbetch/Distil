@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from './supabase.js'
+import { listInboxMessages, markMessageRead, countUnreadMessages } from './db.js'
 
 // ── DEMO PATIENT (shown when no real data exists yet) ─────────────────────────
 const DEMO = {
@@ -336,7 +337,15 @@ export default function PatientApp() {
   const [clinicName, setClinicName] = useState("My Hearing Centers");
   const [tab, setTab] = useState(() => {
     const t = new URLSearchParams(window.location.search).get('tab');
-    return ['home','devices','care','schedule','help'].includes(t) ? t : 'home';
+    return ['home','devices','care','schedule','inbox','help'].includes(t) ? t : 'home';
+  });
+  // Inbox state — long-form messages from the clinic that persist beyond the
+  // push toast. Deep-linked from push notifications via ?tab=inbox&msg=<id>.
+  const [inboxMessages, setInboxMessages] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [expandedInboxId, setExpandedInboxId] = useState(() => {
+    const m = new URLSearchParams(window.location.search).get('msg');
+    return m || null;
   });
   const [checkedSteps, setCheckedSteps] = useState({});
   const [expandedTip, setExpandedTip] = useState(null);
@@ -385,6 +394,51 @@ export default function PatientApp() {
       } catch {}
     })();
   }, [patient?.id]);
+
+  // Inbox: load messages + unread count whenever the patient changes or the
+  // user returns to the Inbox tab (reading on another device should reflect
+  // here on re-entry). Demo patient has no real rows; skip the network call.
+  const refreshInbox = async (pid) => {
+    if (!pid || pid === 'DEMO01') {
+      setInboxMessages([]);
+      setUnreadCount(0);
+      return;
+    }
+    try {
+      const [msgs, unread] = await Promise.all([
+        listInboxMessages(pid),
+        countUnreadMessages(pid),
+      ]);
+      setInboxMessages(msgs);
+      setUnreadCount(unread);
+    } catch (err) {
+      console.warn('Inbox load failed:', err);
+    }
+  };
+
+  useEffect(() => { refreshInbox(patient?.id); }, [patient?.id]);
+  useEffect(() => {
+    if (tab === 'inbox') refreshInbox(patient?.id);
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When a message is expanded (either via tap or via the ?msg=<id> deep link),
+  // flip read_at server-side and update local state so the unread badge clears.
+  useEffect(() => {
+    if (!expandedInboxId) return;
+    const msg = inboxMessages.find(m => m.id === expandedInboxId);
+    if (!msg || msg.read_at) return;
+    (async () => {
+      try {
+        await markMessageRead(expandedInboxId);
+        setInboxMessages(rows => rows.map(r =>
+          r.id === expandedInboxId ? { ...r, read_at: new Date().toISOString() } : r
+        ));
+        setUnreadCount(c => Math.max(0, c - 1));
+      } catch (err) {
+        console.warn('markMessageRead failed:', err);
+      }
+    })();
+  }, [expandedInboxId, inboxMessages]);
 
   const savePunch = async (next) => {
     setPunchUsed(next);
@@ -1095,6 +1149,109 @@ export default function PatientApp() {
     );
   };
 
+  // ── INBOX ─────────────────────────────────────────────────────────────────
+  // Longer-form messages from the clinic. Push notifications drop a toast
+  // with a preview; the full message lives here. Tap to expand — that also
+  // flips read_at via the mark_message_read RPC (see migration 014).
+  const renderInbox = () => {
+    if (patient.id === 'DEMO01') {
+      return (
+        <>
+          <div className="header">
+            <div className="header-greeting">Inbox</div>
+            <div className="header-sub">Messages from your clinic</div>
+          </div>
+          <div className="section">
+            <div className="card"><div className="card-pad">
+              <div className="card-label">Demo Mode</div>
+              <div style={{fontSize:13,color:"#6b7280",lineHeight:1.55}}>
+                Once you scan your clinic's QR code, real messages from your provider will show up here.
+              </div>
+            </div></div>
+          </div>
+        </>
+      );
+    }
+    return (
+      <>
+        <div className="header">
+          <div className="header-greeting">Inbox</div>
+          <div className="header-sub">
+            {inboxMessages.length === 0
+              ? "Messages from your clinic will show up here"
+              : `${inboxMessages.length} message${inboxMessages.length === 1 ? "" : "s"}${unreadCount > 0 ? ` · ${unreadCount} unread` : ""}`}
+          </div>
+        </div>
+        <div className="section">
+          {inboxMessages.length === 0 ? (
+            <div className="card"><div className="card-pad">
+              <div style={{fontSize:32,textAlign:"center",marginBottom:8}}>📭</div>
+              <div style={{fontSize:14,fontWeight:600,color:"#0a1628",textAlign:"center",marginBottom:6}}>No messages yet</div>
+              <div style={{fontSize:12,color:"#6b7280",textAlign:"center",lineHeight:1.55}}>
+                When your clinic sends you a reminder, follow-up, or note, it will land here.
+              </div>
+            </div></div>
+          ) : (
+            <div className="card">
+              {inboxMessages.map((m, i) => {
+                const expanded = expandedInboxId === m.id;
+                const unread = !m.read_at;
+                return (
+                  <div
+                    key={m.id}
+                    onClick={() => setExpandedInboxId(expanded ? null : m.id)}
+                    style={{
+                      padding: "14px 16px",
+                      borderBottom: i === inboxMessages.length - 1 ? "none" : "1px solid #f5f5f7",
+                      cursor: "pointer",
+                      background: expanded ? "#f9fafb" : "transparent",
+                      transition: "background 0.15s",
+                    }}
+                  >
+                    <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                      <div style={{
+                        width: 8, height: 8, borderRadius: "50%",
+                        background: unread ? "#1d4ed8" : "transparent",
+                        marginTop: 6, flexShrink: 0,
+                      }} />
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{
+                          fontSize: 14,
+                          fontWeight: unread ? 700 : 500,
+                          color: "#0a1628",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: expanded ? "normal" : "nowrap",
+                        }}>{m.title}</div>
+                        {!expanded && (
+                          <div style={{
+                            fontSize: 12, color: "#6b7280", marginTop: 3,
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          }}>{m.body}</div>
+                        )}
+                        <div style={{fontSize:11,color:"#9ca3af",marginTop:4}}>{fmtDate(m.created_at)}</div>
+                      </div>
+                      <div style={{fontSize:12,color:"#9ca3af",marginTop:4}}>{expanded ? "▲" : "▼"}</div>
+                    </div>
+                    {expanded && (
+                      <div style={{
+                        fontSize: 14, color: "#374151", lineHeight: 1.6,
+                        marginTop: 12, paddingTop: 12,
+                        borderTop: "1px dashed #e5e7eb", whiteSpace: "pre-wrap",
+                      }}>
+                        {m.body}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </>
+    );
+  };
+
   const renderHelp = () => {
     const showNotifRow = patient.id !== 'DEMO01' && pushSupported();
     const permission = (typeof Notification !== 'undefined') ? Notification.permission : 'default';
@@ -1178,6 +1335,7 @@ export default function PatientApp() {
     { id:"devices", icon:"🎧", label:"Devices" },
     { id:"care", icon:"🧹", label:"Care" },
     { id:"schedule", icon:"📅", label:"Schedule" },
+    { id:"inbox", icon:"✉️", label:"Inbox" },
     { id:"help", icon:"💬", label:"Help" },
   ];
 
@@ -1193,11 +1351,25 @@ export default function PatientApp() {
         {tab==="devices" && renderDevices()}
         {tab==="care" && renderCare()}
         {tab==="schedule" && renderSchedule()}
+        {tab==="inbox" && renderInbox()}
         {tab==="help" && renderHelp()}
         <div className="bottom-nav">
           {TABS.map(t=>(
             <div key={t.id} className={`nav-tab ${tab===t.id?"active":""}`} onClick={()=>setTab(t.id)}>
-              <div className="nav-tab-icon">{t.icon}</div>
+              <div className="nav-tab-icon" style={{position:"relative"}}>
+                {t.icon}
+                {t.id === "inbox" && unreadCount > 0 && (
+                  <span style={{
+                    position: "absolute", top: -4, right: -10,
+                    background: "#ef4444", color: "white",
+                    fontSize: 9, fontWeight: 700,
+                    minWidth: 16, height: 16, padding: "0 4px",
+                    borderRadius: 10, display: "flex",
+                    alignItems: "center", justifyContent: "center",
+                    lineHeight: 1,
+                  }}>{unreadCount > 9 ? "9+" : unreadCount}</span>
+                )}
+              </div>
               <div className="nav-tab-label">{t.label}</div>
             </div>
           ))}
