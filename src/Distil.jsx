@@ -85,6 +85,7 @@ import {
   getDocumentSignedUrl,
   recordUpgradeOutcome,
   logAnalyticsEvent,
+  listMessagesForPatient,
 } from "./db.js";
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 import { downloadQuote } from "./generateQuote.js";
@@ -92,7 +93,7 @@ import { downloadQuote } from "./generateQuote.js";
 import TnsReasonsPicker from "./components/TnsReasonsPicker.jsx";
 import { TNS_TAG_BY_ID } from "./tns_tags.js";
 import CreateQuoteModal from "./components/CreateQuoteModal.jsx";
-import SendNotificationModal from "./components/SendNotificationModal.jsx";
+import SendMessageModal from "./components/SendMessageModal.jsx";
 import ContentLibrary from "./views/ContentLibrary.jsx";
 import NurturePreview from "./views/NurturePreview.jsx";
 import CampaignManager from "./views/CampaignManager.jsx";
@@ -1773,6 +1774,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [patientCampaigns, setPatientCampaigns] = useState([]);
   const [editPlanSearch, setEditPlanSearch] = useState("");
   const [patientDocuments, setPatientDocuments] = useState([]);
+  const [patientMessages, setPatientMessages] = useState([]);
+  const [expandedMessageId, setExpandedMessageId] = useState(null);
 
   // ── Intake queue state ────────────────────────────────────────────────
   const [pendingIntakes,  setPendingIntakes]  = useState([]);
@@ -2496,6 +2499,25 @@ export default function ProviderCRM({ staffId, clinicId }) {
       refreshDocuments();
     }
   }, [view, selectedPatient?.id, refreshDocuments]);
+
+  // Communication history (patient_messages) — Phase 1 surfaces clinic-sent
+  // inbox messages with read state; future SMS/email rows will land here too.
+  const refreshMessages = useCallback(async () => {
+    if (!selectedPatient?.id) return;
+    try {
+      const msgs = await listMessagesForPatient(selectedPatient.id);
+      setPatientMessages(msgs);
+    } catch (e) {
+      console.error("listMessagesForPatient:", e);
+    }
+  }, [selectedPatient?.id]);
+
+  useEffect(() => {
+    if (view === "patient" && selectedPatient?.id) {
+      setPatientMessages([]);
+      refreshMessages();
+    }
+  }, [view, selectedPatient?.id, refreshMessages]);
 
   // Load the most recent intake for the wizard's Health History step.
   // Triggered when the provider arrives at step 1 with a wizardPatientId
@@ -4037,13 +4059,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
         {hasAnyData && (
           <div className="card">
             <div className="card-title">Understanding Your Results</div>
-            {chiefComplaint && (
-              <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"12px 16px",marginBottom:16}}>
-                <div style={{fontSize:13,color:"#374151",fontStyle:"italic",lineHeight:1.6}}>
-                  You came in today because: {chiefComplaint}
-                </div>
-              </div>
-            )}
             {findingSentence && (
               <div style={{fontSize:14,color:"#0a1628",fontWeight:600,lineHeight:1.7,marginBottom:16}}>
                 {findingSentence}
@@ -6084,10 +6099,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <button
               style={{background:"#f1f5f9",color:"#475569",border:"1px solid #cbd5e1",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
               onClick={() => setShowSendNotification(true)}
-              title="Send a push notification to this patient's Aided app"
+              title="Send a message to this patient's Aided inbox (and push, if enabled)"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-              Notify Patient
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+              Send Message
             </button>
             <button className="btn-ghost" onClick={()=>setView("dashboard")}>{"\u2190"} Back</button>
           </div>
@@ -6160,9 +6175,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
         )}
 
         {showSendNotification && (
-          <SendNotificationModal
+          <SendMessageModal
             patient={p}
+            staffId={staffId}
+            clinicId={clinicId}
             onClose={() => setShowSendNotification(false)}
+            onSent={() => { refreshMessages?.(); }}
           />
         )}
 
@@ -6931,6 +6949,60 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 </div>
               </div>
             )}
+
+            {/* ── COMMUNICATION ──────────────────────────────────────────────────── */}
+            {/* Inbox messages we've sent to the patient's Aided app. Each row       */}
+            {/* shows title, sent timestamp, push delivery, and read state. Click    */}
+            {/* to expand the full body. Subsumes future SMS / email rows.           */}
+            <div className="detail-card full">
+              <div style={{display:"flex",alignItems:"center",marginBottom:14}}>
+                <div className="detail-card-title" style={{marginBottom:0}}>Communication</div>
+                <div style={{marginLeft:"auto",fontSize:11,color:"#9ca3af"}}>
+                  {patientMessages.length} message{patientMessages.length === 1 ? "" : "s"}
+                </div>
+              </div>
+              {patientMessages.length === 0 ? (
+                <div style={{fontSize:13,color:"#9ca3af",fontStyle:"italic",padding:"4px 0"}}>
+                  No messages sent yet. Use "Send Message" above to start one.
+                </div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {patientMessages.map(m => {
+                    const expanded = expandedMessageId === m.id;
+                    const pushed = !!m.push_fired_at;
+                    const readBadge = m.read_at
+                      ? { label: `Read ${fmtDate(m.read_at)}`, bg: "#dcfce7", color: "#15803d" }
+                      : pushed
+                        ? { label: "Delivered · unread",       bg: "#fef3c7", color: "#92400e" }
+                        : { label: "Inbox only · unread",      bg: "#e0e7ff", color: "#3730a3" };
+                    return (
+                      <div key={m.id}
+                        onClick={() => setExpandedMessageId(expanded ? null : m.id)}
+                        style={{padding:"12px 14px",background:"#f9fafb",borderRadius:8,border:"1px solid #e5e7eb",cursor:"pointer",transition:"background 0.15s"}}
+                      >
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:13,fontWeight:600,color:"#0a1628",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.title}</div>
+                            <div style={{fontSize:11,color:"#9ca3af",marginTop:2}}>
+                              Sent {fmtDate(m.created_at)}{pushed && m.push_sent_count > 0 ? ` · pushed to ${m.push_sent_count} device${m.push_sent_count === 1 ? "" : "s"}` : ""}
+                            </div>
+                          </div>
+                          <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:20,background:readBadge.bg,color:readBadge.color,letterSpacing:0.4,textTransform:"uppercase",whiteSpace:"nowrap"}}>
+                            {readBadge.label}
+                          </span>
+                          <span style={{fontSize:11,color:"#9ca3af",marginLeft:4}}>{expanded ? "▲" : "▼"}</span>
+                        </div>
+                        {expanded && (
+                          <div style={{fontSize:13,color:"#374151",lineHeight:1.55,marginTop:10,paddingTop:10,borderTop:"1px dashed #e5e7eb",whiteSpace:"pre-wrap"}}>
+                            {m.body}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             {/* ── UPGRADE TRACKING ─────────────────────────────────────────────────── */}
             {/* Year-4 / off-warranty conversation outcome. Surfaces in the           */}
@@ -7951,7 +8023,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 const cpPrice = cpId==="complete"?1250:(cpId==="punch"?575:0);
                 const cpWarranty = cpId==="complete"?4:3;
                 const cpDesc = cpId==="complete"?"Unlimited office visits, cleanings, adjustments & triage for the life of your hearing aids · 4-year warranty & loss/damage coverage":(cpId==="punch"?"All visits and cleanings covered for 4 years · 3-year manufacturer warranty":"$65 per visit · Annual exams covered");
-                const total = devTotal+cpPrice;
+                // Private pay bundles the care plan into the per-aid retail price,
+                // so the total reflects devices only and the plan renders as "Included".
+                const isPrivate = form.payType === 'private';
+                const total = devTotal + (isPrivate ? 0 : cpPrice);
                 const provName = staffProfile?.fullName||"Provider";
                 const provLic = staffProfile?.activeLicense||"";
                 const clinicObj = staffProfile?.clinic||clinic;
@@ -8006,13 +8081,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       </table>
 
                       {/* Care Plan */}
-                      <div style={ss.section}>Care Plan</div>
+                      <div style={ss.section}>{isPrivate ? "Included Care Plan" : "Care Plan"}</div>
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 14px"}}>
                         <div>
                           <div style={{fontWeight:700,fontSize:13,color:"#0a1628"}}>{cpLabel}</div>
-                          <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{cpDesc}</div>
+                          <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{isPrivate ? "Bundled with your device purchase — no separate charge" : cpDesc}</div>
                         </div>
-                        {cpPrice > 0 && <div style={{fontWeight:700,fontSize:14,color:"#0a1628"}}>${cpPrice.toLocaleString('en-US',{minimumFractionDigits:2})}</div>}
+                        {isPrivate
+                          ? <div style={{fontWeight:700,fontSize:14,color:"#15803d"}}>Included</div>
+                          : (cpPrice > 0 && <div style={{fontWeight:700,fontSize:14,color:"#0a1628"}}>${cpPrice.toLocaleString('en-US',{minimumFractionDigits:2})}</div>)
+                        }
                       </div>
 
                       {/* Total */}
