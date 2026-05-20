@@ -202,13 +202,13 @@ const INSURANCE_PLANS = [
 
 
 const BODY_STYLES = [
-  { id:"ric", label:"RIC / miniRITE", desc:"Receiver-in-canal · Most popular", hasReceiver:true, hasColor:true },
-  { id:"bte", label:"BTE", desc:"Behind-the-ear · Maximum power", hasReceiver:false, hasColor:true },
-  { id:"ite", label:"ITE", desc:"In-the-ear · Full shell", hasReceiver:false, hasColor:false },
-  { id:"itc", label:"ITC", desc:"In-the-canal · Half shell", hasReceiver:false, hasColor:false },
-  { id:"cic", label:"CIC", desc:"Completely-in-canal", hasReceiver:false, hasColor:false },
-  { id:"iic", label:"IIC", desc:"Invisible-in-canal", hasReceiver:false, hasColor:false },
-  { id:"if",  label:"IF",  desc:"Instant Fit · No receiver or dome", hasReceiver:false, hasColor:true },
+  { id:"ric", label:"RIC / miniRITE", desc:"Receiver-in-canal · Most popular", hasReceiver:true,  hasColor:true,  hasDome:true  },
+  { id:"bte", label:"BTE", desc:"Behind-the-ear · Maximum power",              hasReceiver:false, hasColor:true,  hasDome:false },
+  { id:"ite", label:"ITE", desc:"In-the-ear · Full shell",                     hasReceiver:false, hasColor:false, hasDome:false },
+  { id:"itc", label:"ITC", desc:"In-the-canal · Half shell",                   hasReceiver:false, hasColor:false, hasDome:false },
+  { id:"cic", label:"CIC", desc:"Completely-in-canal",                          hasReceiver:false, hasColor:false, hasDome:false },
+  { id:"iic", label:"IIC", desc:"Invisible-in-canal",                           hasReceiver:false, hasColor:false, hasDome:false },
+  { id:"if",  label:"IF",  desc:"Instant Fit · Dome only, no separate receiver", hasReceiver:false, hasColor:true,  hasDome:true  },
 ];
 const SKIN_TONES = ["Light Beige","Medium Beige","Medium-Dark Beige","Dark Beige","Invisible Matte"];
 
@@ -2658,7 +2658,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
       receiverLength: s.style==="ric" ? s.receiverLength : "",
       receiverPower: s.style==="ric" ? s.receiverPower : "",
       receiver: s.style==="ric" && s.receiverLength && s.receiverPower ? `Length ${s.receiverLength} · ${pwrLabel}` : "",
-      dome: s.style==="ric" ? (isEarmold ? "Custom Earmold" : s.dome) : "",
+      // Dome is RIC + IF; non-RIC dome-styles (IF) skip the earmold branch (no receiverPower).
+      dome: BODY_STYLES.find(b => b.id === s.style)?.hasDome
+              ? (isEarmold ? "Custom Earmold" : s.dome)
+              : "",
     };
   };
 
@@ -4964,6 +4967,20 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 )}
               </>
             )}
+
+            {/* ── IF (Instant Fit) — Dome only, no separate receiver ── */}
+            {!isPrivateLabel && s.style === "if" && s.techLevel && availDomes.length > 0 && (
+              <>
+                <div style={{height:1,background:"#f3f4f6",margin:"4px 0 16px"}} />
+                <div className="field" style={{marginBottom:0}}>
+                  <label>Dome Type</label>
+                  <select value={s.dome} onChange={e=>updSide(side,"dome",e.target.value)}>
+                    <option value="">Select…</option>
+                    {availDomes.map(dm=><option key={dm}>{dm}</option>)}
+                  </select>
+                </div>
+              </>
+            )}
           </div>
         );
       };
@@ -5574,6 +5591,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
               ...(!isTH && d.style==="ric" ? [
                 [d.receiverLength||"—", "Receiver Length"],
                 [pwrLabel, "Receiver Power"],
+              ] : []),
+              ...(!isTH && BODY_STYLES.find(b=>b.id===d.style)?.hasDome ? [
                 [isEm?"Custom Earmold":(d.dome||"—"), "Dome / Coupling"],
               ] : []),
             ].map(([v,k])=>(
@@ -6727,6 +6746,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
                             )}
                           </>)}
 
+                          {/* IF: Dome only, no receiver */}
+                          {sd.style === "if" && sd.techLevel && availDomes.length > 0 && (
+                            <div><label style={lblSty}>Dome / Coupling</label>
+                              <select value={sd.dome||""} onChange={e=>updSD({dome:e.target.value})} style={selSty}>
+                                <option value="">Select…</option>
+                                {availDomes.map(dm=><option key={dm} value={dm}>{dm}</option>)}
+                              </select>
+                            </div>
+                          )}
+
                         </div>
                       </div>
                     );
@@ -6764,7 +6793,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       <div key={idx}>
                         <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:6,paddingBottom:4,borderBottom:"1px solid #e5e7eb"}}>{sideLabel}</div>
                         {[["Manufacturer",side.manufacturer],["Model",side.family||"—"],["Tech Level",side.techLevel||"—"],["Body Style",BODY_STYLES.find(s=>s.id===side.style)?.label||side.style],["Color",side.color||"N/A"],["Battery",side.battery||"—"],
-                          ...(side.style==="ric"||side.style==="ric_bct"||side.style==="sr" ? [["Receiver Length",side.receiverLength||"—"],["Receiver Power",pwrLabel],["Dome / Coupling",domeVal]] : []),
+                          ...(side.style==="ric"||side.style==="ric_bct"||side.style==="sr" ? [["Receiver Length",side.receiverLength||"—"],["Receiver Power",pwrLabel]] : []),
+                          ...(BODY_STYLES.find(b=>b.id===side.style)?.hasDome||side.style==="ric_bct"||side.style==="sr" ? [["Dome / Coupling",domeVal]] : []),
                         ].map(([k,v])=>(
                           <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v||"—"}</span></div>
                         ))}
