@@ -42,6 +42,8 @@ import {
   saveClinicSettings,
   loadProductCatalog,
   saveProductCatalog,
+  saveCatalogEntry,
+  deleteCatalogEntry,
   loadPendingIntakes,
   subscribeToIntakes,
   acceptIntake as dbAcceptIntake,
@@ -363,8 +365,8 @@ const CATALOG_DEFAULT = [
     family:"Silk Charge&Go IX", styles:["if"],
     variants:["Standard","CROS"],
     techLevels:["7IX","5IX","3IX","2IX","1IX"],
-    colors:SKIN_TONES,
-    battery:["Rechargeable"], active:true, notes:"Instant-fit. No Bluetooth streaming." },
+    colors:["Black","Mocha"], faceplate:true,
+    battery:["Rechargeable"], active:true, notes:"Instant-fit. No Bluetooth streaming. Faceplate Black/Mocha; shell red (right)/blue (left)." },
 
 
   { id:"sig-insio-iic-ix", manufacturer:"Signia", generation:"IX",
@@ -400,9 +402,10 @@ const CATALOG_DEFAULT = [
 
 
   { id:"sig-active-ix", manufacturer:"Signia", generation:"IX",
-    family:"Active IX / Active Pro IX", styles:["if"],
-    variants:["Active Pro IX (7IX — full feature set)","Active IX (1IX — entry level)"],
+    family:"Active IX", styles:["if"],
+    variants:[],
     techLevels:["7IX","1IX"],
+    techLevelLabels:{ "7IX":"Active Pro IX (7IX — full feature set)", "1IX":"Active IX (1IX — entry level)" },
     colors:["Black","White","Champagne"],
     battery:["Rechargeable"], active:true, notes:"Earbud-style instant fit. Active Pro scored top 5% at HearAdvisor." },
 
@@ -444,8 +447,8 @@ const CATALOG_DEFAULT = [
     family:"Silk Charge&Go AX", styles:["if"],
     variants:["Standard"],
     techLevels:["7AX","5AX","3AX"],
-    colors:SKIN_TONES,
-    battery:["Rechargeable"], active:true, notes:"Instant-fit on AX platform." },
+    colors:["Black","Mocha"], faceplate:true,
+    battery:["Rechargeable"], active:true, notes:"Instant-fit on AX platform. Faceplate Black/Mocha; shell red (right)/blue (left)." },
 
 
   { id:"sig-insio-cg-ax-ite", manufacturer:"Signia", generation:"AX",
@@ -1854,13 +1857,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const [catSearch, setCatSearch] = useState("");
   const [catNewEntry, setCatNewEntry] = useState(false);
   const [catSaved, setCatSaved] = useState(false);
-
-
-
-  const saveCatalog = async (next) => {
-    setCatalog(next);
-    try { await saveProductCatalog(next); } catch {}
-  };
+  const [catError, setCatError] = useState(null);
 
 
   const EMPTY_SIDE = () => ({
@@ -3083,6 +3080,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 20px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.5); transition: all 0.15s; border-left: 3px solid transparent; }
     .nav-item:hover { background: rgba(255,255,255,0.05); color: white; }
     .nav-item.active { background: rgba(74,222,128,0.1); color: #4ade80; border-left-color: #4ade80; }
+    .nav-section-label { padding: 14px 20px 6px; font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(255,255,255,0.3); }
     .nav-icon { font-size: 16px; width: 20px; text-align: center; }
     .sidebar-footer { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.07); font-size: 11px; color: rgba(255,255,255,0.3); }
     /* MAIN */
@@ -3149,6 +3147,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
     .radio-pill.active { border-color: #0a1628; background: #0a1628; color: white; }
     .radio-pill-label { font-size: 13px; font-weight: 600; }
     .radio-pill-sub { font-size: 11px; opacity: 0.6; margin-top: 2px; }
+    /* Manufacturer pills: fixed bounding box so a single brand doesn't stretch
+       full-width, with a consistently legible logo footprint. */
+    .radio-group.mfr-group { justify-content: flex-start; }
+    .radio-pill.mfr-pill { flex: 0 0 auto; min-width: 128px; max-width: 168px; min-height: 54px; display: flex; align-items: center; justify-content: center; padding: 10px 18px; }
+    .radio-pill.mfr-pill.active { background: #f8fafc; color: inherit; box-shadow: inset 0 0 0 1px #0a1628; }
+    .radio-pill.mfr-pill img { height: 26px; max-width: 100%; object-fit: contain; display: block; }
     .plan-select-list { display: flex; flex-direction: column; gap: 8px; }
     .plan-row { border: 2px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: all 0.15s; }
     .plan-row:hover { border-color: #9ca3af; }
@@ -3214,6 +3218,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     .color-option { width: 32px; height: 32px; border-radius: 50%; cursor: pointer; border: 3px solid transparent; transition: all 0.15s; }
     .color-option.active { border-color: #0a1628; transform: scale(1.15); }
     .save-success { background: #dcfce7; color: #16a34a; border-radius: 8px; padding: 10px 16px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+    .save-error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 8px; padding: 10px 16px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
     .distil-badge { font-size: 9px; font-weight: 700; letter-spacing: 2px; color: rgba(255,255,255,0.3); text-transform: uppercase; margin-bottom: 2px; }
     /* PUNCH CARD */
     .punch-panel { background: linear-gradient(135deg, #0a1628 0%, #1a3050 100%); border-radius: 14px; padding: 24px; color: white; }
@@ -4635,12 +4640,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
             {!isPrivateLabel && (<>
               {s.style && availMfrs.length > 0 && (
                 <div className="field" style={{marginBottom:16}}><label>Manufacturer</label>
-                  <div className="radio-group">
+                  <div className="radio-group mfr-group">
                     {availMfrs.map(m=>(
-                      <div key={m} className={`radio-pill ${s.manufacturer===m?"active":""}`}
+                      <div key={m} className={`radio-pill mfr-pill ${s.manufacturer===m?"active":""}`}
                         onClick={()=>setForm(f=>({...f,[side]:{...f[side],manufacturer:m,generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:""}}))}>
                         {MFR_LOGO[m]
-                          ? <img src={MFR_LOGO[m]} alt={m} style={{height:18,objectFit:"contain",display:"block"}} />
+                          ? <img src={MFR_LOGO[m]} alt={m} />
                           : <div className="radio-pill-label">{m}</div>}
                       </div>
                     ))}
@@ -4698,7 +4703,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       return(!isNaN(na)&&!isNaN(nb))?na-nb:a.localeCompare(b);
                     }).map(t=>(
                       <div key={t} className={`radio-pill ${s.techLevel===t?"active":""}`} onClick={()=>updSide(side,"techLevel",t)}>
-                        <div className="radio-pill-label">{t}</div>
+                        <div className="radio-pill-label">{selectedFamily.techLevelLabels?.[t] || t}</div>
                       </div>
                     ))}
                   </div>
@@ -4901,7 +4906,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
             {/* ── 7–8. Color / Battery (standard catalog only) ── */}
             {!isPrivateLabel && (<>
               {s.techLevel && availColors.length > 0 && (
-                <div className="field" style={{marginBottom:16}}><label>Color</label>
+                <div className="field" style={{marginBottom:16}}><label>{selectedFamily?.faceplate ? "Faceplate Color" : "Color"}</label>
                   <div className="color-swatches">
                     {availColors.map(c=>(
                       <div key={c} className={`color-swatch ${s.color===c?"active":""}`} onClick={()=>updSide(side,"color",c)} style={{display:"flex",alignItems:"center",gap:6}}>
@@ -4912,6 +4917,12 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       </div>
                     ))}
                   </div>
+                  {selectedFamily?.faceplate && (
+                    <div style={{fontSize:11,color:"#6b7280",marginTop:8,display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{width:11,height:11,borderRadius:"50%",flexShrink:0,border:"1px solid #d1d5db",background: side==="left" ? "#2563eb" : "#dc2626"}} />
+                      Shell: {side==="left" ? "Blue (left ear)" : "Red (right ear)"} — fixed by side, not selectable.
+                    </div>
+                  )}
                 </div>
               )}
               {s.techLevel && availBatteries.length > 1 && (
@@ -5094,6 +5105,18 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 : retailPerAid * multiplier;
               const planCoversDisplay = retailDisplay - investmentDisplay;
               const savingsDisplay = Math.max(0, planCoversDisplay);
+              // Private-pay bundles Complete Care+ at no charge. Surface its retail
+              // value as an included line item and fold it into the retail/savings
+              // totals (insurance keeps CC+ as a separate step-6 care-plan choice).
+              const isPrivatePay = form.payType === "private";
+              const CC_PLUS_VALUE = 1250;
+              const ccPlusValue = isPrivatePay ? CC_PLUS_VALUE : 0;
+              const retailWithCare = retailDisplay + ccPlusValue;
+              const planCoversWithCare = planCoversDisplay + ccPlusValue;
+              const savingsWithCare = Math.max(0, planCoversWithCare);
+              const savingsPctDisplay = isPrivatePay
+                ? (retailWithCare > 0 ? Math.round((savingsWithCare / retailWithCare) * 100) : 0)
+                : savingsPct;
               // Anchor prices end in $.50 (e.g. 4997.50). Default toLocaleString
               // drops trailing zeros — "$4,997.5" — so force two decimals to
               // match the quote/PA output ([Distil.jsx:7542+] uses the same).
@@ -5159,27 +5182,37 @@ export default function ProviderCRM({ staffId, clinicId }) {
                         </div>
                       );
                     })()}
+                    {isPrivatePay && (
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10,paddingTop:10,borderTop:"1px solid #e5e7eb",fontSize:12}}>
+                        <span style={{color:"#374151",display:"flex",alignItems:"center",gap:6}}>
+                          <span style={{color:"#16a34a",fontWeight:700}}>✓</span> Complete Care+ <span style={{color:"#9ca3af"}}>(included)</span>
+                        </span>
+                        <span style={{color:"#9ca3af"}}>
+                          <span style={{textDecoration:"line-through"}}>${fmt(CC_PLUS_VALUE)}</span> value
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Plan covers */}
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
                     <span style={{color:"#6b7280"}}>Plan covers</span>
-                    <span style={{fontWeight:600,color:"#16a34a"}}>${fmt(planCoversDisplay)}</span>
+                    <span style={{fontWeight:600,color:"#16a34a"}}>${fmt(planCoversWithCare)}</span>
                   </div>
 
                   {/* Full retail value */}
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
                     <span style={{color:"#9ca3af"}}>Full retail value</span>
-                    <span style={{color:"#9ca3af",textDecoration:"line-through"}}>${fmt(retailDisplay)}</span>
+                    <span style={{color:"#9ca3af",textDecoration:"line-through"}}>${fmt(retailWithCare)}</span>
                   </div>
 
                   {/* Savings badge */}
                   <div style={{background:"#dcfce7",borderRadius:8,padding:"10px 14px",marginTop:8,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
                     <span style={{fontSize:13,fontWeight:700,color:"#166534"}}>
-                      You save ${fmt(savingsDisplay)}
+                      You save ${fmt(savingsWithCare)}
                     </span>
                     <span style={{background:"#16a34a",color:"white",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>
-                      {savingsPct}% off
+                      {savingsPctDisplay}% off
                     </span>
                   </div>
                 </div>
@@ -5189,13 +5222,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
           {/* Private-pay skips the step-6 Care Plan fork — surface PA + Quote here instead. */}
           {form.payType === "private" && (isSideConfigured("left") || isSideConfigured("right")) && (
             <div style={{marginTop:24,display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
-              <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:8,padding:"10px 16px",display:"flex",alignItems:"center",gap:8,maxWidth:520}}>
-                <span style={{fontSize:16}}>✓</span>
-                <div>
-                  <div style={{fontSize:13,fontWeight:700,color:"#15803d"}}>Complete Care+ included</div>
-                  <div style={{fontSize:11,color:"#16a34a"}}>Bundled with the device purchase — no separate charge.</div>
-                </div>
-              </div>
               <div style={{display:"flex",gap:12,width:"100%",justifyContent:"center",flexWrap:"wrap"}}>
                 <button
                   style={{background:"#15803d",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:8}}
@@ -7513,13 +7539,16 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
   const saveEditEntry = async () => {
-    let next;
-    if (catNewEntry) {
-      next = [...catalog, catDraft];
-    } else {
-      next = catalog.map(e => e.id === catDraft.id ? catDraft : e);
+    setCatError(null);
+    try {
+      await saveCatalogEntry(catDraft);
+    } catch (e) {
+      setCatError(e?.message || "Save failed — check your connection or admin permissions.");
+      return;
     }
-    await saveCatalog(next);
+    // Reflect in local state only after the DB write succeeds, so the list never
+    // shows a change that didn't actually persist.
+    setCatalog(prev => catNewEntry ? [...prev, catDraft] : prev.map(e => e.id === catDraft.id ? catDraft : e));
     // Keep the editor open after save. If this was a brand-new entry, transition
     // it into the "editing existing" rendering path so the panel stays attached to
     // its row in the list instead of vanishing with the New Entry form.
@@ -7531,23 +7560,45 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
   const deleteEntry = async (id) => {
-    const next = catalog.filter(e => e.id !== id);
-    await saveCatalog(next);
+    if (!window.confirm("Delete this product family? This removes it and its tier pricing.")) return;
+    setCatError(null);
+    try {
+      await deleteCatalogEntry(id);
+    } catch (e) {
+      setCatError(e?.message || "Delete failed — check your connection or admin permissions.");
+      return;
+    }
+    setCatalog(prev => prev.filter(e => e.id !== id));
     if (catEditId === id) { setCatEditId(null); setCatDraft(null); }
   };
 
 
   const toggleActive = async (id) => {
-    const next = catalog.map(e => e.id === id ? {...e, active: !e.active} : e);
-    await saveCatalog(next);
+    const item = catalog.find(e => e.id === id);
+    if (!item) return;
+    const updated = { ...item, active: !item.active };
+    setCatError(null);
+    try {
+      await saveCatalogEntry(updated);
+    } catch (e) {
+      setCatError(e?.message || "Update failed — check your connection or admin permissions.");
+      return;
+    }
+    setCatalog(prev => prev.map(e => e.id === id ? updated : e));
   };
 
 
   const resetToDefaults = async () => {
-    if (window.confirm("Reset catalog to factory defaults? This cannot be undone.")) {
-      await saveCatalog(CATALOG_DEFAULT);
-      setCatEditId(null); setCatDraft(null); setCatNewEntry(false);
+    if (!window.confirm("Reset catalog to factory defaults? This cannot be undone.")) return;
+    setCatError(null);
+    try {
+      await saveProductCatalog(CATALOG_DEFAULT);
+    } catch (e) {
+      setCatError(e?.message || "Reset failed — check your connection or admin permissions.");
+      return;
     }
+    setCatalog(CATALOG_DEFAULT);
+    setCatEditId(null); setCatDraft(null); setCatNewEntry(false);
   };
 
 
@@ -7586,6 +7637,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
               </div>
               <div className="catalog-edit-panel">
                 {catSaved && <div className="save-success">✓ Saved</div>}
+                {catError && <div className="save-error">⚠ {catError}</div>}
                 <div className="cat-field-row">
                   <div className="cat-field"><label>Manufacturer</label>
                     <input value={catDraft.manufacturer} onChange={e=>setCatDraft(d=>({...d,manufacturer:e.target.value}))} placeholder="e.g. Signia" />
@@ -7684,6 +7736,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 {isEditing && catDraft && (
                   <div className="catalog-edit-panel">
                     {catSaved && <div className="save-success">✓ Saved</div>}
+                    {catError && <div className="save-error">⚠ {catError}</div>}
                     <div className="cat-field-row">
                       <div className="cat-field"><label>Manufacturer</label>
                         <input value={catDraft.manufacturer} onChange={e=>setCatDraft(d=>({...d,manufacturer:e.target.value}))} />
@@ -7837,7 +7890,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div style={{fontSize:12,color:"rgba(255,255,255,0.7)",fontWeight:500,lineHeight:1.3}}>{clinic.address}</div>
           </div>
           <div className="sidebar-nav">
-            {[["🏠","Dashboard","dashboard"],["👥","Patients","patients"],["🔔","Follow-up","followup"],["📅","Schedule","schedule"],["📊","Reports","reports"],["📬","Campaigns","campaigns"],["📚","Content Library","content"],["🎖️","Lima Charlie","lima-charlie"],["📋","Product Catalog","catalog"],["⚙️","Settings","settings"]].map(([icon,label,id])=>{
+            {[["🏠","Dashboard","dashboard"],["👥","Patients","patients"],["🔔","Follow-up","followup"],["📅","Schedule","schedule"],["📊","Reports","reports"],["📬","Campaigns","campaigns"],["📚","Content Library","content"],["🎖️","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
               const badge = id === "followup" ? countFollowUpPatients(patients) : 0;
               return (
               <div key={id} className={`nav-item ${view===id||(id==="dashboard"&&view==="new")||(id==="patients"&&(view==="dashboard"||view==="patient"))?"active":""}`}
@@ -7851,6 +7904,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 )}
               </div>
             )})}
+            {/* Admin group — catalog/config tooling; gate behind an admin role later (backlog #17) */}
+            <div className="nav-section-label">Admin</div>
+            {[["📋","Product Catalog","catalog"],["⚙️","Settings","settings"]].map(([icon,label,id])=>(
+              <div key={id} className={`nav-item ${view===id?"active":""}`} onClick={()=>setView(id)}>
+                <span className="nav-icon">{icon}</span>{label}
+              </div>
+            ))}
           </div>
           {/* Intake queue button */}
           <div style={{padding:"12px 14px",borderTop:"1px solid rgba(255,255,255,0.07)"}}>
