@@ -1302,6 +1302,11 @@ export async function loadProductCatalog() {
     battery:      row.battery_options || [],
     active:       row.active,
     notes:        row.notes        || '',
+    // Optional per-family display metadata (stored in product_catalog.metadata):
+    //   techLevelLabels — rich labels for tech-level chips (e.g. Active IX)
+    //   faceplate       — color choice is a faceplate; shell is fixed red/blue by side (Silk)
+    techLevelLabels: row.metadata?.techLevelLabels || null,
+    faceplate:       row.metadata?.faceplate || false,
     tiers:        (row.product_catalog_tier || []).map(t => ({
       id:       t.id,
       tierName: t.tier_name,
@@ -1310,9 +1315,11 @@ export async function loadProductCatalog() {
   }))
 }
 
-export async function saveProductCatalog(catalogItems) {
-  // Upsert all items — admin only (enforced by RLS)
-  const rows = catalogItems.map(item => ({
+// Map a Distil catalog item to a product_catalog DB row. `metadata` is
+// deliberately omitted so editor saves preserve techLevelLabels/faceplate
+// (set via migration) instead of clobbering them.
+function toCatalogRow(item) {
+  return {
     id:              item.id,
     manufacturer:    item.manufacturer,
     family:          item.family,
@@ -1322,56 +1329,73 @@ export async function saveProductCatalog(catalogItems) {
     variants:        item.variants        || [],
     battery_options: item.battery         || [],
     colors:          item.colors          || [],
+    notes:           item.notes           ?? null,
     tpa:             item.tpa             || null,
     active:          item.active          ?? true,
-  }))
-  const { error } = await supabase
-    .from('product_catalog')
-    .upsert(rows, { onConflict: 'id' })
-  if (error) { console.error('saveProductCatalog:', error); return }
+  }
+}
 
-  // Sync product_catalog_tier rows for each family.
-  // Tiers carried back from the editor have an `id` if they were loaded from
-  // DB; new tiers (added via the chip editor for a brand-new techLevel) have
-  // no id and get inserted. Anything in DB that's no longer in the new set
-  // gets deleted.
-  const allCatalogIds = catalogItems.map(i => i.id)
-  if (!allCatalogIds.length) return
-
+// Sync product_catalog_tier rows for a single family. Tiers carried back from
+// the editor have an `id` if they were loaded from DB; new tiers (added via the
+// chip editor for a brand-new techLevel) have no id and get inserted. Anything
+// in DB for this family that's no longer in the set gets deleted. Throws on error.
+async function syncCatalogTiers(item) {
   const { data: existing, error: exErr } = await supabase
     .from('product_catalog_tier')
-    .select('id, product_catalog_id')
-    .in('product_catalog_id', allCatalogIds)
-  if (exErr) { console.error('saveProductCatalog tier scan:', exErr); return }
+    .select('id')
+    .eq('product_catalog_id', item.id)
+  if (exErr) { console.error('syncCatalogTiers scan:', exErr); throw exErr }
 
-  const wantedIds = new Set(
-    catalogItems.flatMap(item => (item.tiers || []).filter(t => t.id).map(t => t.id))
-  )
+  const wantedIds = new Set((item.tiers || []).filter(t => t.id).map(t => t.id))
   const toDelete = (existing || []).filter(r => !wantedIds.has(r.id)).map(r => r.id)
   if (toDelete.length) {
     const { error: delErr } = await supabase
-      .from('product_catalog_tier')
-      .delete()
-      .in('id', toDelete)
-    if (delErr) console.error('saveProductCatalog tier delete:', delErr)
+      .from('product_catalog_tier').delete().in('id', toDelete)
+    if (delErr) { console.error('syncCatalogTiers delete:', delErr); throw delErr }
   }
 
-  const tierRows = catalogItems.flatMap(item =>
-    (item.tiers || [])
-      .filter(t => t.tierName && t.tierName.trim())
-      .map(t => ({
-        ...(t.id ? { id: t.id } : {}),
-        product_catalog_id: item.id,
-        tier_name:          t.tierName,
-        msrp:               t.msrp != null && t.msrp !== '' ? Number(t.msrp) : null,
-      }))
-  )
+  const tierRows = (item.tiers || [])
+    .filter(t => t.tierName && t.tierName.trim())
+    .map(t => ({
+      ...(t.id ? { id: t.id } : {}),
+      product_catalog_id: item.id,
+      tier_name:          t.tierName,
+      msrp:               t.msrp != null && t.msrp !== '' ? Number(t.msrp) : null,
+    }))
   if (tierRows.length) {
     const { error: upErr } = await supabase
-      .from('product_catalog_tier')
-      .upsert(tierRows)
-    if (upErr) console.error('saveProductCatalog tier upsert:', upErr)
+      .from('product_catalog_tier').upsert(tierRows)
+    if (upErr) { console.error('syncCatalogTiers upsert:', upErr); throw upErr }
   }
+}
+
+// Bulk-upsert the whole catalog (used by Reset to Defaults). Admin only (RLS).
+// Throws on error so callers can surface failures instead of failing silently.
+export async function saveProductCatalog(catalogItems) {
+  const { error } = await supabase
+    .from('product_catalog')
+    .upsert(catalogItems.map(toCatalogRow), { onConflict: 'id' })
+  if (error) { console.error('saveProductCatalog:', error); throw error }
+  for (const item of catalogItems) await syncCatalogTiers(item)
+}
+
+// Upsert a single catalog family + its tiers. Admin only (RLS). Throws on error.
+export async function saveCatalogEntry(item) {
+  const { error } = await supabase
+    .from('product_catalog')
+    .upsert([toCatalogRow(item)], { onConflict: 'id' })
+  if (error) { console.error('saveCatalogEntry:', error); throw error }
+  await syncCatalogTiers(item)
+}
+
+// Delete a catalog family and its tier rows. Admin only (RLS). Throws on error.
+export async function deleteCatalogEntry(id) {
+  const { error: tErr } = await supabase
+    .from('product_catalog_tier').delete().eq('product_catalog_id', id)
+  if (tErr) { console.error('deleteCatalogEntry tiers:', tErr); throw tErr }
+  const { error } = await supabase
+    .from('product_catalog').delete().eq('id', id)
+  if (error) { console.error('deleteCatalogEntry:', error); throw error }
 }
 
 // Load all tier rows (one per device tier within a family) with their parent
