@@ -30,9 +30,34 @@ const DEMO = {
 
 const CARE_PLAN_LABELS = { complete: "Complete Care+", punch: "MHC Punch Card", paygo: "Standard Billing" };
 
-function fmtDate(d) { return new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); }
-function daysUntil(dateStr) { return Math.ceil((new Date(dateStr) - new Date()) / 86400000); }
-function daysAgo(dateStr) { return Math.ceil((new Date() - new Date(dateStr)) / 86400000); }
+// Parse a bare 'YYYY-MM-DD' as a local-time Date. `new Date('YYYY-MM-DD')` is
+// UTC midnight, which renders a day earlier in negative-offset US timezones —
+// so fitting/warranty dates were showing one day off. Returns null for anything
+// that isn't a bare date so timestamptz values fall through.
+function parseDateOnly(s) {
+  if (typeof s !== "string") return null;
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? new Date(+m[1], +m[2]-1, +m[3]) : null;
+}
+function fmtDate(d) { return (parseDateOnly(d) || new Date(d)).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); }
+function daysUntil(dateStr) {
+  const dateOnly = parseDateOnly(dateStr);
+  if (dateOnly) {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return Math.round((dateOnly - today) / 86400000);
+  }
+  return Math.ceil((new Date(dateStr) - new Date()) / 86400000);
+}
+function daysAgo(dateStr) {
+  const dateOnly = parseDateOnly(dateStr);
+  if (dateOnly) {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return Math.round((today - dateOnly) / 86400000);
+  }
+  return Math.ceil((new Date() - new Date(dateStr)) / 86400000);
+}
 
 const CLEANING_STEPS = [
   { icon:"🪮", title:"Wipe the shell", desc:"Use the soft dry cloth to gently wipe the outer surface of both hearing aids. Never use water or cleaning sprays." },
