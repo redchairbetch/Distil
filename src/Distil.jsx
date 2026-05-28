@@ -3148,25 +3148,23 @@ export default function ProviderCRM({ staffId, clinicId }) {
     .radio-pill-label { font-size: 13px; font-weight: 600; }
     .radio-pill-sub { font-size: 11px; opacity: 0.6; margin-top: 2px; }
     /* Manufacturer pills: fixed 140x68 footprint with per-brand logo heights
-       tuned to each brand's native aspect and internal canvas padding, so
-       visual weight is even across all eight. Rexton's source PNG has a solid
-       black background; until it's re-exported on transparent, frame the pill
-       in matching black so the badge reads as intentional. */
+       tuned to each brand's native aspect, so visual weight is even across
+       all eight. Source PNGs for Phonak/Resound/Rexton/Starkey were re-exported
+       to trim transparent canvas padding, strip Rexton's solid black
+       background, and drop Starkey's "Hearing Technologies" tagline. */
     .radio-group.mfr-group { justify-content: flex-start; }
     .radio-pill.mfr-pill { flex: 0 0 auto; width: 140px; height: 68px; display: flex; align-items: center; justify-content: center; padding: 8px 12px; background: #fff; box-sizing: border-box; }
     .radio-pill.mfr-pill.active { background: #f8fafc; color: inherit; box-shadow: inset 0 0 0 2px #0a1628; }
     .radio-pill.mfr-pill img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
     .radio-pill.mfr-pill img[alt="Oticon"]     { height: 24px; }
     .radio-pill.mfr-pill img[alt="Widex"]      { height: 24px; }
-    .radio-pill.mfr-pill img[alt="Phonak"]     { height: 44px; }
+    .radio-pill.mfr-pill img[alt="Phonak"]     { height: 28px; }
     .radio-pill.mfr-pill img[alt="Resound"],
-    .radio-pill.mfr-pill img[alt="ReSound"]    { height: 48px; }
+    .radio-pill.mfr-pill img[alt="ReSound"]    { height: 36px; }
     .radio-pill.mfr-pill img[alt="Signia"]     { height: 40px; }
     .radio-pill.mfr-pill img[alt="Starkey"]    { height: 36px; }
     .radio-pill.mfr-pill img[alt="TruHearing"] { height: 40px; }
-    .radio-pill.mfr-pill img[alt="Rexton"]     { height: 32px; }
-    .radio-pill.mfr-pill:has(img[alt="Rexton"]) { background: #0f0f0f; }
-    .radio-pill.mfr-pill:has(img[alt="Rexton"]).active { background: #0f0f0f; box-shadow: inset 0 0 0 2px #facc15; }
+    .radio-pill.mfr-pill img[alt="Rexton"]     { height: 24px; }
     .plan-select-list { display: flex; flex-direction: column; gap: 8px; }
     .plan-row { border: 2px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: all 0.15s; }
     .plan-row:hover { border-color: #9ca3af; }
