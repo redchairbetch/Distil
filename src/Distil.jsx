@@ -3163,7 +3163,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
     .radio-pill.mfr-pill img[alt="ReSound"]    { height: 36px; }
     .radio-pill.mfr-pill img[alt="Signia"]     { height: 40px; }
     .radio-pill.mfr-pill img[alt="Starkey"]    { height: 36px; }
-    .radio-pill.mfr-pill img[alt="TruHearing"] { height: 40px; }
+    /* TruHearing is square ~1:1 — punch out of the max-height cap so the
+       mark renders ~30% larger than the wide wordmarks, matching their
+       visual weight in the 140x68 pill. */
+    .radio-pill.mfr-pill img[alt="TruHearing"] { height: 52px; max-height: none; }
     .radio-pill.mfr-pill img[alt="Rexton"]     { height: 24px; }
     .plan-select-list { display: flex; flex-direction: column; gap: 8px; }
     .plan-row { border: 2px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: all 0.15s; }
