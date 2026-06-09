@@ -200,6 +200,12 @@ const INSURANCE_PLANS = [
   { carrier:"Summit Health", planGroup:"All Plans", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
   { carrier:"UMR", planGroup:"Teachers Health Trust", tpa:"TruHearing", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
   { carrier:"Wellpoint / Amerigroup", planGroup:"All Plans", tpa:"TruHearing", tiers:[{label:"Advanced",price:699}, {label:"Premium",price:999}] },
+  // United Healthcare Hearing — single generic Medicare Supplement plan. NOT a
+  // private-label plan (Gold/Platinum tiers keep isPrivateLabelPlan false), so it
+  // uses the generic device cascade. Prices in DOLLARS (per-aid). The patient's
+  // actual copay is device-driven via UHCH_COVERAGE: a mainstream device resolves
+  // to Premium/Standard, a Relate device to Platinum/Gold, off-plan → retail.
+  { carrier:"United Healthcare Hearing", planGroup:"Medicare Supplement", tpa:"UHCH", tiers:[{label:"Premium",price:1649}, {label:"Standard",price:1299}, {label:"Platinum",price:1249}, {label:"Gold",price:949}] },
 ];
 
 
@@ -336,6 +342,26 @@ function getMultiToneColors(name){
 // Schema: { id, manufacturer, generation, family, styles[], variants[],
 //           techLevels[], colors[], battery[], active, notes }
 const CATALOG_DEFAULT = [
+  // ── RELATE (UHCH-exclusive private-label Unitron) — staged inactive ───────
+  // tpa:"UHCH" keeps these visible only to UHCH patients (see visibleCatalog).
+  // active:false until the exclusivity filter ships; flip on at go-live.
+  { id:"relate-40-ric", manufacturer:"Relate", generation:"4.0",
+    family:"Relate 4.0 RIC", styles:["ric"], variants:[],
+    techLevels:["Platinum","Gold"], colors:[],
+    battery:["Rechargeable (Li-Ion)","Size 312"], tpa:"UHCH", active:false, notes:"UHCH-exclusive. Staged inactive until exclusivity filter deploys." },
+  { id:"relate-40-bte", manufacturer:"Relate", generation:"4.0",
+    family:"Relate 4.0 BTE", styles:["bte"], variants:["Standard BTE","UP BTE"],
+    techLevels:["Platinum","Gold"], colors:[],
+    battery:["Rechargeable (Li-Ion)"], tpa:"UHCH", active:false, notes:"UHCH-exclusive. Staged inactive." },
+  { id:"relate-50-ric", manufacturer:"Relate", generation:"5.0",
+    family:"Relate 5.0 RIC", styles:["ric"], variants:[],
+    techLevels:["Platinum","Gold"], colors:[],
+    battery:["Rechargeable (Li-Ion)"], tpa:"UHCH", active:false, notes:"UHCH-exclusive. Staged inactive." },
+  { id:"relate-50-custom", manufacturer:"Relate", generation:"5.0",
+    family:"Relate 5.0 Custom", styles:["ite","itc","cic"], variants:[],
+    techLevels:["Platinum","Gold"], colors:[],
+    battery:["Rechargeable (Li-Ion)","Size 10"], tpa:"UHCH", active:false, notes:"UHCH-exclusive. Staged inactive." },
+
   // ── SIGNIA IX (2023–present) ─────────────────────────────────────────────
   { id:"sig-pure-ix", manufacturer:"Signia", generation:"IX",
     family:"Pure Charge&Go IX", styles:["ric"],
@@ -1618,6 +1644,33 @@ function manufacturerToClass(name) {
   return 'standard';
 }
 
+// ── UHCH (United Healthcare Hearing) coverage map ───────────────────────────
+// UHCH's plan "tech levels" do NOT map cleanly to the manufacturers' real tech
+// ladders — UHCH covers only the flagship + one specific mid tier per brand,
+// and Relate (their private-label Unitron) carries its own Gold/Platinum value
+// tiers. This table is the hardcoded translation: (manufacturer × catalog
+// tech_level) → UHCH tier label. Anything not listed is OFF-PLAN — Rexton
+// entirely, Signia 5IX/2IX/1IX, Phonak 70/30, ReSound 7/3, etc. — billed at
+// standard retail and flagged, because off-plan devices can't be ordered
+// through the UHCH portal without a signed insurance acknowledgement form.
+// Seeded from the UHCH Medicare Supplement price list; validated with Kurt
+// 2026-06-08. (Mid tier is deliberately "skip one": Signia=3 not 5, Phonak=50
+// not 70 — that asymmetry is UHCH's, and the whole reason this is a lookup.)
+const UHCH_COVERAGE = {
+  Oticon:  { '1':'Premium', '3':'Standard' },
+  Phonak:  { '90':'Premium', '50':'Standard' },
+  Resound: { '9':'Premium', '5':'Standard' },
+  Signia:  { '7AX':'Premium', '7IX':'Premium', '3AX':'Standard', '3IX':'Standard' },
+  Starkey: { '24':'Premium', '16':'Standard' },
+  Widex:   { '440':'Premium', '220':'Standard' },
+  Relate:  { 'Gold':'Gold', 'Platinum':'Platinum' },
+};
+
+// UHCH tier label a (manufacturer, techLevel) maps to, or null when off-plan.
+function uhchCoverageTier(manufacturer, techLevel) {
+  return UHCH_COVERAGE[manufacturer]?.[techLevel] ?? null;
+}
+
 // (familyId, techLevel) → tier_rank lookup via the product_catalog_tier table.
 // Returns null when the family isn't in the catalog tier table yet (the row
 // would need to be seeded — see migration 008 for the Signia IX 2IX/1IX pass).
@@ -1646,6 +1699,9 @@ function findAnchorForRank(anchors, rank) {
 //     'cros'              — CROS/BICROS unit, $1,250 flat
 //     'insurance-copay'   — carrier copay (form.tierPrice), manufacturer
 //                            doesn't change patient out-of-pocket
+//     'uhch-onplan'       — UHCH covers this device → tier copay (sets tier)
+//     'uhch-offplan'      — UHCH does NOT cover it → standard retail, flagged
+//                            (offPlan:true); not orderable via the UHCH portal
 //     'class'             — resolved from manufacturer-class anchor
 //     'fallback'          — manufacturer class wasn't seeded; used standard
 function deriveEarPrice(side, opts) {
@@ -1654,6 +1710,30 @@ function deriveEarPrice(side, opts) {
     return { price: CROS_PRICE_PER_UNIT, source: 'cros' };
   }
   const { form, catalog, productCatalogTiers, anchorsByClass } = opts;
+  // UHCH is device-driven: the chosen device decides the patient's price via
+  // the coverage map, not a flat plan copay. Must run before the generic
+  // insurance branch (UHCH patients are payType 'insurance').
+  if (form?.tpa === 'UHCH') {
+    const family = (catalog || []).find(e => e.id === side.familyId);
+    if (!family || !side.techLevel) return null;
+    const covTier = uhchCoverageTier(family.manufacturer, side.techLevel);
+    if (covTier) {
+      const plan = INSURANCE_PLANS.find(p => p.tpa === 'UHCH' && p.carrier === form.carrier && p.planGroup === form.planGroup);
+      const price = plan?.tiers?.find(t => t.label === covTier)?.price ?? null;
+      if (price == null) return null;
+      return { price, source: 'uhch-onplan', tier: covTier };
+    }
+    // Off-plan: not covered by UHCH → standard retail (manufacturer-class
+    // anchor, same resolution as private pay), flagged for the provider.
+    const cls = manufacturerToClass(family.manufacturer);
+    const rank = findTierRank(productCatalogTiers, family.id, side.techLevel);
+    let anchor = rank != null ? findAnchorForRank(anchorsByClass?.[cls], rank) : null;
+    if (!anchor && rank != null) anchor = findAnchorForRank(anchorsByClass?.standard, rank);
+    return {
+      price: anchor ? parseFloat(anchor.price_per_aid) : null,
+      source: 'uhch-offplan', offPlan: true, class: cls, rank, anchorLabel: anchor?.label,
+    };
+  }
   if (form?.payType === 'insurance') {
     if (form.tierPrice == null) return null;
     return { price: form.tierPrice, source: 'insurance-copay' };
@@ -3666,10 +3746,15 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   // Catalog-driven cascade derived values — computed per side
   const activeCatalog = catalog.filter(e => e.active);
+  // TPA exclusivity: a product carrying a tpa (e.g. Relate → 'UHCH') is only
+  // visible to patients on that TPA; tpa-less products show for everyone. This
+  // is what keeps Relate UHCH-only. TruHearing rides its own isPrivateLabel
+  // flow and its rows are tpa-null, so this leaves TruHearing behavior unchanged.
+  const visibleCatalog = activeCatalog.filter(e => !e.tpa || e.tpa === form.tpa);
   const getSideDerived = (sd) => {
-    const availMfrs = [...new Set(activeCatalog.filter(e => !sd.style || e.styles.includes(sd.style)).map(e => e.manufacturer))].sort();
-    const availGens = [...new Set(activeCatalog.filter(e => e.styles.includes(sd.style) && e.manufacturer === sd.manufacturer).map(e => e.generation))];
-    const availFamilies = activeCatalog.filter(e => e.styles.includes(sd.style) && e.manufacturer === sd.manufacturer && e.generation === sd.generation);
+    const availMfrs = [...new Set(visibleCatalog.filter(e => !sd.style || e.styles.includes(sd.style)).map(e => e.manufacturer))].sort();
+    const availGens = [...new Set(visibleCatalog.filter(e => e.styles.includes(sd.style) && e.manufacturer === sd.manufacturer).map(e => e.generation))];
+    const availFamilies = visibleCatalog.filter(e => e.styles.includes(sd.style) && e.manufacturer === sd.manufacturer && e.generation === sd.generation);
     const selectedFamily = catalog.find(e => e.id === sd.familyId);
     const availColors = selectedFamily?.colors || [];
     const availBatteries = selectedFamily?.battery || [];
@@ -3779,12 +3864,25 @@ export default function ProviderCRM({ staffId, clinicId }) {
   // banner cautions the user). Skips when neither ear has resolved enough
   // to derive a price — preserves the step-4 baseline.
   useEffect(() => {
-    if (form.payType !== 'private') return;
+    const isUHCH = form.payType === 'insurance' && form.tpa === 'UHCH';
+    if (form.payType !== 'private' && !isUHCH) return;
+    if (isUHCH) {
+      // Device-driven UHCH: the chosen device sets both the per-aid price and
+      // the tier label (Premium/Standard/Gold/Platinum, or "Off-Plan"). The
+      // higher-priced ear drives a mismatched fitting (mirrors pickBaselinePerAid).
+      const ears = [leftEarPrice, rightEarPrice].filter(e => e && e.source !== 'cros');
+      const driver = ears.reduce((a, b) => (b.price != null && b.price > (a?.price ?? -Infinity) ? b : a), null);
+      if (!driver) return;
+      const nextTier = driver.offPlan ? 'Off-Plan' : (driver.tier || form.tier);
+      if (form.tierPrice === driver.price && form.tier === nextTier) return;
+      setForm(f => ({ ...f, tierPrice: driver.price, tier: nextTier }));
+      return;
+    }
     const baseline = pickBaselinePerAid(leftEarPrice, rightEarPrice);
     if (baseline == null) return;
     if (form.tierPrice === baseline) return;
     setForm(f => ({ ...f, tierPrice: baseline }));
-  }, [leftEarPrice, rightEarPrice, form.payType, form.tierPrice]);
+  }, [leftEarPrice, rightEarPrice, form.payType, form.tpa, form.tier, form.tierPrice]);
 
   const pricingRevealData = useMemo(() => {
     if (form.tierPrice == null || !form.tier) return null;
@@ -5104,6 +5202,42 @@ export default function ProviderCRM({ staffId, clinicId }) {
             {(() => {
               const bothDone = leftConfigured && rightConfigured;
               const anyConfigured = leftConfigured || rightConfigured;
+
+              // UHCH Relate (Gold/Platinum) and off-plan devices have no retail
+              // anchor → pricingRevealData is null, but they DO have a price.
+              // Render the investment without a savings badge (Kurt: Relate has
+              // no street retail to anchor against); off-plan additionally shows
+              // the acknowledgement-form flag and bills standard retail.
+              const isUHCH = form.tpa === 'UHCH';
+              if (isUHCH && anyConfigured && form.tierPrice != null && !pricingRevealData) {
+                const fmt2 = n => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                const lp = leftEarPrice?.price ?? null;
+                const rp = rightEarPrice?.price ?? null;
+                const offPlan = !!(leftEarPrice?.offPlan || rightEarPrice?.offPlan);
+                const pairTotal = (lp != null || rp != null) ? (lp || 0) + (rp || 0) : null;
+                const investment = (bothDone && pairTotal != null) ? pairTotal : (form.tierPrice ?? lp ?? rp ?? 0);
+                return (
+                  <div style={{background: offPlan ? "#fff7ed" : "#f0fdf4", border:`1px solid ${offPlan ? "#fed7aa" : "#bbf7d0"}`, borderRadius:12, padding:"20px 24px", marginTop:12}}>
+                    {offPlan && (
+                      <div style={{background:"#fffbeb",border:"1px solid #fde047",borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12.5,color:"#854d0e",lineHeight:1.5}}>
+                        <strong>⚠ Not on the UHCH plan.</strong> This device can't be ordered through the UHCH portal. The patient may purchase it at standard retail only after signing an insurance acknowledgement form.
+                      </div>
+                    )}
+                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}}>
+                      {offPlan ? "Standard Retail · Off-Plan" : "Your Investment Today"}
+                    </div>
+                    <div style={{display:"flex",alignItems:"baseline",gap:8}}>
+                      <span style={{fontSize:28,fontWeight:800,color:"#0a1628"}}>${fmt2(investment)}</span>
+                      <span style={{fontSize:12,color:"#6b7280"}}>{bothDone ? "pair (2 aids)" : "per aid"}</span>
+                    </div>
+                    {!offPlan && (
+                      <div style={{fontSize:12,color:"#6b7280",marginTop:6}}>
+                        Relate value pricing under UHCH — no separate retail comparison applies.
+                      </div>
+                    )}
+                  </div>
+                );
+              }
 
               // Hold the reveal until a device is configured — tier alone (set
               // on the prior step) only yields the bare baseline, not a real price.

@@ -1301,6 +1301,7 @@ export async function loadProductCatalog() {
     colors:       row.colors       || [],
     battery:      row.battery_options || [],
     active:       row.active,
+    tpa:          row.tpa          || null,
     notes:        row.notes        || '',
     // Optional per-family display metadata (stored in product_catalog.metadata):
     //   techLevelLabels — rich labels for tech-level chips (e.g. Active IX)

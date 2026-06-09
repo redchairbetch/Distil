@@ -39,7 +39,7 @@ Companion patient-facing app.
 - `Login.jsx` passes `staffId` and `clinicId` as props to `ProviderCRM`
 - `db.js` data layer intact
 - TruHearing Select catalog: 11 granular entries, five-step cascade UI (tier → product/power → Li-Ion upcharge → variant → CROS toggle)
-- Real insurance plan data integrated: ~60 TruHearing Third Party Exclusive Plans, 22 UHCH plan groups
+- Real insurance plan data integrated: ~60 TruHearing Third Party Exclusive Plans; UHCH modeled as a single generic "Medicare Supplement" plan (4 device-driven price tiers + Relate exclusive line) — added 2026-06-08, see UHCH under Critical Architecture Rules
 - Warranty countdown widget: color-coded progress bar (red <90d, yellow <360d, green 360d+)
 - Calendar feature: **deliberately dropped** — clinics have existing scheduling tools; Distil adds a simple `next_appointment_date` field only
 
@@ -51,6 +51,10 @@ Companion patient-facing app.
 - **TH5 BTE**: Always available regardless of plan tier
 - **312-powered RICs**: Uncommon on TruHearing plans, mostly Standard tier
 - **Beltone**: Requires proprietary software authorization we don't have — use Rexton-only designation
+- **UHCH (United Healthcare Hearing)**: supported out of obligation, not endorsement (reversed the prior permanent exclusion 2026-06-08). One generic plan — carrier "United Healthcare Hearing", plan_group "Medicare Supplement", `tpa="UHCH"` — with four per-aid tiers: mainstream **Premium $1,649 / Standard $1,299**, Relate **Platinum $1,249 / Gold $949**.
+- **UHCH is device-driven, NOT tier-picked**: `TierSelection` no-ops for UHCH; the chosen device resolves price via `UHCH_COVERAGE` (`Distil.jsx`). UHCH's "tech levels" do NOT match the manufacturers' real ladders — the map covers only each brand's flagship + one mid tier (Signia 7/3, Phonak 90/50, Oticon 1/3, ReSound 9/5, Starkey 24/16, Widex 440/220). **Rexton is entirely off-plan.** Off-map → standard retail + flag. (AT&T and other UHCH employer plans — higher prices, raw Unitron — are a later add.)
+- **UHCH off-plan = insurance acknowledgement form**: off-plan devices can't be ordered through the UHCH portal; the patient may purchase at standard retail only after signing an insurance acknowledgement form. The device-selection screen flags this.
+- **Relate**: UHCH's private-label Unitron, exclusive to UHCH (`product_catalog.tpa='UHCH'`, enforced by `visibleCatalog`). No street retail → **no savings badge**; price shown as-is. Staged `active=false` until the exclusivity filter deploys (flip on at go-live).
 - **Normal hearing threshold**: 20 dB (not 25 dB)
 - **Audiogram counseling language**: Avoid percentage improvement framing; focus on aided word recognition score and treatment implications
 - **Intake IDs**: Format `MHC-YYYYMMDD-XXXXX`
@@ -253,6 +257,10 @@ export async function loadPricingReveal(clinicId, patientId) {
 
 30. ~~**DOB — and every date-only field — displays one day early (`fmtDate` UTC-parse bug)**~~ ✅ DONE — `fmtDate`, `daysUntil`, and (Aided's) `daysAgo` now route through a shared `parseDateOnly` helper that detects bare `YYYY-MM-DD` and constructs the Date in local time (`new Date(y, m-1, d)`), bypassing JS's UTC-midnight default for date-only strings. Patched both copies (`Distil.jsx:1063-1101`, `Aided.jsx:33-60`). Verified column types via Supabase: `appointments.appointment_date` and `patients.last_visit_date` are `timestamptz` (safe — fall through to native `new Date()`); `patients.dob`, `patients.care_plan_start_date`, `device_fittings.fitting_date`, `device_fittings.warranty_expiry`, `insurance_coverage.warranty_expiry`, `campaign_deliveries.scheduled_date`, `patient_campaigns.trigger_date` are all `date` and now render correctly. Warranty day-count off-by-one (the second-order bug from the same root cause) fixed by `daysUntil` switching to local-midnight `Math.round` on date-only input. Aided's DOB gate was already fine — it compares raw `<input type="date">` strings without `Date` parsing. `generateIntakePdf.js` has its own `fmtDate(ts)` that's only called with timestamp values plus a separate `fmtDob(iso)` for the date-only DOB, so it was correct already.
 
+31. **TruHearing surfaces in the generic device cascade for non-TruHearing patients** — the wizard device cascade builds its manufacturer list from `activeCatalog` with no TPA/exclusivity filter (`Distil.jsx:3670`), so TruHearing's ~30 active `product_catalog` rows appear as a selectable manufacturer for private-pay and non-TruHearing-insurance patients. TruHearing's dedicated card flow only engages when the patient's plan is a TruHearing private-label plan (`isPrivateLabel`, `Distil.jsx:2122`). Fix is now low-cost: the UHCH/Relate work (branch `feature/uhch-medicare-supplement`) introduces a `visibleCatalog = activeCatalog.filter(e => !e.tpa || e.tpa === form.tpa)` gate on that cascade; stamping the TruHearing rows `tpa='TruHearing'` would then hide them from the generic cascade automatically. **Caveat:** first confirm the TruHearing `product_catalog` rows aren't read by another path (specs, recommendation engine, `views/DeviceSelection.jsx`) before stamping, or it could hide them where they're wanted. Long-standing; re-surfaced 2026-06-08 during the UHCH build.
+
+32. **`insurance_plans` price-unit inconsistency** — `loadInsurancePlans` divides `price_per_aid` by 100 (`db.js:2406`), so the code contract is CENTS, but the *active* TruHearing rows store DOLLARS (max `999`, null `retail_anchor_key`) while the cents+anchor rows are *inactive*. So the edit-coverage screen's DB-sourced plan list likely shows TruHearing copays ~100× too low. The wizard is unaffected — it reads the inline `INSURANCE_PLANS` const (dollars). UHCH rows were intentionally added in CENTS to honor the loader contract. Fix: normalize the active TruHearing rows to cents (or change the loader), then reconcile the inline const vs DB table. Found 2026-06-08 during the UHCH build.
+
 ### Aided
 10. **PWA conversion** ✅ DONE (Apr 2026) — installable on home screen, scoped to `/aided`, hand-rolled service worker, SVG icons, safe-area insets for standalone display. Placeholder 🎧-on-navy icon in use until real branding lands.
 11. **Branding / logo for Aided** — placeholder 🎧 emoji on dark navy `#0a1628` is in place from the PWA conversion. Need a proper Aided wordmark + icon system; coordinate with Distil branding so the two read as a family. Inputs: dark navy is the established primary, hearing/sound/clarity is the conceptual core, audience is older adults (legibility matters more than cleverness).
@@ -296,7 +304,7 @@ Veterans hearing nonprofit. Not a coding project yet — ideation phase.
 
 ## Reference Files in Project
 - `TruHearing_Third_Party_Exclusive_Plans.xlsx`
-- `UHCH_Third_Party_Exclusive_Plans.xlsx`
+- `UHCH Plans Price List.xlsx` (Medicare Supplement + AT&T sheets — source for the UHCH integration)
 - `TruHearing_Select_2_Tier_Product_Catalog_2026.pdf`
 - `TruHearing_Select_3_Tier_Product_Catalog_2026.pdf`
 - `TruHearing_Choice_Product_Matrix_2026.pdf`
