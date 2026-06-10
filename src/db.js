@@ -2389,25 +2389,129 @@ export async function resolveInsurancePlanId(carrier, planGroup, tierLabel) {
   return data.id
 }
 
-export async function loadInsurancePlans() {
+// Canonical tier-label vocabulary + ordering for insurance plans. The wizard's
+// private-label detection (isPrivateLabelPlan) and UHCH's device-driven pricing
+// both key on these exact strings, so the plan editor constrains tier labels
+// to this list instead of free text.
+export const PLAN_TIER_LABELS = ['Standard', 'Advanced', 'Premium', 'Gold', 'Platinum']
+const tierOrder = (label) => {
+  const i = PLAN_TIER_LABELS.indexOf(label)
+  return i === -1 ? PLAN_TIER_LABELS.length : i
+}
+
+// retail_anchor_key derivation for TruHearing rows (same mapping as migration
+// 018). UHCH and TPA-less rows deliberately carry no anchor — Relate has no
+// street retail to anchor against.
+const TIER_ANCHOR_BY_LABEL = { Premium: 'select', Advanced: 'advanced', Standard: 'standard' }
+
+// All insurance_plans rows (active and inactive) grouped into the wizard's
+// plan shape: one entry per carrier+planGroup with a tiers array, prices in
+// DOLLARS (the table stores cents). Mirrors the inline INSURANCE_PLANS
+// fallback const in Distil.jsx. A group is "active" if any of its rows is;
+// saves write the flag uniformly so a mixed group self-heals on next save.
+export async function loadInsurancePlansGrouped() {
   const { data, error } = await supabase
     .from('insurance_plans')
-    .select('id, carrier, plan_group, tpa, tier_label, price_per_aid, retail_anchor_key, notes')
-    .eq('active', true)
+    .select('id, carrier, plan_group, tpa, tier_label, price_per_aid, retail_anchor_key, notes, active')
     .order('carrier')
     .order('plan_group')
   if (error) throw error
-  // reshape to match the shape the edit modal expects
-  return (data || []).map(row => ({
-    id:        row.id,
-    carrier:   row.carrier,
-    planGroup: row.plan_group,
-    tpa:       row.tpa || '',
-    tier:      row.tier_label,
-    tierPrice: row.price_per_aid != null ? row.price_per_aid / 100 : null,
-    retailAnchorKey: row.retail_anchor_key,
-    notes:     row.notes || '',
-  }))
+  const byKey = new Map()
+  for (const row of (data || [])) {
+    const key = `${row.carrier}|${row.plan_group}`
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        carrier:   row.carrier,
+        planGroup: row.plan_group,
+        tpa:       row.tpa || '',
+        notes:     row.notes || '',
+        active:    false,
+        tiers:     [],
+      })
+    }
+    const plan = byKey.get(key)
+    if (row.active) plan.active = true
+    if (row.notes && !plan.notes) plan.notes = row.notes
+    plan.tiers.push({
+      id:    row.id,
+      label: row.tier_label,
+      price: row.price_per_aid != null ? row.price_per_aid / 100 : null,
+      retailAnchorKey: row.retail_anchor_key || null,
+    })
+  }
+  const plans = [...byKey.values()]
+  for (const p of plans) p.tiers.sort((a, b) => tierOrder(a.label) - tierOrder(b.label))
+  return plans
+}
+
+// Map an editor plan draft to insurance_plans rows (one per tier). Prices
+// arrive in dollars and are stored as integer cents; anchor keys are derived,
+// never user-entered.
+function toInsurancePlanRows(plan) {
+  return (plan.tiers || [])
+    .filter(t => t.label && t.price !== null && t.price !== '' && !Number.isNaN(Number(t.price)))
+    .map(t => ({
+      ...(t.id ? { id: t.id } : {}),
+      carrier:           plan.carrier.trim(),
+      plan_group:        plan.planGroup.trim(),
+      tpa:               plan.tpa || null,
+      tier_label:        t.label,
+      price_per_aid:     Math.round(Number(t.price) * 100),
+      retail_anchor_key: plan.tpa === 'TruHearing' ? (TIER_ANCHOR_BY_LABEL[t.label] || null) : null,
+      notes:             plan.notes || null,
+      active:            plan.active !== false,
+    }))
+}
+
+// Translate the two constraint errors the editor can hit into provider-readable
+// messages; anything else passes through.
+function friendlyPlanError(error) {
+  if (error?.code === '23503') return new Error('A patient is linked to this plan — deactivate it instead of deleting.')
+  if (error?.code === '23505') return new Error('An active plan with this carrier, plan group, and tier already exists.')
+  return error
+}
+
+// Upsert one plan group's tier rows and delete rows the editor removed.
+// `origRowIds` is the set of row ids the group had when editing began —
+// identity travels with row ids, so carrier/planGroup renames update rows in
+// place instead of orphaning them. Admin only (RLS admin_manage_plans).
+// Throws on error. Returns the saved rows' { id, tier_label } so callers can
+// refresh draft ids after inserts.
+export async function saveInsurancePlanGroup(plan, origRowIds = []) {
+  const rows = toInsurancePlanRows(plan)
+  if (!rows.length) throw new Error('A plan needs at least one tier with a copay.')
+  const keptIds = new Set(rows.map(r => r.id).filter(Boolean))
+  const toDelete = (origRowIds || []).filter(id => !keptIds.has(id))
+  if (toDelete.length) {
+    const { error } = await supabase.from('insurance_plans').delete().in('id', toDelete)
+    if (error) { console.error('saveInsurancePlanGroup delete:', error); throw friendlyPlanError(error) }
+  }
+  // Existing rows and new rows go in separate calls: PostgREST bulk writes
+  // need uniform keys, and new rows must omit `id` to get the column default.
+  const existing = rows.filter(r => r.id)
+  const fresh    = rows.filter(r => !r.id)
+  const saved = []
+  if (existing.length) {
+    const { data, error } = await supabase
+      .from('insurance_plans').upsert(existing, { onConflict: 'id' }).select('id, tier_label')
+    if (error) { console.error('saveInsurancePlanGroup upsert:', error); throw friendlyPlanError(error) }
+    saved.push(...(data || []))
+  }
+  if (fresh.length) {
+    const { data, error } = await supabase
+      .from('insurance_plans').insert(fresh).select('id, tier_label')
+    if (error) { console.error('saveInsurancePlanGroup insert:', error); throw friendlyPlanError(error) }
+    saved.push(...(data || []))
+  }
+  return saved
+}
+
+// Delete all rows of a plan group. Blocked by the insurance_coverage FK when a
+// patient is linked — surfaced as a deactivate hint. Admin only. Throws.
+export async function deleteInsurancePlanGroup(rowIds) {
+  if (!rowIds?.length) return
+  const { error } = await supabase.from('insurance_plans').delete().in('id', rowIds)
+  if (error) { console.error('deleteInsurancePlanGroup:', error); throw friendlyPlanError(error) }
 }
 
 
@@ -2520,7 +2624,7 @@ export async function loadPricingReveal(clinicId, patientId) {
 
   if (!anchor) return null
 
-  // tier_price_per_aid is stored in cents (matches loadInsurancePlans /
+  // tier_price_per_aid is stored in cents (matches loadInsurancePlansGrouped /
   // loadAllPatients convention). Anchor price_per_aid is numeric dollars.
   const retailPerAid  = parseFloat(anchor.price_per_aid)
   const copayPerAid   = data.tier_price_per_aid != null ? data.tier_price_per_aid / 100 : null
