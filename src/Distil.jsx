@@ -683,7 +683,7 @@ const CATALOG_DEFAULT = [
   // TH5 BTE is always available regardless of plan tier — the plan price covers whatever the clinician fits.
 
   // ── TH7 Premium · Signia IX · 48ch ── planTierKey:"Premium" ──────────────
-  { id:"th7-prem-ric-li", manufacturer:"TruHearing", generation:"IX",
+  { id:"th7-prem-ric-li", manufacturer:"TruHearing", tpa:"TruHearing", generation:"IX",
     thSeries:"TH7", planTierKey:"Premium",
     family:"TH7 Premium — RIC Rechargeable", styles:["ric"],
     variants:["Standard","CROS"], techLevels:["Premium"],
@@ -691,7 +691,7 @@ const CATALOG_DEFAULT = [
     battery:["Rechargeable (Li-Ion)"], active:true,
     notes:"48ch · IX platform · Rechargeable Li-Ion." },
 
-  { id:"th7-prem-sr-li", manufacturer:"TruHearing", generation:"IX",
+  { id:"th7-prem-sr-li", manufacturer:"TruHearing", tpa:"TruHearing", generation:"IX",
     thSeries:"TH7", planTierKey:"Premium",
     family:"TH7 Premium — SR Rechargeable (Super Power RIC)", styles:["ric"],
     variants:["Standard"], techLevels:["Premium"],
@@ -699,7 +699,7 @@ const CATALOG_DEFAULT = [
     battery:["Rechargeable (Li-Ion)"], active:true,
     notes:"48ch · IX · Super-power RIC · Rechargeable Li-Ion. For severe-profound loss." },
 
-  { id:"th7-prem-if-li", manufacturer:"TruHearing", generation:"IX",
+  { id:"th7-prem-if-li", manufacturer:"TruHearing", tpa:"TruHearing", generation:"IX",
     thSeries:"TH7", planTierKey:"Premium",
     family:"TH7 Premium — Instant Fit Rechargeable", styles:["ite"],
     variants:["Standard"], techLevels:["Premium"],
@@ -707,7 +707,7 @@ const CATALOG_DEFAULT = [
     battery:["Rechargeable (Li-Ion)"], active:true,
     notes:"48ch · IX · IF Li-Ion custom · Rechargeable Li-Ion." },
 
-  { id:"th7-prem-custom", manufacturer:"TruHearing", generation:"IX",
+  { id:"th7-prem-custom", manufacturer:"TruHearing", tpa:"TruHearing", generation:"IX",
     thSeries:"TH7", planTierKey:"Premium",
     family:"TH7 Premium — Custom (IIC / CIC / ITC)", styles:["ite","itc","cic","iic"],
     variants:["IIC","CIC","ITC / HS / FS"], techLevels:["Premium"],
@@ -716,7 +716,7 @@ const CATALOG_DEFAULT = [
     notes:"48ch · IX · Non-wireless custom. No Li-Ion upcharge." },
 
   // ── TH6 Advanced · Signia AX · 32ch ── planTierKey:"Advanced" ────────────
-  { id:"th6-adv-ric-312", manufacturer:"TruHearing", generation:"AX",
+  { id:"th6-adv-ric-312", manufacturer:"TruHearing", tpa:"TruHearing", generation:"AX",
     thSeries:"TH6", planTierKey:"Advanced",
     family:"TH6 Advanced — RIC 312", styles:["ric"],
     variants:["Standard","CROS"], techLevels:["Advanced"],
@@ -724,7 +724,7 @@ const CATALOG_DEFAULT = [
     battery:["Size 312"], active:true,
     notes:"32ch · AX platform · Non-rechargeable RIC. No Li-Ion upcharge." },
 
-  { id:"th6-adv-ric-li", manufacturer:"TruHearing", generation:"AX",
+  { id:"th6-adv-ric-li", manufacturer:"TruHearing", tpa:"TruHearing", generation:"AX",
     thSeries:"TH6", planTierKey:"Advanced",
     family:"TH6 Advanced — RIC Rechargeable", styles:["ric"],
     variants:["Standard","CROS"], techLevels:["Advanced"],
@@ -732,7 +732,7 @@ const CATALOG_DEFAULT = [
     battery:["Rechargeable (Li-Ion)"], active:true,
     notes:"32ch · AX platform · Rechargeable Li-Ion." },
 
-  { id:"th6-adv-sr-li", manufacturer:"TruHearing", generation:"AX",
+  { id:"th6-adv-sr-li", manufacturer:"TruHearing", tpa:"TruHearing", generation:"AX",
     thSeries:"TH6", planTierKey:"Advanced",
     family:"TH6 Advanced — SR Rechargeable (Super Power RIC)", styles:["ric"],
     variants:["Standard"], techLevels:["Advanced"],
@@ -740,7 +740,7 @@ const CATALOG_DEFAULT = [
     battery:["Rechargeable (Li-Ion)"], active:true,
     notes:"32ch · AX · Super-power RIC · Rechargeable Li-Ion. Severe-profound loss." },
 
-  { id:"th6-adv-custom-li", manufacturer:"TruHearing", generation:"AX",
+  { id:"th6-adv-custom-li", manufacturer:"TruHearing", tpa:"TruHearing", generation:"AX",
     thSeries:"TH6", planTierKey:"Advanced",
     family:"TH6 Advanced — Custom Rechargeable (ITC)", styles:["ite","itc"],
     variants:["ITC / HS / FS"], techLevels:["Advanced"],
@@ -749,7 +749,7 @@ const CATALOG_DEFAULT = [
     notes:"32ch · AX · ITC Li-Ion custom · Rechargeable Li-Ion." },
 
   // ── TH5 · Signia X ── planTierKey:"Standard"; BTE always available ────────
-  { id:"th5-if", manufacturer:"TruHearing", generation:"X",
+  { id:"th5-if", manufacturer:"TruHearing", tpa:"TruHearing", generation:"X",
     thSeries:"TH5", planTierKey:"Standard",
     family:"TH5 Premium — Instant Fit", styles:["ite"],
     variants:["Standard"], techLevels:["Standard"],
@@ -757,7 +757,7 @@ const CATALOG_DEFAULT = [
     battery:["Size 10"], active:true,
     notes:"48ch · X platform · Non-wireless IF custom. No Li-Ion upcharge." },
 
-  { id:"th5-bte-adv-li", manufacturer:"TruHearing", generation:"X",
+  { id:"th5-bte-adv-li", manufacturer:"TruHearing", tpa:"TruHearing", generation:"X",
     thSeries:"TH5", planTierKey:"Standard",
     family:"TH5 Advanced — BTE Rechargeable (32ch)", styles:["bte"],
     variants:["Standard BTE (Thin-tube)","Standard BTE (Earhook)","Power BTE (Thin-tube)","Power BTE (Earhook)","SP BTE"],
@@ -765,7 +765,7 @@ const CATALOG_DEFAULT = [
     battery:["Rechargeable (Li-Ion)"], active:true,
     notes:"32ch · X platform · BTE Li-Ion · Rechargeable Li-Ion. Always available regardless of plan tier." },
 
-  { id:"th5-bte-prem-li", manufacturer:"TruHearing", generation:"X",
+  { id:"th5-bte-prem-li", manufacturer:"TruHearing", tpa:"TruHearing", generation:"X",
     thSeries:"TH5", planTierKey:"Standard",
     family:"TH5 Premium — BTE Rechargeable (48ch)", styles:["bte"],
     variants:["Standard BTE (Thin-tube)","Standard BTE (Earhook)","Power BTE (Thin-tube)","Power BTE (Earhook)","SP BTE"],
@@ -3748,8 +3748,10 @@ export default function ProviderCRM({ staffId, clinicId }) {
   const activeCatalog = catalog.filter(e => e.active);
   // TPA exclusivity: a product carrying a tpa (e.g. Relate → 'UHCH') is only
   // visible to patients on that TPA; tpa-less products show for everyone. This
-  // is what keeps Relate UHCH-only. TruHearing rides its own isPrivateLabel
-  // flow and its rows are tpa-null, so this leaves TruHearing behavior unchanged.
+  // keeps Relate UHCH-only and TruHearing's rows (tpa:"TruHearing") out of the
+  // cascade for private-pay / UHCH / other-insurance patients. TruHearing-plan
+  // patients never reach this cascade — they get the TH card flow
+  // (isPrivateLabel), which reads TH_MODELS/TH_AVAILABILITY, not the catalog.
   const visibleCatalog = activeCatalog.filter(e => !e.tpa || e.tpa === form.tpa);
   const getSideDerived = (sd) => {
     const availMfrs = [...new Set(visibleCatalog.filter(e => !sd.style || e.styles.includes(sd.style)).map(e => e.manufacturer))].sort();

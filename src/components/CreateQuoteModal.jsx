@@ -3,8 +3,8 @@ import { downloadQuote } from '../generateQuote.js'
 import { uploadPatientDocument } from '../db.js'
 
 // Custom-quote modal launched from the patient profile. Lets the provider
-// pick any devices in the catalog and override per-ear pricing without
-// touching the patient's saved fitting. Ephemeral — does not write to
+// pick any devices the patient is eligible for and override per-ear pricing
+// without touching the patient's saved fitting. Ephemeral — does not write to
 // device_fittings or update form.tierPrice. Quote PDF is archived to
 // patient_documents with kind='quote' and metadata.customized=true so the
 // chart distinguishes provider-generated custom quotes from wizard quotes.
@@ -81,7 +81,16 @@ export default function CreateQuoteModal({
   onClose,
   onArchived,
 }) {
-  const activeCatalog = useMemo(() => catalog.filter(e => e.active), [catalog])
+  // TPA exclusivity mirrors the wizard's visibleCatalog gate: tpa-less rows
+  // show for everyone; tpa'd rows (Relate → UHCH, TH white-labels →
+  // TruHearing) only for patients on that TPA. Keyed to the saved plan, not
+  // the modal's pay-type toggle — eligibility comes from the patient's
+  // coverage, and TPA-exclusive products have no street retail to quote.
+  const patientTpa = patient?.insurance?.tpa || null
+  const activeCatalog = useMemo(
+    () => catalog.filter(e => e.active && (!e.tpa || e.tpa === patientTpa)),
+    [catalog, patientTpa]
+  )
 
   const [payType, setPayType] = useState(patient?.payType || 'insurance')
   const [carePlan, setCarePlan] = useState(patient?.carePlan || 'complete')
