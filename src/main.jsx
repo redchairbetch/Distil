@@ -97,6 +97,7 @@ function App() {
     <Distil
       staffId={staff?.id}
       clinicId={staff?.clinic_id}
+      staffRole={staff?.role}
     />
   )
 }

@@ -1602,13 +1602,10 @@ const CHAPTER_TITLES = ["Patient story", "Evidence", "Recommendation", "Investme
 
 
 // ── ROLE CHECK UTILITY ─────────────────────────────────────────────────────────
-// Role categories: 'care_coordinator' | 'provider' | 'admin'
-// TODO: Wire up real restrictions — replace body with:
-//   return Array.isArray(allowedRoles) && allowedRoles.includes(staffRole)
-// Currently returns true for all roles so all staff can do everything.
-// eslint-disable-next-line no-unused-vars
-function checkRole(_staffRole, _allowedRoles) {
-  return true; // TODO: enforce when roles are configured
+// Role categories: 'care_coordinator' | 'provider' | 'closer' | 'admin'
+// UX gating only — catalog/pricing writes are enforced by admin-only RLS.
+function checkRole(staffRole, allowedRoles) {
+  return Array.isArray(allowedRoles) && allowedRoles.includes(staffRole);
 }
 
 
@@ -1838,7 +1835,7 @@ function AppointmentSchedule({ appointments }) {
   );
 }
 
-export default function ProviderCRM({ staffId, clinicId }) {
+export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   const [clinic, setClinic] = useState(DEFAULT_CLINIC);
   const [clinicDraft, setClinicDraft] = useState(DEFAULT_CLINIC);
   const [clinicSaved, setClinicSaved] = useState(false);
@@ -6655,8 +6652,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div className="detail-card">
               <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
                 <div className="detail-card-title" style={{marginBottom:0}}>Contact Information</div>
-                {/* TODO: restrict to care_coordinator, provider, admin once checkRole is enforced */}
-                {editSection !== "contact" && checkRole(null, ["care_coordinator","provider","admin"]) && (
+                {editSection !== "contact" && checkRole(staffRole, ["care_coordinator","provider","closer","admin"]) && (
                   <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={startEditContact}>Edit</button>
                 )}
               </div>
@@ -6705,8 +6701,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div className="detail-card">
               <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
                 <div className="detail-card-title" style={{marginBottom:0}}>Coverage</div>
-                {/* TODO: restrict to care_coordinator, provider, admin once checkRole is enforced */}
-                {editSection !== "coverage" && checkRole(null, ["care_coordinator","provider","admin"]) && (
+                {editSection !== "coverage" && checkRole(staffRole, ["care_coordinator","provider","closer","admin"]) && (
                   <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={startEditCoverage}>Edit</button>
                 )}
               </div>
@@ -6794,8 +6789,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div className="detail-card full">
               <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
                 <div className="detail-card-title" style={{marginBottom:0}}>{p.patientStatus === "tns" ? "Quoted Devices" : "Device Specifications"}</div>
-                {/* TODO: restrict to provider, admin once checkRole is enforced */}
-                {editSection !== "devices" && checkRole(null, ["provider","admin"]) && (
+                {editSection !== "devices" && checkRole(staffRole, ["provider","closer","admin"]) && (
                   <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={startEditDevices}>Edit</button>
                 )}
               </div>
@@ -7308,7 +7302,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
             {/* ── CAMPAIGN JOURNEY ─────────────────────────────────────────────────── */}
-            {/* TODO: restrict campaign edits to care_coordinator, admin once checkRole is enforced */}
             {patientCampaigns.length > 0 && patientCampaigns.map(campaign => {
               const deliveries = (campaign.campaign_deliveries || [])
                 .sort((a,b) => (a.campaign_steps?.step_order ?? 0) - (b.campaign_steps?.step_order ?? 0));
@@ -7323,8 +7316,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       Nurture Campaign
                       <span style={{fontSize:11,fontWeight:400,color:"#9ca3af",marginLeft:8}}>{campaign.campaign_templates?.name || "Campaign"}</span>
                     </div>
-                    {/* TODO: restrict to care_coordinator, admin when enforcing roles */}
-                    {!isEditingThis && checkRole(null, ["care_coordinator","admin"]) && (
+                    {!isEditingThis && checkRole(staffRole, ["care_coordinator","admin"]) && (
                       <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={()=>startEditCampaign(campaign)}>Edit</button>
                     )}
                   </div>
@@ -8068,13 +8060,15 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 )}
               </div>
             )})}
-            {/* Admin group — catalog/config tooling; gate behind an admin role later (backlog #17) */}
-            <div className="nav-section-label">Admin</div>
-            {[["📋","Product Catalog","catalog"],["⚙️","Settings","settings"]].map(([icon,label,id])=>(
-              <div key={id} className={`nav-item ${view===id?"active":""}`} onClick={()=>setView(id)}>
-                <span className="nav-icon">{icon}</span>{label}
-              </div>
-            ))}
+            {/* Admin group — catalog/config tooling; admin role only (backlog #17) */}
+            {checkRole(staffRole, ["admin"]) && <>
+              <div className="nav-section-label">Admin</div>
+              {[["📋","Product Catalog","catalog"],["⚙️","Settings","settings"]].map(([icon,label,id])=>(
+                <div key={id} className={`nav-item ${view===id?"active":""}`} onClick={()=>setView(id)}>
+                  <span className="nav-icon">{icon}</span>{label}
+                </div>
+              ))}
+            </>}
           </div>
           {/* Intake queue button */}
           <div style={{padding:"12px 14px",borderTop:"1px solid rgba(255,255,255,0.07)"}}>
