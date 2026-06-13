@@ -11,6 +11,38 @@ import { uploadPatientDocument } from '../db.js'
 
 const CROS_PRICE_PER_UNIT = 1250
 
+// Saved device_sides use the fine-grained TruHearing *fitting* taxonomy
+// (TH_STYLES in Distil.jsx: if, sr, ric_bct, hs, fs, s_bte/p_bte/sp_bte, …),
+// but product_catalog buckets styles coarsely (ric, ite, itc, cic, iic, bte).
+// This modal's manufacturer cascade filters the catalog by the pre-filled
+// style, so a patient fit in a style the catalog doesn't key (e.g. TruHearing
+// Instant Fit → catalog "ite", not "if") strands the manufacturer dropdown:
+// no row matches → empty list → the manufacturer can't be picked.
+// STYLE_BUCKET collapses a fitting style into its catalog bucket. The remap is
+// applied manufacturer-scoped (see normalizeStyle) because the same physical
+// style can key differently across catalogs — e.g. "if" is Signia Silk's own
+// catalog key but TruHearing's instant-fit rows live under "ite".
+const STYLE_BUCKET = {
+  sr: 'ric', ric_bct: 'ric',
+  s_bte: 'bte', p_bte: 'bte', sp_bte: 'bte',
+  hs: 'ite', fs: 'ite', if: 'ite',
+}
+
+// Map a saved fitting style onto a style key the catalog actually uses for the
+// saved manufacturer. Keep the style as-is when the catalog already knows it;
+// otherwise fall back to its bucket only if that bucket exists for this mfr.
+function normalizeStyle(cat, manufacturer, style) {
+  if (!style) return ''
+  const mfrStyles = new Set()
+  cat.forEach(e => {
+    if (manufacturer && e.manufacturer !== manufacturer) return
+    ;(e.styles || []).forEach(s => mfrStyles.add(s))
+  })
+  if (mfrStyles.has(style)) return style
+  const bucket = STYLE_BUCKET[style]
+  return (bucket && mfrStyles.has(bucket)) ? bucket : style
+}
+
 const CARE_PLAN_OPTIONS = [
   { id: 'complete', label: 'Complete Care+', price: 1250 },
   { id: 'punch',    label: 'Punch Card',     price: 575  },
@@ -98,8 +130,17 @@ export default function CreateQuoteModal({
   const [hasLeft,  setHasLeft]  = useState(!!patient?.devices?.left  || !patient?.devices)
   const [hasRight, setHasRight] = useState(!!patient?.devices?.right || !patient?.devices)
 
-  const [left,  setLeft]  = useState(sideFromSaved(patient?.devices?.left))
-  const [right, setRight] = useState(sideFromSaved(patient?.devices?.right))
+  // Normalize the pre-filled style against the (TPA-gated) catalog so the
+  // manufacturer cascade resolves for patients fit in a fitting-only style
+  // (e.g. TruHearing Instant Fit / SR / RIC+BCT) the coarse catalog buckets.
+  const [left,  setLeft]  = useState(() => {
+    const s = sideFromSaved(patient?.devices?.left)
+    return { ...s, style: normalizeStyle(activeCatalog, s.manufacturer, s.style) }
+  })
+  const [right, setRight] = useState(() => {
+    const s = sideFromSaved(patient?.devices?.right)
+    return { ...s, style: normalizeStyle(activeCatalog, s.manufacturer, s.style) }
+  })
 
   const initialPrice = defaultPricePerAid(patient) || 2750
   const [leftPrice,  setLeftPrice]  = useState(initialPrice)
