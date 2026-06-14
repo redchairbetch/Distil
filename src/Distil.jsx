@@ -88,6 +88,8 @@ import {
   recordUpgradeOutcome,
   logAnalyticsEvent,
   listMessagesForPatient,
+  uploadSignatureImage,
+  updateStaffSignature,
 } from "./db.js";
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 import { downloadQuote } from "./generateQuote.js";
@@ -1609,6 +1611,28 @@ function checkRole(staffRole, allowedRoles) {
 }
 
 
+// Downscale a signature image file to a compact PNG data URL. Signatures are
+// line art, so a 600px-wide PNG is plenty and keeps both storage and the
+// signature embedded in every purchase-agreement PDF small. Returns a data: URL.
+function downscaleSignature(file, maxW = 600) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxW / img.width);
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(img.src);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+
 // ── PER-EAR PRICING ────────────────────────────────────────────────────────────
 // Backlog item #18: manufacturer- and tech-level-aware pricing. The wizard's
 // step 5 used to lock `form.tierPrice` to whatever step 4 wrote — meaning a
@@ -1929,6 +1953,54 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
 
   // ── Purchase Agreement state ──────────────────────────────────────────
   const [staffProfile, setStaffProfile] = useState(null);
+  const [providerSignatureB64, setProviderSignatureB64] = useState(null);
+  const [sigBusy, setSigBusy] = useState(false);
+  const [sigErr, setSigErr] = useState("");
+
+  // Load the logged-in provider's stored signature as a data URL so it can be
+  // embedded in the purchase agreements they generate. Falls back to null,
+  // in which case the PA prints the typed provider name instead of an image.
+  useEffect(() => {
+    const url = staffProfile?.signatureUrl;
+    if (!url) { setProviderSignatureB64(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetch(url, { cache: "no-store" });
+        const blob = await resp.blob();
+        const dataUrl = await new Promise((res, rej) => {
+          const fr = new FileReader();
+          fr.onload = () => res(fr.result);
+          fr.onerror = rej;
+          fr.readAsDataURL(blob);
+        });
+        if (!cancelled) setProviderSignatureB64(dataUrl);
+      } catch { if (!cancelled) setProviderSignatureB64(null); }
+    })();
+    return () => { cancelled = true; };
+  }, [staffProfile?.signatureUrl]);
+
+  const handleSignatureUpload = async (file) => {
+    if (!file || !staffId) return;
+    setSigErr(""); setSigBusy(true);
+    try {
+      const dataUrl = await downscaleSignature(file, 600);
+      const blob = await (await fetch(dataUrl)).blob();
+      const url = await uploadSignatureImage(staffId, blob);
+      // The storage path is fixed per staff id, so the public URL is stable
+      // across re-uploads — append a version param so a replaced signature
+      // isn't served from cache.
+      const bustedUrl = `${url}?v=${Date.now()}`;
+      await updateStaffSignature(staffId, bustedUrl);
+      setProviderSignatureB64(dataUrl);
+      setStaffProfile(p => (p ? { ...p, signatureUrl: bustedUrl } : p));
+    } catch (e) {
+      console.error("Signature upload failed", e);
+      setSigErr("Upload failed — try a PNG or JPG under 5 MB.");
+    } finally {
+      setSigBusy(false);
+    }
+  };
   const [showPurchaseAgreement, setShowPurchaseAgreement] = useState(false);
   const [paSignatureName, setPaSignatureName] = useState("");
   const [paStep, setPaStep] = useState("sign"); // 'sign' | 'delivery' | 'done'
@@ -5982,6 +6054,30 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
 
 
           <div className="settings-section">
+            <div className="settings-title">My Signature</div>
+            <div style={{fontSize:12,color:"#9ca3af",marginBottom:12}}>
+              Appears on the purchase agreements you generate.{staffProfile?.activeLicense ? ` License on file: ${staffProfile.activeLicense}.` : ""}
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:18,flexWrap:"wrap"}}>
+              <div style={{width:240,height:90,border:"1px solid #e5e7eb",borderRadius:10,background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+                {providerSignatureB64
+                  ? <img src={providerSignatureB64} alt="Your signature" style={{maxWidth:"92%",maxHeight:"80%",objectFit:"contain"}} />
+                  : <span style={{fontSize:12,color:"#cbd5e1"}}>No signature yet</span>}
+              </div>
+              <div>
+                <label className="btn-primary" style={{cursor:sigBusy?"wait":"pointer",display:"inline-block"}}>
+                  {sigBusy ? "Uploading…" : providerSignatureB64 ? "Replace Signature" : "Upload Signature"}
+                  <input type="file" accept="image/png,image/jpeg" style={{display:"none"}} disabled={sigBusy}
+                    onChange={e=>{ const f=e.target.files?.[0]; if(f) handleSignatureUpload(f); e.target.value=""; }} />
+                </label>
+                <div style={{fontSize:11,color:"#9ca3af",marginTop:6,maxWidth:240}}>PNG or JPG on a white background. We scale it down automatically.</div>
+                {sigErr && <div style={{fontSize:12,color:"#ef4444",marginTop:6}}>{sigErr}</div>}
+              </div>
+            </div>
+          </div>
+
+
+          <div className="settings-section">
             <div className="settings-title">Campaign Administration</div>
             <div style={{fontSize:12,color:"#9ca3af",marginBottom:12}}>Set up the default nurture campaign and backfill existing patients.</div>
             <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
@@ -6437,7 +6533,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
               patientSignatureDate: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
               deliverySignature: includeDelivery ? paDeliveryName.trim() || null : null,
               deliveryDate: includeDelivery ? paDeliveryDate || null : null,
-              signatureImageBase64: null,
+              signatureImageBase64: providerSignatureB64,
             });
 
             // Always archive to chart — paper trail required for compliance.
@@ -8406,7 +8502,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                                 clinic:clinicObj,
                                 provider:{fullName:provName,activeLicense:provLic,signatureUrl:staffProfile?.signatureUrl||null},
                                 patientSignature:paSignatureName.trim(), patientSignatureDate:sigDate,
-                                deliverySignature:null, deliveryDate:null, signatureImageBase64:null,
+                                deliverySignature:null, deliveryDate:null, signatureImageBase64:providerSignatureB64,
                               });
                               if (wizardPatientId) {
                                 try {
