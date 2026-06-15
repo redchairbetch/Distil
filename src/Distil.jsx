@@ -59,7 +59,10 @@ import {
   loadPatientCampaigns,
   seedDefaultCampaign,
   backfillCampaignEnrollment,
-  loadInsurancePlans,
+  loadInsurancePlansGrouped,
+  saveInsurancePlanGroup,
+  deleteInsurancePlanGroup,
+  PLAN_TIER_LABELS,
   resolveInsurancePlanId,
   loadPricingReveal,
   loadRetailAnchors,
@@ -116,9 +119,10 @@ const DEFAULT_CLINIC = {
 };
 
 
-// Source of truth: Supabase insurance_plans table (active=true).
-// This array is a fallback if the DB load fails — keep in sync with
-// the TruHearing Plan Pricing Matrix used to seed the table.
+// Source of truth: Supabase insurance_plans table — editable in Admin →
+// Insurance Plans, consumed via loadInsurancePlansGrouped(). This array is
+// the offline/seed fallback if the DB load fails; verified at full parity
+// with the table (85/85 plans, all tiers + prices) on 2026-06-10.
 const INSURANCE_PLANS = [
   { carrier:"Anthem", planGroup:"Prefix XMM", tpa:"TruHearing", tiers:[{label:"Standard",price:499}, {label:"Advanced",price:699}, {label:"Premium",price:999}] },
   { carrier:"Anthem", planGroup:"MediBlue Access PPO", tpa:"TruHearing", tiers:[{label:"Advanced",price:499}, {label:"Premium",price:799}] },
@@ -687,7 +691,7 @@ const CATALOG_DEFAULT = [
   // TH5 BTE is always available regardless of plan tier — the plan price covers whatever the clinician fits.
 
   // ── TH7 Premium · Signia IX · 48ch ── planTierKey:"Premium" ──────────────
-  { id:"th7-prem-ric-li", manufacturer:"TruHearing", generation:"IX",
+  { id:"th7-prem-ric-li", manufacturer:"TruHearing", tpa:"TruHearing", generation:"IX",
     thSeries:"TH7", planTierKey:"Premium",
     family:"TH7 Premium — RIC Rechargeable", styles:["ric"],
     variants:["Standard","CROS"], techLevels:["Premium"],
@@ -695,7 +699,7 @@ const CATALOG_DEFAULT = [
     battery:["Rechargeable (Li-Ion)"], active:true,
     notes:"48ch · IX platform · Rechargeable Li-Ion." },
 
-  { id:"th7-prem-sr-li", manufacturer:"TruHearing", generation:"IX",
+  { id:"th7-prem-sr-li", manufacturer:"TruHearing", tpa:"TruHearing", generation:"IX",
     thSeries:"TH7", planTierKey:"Premium",
     family:"TH7 Premium — SR Rechargeable (Super Power RIC)", styles:["ric"],
     variants:["Standard"], techLevels:["Premium"],
@@ -703,7 +707,7 @@ const CATALOG_DEFAULT = [
     battery:["Rechargeable (Li-Ion)"], active:true,
     notes:"48ch · IX · Super-power RIC · Rechargeable Li-Ion. For severe-profound loss." },
 
-  { id:"th7-prem-if-li", manufacturer:"TruHearing", generation:"IX",
+  { id:"th7-prem-if-li", manufacturer:"TruHearing", tpa:"TruHearing", generation:"IX",
     thSeries:"TH7", planTierKey:"Premium",
     family:"TH7 Premium — Instant Fit Rechargeable", styles:["ite"],
     variants:["Standard"], techLevels:["Premium"],
@@ -711,7 +715,7 @@ const CATALOG_DEFAULT = [
     battery:["Rechargeable (Li-Ion)"], active:true,
     notes:"48ch · IX · IF Li-Ion custom · Rechargeable Li-Ion." },
 
-  { id:"th7-prem-custom", manufacturer:"TruHearing", generation:"IX",
+  { id:"th7-prem-custom", manufacturer:"TruHearing", tpa:"TruHearing", generation:"IX",
     thSeries:"TH7", planTierKey:"Premium",
     family:"TH7 Premium — Custom (IIC / CIC / ITC)", styles:["ite","itc","cic","iic"],
     variants:["IIC","CIC","ITC / HS / FS"], techLevels:["Premium"],
@@ -720,7 +724,7 @@ const CATALOG_DEFAULT = [
     notes:"48ch · IX · Non-wireless custom. No Li-Ion upcharge." },
 
   // ── TH6 Advanced · Signia AX · 32ch ── planTierKey:"Advanced" ────────────
-  { id:"th6-adv-ric-312", manufacturer:"TruHearing", generation:"AX",
+  { id:"th6-adv-ric-312", manufacturer:"TruHearing", tpa:"TruHearing", generation:"AX",
     thSeries:"TH6", planTierKey:"Advanced",
     family:"TH6 Advanced — RIC 312", styles:["ric"],
     variants:["Standard","CROS"], techLevels:["Advanced"],
@@ -728,7 +732,7 @@ const CATALOG_DEFAULT = [
     battery:["Size 312"], active:true,
     notes:"32ch · AX platform · Non-rechargeable RIC. No Li-Ion upcharge." },
 
-  { id:"th6-adv-ric-li", manufacturer:"TruHearing", generation:"AX",
+  { id:"th6-adv-ric-li", manufacturer:"TruHearing", tpa:"TruHearing", generation:"AX",
     thSeries:"TH6", planTierKey:"Advanced",
     family:"TH6 Advanced — RIC Rechargeable", styles:["ric"],
     variants:["Standard","CROS"], techLevels:["Advanced"],
@@ -736,7 +740,7 @@ const CATALOG_DEFAULT = [
     battery:["Rechargeable (Li-Ion)"], active:true,
     notes:"32ch · AX platform · Rechargeable Li-Ion." },
 
-  { id:"th6-adv-sr-li", manufacturer:"TruHearing", generation:"AX",
+  { id:"th6-adv-sr-li", manufacturer:"TruHearing", tpa:"TruHearing", generation:"AX",
     thSeries:"TH6", planTierKey:"Advanced",
     family:"TH6 Advanced — SR Rechargeable (Super Power RIC)", styles:["ric"],
     variants:["Standard"], techLevels:["Advanced"],
@@ -744,7 +748,7 @@ const CATALOG_DEFAULT = [
     battery:["Rechargeable (Li-Ion)"], active:true,
     notes:"32ch · AX · Super-power RIC · Rechargeable Li-Ion. Severe-profound loss." },
 
-  { id:"th6-adv-custom-li", manufacturer:"TruHearing", generation:"AX",
+  { id:"th6-adv-custom-li", manufacturer:"TruHearing", tpa:"TruHearing", generation:"AX",
     thSeries:"TH6", planTierKey:"Advanced",
     family:"TH6 Advanced — Custom Rechargeable (ITC)", styles:["ite","itc"],
     variants:["ITC / HS / FS"], techLevels:["Advanced"],
@@ -753,7 +757,7 @@ const CATALOG_DEFAULT = [
     notes:"32ch · AX · ITC Li-Ion custom · Rechargeable Li-Ion." },
 
   // ── TH5 · Signia X ── planTierKey:"Standard"; BTE always available ────────
-  { id:"th5-if", manufacturer:"TruHearing", generation:"X",
+  { id:"th5-if", manufacturer:"TruHearing", tpa:"TruHearing", generation:"X",
     thSeries:"TH5", planTierKey:"Standard",
     family:"TH5 Premium — Instant Fit", styles:["ite"],
     variants:["Standard"], techLevels:["Standard"],
@@ -761,7 +765,7 @@ const CATALOG_DEFAULT = [
     battery:["Size 10"], active:true,
     notes:"48ch · X platform · Non-wireless IF custom. No Li-Ion upcharge." },
 
-  { id:"th5-bte-adv-li", manufacturer:"TruHearing", generation:"X",
+  { id:"th5-bte-adv-li", manufacturer:"TruHearing", tpa:"TruHearing", generation:"X",
     thSeries:"TH5", planTierKey:"Standard",
     family:"TH5 Advanced — BTE Rechargeable (32ch)", styles:["bte"],
     variants:["Standard BTE (Thin-tube)","Standard BTE (Earhook)","Power BTE (Thin-tube)","Power BTE (Earhook)","SP BTE"],
@@ -769,7 +773,7 @@ const CATALOG_DEFAULT = [
     battery:["Rechargeable (Li-Ion)"], active:true,
     notes:"32ch · X platform · BTE Li-Ion · Rechargeable Li-Ion. Always available regardless of plan tier." },
 
-  { id:"th5-bte-prem-li", manufacturer:"TruHearing", generation:"X",
+  { id:"th5-bte-prem-li", manufacturer:"TruHearing", tpa:"TruHearing", generation:"X",
     thSeries:"TH5", planTierKey:"Standard",
     family:"TH5 Premium — BTE Rechargeable (48ch)", styles:["bte"],
     variants:["Standard BTE (Thin-tube)","Standard BTE (Earhook)","Power BTE (Thin-tube)","Power BTE (Earhook)","SP BTE"],
@@ -1746,7 +1750,7 @@ function deriveEarPrice(side, opts) {
   if (isSideCros(side)) {
     return { price: CROS_PRICE_PER_UNIT, source: 'cros' };
   }
-  const { form, catalog, productCatalogTiers, anchorsByClass } = opts;
+  const { form, catalog, productCatalogTiers, anchorsByClass, plans } = opts;
   // UHCH is device-driven: the chosen device decides the patient's price via
   // the coverage map, not a flat plan copay. Must run before the generic
   // insurance branch (UHCH patients are payType 'insurance').
@@ -1755,7 +1759,7 @@ function deriveEarPrice(side, opts) {
     if (!family || !side.techLevel) return null;
     const covTier = uhchCoverageTier(family.manufacturer, side.techLevel);
     if (covTier) {
-      const plan = INSURANCE_PLANS.find(p => p.tpa === 'UHCH' && p.carrier === form.carrier && p.planGroup === form.planGroup);
+      const plan = (plans || INSURANCE_PLANS).find(p => p.tpa === 'UHCH' && p.carrier === form.carrier && p.planGroup === form.planGroup);
       const price = plan?.tiers?.find(t => t.label === covTier)?.price ?? null;
       if (price == null) return null;
       return { price, source: 'uhch-onplan', tier: covTier };
@@ -2084,6 +2088,16 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   const [catSaved, setCatSaved] = useState(false);
   const [catError, setCatError] = useState(null);
 
+  // Insurance plans editor state (Admin → Insurance Plans). The plan data
+  // itself lives in `insurancePlans` (declared above) — grouped DB plans
+  // shared with the wizard and the coverage editor.
+  const [insEditKey, setInsEditKey] = useState(null);   // `${carrier}|${planGroup}` of the open entry, or "__new__"
+  const [insDraft, setInsDraft] = useState(null);       // { carrier, planGroup, tpa, notes, active, tiers:[{id?,label,price}], _origRowIds }
+  const [insSearch, setInsSearch] = useState("");
+  const [insCarrierFilter, setInsCarrierFilter] = useState("All");
+  const [insSaved, setInsSaved] = useState(false);
+  const [insError, setInsError] = useState(null);
+
 
   const EMPTY_SIDE = () => ({
     style:"", manufacturer:"", generation:"", familyId:"", variant:"",
@@ -2328,7 +2342,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   // Private-label (TruHearing Select) plan detection — must be defined before useEffects that reference it
   const isPrivateLabelPlan = (plan) =>
     plan?.tiers?.length > 0 && plan.tiers.every(t => ["Standard","Advanced","Premium"].includes(t.label));
-  const selectedInsurancePlan = INSURANCE_PLANS.find(p => p.carrier === form.carrier && p.planGroup === form.planGroup);
+  // DB-sourced plans (grouped, dollar prices, editable in Admin → Insurance
+  // Plans) with the inline const as offline/seed fallback — same pattern as
+  // CATALOG_DEFAULT. Memoized so earPriceOpts keeps a stable identity.
+  const activePlans = useMemo(
+    () => (insurancePlans.length ? insurancePlans.filter(p => p.active !== false) : INSURANCE_PLANS),
+    [insurancePlans]
+  );
+  const selectedInsurancePlan = activePlans.find(p => p.carrier === form.carrier && p.planGroup === form.planGroup);
   const isPrivateLabel = form.payType === "insurance" && isPrivateLabelPlan(selectedInsurancePlan);
   const privateLabelTiers = isPrivateLabel ? (selectedInsurancePlan?.tiers || []) : [];
 
@@ -2347,7 +2368,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
         if (cat?.length) setCatalog(cat);
       } catch {}
       try {
-        const plans = await loadInsurancePlans();
+        const plans = await loadInsurancePlansGrouped();
         if (plans?.length) setInsurancePlans(plans);
       } catch {}
       try {
@@ -3870,16 +3891,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   };
 
 
-  const carriersForType = [...new Set(INSURANCE_PLANS.map(p => p.carrier))];
-  const plansForCarrier = INSURANCE_PLANS.filter(p => p.carrier === form.carrier);
-
-
   // Catalog-driven cascade derived values — computed per side
   const activeCatalog = catalog.filter(e => e.active);
   // TPA exclusivity: a product carrying a tpa (e.g. Relate → 'UHCH') is only
   // visible to patients on that TPA; tpa-less products show for everyone. This
-  // is what keeps Relate UHCH-only. TruHearing rides its own isPrivateLabel
-  // flow and its rows are tpa-null, so this leaves TruHearing behavior unchanged.
+  // keeps Relate UHCH-only and TruHearing's rows (tpa:"TruHearing") out of the
+  // cascade for private-pay / UHCH / other-insurance patients. TruHearing-plan
+  // patients never reach this cascade — they get the TH card flow
+  // (isPrivateLabel), which reads TH_MODELS/TH_AVAILABILITY, not the catalog.
   const visibleCatalog = activeCatalog.filter(e => !e.tpa || e.tpa === form.tpa);
   const getSideDerived = (sd) => {
     const availMfrs = [...new Set(visibleCatalog.filter(e => !sd.style || e.styles.includes(sd.style)).map(e => e.manufacturer))].sort();
@@ -3967,8 +3986,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   // Per-ear price resolution. Memoized so device-screen renders don't redo
   // the lookups on every keystroke elsewhere in the form.
   const earPriceOpts = useMemo(
-    () => ({ form, catalog, productCatalogTiers, anchorsByClass: retailAnchorsByClass }),
-    [form, catalog, productCatalogTiers, retailAnchorsByClass]
+    () => ({ form, catalog, productCatalogTiers, anchorsByClass: retailAnchorsByClass, plans: activePlans }),
+    [form, catalog, productCatalogTiers, retailAnchorsByClass, activePlans]
   );
   const leftEarPrice  = useMemo(() => deriveEarPrice(form.left,  earPriceOpts), [form.left,  earPriceOpts]);
   const rightEarPrice = useMemo(() => deriveEarPrice(form.right, earPriceOpts), [form.right, earPriceOpts]);
@@ -4424,7 +4443,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                   style={{width:"100%",marginBottom:10,fontSize:13}}
                 />
                 <div style={{maxHeight:220,overflowY:"auto",display:"flex",flexDirection:"column",gap:6,paddingRight:4}}>
-                  {INSURANCE_PLANS
+                  {activePlans
                     .filter(p=>{
                       const q=(form._planSearch||"").toLowerCase();
                       return !q||p.carrier.toLowerCase().includes(q)||p.planGroup.toLowerCase().includes(q)||p.tpa.toLowerCase().includes(q);
@@ -5880,7 +5899,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
         const thSeries = fam?.thSeries || "";
         const isLi = isTH ? (thMod?.li || false) : (fam?.rechargeable || false);
         const thHasReceiver = ["ric","ric_bct","sr"].includes(d.style);
-        const planTierPrice = INSURANCE_PLANS.find(p=>p.carrier===form.carrier&&p.planGroup===form.planGroup)
+        const planTierPrice = activePlans.find(p=>p.carrier===form.carrier&&p.planGroup===form.planGroup)
           ?.tiers?.find(t=>t.label===d.techLevel)?.price ?? null;
         return (
           <>
@@ -6870,7 +6889,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                       style={{width:"100%",marginBottom:8,padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}}
                     />
                     <div style={{maxHeight:180,overflowY:"auto",display:"flex",flexDirection:"column",gap:5,paddingRight:2}}>
-                      {(insurancePlans.length ? insurancePlans : INSURANCE_PLANS)
+                      {activePlans
                         .filter(plan=>{const q=(editPlanSearch||"").toLowerCase();return !q||plan.carrier.toLowerCase().includes(q)||plan.planGroup.toLowerCase().includes(q)||(plan.tpa||"").toLowerCase().includes(q);})
                         .sort((a,b)=>a.planGroup.localeCompare(b.planGroup))
                         .slice(0,30)
@@ -8101,6 +8120,245 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   );
 
 
+  // ── INSURANCE PLANS EDITOR (Admin) ──────────────────────────────────────
+  // Mirrors the Product Catalog editor pattern: draft state, DB write first,
+  // local refresh after success, .save-success / .save-error banners. Edits
+  // land in `insurancePlans`, which also feeds the wizard's plan picker and
+  // the coverage editor via activePlans.
+  const planKey = (p) => `${p.carrier}|${p.planGroup}`;
+
+  const refreshInsurancePlans = async () => {
+    try {
+      const plans = await loadInsurancePlansGrouped();
+      setInsurancePlans(plans || []);
+    } catch (e) {
+      console.error("refreshInsurancePlans:", e);
+    }
+  };
+
+  const startNewInsurancePlan = () => {
+    setInsDraft({
+      carrier: insCarrierFilter !== "All" ? insCarrierFilter : "",
+      planGroup: "",
+      tpa: "TruHearing",
+      notes: "",
+      active: true,
+      // Advanced + Premium is the dominant TruHearing pattern — pre-seed those rows.
+      tiers: [{ label: "Advanced", price: null }, { label: "Premium", price: null }],
+      _origRowIds: [],
+    });
+    setInsEditKey("__new__");
+    setInsError(null);
+  };
+
+  const startEditInsurancePlan = (plan) => {
+    setInsDraft({
+      carrier: plan.carrier,
+      planGroup: plan.planGroup,
+      tpa: plan.tpa || "",
+      notes: plan.notes || "",
+      active: plan.active !== false,
+      tiers: (plan.tiers || []).map(t => ({ ...t })),
+      _origRowIds: (plan.tiers || []).map(t => t.id).filter(Boolean),
+    });
+    setInsEditKey(planKey(plan));
+    setInsError(null);
+  };
+
+  const saveInsurancePlanDraft = async () => {
+    setInsError(null);
+    const d = insDraft;
+    if (!d) return;
+    if (!d.carrier?.trim() || !d.planGroup?.trim()) { setInsError("Carrier and plan group are required."); return; }
+    const tiers = (d.tiers || []).filter(t => t.label && t.price !== null && t.price !== "");
+    if (!tiers.length) { setInsError("Add at least one tier with a copay."); return; }
+    const seen = new Set();
+    for (const t of tiers) {
+      if (seen.has(t.label)) { setInsError(`Tier "${t.label}" appears twice — each label can be used once per plan.`); return; }
+      seen.add(t.label);
+    }
+    let saved;
+    try {
+      saved = await saveInsurancePlanGroup({ ...d, tiers }, d._origRowIds);
+    } catch (e) {
+      setInsError(e?.message || "Save failed — check your connection or admin permissions.");
+      return;
+    }
+    // Re-key the open panel (covers new entries and renames) and fold the
+    // DB-assigned row ids back into the draft so a follow-up save updates
+    // rows instead of re-inserting them.
+    const idByLabel = Object.fromEntries((saved || []).map(r => [r.tier_label, r.id]));
+    setInsDraft(prev => prev ? {
+      ...prev,
+      tiers: tiers.map(t => ({ ...t, id: t.id || idByLabel[t.label] || null })),
+      _origRowIds: (saved || []).map(r => r.id),
+    } : prev);
+    setInsEditKey(planKey(d));
+    setInsSaved(true);
+    setTimeout(() => setInsSaved(false), 2500);
+    await refreshInsurancePlans();
+  };
+
+  const toggleInsurancePlanActive = async (plan) => {
+    setInsError(null);
+    try {
+      await saveInsurancePlanGroup(
+        { ...plan, active: !plan.active },
+        (plan.tiers || []).map(t => t.id).filter(Boolean)
+      );
+    } catch (e) {
+      setInsError(e?.message || "Update failed — check your connection or admin permissions.");
+      return;
+    }
+    await refreshInsurancePlans();
+  };
+
+  const deleteInsurancePlanEntry = async (plan) => {
+    if (!window.confirm(`Delete ${plan.carrier} — ${plan.planGroup} (all tiers)? If a patient is linked to this plan the delete is blocked; deactivate it instead.`)) return;
+    setInsError(null);
+    try {
+      await deleteInsurancePlanGroup((plan.tiers || []).map(t => t.id).filter(Boolean));
+    } catch (e) {
+      setInsError(e?.message || "Delete failed — check your connection or admin permissions.");
+      return;
+    }
+    if (insEditKey === planKey(plan)) { setInsEditKey(null); setInsDraft(null); }
+    await refreshInsurancePlans();
+  };
+
+  const updateInsDraftTier = (idx, patch) => {
+    setInsDraft(d => ({ ...d, tiers: d.tiers.map((t, i) => i === idx ? { ...t, ...patch } : t) }));
+  };
+
+  const insSelectStyle = { padding:"8px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, background:"white", fontFamily:"inherit" };
+
+  const renderPlanEditPanel = (isNew) => (
+    <div className="catalog-edit-panel">
+      {insSaved && <div className="save-success">✓ Saved</div>}
+      {insError && <div className="save-error">⚠ {insError}</div>}
+      <div className="cat-field-row">
+        <div className="cat-field"><label>Carrier</label>
+          <input value={insDraft.carrier} onChange={e=>setInsDraft(d=>({...d,carrier:e.target.value}))} placeholder="e.g. Humana" />
+        </div>
+        <div className="cat-field"><label>TPA</label>
+          <select value={insDraft.tpa} onChange={e=>setInsDraft(d=>({...d,tpa:e.target.value}))} style={insSelectStyle}>
+            <option value="TruHearing">TruHearing</option>
+            <option value="UHCH">UHCH</option>
+            <option value="">— None / direct —</option>
+          </select>
+        </div>
+      </div>
+      <div className="cat-field"><label>Plan Group</label>
+        <input value={insDraft.planGroup} onChange={e=>setInsDraft(d=>({...d,planGroup:e.target.value}))} placeholder="e.g. Gold Plus HMO" />
+      </div>
+      <div className="cat-field"><label>Tiers & Copays ($ per aid)</label>
+        {insDraft.tiers.map((t, i) => (
+          <div key={i} style={{display:"flex",gap:8,alignItems:"center",marginBottom:6}}>
+            <select value={t.label} onChange={e=>updateInsDraftTier(i,{label:e.target.value})} style={{...insSelectStyle,flex:1}}>
+              <option value="">— Tier —</option>
+              {PLAN_TIER_LABELS.map(l=><option key={l} value={l}>{l}</option>)}
+            </select>
+            <input type="number" min="0" step="1" value={t.price ?? ""} placeholder="$ / aid"
+              onChange={e=>updateInsDraftTier(i,{price:e.target.value === "" ? null : Number(e.target.value)})}
+              style={{width:110}} />
+            <button className="cat-btn danger" onClick={()=>setInsDraft(d=>({...d,tiers:d.tiers.filter((_,j)=>j!==i)}))}>✕</button>
+          </div>
+        ))}
+        <button className="cat-btn" style={{alignSelf:"flex-start"}} onClick={()=>setInsDraft(d=>({...d,tiers:[...d.tiers,{label:"",price:null}]}))}>＋ Add Tier</button>
+        <div style={{fontSize:11,color:"#9ca3af",marginTop:6}}>
+          $0 copays are valid (fully covered tiers). Retail-anchor links are derived automatically for TruHearing plans.
+        </div>
+      </div>
+      <div className="cat-field"><label>Notes (internal)</label>
+        <textarea value={insDraft.notes} onChange={e=>setInsDraft(d=>({...d,notes:e.target.value}))} />
+      </div>
+      <div className="cat-save-row">
+        <button className="cat-btn" onClick={()=>{setInsEditKey(null);setInsDraft(null);setInsError(null);}}>Cancel</button>
+        <button className="cat-btn primary" onClick={saveInsurancePlanDraft}>{isNew?"Save Plan":"Save Changes"}</button>
+      </div>
+    </div>
+  );
+
+  const renderInsurancePlans = () => {
+    const planCarriers = [...new Set(insurancePlans.map(p => p.carrier))].sort();
+    const filteredPlans = insurancePlans.filter(p => {
+      const carrierOk = insCarrierFilter === "All" || p.carrier === insCarrierFilter;
+      const q = insSearch.toLowerCase();
+      const searchOk = !q || p.carrier.toLowerCase().includes(q) || p.planGroup.toLowerCase().includes(q) || (p.tpa||"").toLowerCase().includes(q);
+      return carrierOk && searchOk;
+    });
+    return (
+      <>
+        <div className="topbar">
+          <div>
+            <div className="topbar-title">Insurance Plans</div>
+            <div className="topbar-sub">{insurancePlans.filter(p=>p.active).length} active plans · {insurancePlans.length} total · feeds the wizard and coverage editor</div>
+          </div>
+        </div>
+        <div className="content">
+          <div className="catalog-wrap">
+            <div className="catalog-toolbar">
+              <input className="catalog-search" placeholder="Search carrier, plan, or TPA…" value={insSearch} onChange={e=>setInsSearch(e.target.value)} />
+              <button className="cat-btn primary" onClick={startNewInsurancePlan}>＋ Add Plan</button>
+            </div>
+
+            <div className="catalog-mfr-tabs">
+              {["All",...planCarriers].map(c => (
+                <div key={c} className={`catalog-mfr-tab ${insCarrierFilter===c?"active":""}`} onClick={()=>setInsCarrierFilter(c)}>{c}</div>
+              ))}
+            </div>
+
+            {/* Toggle/delete errors when no edit panel is open */}
+            {insError && !insDraft && <div className="save-error">⚠ {insError}</div>}
+
+            {insEditKey === "__new__" && insDraft && (
+              <div className="catalog-entry" style={{border:"2px solid #0a1628"}}>
+                <div className="catalog-entry-header">
+                  <div style={{flex:1,fontWeight:700,color:"#0a1628",fontSize:14}}>New Plan</div>
+                </div>
+                {renderPlanEditPanel(true)}
+              </div>
+            )}
+
+            {insurancePlans.length === 0 && (
+              <div className="empty-state"><div className="empty-icon">🛡️</div><div className="empty-title">No plans loaded from the database</div></div>
+            )}
+            {insurancePlans.length > 0 && filteredPlans.length === 0 && (
+              <div className="empty-state"><div className="empty-icon">🛡️</div><div className="empty-title">No plans match</div></div>
+            )}
+
+            {filteredPlans.map(plan => {
+              const key = planKey(plan);
+              const isEditing = insEditKey === key;
+              return (
+                <div className="catalog-entry" key={key} style={isEditing?{border:"2px solid #0a1628"}:{}}>
+                  <div className="catalog-entry-header">
+                    <div>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <div className="catalog-entry-name">{plan.planGroup}</div>
+                        <span className={`catalog-entry-badge ${plan.active?"active-badge":""}`}>{plan.active?"Active":"Inactive"}</span>
+                      </div>
+                      <div className="catalog-entry-gen">
+                        {plan.carrier} · via {plan.tpa || "—"} · {plan.tiers.map(t=>`${t.label} $${(t.price??0).toLocaleString()}`).join(" / ")}
+                      </div>
+                    </div>
+                    <div className="catalog-entry-actions">
+                      <button className="cat-btn" onClick={()=>toggleInsurancePlanActive(plan)}>{plan.active?"Deactivate":"Activate"}</button>
+                      <button className="cat-btn" onClick={()=>{ if (isEditing) { setInsEditKey(null); setInsDraft(null); } else startEditInsurancePlan(plan); }}>{isEditing?"Cancel":"Edit"}</button>
+                      <button className="cat-btn danger" onClick={()=>deleteInsurancePlanEntry(plan)}>Delete</button>
+                    </div>
+                  </div>
+                  {isEditing && insDraft && renderPlanEditPanel(false)}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </>
+    );
+  };
+
+
   // ── RENDER ────────────────────────────────────────────────────────────────
   return (
     <>
@@ -8244,6 +8502,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 </div>
               ))}
             </>}
+            {/* Admin group — catalog/config tooling; gate behind an admin role later (backlog #17) */}
+            <div className="nav-section-label">Admin</div>
+            {[["📋","Product Catalog","catalog"],["🛡️","Insurance Plans","insurance-plans"],["⚙️","Settings","settings"]].map(([icon,label,id])=>(
+              <div key={id} className={`nav-item ${view===id?"active":""}`} onClick={()=>setView(id)}>
+                <span className="nav-icon">{icon}</span>{label}
+              </div>
+            ))}
           </div>
           {/* Intake queue button */}
           <div style={{padding:"12px 14px",borderTop:"1px solid rgba(255,255,255,0.07)"}}>
@@ -8310,6 +8575,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
           {view === "settings" && renderSettings()}
           {view === "catalog" && renderCatalog()}
           {view === "providers" && <ProvidersAdmin />}
+          {view === "insurance-plans" && renderInsurancePlans()}
           {view === "campaigns" && <CampaignManager clinicId={clinicId} staffId={staffId} patients={patients} />}
           {view === "content" && <ContentLibrary clinicId={clinicId} staffId={staffId} />}
           {view === "lima-charlie" && <LimaCharlie clinicId={clinicId} staffId={staffId} />}
