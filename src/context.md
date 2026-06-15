@@ -61,6 +61,7 @@ Companion patient-facing app.
 - **HIPAA consent**: Verbatim MHC legal language, scroll-to-bottom gating
 - **"Neurotechnology" is trademarked** — owned by former Intermountain Audiology. Never use in app copy or patient-facing UI. Use "devices" instead.
 - **"Trial" and "demo" are banned** — use "adaptation period" and "evaluation."
+- **Dispensing provider follows the clinic, not the operator**: Event specialists ("closers") travel between MHC locations and are usually NOT licensed in the state they're working that day. The purchase agreement carries the **local clinic's** provider name + license — the device is dispensed under that provider, who owns the patient relationship from that point forward. The logged-in user's own license never goes on a closer-generated PA. Provider credentials must resolve from the **selected event clinic**, not from the logged-in `staffProfile`. (Closer role + multi-clinic provider resolution: see backlog.)
 
 ---
 

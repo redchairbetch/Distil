@@ -91,6 +91,8 @@ import {
   recordUpgradeOutcome,
   logAnalyticsEvent,
   listMessagesForPatient,
+  uploadSignatureImage,
+  updateStaffSignature,
 } from "./db.js";
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 import { downloadQuote } from "./generateQuote.js";
@@ -104,6 +106,8 @@ import NurturePreview from "./views/NurturePreview.jsx";
 import CampaignManager from "./views/CampaignManager.jsx";
 import LimaCharlie from "./views/LimaCharlie.jsx";
 import FollowUpQueue, { countFollowUpPatients } from "./views/FollowUpQueue.jsx";
+import ProvidersAdmin from "./views/ProvidersAdmin.jsx";
+import CloserLocationPicker from "./views/CloserLocationPicker.jsx";
 
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
@@ -1606,13 +1610,46 @@ const CHAPTER_TITLES = ["Patient story", "Evidence", "Recommendation", "Investme
 
 
 // ── ROLE CHECK UTILITY ─────────────────────────────────────────────────────────
-// Role categories: 'care_coordinator' | 'provider' | 'admin'
-// TODO: Wire up real restrictions — replace body with:
-//   return Array.isArray(allowedRoles) && allowedRoles.includes(staffRole)
-// Currently returns true for all roles so all staff can do everything.
-// eslint-disable-next-line no-unused-vars
-function checkRole(_staffRole, _allowedRoles) {
-  return true; // TODO: enforce when roles are configured
+// Role categories: 'care_coordinator' | 'provider' | 'closer' | 'admin'
+// UX gating only — catalog/pricing writes are enforced by admin-only RLS.
+function checkRole(staffRole, allowedRoles) {
+  return Array.isArray(allowedRoles) && allowedRoles.includes(staffRole);
+}
+
+
+// Downscale a signature image file to a compact PNG data URL. Signatures are
+// line art, so a 600px-wide PNG is plenty and keeps both storage and the
+// signature embedded in every purchase-agreement PDF small. Returns a data: URL.
+function downscaleSignature(file, maxW = 600) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxW / img.width);
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(img.src);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+
+// Pick the license matching a clinic's state from a {STATE: number} map,
+// mirroring loadStaffProfile's resolution. Falls back to the first license.
+// Used to print the right state license when a closer dispenses under a local
+// provider at the event clinic.
+function pickLicenseForClinic(licenses, address) {
+  const parts = (address || "").split(",").map(s => s.trim());
+  const stateZip = parts[parts.length - 1] || "";
+  const m = stateZip.match(/\b([A-Z]{2})\b/);
+  const state = m ? m[1] : null;
+  const lic = licenses || {};
+  return (state && lic[state]) ? lic[state] : (Object.values(lic)[0] || "");
 }
 
 
@@ -1842,7 +1879,7 @@ function AppointmentSchedule({ appointments }) {
   );
 }
 
-export default function ProviderCRM({ staffId, clinicId }) {
+export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   const [clinic, setClinic] = useState(DEFAULT_CLINIC);
   const [clinicDraft, setClinicDraft] = useState(DEFAULT_CLINIC);
   const [clinicSaved, setClinicSaved] = useState(false);
@@ -1936,6 +1973,99 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
   // ── Purchase Agreement state ──────────────────────────────────────────
   const [staffProfile, setStaffProfile] = useState(null);
+  const [providerSignatureB64, setProviderSignatureB64] = useState(null);
+  const [sigBusy, setSigBusy] = useState(false);
+  const [sigErr, setSigErr] = useState("");
+
+  // Load the logged-in provider's stored signature as a data URL so it can be
+  // embedded in the purchase agreements they generate. Falls back to null,
+  // in which case the PA prints the typed provider name instead of an image.
+  useEffect(() => {
+    const url = staffProfile?.signatureUrl;
+    if (!url) { setProviderSignatureB64(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetch(url, { cache: "no-store" });
+        const blob = await resp.blob();
+        const dataUrl = await new Promise((res, rej) => {
+          const fr = new FileReader();
+          fr.onload = () => res(fr.result);
+          fr.onerror = rej;
+          fr.readAsDataURL(blob);
+        });
+        if (!cancelled) setProviderSignatureB64(dataUrl);
+      } catch { if (!cancelled) setProviderSignatureB64(null); }
+    })();
+    return () => { cancelled = true; };
+  }, [staffProfile?.signatureUrl]);
+
+  const handleSignatureUpload = async (file) => {
+    if (!file || !staffId) return;
+    setSigErr(""); setSigBusy(true);
+    try {
+      const dataUrl = await downscaleSignature(file, 600);
+      const blob = await (await fetch(dataUrl)).blob();
+      const url = await uploadSignatureImage(staffId, blob);
+      // The storage path is fixed per staff id, so the public URL is stable
+      // across re-uploads — append a version param so a replaced signature
+      // isn't served from cache.
+      const bustedUrl = `${url}?v=${Date.now()}`;
+      await updateStaffSignature(staffId, bustedUrl);
+      setProviderSignatureB64(dataUrl);
+      setStaffProfile(p => (p ? { ...p, signatureUrl: bustedUrl } : p));
+    } catch (e) {
+      console.error("Signature upload failed", e);
+      setSigErr("Upload failed — try a PNG or JPG under 5 MB.");
+    } finally {
+      setSigBusy(false);
+    }
+  };
+
+  // ── Closer dispensing-location override (PR C) ────────────────────────────
+  // Event specialists ("closers") dispense under the LOCAL provider at the
+  // clinic they're working that day. They pick a location + provider here; that
+  // identity (not their own login) flows onto purchase agreements and quotes.
+  const [closerClinic, setCloserClinic]       = useState(null);
+  const [closerProvider, setCloserProvider]   = useState(null);
+  const [closerSignatureB64, setCloserSignatureB64] = useState(null);
+  const [showCloserPicker, setShowCloserPicker] = useState(false);
+
+  // Load the picked provider's stored signature as a data URL for the PA.
+  useEffect(() => {
+    const url = closerProvider?.signature_url;
+    if (!url) { setCloserSignatureB64(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetch(url, { cache: "no-store" });
+        const blob = await resp.blob();
+        const dataUrl = await new Promise((res, rej) => {
+          const fr = new FileReader();
+          fr.onload = () => res(fr.result);
+          fr.onerror = rej;
+          fr.readAsDataURL(blob);
+        });
+        if (!cancelled) setCloserSignatureB64(dataUrl);
+      } catch { if (!cancelled) setCloserSignatureB64(null); }
+    })();
+    return () => { cancelled = true; };
+  }, [closerProvider?.signature_url]);
+
+  // Prompt closers to set their dispensing location once the role is known.
+  useEffect(() => {
+    if (staffRole === "closer" && !closerProvider) setShowCloserPicker(true);
+  }, [staffRole]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Identity printed on PAs/quotes: a closer with a set location uses that
+  // clinic's provider + state-matched license; everyone else uses their profile.
+  const isCloser = staffRole === "closer";
+  const closerNeedsLocation = isCloser && !closerProvider;
+  const paClinic = (isCloser && closerClinic) ? closerClinic : (staffProfile?.clinic || clinic);
+  const paProvider = (isCloser && closerProvider)
+    ? { fullName: closerProvider.full_name, activeLicense: pickLicenseForClinic(closerProvider.licenses, closerClinic?.address), signatureUrl: closerProvider.signature_url || null }
+    : { fullName: staffProfile?.fullName || "Provider", activeLicense: staffProfile?.activeLicense || "", signatureUrl: staffProfile?.signatureUrl || null };
+  const paSignatureB64 = (isCloser && closerProvider) ? closerSignatureB64 : providerSignatureB64;
   const [showPurchaseAgreement, setShowPurchaseAgreement] = useState(false);
   const [paSignatureName, setPaSignatureName] = useState("");
   const [paStep, setPaStep] = useState("sign"); // 'sign' | 'delivery' | 'done'
@@ -2793,7 +2923,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
     // when both are null.
     const leftEarP  = leftRec  ? (leftEarPrice?.price  ?? pricePerAid) : null;
     const rightEarP = rightRec ? (rightEarPrice?.price ?? pricePerAid) : null;
-    const { blob, fileName } = downloadQuote({
+    if (closerNeedsLocation) { alert("Set your dispensing location in the sidebar first."); setShowCloserPicker(true); return; } const { blob, fileName } = downloadQuote({
       patient: { name: [form.firstName, form.lastName].filter(Boolean).join(" "), phone: form.phone },
       devices: { fittingType, left: leftRec, right: rightRec },
       pricePerAid,
@@ -2805,8 +2935,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
       carrier: form.carrier,
       audiology: form.audiology,
       counselingSections: counselingSections,
-      clinic: staffProfile?.clinic || clinic,
-      provider: { fullName: staffProfile?.fullName || "Provider", activeLicense: staffProfile?.activeLicense || "" },
+      clinic: paClinic,
+      provider: paProvider,
     });
 
     if (wizardPatientId) {
@@ -6004,6 +6134,30 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
           <div className="settings-section">
+            <div className="settings-title">My Signature</div>
+            <div style={{fontSize:12,color:"#9ca3af",marginBottom:12}}>
+              Appears on the purchase agreements you generate.{staffProfile?.activeLicense ? ` License on file: ${staffProfile.activeLicense}.` : ""}
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:18,flexWrap:"wrap"}}>
+              <div style={{width:240,height:90,border:"1px solid #e5e7eb",borderRadius:10,background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+                {providerSignatureB64
+                  ? <img src={providerSignatureB64} alt="Your signature" style={{maxWidth:"92%",maxHeight:"80%",objectFit:"contain"}} />
+                  : <span style={{fontSize:12,color:"#cbd5e1"}}>No signature yet</span>}
+              </div>
+              <div>
+                <label className="btn-primary" style={{cursor:sigBusy?"wait":"pointer",display:"inline-block"}}>
+                  {sigBusy ? "Uploading…" : providerSignatureB64 ? "Replace Signature" : "Upload Signature"}
+                  <input type="file" accept="image/png,image/jpeg" style={{display:"none"}} disabled={sigBusy}
+                    onChange={e=>{ const f=e.target.files?.[0]; if(f) handleSignatureUpload(f); e.target.value=""; }} />
+                </label>
+                <div style={{fontSize:11,color:"#9ca3af",marginTop:6,maxWidth:240}}>PNG or JPG on a white background. We scale it down automatically.</div>
+                {sigErr && <div style={{fontSize:12,color:"#ef4444",marginTop:6}}>{sigErr}</div>}
+              </div>
+            </div>
+          </div>
+
+
+          <div className="settings-section">
             <div className="settings-title">Campaign Administration</div>
             <div style={{fontSize:12,color:"#9ca3af",marginBottom:12}}>Set up the default nurture campaign and backfill existing patients.</div>
             <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
@@ -6263,7 +6417,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   const sideHasCros = (s) => !!s && /^(CROS|BICROS)/i.test(s.variant || '');
                   const leftEarP  = p.devices?.left  ? (sideHasCros(p.devices.left)  ? CROS_PRICE_PER_UNIT : pricePerAid) : null;
                   const rightEarP = p.devices?.right ? (sideHasCros(p.devices.right) ? CROS_PRICE_PER_UNIT : pricePerAid) : null;
-                  const { blob, fileName } = downloadQuote({
+                  if (closerNeedsLocation) { alert("Set your dispensing location in the sidebar first."); setShowCloserPicker(true); return; } const { blob, fileName } = downloadQuote({
                     patient: { name: p.name, phone: p.phone },
                     devices: { fittingType, left: p.devices?.left || null, right: p.devices?.right || null },
                     pricePerAid,
@@ -6275,8 +6429,8 @@ export default function ProviderCRM({ staffId, clinicId }) {
                     carrier: p.insurance?.carrier,
                     audiology: p.audiology,
                     counselingSections,
-                    clinic: staffProfile?.clinic || clinic,
-                    provider: { fullName: staffProfile?.fullName || "Provider", activeLicense: staffProfile?.activeLicense || "" },
+                    clinic: paClinic,
+                    provider: paProvider,
                   });
                   try {
                     const isBilateral = (fittingType === 'bilateral' || fittingType === 'cros_bicros');
@@ -6437,7 +6591,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           const totalPurchasePrice = deviceTotal + carePlanCost;
 
           const handleGeneratePDF = async (includeDelivery = false) => {
-            const { blob, fileName } = downloadPurchaseAgreement({
+            if (closerNeedsLocation) { alert("Set your dispensing location in the sidebar before generating a purchase agreement."); setShowCloserPicker(true); return; } const { blob, fileName } = downloadPurchaseAgreement({
               patient: { name: p.name, address: p.address, phone: p.phone, dob: p.dob },
               devices: {
                 fittingType: p.devices?.fittingType || 'bilateral',
@@ -6449,17 +6603,13 @@ export default function ProviderCRM({ staffId, clinicId }) {
               leftPrice: leftEarP,
               rightPrice: rightEarP,
               payType: p.payType,
-              clinic: staffProfile?.clinic || clinic,
-              provider: {
-                fullName: staffProfile?.fullName || 'Provider',
-                activeLicense: staffProfile?.activeLicense || '',
-                signatureUrl: staffProfile?.signatureUrl || null,
-              },
+              clinic: paClinic,
+              provider: paProvider,
               patientSignature: paSignatureName.trim(),
               patientSignatureDate: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
               deliverySignature: includeDelivery ? paDeliveryName.trim() || null : null,
               deliveryDate: includeDelivery ? paDeliveryDate || null : null,
-              signatureImageBase64: null,
+              signatureImageBase64: paSignatureB64,
             });
 
             // Always archive to chart — paper trail required for compliance.
@@ -6483,7 +6633,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                   includesDelivery: includeDelivery,
                   deliverySignature: includeDelivery ? (paDeliveryName.trim() || null) : null,
                   deliveryDate: includeDelivery ? (paDeliveryDate || null) : null,
-                  providerName: staffProfile?.fullName || null,
+                  providerName: paProvider.fullName || null,
                 },
               });
               await refreshDocuments();
@@ -6674,8 +6824,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div className="detail-card">
               <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
                 <div className="detail-card-title" style={{marginBottom:0}}>Contact Information</div>
-                {/* TODO: restrict to care_coordinator, provider, admin once checkRole is enforced */}
-                {editSection !== "contact" && checkRole(null, ["care_coordinator","provider","admin"]) && (
+                {editSection !== "contact" && checkRole(staffRole, ["care_coordinator","provider","closer","admin"]) && (
                   <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={startEditContact}>Edit</button>
                 )}
               </div>
@@ -6724,8 +6873,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div className="detail-card">
               <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
                 <div className="detail-card-title" style={{marginBottom:0}}>Coverage</div>
-                {/* TODO: restrict to care_coordinator, provider, admin once checkRole is enforced */}
-                {editSection !== "coverage" && checkRole(null, ["care_coordinator","provider","admin"]) && (
+                {editSection !== "coverage" && checkRole(staffRole, ["care_coordinator","provider","closer","admin"]) && (
                   <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={startEditCoverage}>Edit</button>
                 )}
               </div>
@@ -6813,8 +6961,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div className="detail-card full">
               <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
                 <div className="detail-card-title" style={{marginBottom:0}}>{p.patientStatus === "tns" ? "Quoted Devices" : "Device Specifications"}</div>
-                {/* TODO: restrict to provider, admin once checkRole is enforced */}
-                {editSection !== "devices" && checkRole(null, ["provider","admin"]) && (
+                {editSection !== "devices" && checkRole(staffRole, ["provider","closer","admin"]) && (
                   <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={startEditDevices}>Edit</button>
                 )}
               </div>
@@ -7327,7 +7474,6 @@ export default function ProviderCRM({ staffId, clinicId }) {
 
 
             {/* ── CAMPAIGN JOURNEY ─────────────────────────────────────────────────── */}
-            {/* TODO: restrict campaign edits to care_coordinator, admin once checkRole is enforced */}
             {patientCampaigns.length > 0 && patientCampaigns.map(campaign => {
               const deliveries = (campaign.campaign_deliveries || [])
                 .sort((a,b) => (a.campaign_steps?.step_order ?? 0) - (b.campaign_steps?.step_order ?? 0));
@@ -7342,8 +7488,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                       Nurture Campaign
                       <span style={{fontSize:11,fontWeight:400,color:"#9ca3af",marginLeft:8}}>{campaign.campaign_templates?.name || "Campaign"}</span>
                     </div>
-                    {/* TODO: restrict to care_coordinator, admin when enforcing roles */}
-                    {!isEditingThis && checkRole(null, ["care_coordinator","admin"]) && (
+                    {!isEditingThis && checkRole(staffRole, ["care_coordinator","admin"]) && (
                       <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={()=>startEditCampaign(campaign)}>Edit</button>
                     )}
                   </div>
@@ -8219,6 +8364,14 @@ export default function ProviderCRM({ staffId, clinicId }) {
     <>
       <style>{styles}</style>
 
+      {/* ── Closer dispensing-location picker (PR C) ── */}
+      {showCloserPicker && (
+        <CloserLocationPicker
+          onClose={() => setShowCloserPicker(false)}
+          onSelect={(c, p) => { setCloserClinic(c); setCloserProvider(p); setShowCloserPicker(false); }}
+        />
+      )}
+
       {/* ── Intake toast notification ── */}
       {intakeToast && (
         <div className="intake-toast">
@@ -8311,6 +8464,20 @@ export default function ProviderCRM({ staffId, clinicId }) {
             <div style={{fontSize:9,fontWeight:700,letterSpacing:2,color:"rgba(255,255,255,0.3)",textTransform:"uppercase",marginBottom:3}}>Clinic</div>
             <div style={{fontSize:12,color:"rgba(255,255,255,0.7)",fontWeight:500,lineHeight:1.3}}>{clinic.address}</div>
           </div>
+          {isCloser && (
+            <div onClick={()=>setShowCloserPicker(true)} title="Set the clinic + provider this is dispensed under"
+              style={{margin:"0 14px 12px",background:closerProvider?"rgba(74,222,128,0.1)":"rgba(245,158,11,0.12)",border:`1px solid ${closerProvider?"rgba(74,222,128,0.3)":"rgba(245,158,11,0.45)"}`,borderRadius:8,padding:"8px 10px",cursor:"pointer"}}>
+              <div style={{fontSize:9,fontWeight:700,letterSpacing:2,color:"rgba(255,255,255,0.4)",textTransform:"uppercase",marginBottom:3}}>Dispensing Location</div>
+              {closerProvider ? (
+                <div style={{fontSize:12,color:"rgba(255,255,255,0.85)",fontWeight:600,lineHeight:1.35}}>
+                  {(closerClinic?.name||"").replace("My Hearing Centers – ","")}
+                  <div style={{fontWeight:400,color:"rgba(255,255,255,0.55)"}}>under {closerProvider.full_name} · tap to change</div>
+                </div>
+              ) : (
+                <div style={{fontSize:12,color:"#fcd34d",fontWeight:600}}>⚠ Tap to set before closing</div>
+              )}
+            </div>
+          )}
           <div className="sidebar-nav">
             {[["🏠","Dashboard","dashboard"],["👥","Patients","patients"],["🔔","Follow-up","followup"],["📅","Schedule","schedule"],["📊","Reports","reports"],["📬","Campaigns","campaigns"],["📚","Content Library","content"],["🎖️","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
               const badge = id === "followup" ? countFollowUpPatients(patients) : 0;
@@ -8326,6 +8493,15 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 )}
               </div>
             )})}
+            {/* Admin group — catalog/config tooling; admin role only (backlog #17) */}
+            {checkRole(staffRole, ["admin"]) && <>
+              <div className="nav-section-label">Admin</div>
+              {[["🪪","Providers","providers"],["📋","Product Catalog","catalog"],["⚙️","Settings","settings"]].map(([icon,label,id])=>(
+                <div key={id} className={`nav-item ${view===id?"active":""}`} onClick={()=>setView(id)}>
+                  <span className="nav-icon">{icon}</span>{label}
+                </div>
+              ))}
+            </>}
             {/* Admin group — catalog/config tooling; gate behind an admin role later (backlog #17) */}
             <div className="nav-section-label">Admin</div>
             {[["📋","Product Catalog","catalog"],["🛡️","Insurance Plans","insurance-plans"],["⚙️","Settings","settings"]].map(([icon,label,id])=>(
@@ -8398,6 +8574,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
           })()}
           {view === "settings" && renderSettings()}
           {view === "catalog" && renderCatalog()}
+          {view === "providers" && <ProvidersAdmin />}
           {view === "insurance-plans" && renderInsurancePlans()}
           {view === "campaigns" && <CampaignManager clinicId={clinicId} staffId={staffId} patients={patients} />}
           {view === "content" && <ContentLibrary clinicId={clinicId} staffId={staffId} />}
@@ -8541,9 +8718,9 @@ export default function ProviderCRM({ staffId, clinicId }) {
                 // so the total reflects devices only and the plan renders as "Included".
                 const isPrivate = form.payType === 'private';
                 const total = devTotal + (isPrivate ? 0 : cpPrice);
-                const provName = staffProfile?.fullName||"Provider";
-                const provLic = staffProfile?.activeLicense||"";
-                const clinicObj = staffProfile?.clinic||clinic;
+                const provName = paProvider.fullName;
+                const provLic = paProvider.activeLicense;
+                const clinicObj = paClinic;
                 const ss = {section:{fontSize:10,fontWeight:700,color:"#0a1628",letterSpacing:0.5,textTransform:"uppercase",marginBottom:6,marginTop:18},body:{fontSize:13,color:"#374151",lineHeight:1.7}};
                 return (
                   <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(10,22,40,0.92)",zIndex:9999,overflowY:"auto"}}>
@@ -8663,7 +8840,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                               // Private pay bundles the care plan into the per-aid retail price.
                               const isPrivate = form.payType === 'private';
                               const carePlanCost = isPrivate ? 0 : (cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0);
-                              const { blob, fileName } = downloadPurchaseAgreement({
+                              if (closerNeedsLocation) { alert("Set your dispensing location in the sidebar before generating a purchase agreement."); setShowCloserPicker(true); return; } const { blob, fileName } = downloadPurchaseAgreement({
                                 patient:{name:pName,address:form.address,phone:form.phone,dob:form.dob},
                                 devices:{fittingType:fType,left:leftRec,right:rightRec},
                                 carePlan:cpId, pricePerAid, payType:form.payType,
@@ -8671,7 +8848,7 @@ export default function ProviderCRM({ staffId, clinicId }) {
                                 clinic:clinicObj,
                                 provider:{fullName:provName,activeLicense:provLic,signatureUrl:staffProfile?.signatureUrl||null},
                                 patientSignature:paSignatureName.trim(), patientSignatureDate:sigDate,
-                                deliverySignature:null, deliveryDate:null, signatureImageBase64:null,
+                                deliverySignature:null, deliveryDate:null, signatureImageBase64:paSignatureB64,
                               });
                               if (wizardPatientId) {
                                 try {
