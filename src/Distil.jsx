@@ -93,6 +93,7 @@ import {
   listMessagesForPatient,
   uploadSignatureImage,
   updateStaffSignature,
+  logPriceAdjustment,
 } from "./db.js";
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 import { downloadQuote } from "./generateQuote.js";
@@ -108,6 +109,7 @@ import LimaCharlie from "./views/LimaCharlie.jsx";
 import FollowUpQueue, { countFollowUpPatients } from "./views/FollowUpQueue.jsx";
 import ProvidersAdmin from "./views/ProvidersAdmin.jsx";
 import CloserLocationPicker from "./views/CloserLocationPicker.jsx";
+import AdjustPriceModal from "./views/AdjustPriceModal.jsx";
 
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
@@ -1891,6 +1893,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState(null);
   const [wizardPatientId, setWizardPatientId] = useState(null);
+  const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [wizardIntake, setWizardIntake] = useState(null);
   // Provider prompter drawer — open by default, toggleable via the handle
   // pinned to the right edge of the screen. Provider-only.
@@ -2111,7 +2114,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     intakeId: null,
     firstName:"", lastName:"", dob:"", phone:"", email:"", address:"",
     payType:"insurance",
-    carrier:"", planGroup:"", tpa:"", tier:"", tierPrice:null,
+    carrier:"", planGroup:"", tpa:"", tier:"", tierPrice:null, priceOverridePerAid:null,
     left: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, thModel:"", thBodyStyle:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""},
     right: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, thModel:"", thBodyStyle:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""},
     audiology: { rightT:{}, leftT:{}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:null, unaidedL:null, aidedR:null, aidedL:null, wrMclR:null, wrMclL:null, sinBin:null, cctR:null, cctL:null, cctLevelR:null, cctLevelL:null },
@@ -2909,6 +2912,37 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   };
 
   // ── Generate Quote PDF from wizard state ─────────────────────────────
+  // ── Price Adjustment Authorization (spec §6) ──────────────────────────────
+  // Records the adjustment under the logged-in staff id (server-stamped via the
+  // RPC) and layers a per-aid override onto the wizard form so the Pricing
+  // Reveal, take-home quote, and purchase agreement all reflect the new price
+  // for the rest of the session. In-session only; the override clears if the
+  // device or tier changes (see effect below).
+  const handleConfirmAdjust = async ({ newPrice, reasonCode, reasonText }) => {
+    const original = form.priceOverridePerAid ?? form.tierPrice ?? 0;
+    if (!wizardPatientId) {
+      alert("Save the patient before adjusting the price.");
+      return;
+    }
+    try {
+      await logPriceAdjustment({
+        patientId: wizardPatientId,
+        originalPrice: original,
+        adjustedPrice: newPrice,
+        reasonCode,
+        reasonText,
+        // Private pay bundles Complete Care+ into the per-aid price; insurance
+        // adjusts the device copay.
+        productType: form.payType === "private" ? "bundle" : "device",
+      });
+      setForm(f => ({ ...f, priceOverridePerAid: newPrice }));
+      setShowAdjustModal(false);
+    } catch (e) {
+      console.error("logPriceAdjustment:", e);
+      alert("Could not record the price adjustment: " + (e.message || e));
+    }
+  };
+
   const handleGenerateQuote = async () => {
     const leftRec = buildSideRecord(form.left);
     const rightRec = buildSideRecord(form.right);
@@ -2917,12 +2951,16 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     const counselingSections = generateCounseling(form.audiology); // returns array of {heading,body} or null
     // TierSelection writes the chosen tier's per-aid price (clinic_retail_anchors
     // for private pay, insurance_plans for insurance) into form.tierPrice.
-    const pricePerAid = form.tierPrice || 0;
+    // Effective per-aid price — a confirmed Price Adjustment (§6) overrides the
+    // catalog/tier price for the rest of the wizard session. Applies to real-aid
+    // ears; a CROS transmitter side keeps its fixed unit price.
+    const ovr = form.priceOverridePerAid;
+    const pricePerAid = (ovr ?? form.tierPrice) || 0;
     // Per-ear prices for CROS-aware totals — null when the side isn't
     // configured. generateQuote falls back to pricePerAid * aidCount
     // when both are null.
-    const leftEarP  = leftRec  ? (leftEarPrice?.price  ?? pricePerAid) : null;
-    const rightEarP = rightRec ? (rightEarPrice?.price ?? pricePerAid) : null;
+    const leftEarP  = leftRec  ? ((ovr != null && leftEarPrice?.source  !== 'cros') ? ovr : (leftEarPrice?.price  ?? pricePerAid)) : null;
+    const rightEarP = rightRec ? ((ovr != null && rightEarPrice?.source !== 'cros') ? ovr : (rightEarPrice?.price ?? pricePerAid)) : null;
     if (closerNeedsLocation) { alert("Set your dispensing location in the sidebar first."); setShowCloserPicker(true); return; } const { blob, fileName } = downloadQuote({
       patient: { name: [form.firstName, form.lastName].filter(Boolean).join(" "), phone: form.phone },
       devices: { fittingType, left: leftRec, right: rightRec },
@@ -4033,6 +4071,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     setForm(f => ({ ...f, tierPrice: baseline }));
   }, [leftEarPrice, rightEarPrice, form.payType, form.tpa, form.tier, form.tierPrice]);
 
+  // A device or tier change invalidates any manual Price Adjustment (§6) — clear
+  // the override so an adjusted price never silently rides onto a different
+  // device. Effective price then falls back to the catalog-maintained tierPrice.
+  useEffect(() => {
+    setForm(f => f.priceOverridePerAid == null ? f : { ...f, priceOverridePerAid: null });
+  }, [form.left.familyId, form.left.techLevel, form.left.thModel, form.right.familyId, form.right.techLevel, form.right.thModel, form.tier]);
+
   const pricingRevealData = useMemo(() => {
     if (form.tierPrice == null || !form.tier) return null;
     // Private-pay uses standard-class anchors (manufacturer-agnostic baseline).
@@ -4046,14 +4091,21 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
       : anchorSet.find(a => a.id === TIER_TO_ANCHOR[form.tier]);
     if (!anchor) return null;
     const retailPerAid = parseFloat(anchor.price_per_aid);
-    const copayPerAid = form.tierPrice;
+    // A confirmed Price Adjustment (§6) overrides the per-aid copay for the rest
+    // of the session. Applies to real-aid ears; a CROS transmitter side keeps
+    // its fixed unit price so its per-ear line stays accurate.
+    const ovr = form.priceOverridePerAid;
+    const copayPerAid = ovr ?? form.tierPrice;
     const savingsPerAid = retailPerAid - copayPerAid;
     const savingsPct = Math.round((savingsPerAid / retailPerAid) * 100);
     // Per-ear breakdown for the UI to show when ears differ (CROS fittings,
     // mfr mismatch, or unilateral configs). Pair total is the truth for
     // quote/PA when at least one ear resolves.
-    const lp = leftEarPrice?.price ?? null;
-    const rp = rightEarPrice?.price ?? null;
+    const applyOvr = (ep) => (ovr != null && ep && ep.source !== 'cros') ? { ...ep, price: ovr } : ep;
+    const leftEP = applyOvr(leftEarPrice);
+    const rightEP = applyOvr(rightEarPrice);
+    const lp = leftEP?.price ?? null;
+    const rp = rightEP?.price ?? null;
     const pairTotal = (lp != null || rp != null)
       ? (lp || 0) + (rp || 0)
       : null;
@@ -4063,9 +4115,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
       copayPerAid,
       savingsPerAid,
       savingsPct,
-      perEar: { left: leftEarPrice, right: rightEarPrice, pairTotal },
+      perEar: { left: leftEP, right: rightEP, pairTotal },
     };
-  }, [form.tier, form.tierPrice, form.payType, retailAnchors, retailAnchorsStandard, leftEarPrice, rightEarPrice]);
+  }, [form.tier, form.tierPrice, form.priceOverridePerAid, form.payType, retailAnchors, retailAnchorsStandard, leftEarPrice, rightEarPrice]);
 
   // Device family lookups
   const leftFamily = catalog.find(e => e.id === form.left.familyId);
@@ -5360,11 +5412,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
               const isUHCH = form.tpa === 'UHCH';
               if (isUHCH && anyConfigured && form.tierPrice != null && !pricingRevealData) {
                 const fmt2 = n => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                const lp = leftEarPrice?.price ?? null;
-                const rp = rightEarPrice?.price ?? null;
+                const ovr = form.priceOverridePerAid;
+                const lp = (ovr != null && leftEarPrice?.source  !== 'cros') ? ovr : (leftEarPrice?.price  ?? null);
+                const rp = (ovr != null && rightEarPrice?.source !== 'cros') ? ovr : (rightEarPrice?.price ?? null);
                 const offPlan = !!(leftEarPrice?.offPlan || rightEarPrice?.offPlan);
                 const pairTotal = (lp != null || rp != null) ? (lp || 0) + (rp || 0) : null;
-                const investment = (bothDone && pairTotal != null) ? pairTotal : (form.tierPrice ?? lp ?? rp ?? 0);
+                const investment = (bothDone && pairTotal != null) ? pairTotal : ((ovr ?? form.tierPrice) ?? lp ?? rp ?? 0);
                 return (
                   <div style={{background: offPlan ? "#fff7ed" : "#f0fdf4", border:`1px solid ${offPlan ? "#fed7aa" : "#bbf7d0"}`, borderRadius:12, padding:"20px 24px", marginTop:12}}>
                     {offPlan && (
@@ -5548,6 +5601,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 >
                   <span style={{fontSize:16}}>📄</span> Generate Quote
                 </button>
+                <button
+                  style={{background: form.priceOverridePerAid != null ? "#f0fdf4" : "#fff", color: form.priceOverridePerAid != null ? "#15803d" : "#374151", border:`1px solid ${form.priceOverridePerAid != null ? "#bbf7d0" : "#d1d5db"}`, borderRadius:8, padding:"12px 24px", fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", gap:8}}
+                  onClick={()=>setShowAdjustModal(true)}
+                >
+                  <span style={{fontSize:16}}>🏷️</span> {form.priceOverridePerAid != null ? "Price Adjusted" : "Adjust Price"}
+                </button>
               </div>
             </div>
           )}
@@ -5561,14 +5620,17 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
       // CROS-aware per-aid + pair totals. Falls back to tierPrice * aidCount
       // when per-ear pricing hasn't resolved (rare — happens when device
       // info isn't enough to pick an anchor row).
-      const leftEarP  = leftOk  ? (leftEarPrice?.price  ?? form.tierPrice) : null;
-      const rightEarP = rightOk ? (rightEarPrice?.price ?? form.tierPrice) : null;
+      // Effective per-aid honors a confirmed Price Adjustment (§6); CROS sides keep their unit price.
+      const ovr = form.priceOverridePerAid;
+      const effPerAid = ovr ?? form.tierPrice;
+      const leftEarP  = leftOk  ? ((ovr != null && leftEarPrice?.source  !== 'cros') ? ovr : (leftEarPrice?.price  ?? effPerAid)) : null;
+      const rightEarP = rightOk ? ((ovr != null && rightEarPrice?.source !== 'cros') ? ovr : (rightEarPrice?.price ?? effPerAid)) : null;
       const perEarSum = (leftEarP || 0) + (rightEarP || 0);
       const aidBase = perEarSum > 0
         ? perEarSum
-        : (form.tierPrice != null ? form.tierPrice * aidCount : null);
+        : (effPerAid != null ? effPerAid * aidCount : null);
       const aidTotal = aidBase;
-      const perAidFor = (side) => side === 'left' ? leftEarP : side === 'right' ? rightEarP : form.tierPrice;
+      const perAidFor = (side) => side === 'left' ? leftEarP : side === 'right' ? rightEarP : effPerAid;
       const isTruHearing = form.tpa === "TruHearing";
       const isTruHearingTPA = isTruHearing;
 
@@ -5846,6 +5908,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                   onClick={()=>{ fireCarePlanSelected(); handleGenerateQuote(); }}
                 >
                   <span style={{fontSize:16}}>📄</span> Generate Quote
+                </button>
+                <button
+                  disabled={!(form.payType === "private" || !!form.carePlan)}
+                  style={{background: form.priceOverridePerAid != null ? "#f0fdf4" : "#fff", color: form.priceOverridePerAid != null ? "#15803d" : "#374151", border:`1px solid ${form.priceOverridePerAid != null ? "#bbf7d0" : "#d1d5db"}`, borderRadius:8, padding:"12px 24px", fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:13, cursor:"pointer", opacity:(form.payType === "private" || !!form.carePlan)?1:0.4, display:"flex", alignItems:"center", gap:8}}
+                  onClick={()=>setShowAdjustModal(true)}
+                >
+                  <span style={{fontSize:16}}>🏷️</span> {form.priceOverridePerAid != null ? "Price Adjusted" : "Adjust Price"}
                 </button>
               </div>
               {isTruHearingTPA && (
@@ -8372,6 +8441,16 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
         />
       )}
 
+      {/* ── Price Adjustment Authorization (spec §6) ── */}
+      {showAdjustModal && (
+        <AdjustPriceModal
+          currentPrice={form.priceOverridePerAid ?? form.tierPrice ?? 0}
+          priceUnit="per aid"
+          onCancel={() => setShowAdjustModal(false)}
+          onConfirm={handleConfirmAdjust}
+        />
+      )}
+
       {/* ── Intake toast notification ── */}
       {intakeToast && (
         <div className="intake-toast">
@@ -8703,7 +8782,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 const isCROS = [leftRec,rightRec].some(r=>r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
                 const fType = leftRec && rightRec ? (isCROS?"cros_bicros":"bilateral") : leftRec?"monaural_left":"monaural_right";
                 const ac = (fType==="bilateral"||fType==="cros_bicros")?2:1;
-                const devTotal = (form.tierPrice||0)*ac;
+                // Effective per-aid honors a confirmed Price Adjustment (§6).
+                const effPerAid = (form.priceOverridePerAid ?? form.tierPrice) || 0;
+                const devTotal = effPerAid*ac;
                 const cpId = form.carePlan||"complete";
                 const cpLabel = cpId==="complete"?"Complete Care+":(cpId==="punch"?"MHC Punch Card":"Standard Billing");
                 const cpPrice = cpId==="complete"?1250:(cpId==="punch"?575:0);
@@ -8756,7 +8837,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                               <td style={{padding:"6px 8px"}}>{[d.family,d.variant,d.techLevel].filter(Boolean).join(" ")||"—"}</td>
                               <td style={{padding:"6px 8px"}}>{d.style||"—"}</td>
                               <td style={{padding:"6px 8px"}}>{d.battery||"—"}</td>
-                              <td style={{padding:"6px 8px",fontWeight:700}}>${(form.tierPrice||0).toLocaleString('en-US',{minimumFractionDigits:2})}</td>
+                              <td style={{padding:"6px 8px",fontWeight:700}}>${effPerAid.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
                             </tr>
                           ))}
                           <tr style={{background:"#e5e7eb"}}>
@@ -8825,13 +8906,17 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                             style={{width:"100%",marginTop:16,background:paSignatureName.trim().length>2?"#15803d":"#d1d5db",color:"white",border:"none",borderRadius:8,padding:"14px 20px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,cursor:paSignatureName.trim().length>2?"pointer":"not-allowed"}}
                             onClick={async ()=>{
                               const sigDate = new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
-                              const pricePerAid = form.tierPrice || 0;
+                              // Effective per-aid price — a confirmed Price Adjustment (§6)
+                              // overrides catalog/tier pricing for the session; CROS sides
+                              // keep their fixed unit price.
+                              const ovr = form.priceOverridePerAid;
+                              const pricePerAid = (ovr ?? form.tierPrice) || 0;
                               const isBilateral = (fType === 'bilateral' || fType === 'cros_bicros');
                               const aidCount = isBilateral ? 2 : 1;
                               // Per-ear prices for CROS-aware totals — null when the side isn't
                               // configured so generatePurchaseAgreement falls back to legacy math.
-                              const leftEarP  = leftRec  ? (leftEarPrice?.price  ?? pricePerAid) : null;
-                              const rightEarP = rightRec ? (rightEarPrice?.price ?? pricePerAid) : null;
+                              const leftEarP  = leftRec  ? ((ovr != null && leftEarPrice?.source  !== 'cros') ? ovr : (leftEarPrice?.price  ?? pricePerAid)) : null;
+                              const rightEarP = rightRec ? ((ovr != null && rightEarPrice?.source !== 'cros') ? ovr : (rightEarPrice?.price ?? pricePerAid)) : null;
                               // Private pay bundles the care plan into the per-aid retail price.
                               const isPrivate = form.payType === 'private';
                               const carePlanCost = isPrivate ? 0 : (cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0);
