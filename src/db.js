@@ -1479,6 +1479,27 @@ export async function saveClinicAdmin(c) {
   return data.id
 }
 
+// All active clinics for the closer's dispensing-location picker.
+export async function loadActiveClinics() {
+  const { data, error } = await supabase
+    .from('clinics')
+    .select('id, name, clinic_code, address, phone')
+    .eq('active', true)
+    .order('name')
+  if (error) { console.error('loadActiveClinics:', error); return [] }
+  return data || []
+}
+
+// Providers serving a given clinic, via the cross-clinic SECURITY DEFINER
+// resolver (so a closer homed to one clinic can read another clinic's providers
+// without a patient-data RLS hole). Returns [{provider_id, full_name, licenses,
+// signature_url, credentials}].
+export async function getClinicProviders(clinicId) {
+  const { data, error } = await supabase.rpc('get_clinic_providers', { p_clinic_id: clinicId })
+  if (error) { console.error('getClinicProviders:', error); return [] }
+  return data || []
+}
+
 
 // Load all tier rows (one per device tier within a family) with their parent
 // family fields denormalized onto each row for convenient consumption.

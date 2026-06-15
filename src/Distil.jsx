@@ -104,6 +104,7 @@ import CampaignManager from "./views/CampaignManager.jsx";
 import LimaCharlie from "./views/LimaCharlie.jsx";
 import FollowUpQueue, { countFollowUpPatients } from "./views/FollowUpQueue.jsx";
 import ProvidersAdmin from "./views/ProvidersAdmin.jsx";
+import CloserLocationPicker from "./views/CloserLocationPicker.jsx";
 
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
@@ -1634,6 +1635,20 @@ function downscaleSignature(file, maxW = 600) {
 }
 
 
+// Pick the license matching a clinic's state from a {STATE: number} map,
+// mirroring loadStaffProfile's resolution. Falls back to the first license.
+// Used to print the right state license when a closer dispenses under a local
+// provider at the event clinic.
+function pickLicenseForClinic(licenses, address) {
+  const parts = (address || "").split(",").map(s => s.trim());
+  const stateZip = parts[parts.length - 1] || "";
+  const m = stateZip.match(/\b([A-Z]{2})\b/);
+  const state = m ? m[1] : null;
+  const lic = licenses || {};
+  return (state && lic[state]) ? lic[state] : (Object.values(lic)[0] || "");
+}
+
+
 // ── PER-EAR PRICING ────────────────────────────────────────────────────────────
 // Backlog item #18: manufacturer- and tech-level-aware pricing. The wizard's
 // step 5 used to lock `form.tierPrice` to whatever step 4 wrote — meaning a
@@ -2002,6 +2017,51 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
       setSigBusy(false);
     }
   };
+
+  // ── Closer dispensing-location override (PR C) ────────────────────────────
+  // Event specialists ("closers") dispense under the LOCAL provider at the
+  // clinic they're working that day. They pick a location + provider here; that
+  // identity (not their own login) flows onto purchase agreements and quotes.
+  const [closerClinic, setCloserClinic]       = useState(null);
+  const [closerProvider, setCloserProvider]   = useState(null);
+  const [closerSignatureB64, setCloserSignatureB64] = useState(null);
+  const [showCloserPicker, setShowCloserPicker] = useState(false);
+
+  // Load the picked provider's stored signature as a data URL for the PA.
+  useEffect(() => {
+    const url = closerProvider?.signature_url;
+    if (!url) { setCloserSignatureB64(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetch(url, { cache: "no-store" });
+        const blob = await resp.blob();
+        const dataUrl = await new Promise((res, rej) => {
+          const fr = new FileReader();
+          fr.onload = () => res(fr.result);
+          fr.onerror = rej;
+          fr.readAsDataURL(blob);
+        });
+        if (!cancelled) setCloserSignatureB64(dataUrl);
+      } catch { if (!cancelled) setCloserSignatureB64(null); }
+    })();
+    return () => { cancelled = true; };
+  }, [closerProvider?.signature_url]);
+
+  // Prompt closers to set their dispensing location once the role is known.
+  useEffect(() => {
+    if (staffRole === "closer" && !closerProvider) setShowCloserPicker(true);
+  }, [staffRole]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Identity printed on PAs/quotes: a closer with a set location uses that
+  // clinic's provider + state-matched license; everyone else uses their profile.
+  const isCloser = staffRole === "closer";
+  const closerNeedsLocation = isCloser && !closerProvider;
+  const paClinic = (isCloser && closerClinic) ? closerClinic : (staffProfile?.clinic || clinic);
+  const paProvider = (isCloser && closerProvider)
+    ? { fullName: closerProvider.full_name, activeLicense: pickLicenseForClinic(closerProvider.licenses, closerClinic?.address), signatureUrl: closerProvider.signature_url || null }
+    : { fullName: staffProfile?.fullName || "Provider", activeLicense: staffProfile?.activeLicense || "", signatureUrl: staffProfile?.signatureUrl || null };
+  const paSignatureB64 = (isCloser && closerProvider) ? closerSignatureB64 : providerSignatureB64;
   const [showPurchaseAgreement, setShowPurchaseAgreement] = useState(false);
   const [paSignatureName, setPaSignatureName] = useState("");
   const [paStep, setPaStep] = useState("sign"); // 'sign' | 'delivery' | 'done'
@@ -2842,7 +2902,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     // when both are null.
     const leftEarP  = leftRec  ? (leftEarPrice?.price  ?? pricePerAid) : null;
     const rightEarP = rightRec ? (rightEarPrice?.price ?? pricePerAid) : null;
-    const { blob, fileName } = downloadQuote({
+    if (closerNeedsLocation) { alert("Set your dispensing location in the sidebar first."); setShowCloserPicker(true); return; } const { blob, fileName } = downloadQuote({
       patient: { name: [form.firstName, form.lastName].filter(Boolean).join(" "), phone: form.phone },
       devices: { fittingType, left: leftRec, right: rightRec },
       pricePerAid,
@@ -2854,8 +2914,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
       carrier: form.carrier,
       audiology: form.audiology,
       counselingSections: counselingSections,
-      clinic: staffProfile?.clinic || clinic,
-      provider: { fullName: staffProfile?.fullName || "Provider", activeLicense: staffProfile?.activeLicense || "" },
+      clinic: paClinic,
+      provider: paProvider,
     });
 
     if (wizardPatientId) {
@@ -6338,7 +6398,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                   const sideHasCros = (s) => !!s && /^(CROS|BICROS)/i.test(s.variant || '');
                   const leftEarP  = p.devices?.left  ? (sideHasCros(p.devices.left)  ? CROS_PRICE_PER_UNIT : pricePerAid) : null;
                   const rightEarP = p.devices?.right ? (sideHasCros(p.devices.right) ? CROS_PRICE_PER_UNIT : pricePerAid) : null;
-                  const { blob, fileName } = downloadQuote({
+                  if (closerNeedsLocation) { alert("Set your dispensing location in the sidebar first."); setShowCloserPicker(true); return; } const { blob, fileName } = downloadQuote({
                     patient: { name: p.name, phone: p.phone },
                     devices: { fittingType, left: p.devices?.left || null, right: p.devices?.right || null },
                     pricePerAid,
@@ -6350,8 +6410,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                     carrier: p.insurance?.carrier,
                     audiology: p.audiology,
                     counselingSections,
-                    clinic: staffProfile?.clinic || clinic,
-                    provider: { fullName: staffProfile?.fullName || "Provider", activeLicense: staffProfile?.activeLicense || "" },
+                    clinic: paClinic,
+                    provider: paProvider,
                   });
                   try {
                     const isBilateral = (fittingType === 'bilateral' || fittingType === 'cros_bicros');
@@ -6512,7 +6572,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
           const totalPurchasePrice = deviceTotal + carePlanCost;
 
           const handleGeneratePDF = async (includeDelivery = false) => {
-            const { blob, fileName } = downloadPurchaseAgreement({
+            if (closerNeedsLocation) { alert("Set your dispensing location in the sidebar before generating a purchase agreement."); setShowCloserPicker(true); return; } const { blob, fileName } = downloadPurchaseAgreement({
               patient: { name: p.name, address: p.address, phone: p.phone, dob: p.dob },
               devices: {
                 fittingType: p.devices?.fittingType || 'bilateral',
@@ -6524,17 +6584,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
               leftPrice: leftEarP,
               rightPrice: rightEarP,
               payType: p.payType,
-              clinic: staffProfile?.clinic || clinic,
-              provider: {
-                fullName: staffProfile?.fullName || 'Provider',
-                activeLicense: staffProfile?.activeLicense || '',
-                signatureUrl: staffProfile?.signatureUrl || null,
-              },
+              clinic: paClinic,
+              provider: paProvider,
               patientSignature: paSignatureName.trim(),
               patientSignatureDate: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
               deliverySignature: includeDelivery ? paDeliveryName.trim() || null : null,
               deliveryDate: includeDelivery ? paDeliveryDate || null : null,
-              signatureImageBase64: providerSignatureB64,
+              signatureImageBase64: paSignatureB64,
             });
 
             // Always archive to chart — paper trail required for compliance.
@@ -6558,7 +6614,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                   includesDelivery: includeDelivery,
                   deliverySignature: includeDelivery ? (paDeliveryName.trim() || null) : null,
                   deliveryDate: includeDelivery ? (paDeliveryDate || null) : null,
-                  providerName: staffProfile?.fullName || null,
+                  providerName: paProvider.fullName || null,
                 },
               });
               await refreshDocuments();
@@ -8050,6 +8106,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     <>
       <style>{styles}</style>
 
+      {/* ── Closer dispensing-location picker (PR C) ── */}
+      {showCloserPicker && (
+        <CloserLocationPicker
+          onClose={() => setShowCloserPicker(false)}
+          onSelect={(c, p) => { setCloserClinic(c); setCloserProvider(p); setShowCloserPicker(false); }}
+        />
+      )}
+
       {/* ── Intake toast notification ── */}
       {intakeToast && (
         <div className="intake-toast">
@@ -8142,6 +8206,20 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
             <div style={{fontSize:9,fontWeight:700,letterSpacing:2,color:"rgba(255,255,255,0.3)",textTransform:"uppercase",marginBottom:3}}>Clinic</div>
             <div style={{fontSize:12,color:"rgba(255,255,255,0.7)",fontWeight:500,lineHeight:1.3}}>{clinic.address}</div>
           </div>
+          {isCloser && (
+            <div onClick={()=>setShowCloserPicker(true)} title="Set the clinic + provider this is dispensed under"
+              style={{margin:"0 14px 12px",background:closerProvider?"rgba(74,222,128,0.1)":"rgba(245,158,11,0.12)",border:`1px solid ${closerProvider?"rgba(74,222,128,0.3)":"rgba(245,158,11,0.45)"}`,borderRadius:8,padding:"8px 10px",cursor:"pointer"}}>
+              <div style={{fontSize:9,fontWeight:700,letterSpacing:2,color:"rgba(255,255,255,0.4)",textTransform:"uppercase",marginBottom:3}}>Dispensing Location</div>
+              {closerProvider ? (
+                <div style={{fontSize:12,color:"rgba(255,255,255,0.85)",fontWeight:600,lineHeight:1.35}}>
+                  {(closerClinic?.name||"").replace("My Hearing Centers – ","")}
+                  <div style={{fontWeight:400,color:"rgba(255,255,255,0.55)"}}>under {closerProvider.full_name} · tap to change</div>
+                </div>
+              ) : (
+                <div style={{fontSize:12,color:"#fcd34d",fontWeight:600}}>⚠ Tap to set before closing</div>
+              )}
+            </div>
+          )}
           <div className="sidebar-nav">
             {[["🏠","Dashboard","dashboard"],["👥","Patients","patients"],["🔔","Follow-up","followup"],["📅","Schedule","schedule"],["📊","Reports","reports"],["📬","Campaigns","campaigns"],["📚","Content Library","content"],["🎖️","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
               const badge = id === "followup" ? countFollowUpPatients(patients) : 0;
@@ -8374,9 +8452,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 // so the total reflects devices only and the plan renders as "Included".
                 const isPrivate = form.payType === 'private';
                 const total = devTotal + (isPrivate ? 0 : cpPrice);
-                const provName = staffProfile?.fullName||"Provider";
-                const provLic = staffProfile?.activeLicense||"";
-                const clinicObj = staffProfile?.clinic||clinic;
+                const provName = paProvider.fullName;
+                const provLic = paProvider.activeLicense;
+                const clinicObj = paClinic;
                 const ss = {section:{fontSize:10,fontWeight:700,color:"#0a1628",letterSpacing:0.5,textTransform:"uppercase",marginBottom:6,marginTop:18},body:{fontSize:13,color:"#374151",lineHeight:1.7}};
                 return (
                   <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(10,22,40,0.92)",zIndex:9999,overflowY:"auto"}}>
@@ -8496,7 +8574,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                               // Private pay bundles the care plan into the per-aid retail price.
                               const isPrivate = form.payType === 'private';
                               const carePlanCost = isPrivate ? 0 : (cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0);
-                              const { blob, fileName } = downloadPurchaseAgreement({
+                              if (closerNeedsLocation) { alert("Set your dispensing location in the sidebar before generating a purchase agreement."); setShowCloserPicker(true); return; } const { blob, fileName } = downloadPurchaseAgreement({
                                 patient:{name:pName,address:form.address,phone:form.phone,dob:form.dob},
                                 devices:{fittingType:fType,left:leftRec,right:rightRec},
                                 carePlan:cpId, pricePerAid, payType:form.payType,
@@ -8504,7 +8582,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                                 clinic:clinicObj,
                                 provider:{fullName:provName,activeLicense:provLic,signatureUrl:staffProfile?.signatureUrl||null},
                                 patientSignature:paSignatureName.trim(), patientSignatureDate:sigDate,
-                                deliverySignature:null, deliveryDate:null, signatureImageBase64:providerSignatureB64,
+                                deliverySignature:null, deliveryDate:null, signatureImageBase64:paSignatureB64,
                               });
                               if (wizardPatientId) {
                                 try {
