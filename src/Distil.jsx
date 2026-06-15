@@ -2016,7 +2016,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
       setStaffProfile(p => (p ? { ...p, signatureUrl: bustedUrl } : p));
     } catch (e) {
       console.error("Signature upload failed", e);
-      setSigErr("Upload failed — try a PNG or JPG under 5 MB.");
+      setSigErr("Upload failed: " + (e?.message || e?.error || "check the browser console for details."));
     } finally {
       setSigBusy(false);
     }
@@ -3322,7 +3322,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     .logo-name { font-size: 18px; font-weight: 700; color: white; line-height: 1.2; }
     .logo-sub { font-size: 11px; color: rgba(255,255,255,0.35); margin-top: 3px; }
     .location-select { margin: 14px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px 10px; color: white; font-size: 11px; font-family: 'Sora',sans-serif; width: calc(100% - 28px); cursor: pointer; }
-    .sidebar-nav { flex: 1; padding: 8px 0; }
+    .sidebar-nav { flex: 1; padding: 8px 0; overflow-y: auto; }
     .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 20px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.5); transition: all 0.15s; border-left: 3px solid transparent; }
     .nav-item:hover { background: rgba(255,255,255,0.05); color: white; }
     .nav-item.active { background: rgba(74,222,128,0.1); color: #4ade80; border-left-color: #4ade80; }
@@ -8493,22 +8493,17 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 )}
               </div>
             )})}
-            {/* Admin group — catalog/config tooling; admin role only (backlog #17) */}
+            {/* Admin group — catalog/config tooling; admin role only (backlog #17).
+                Single consolidated group: Providers (#102) + Insurance Plans (#100)
+                were separately added and produced two Admin sections on merge. */}
             {checkRole(staffRole, ["admin"]) && <>
               <div className="nav-section-label">Admin</div>
-              {[["🪪","Providers","providers"],["📋","Product Catalog","catalog"],["⚙️","Settings","settings"]].map(([icon,label,id])=>(
+              {[["🪪","Providers","providers"],["🛡️","Insurance Plans","insurance-plans"],["📋","Product Catalog","catalog"],["⚙️","Settings","settings"]].map(([icon,label,id])=>(
                 <div key={id} className={`nav-item ${view===id?"active":""}`} onClick={()=>setView(id)}>
                   <span className="nav-icon">{icon}</span>{label}
                 </div>
               ))}
             </>}
-            {/* Admin group — catalog/config tooling; gate behind an admin role later (backlog #17) */}
-            <div className="nav-section-label">Admin</div>
-            {[["📋","Product Catalog","catalog"],["🛡️","Insurance Plans","insurance-plans"],["⚙️","Settings","settings"]].map(([icon,label,id])=>(
-              <div key={id} className={`nav-item ${view===id?"active":""}`} onClick={()=>setView(id)}>
-                <span className="nav-icon">{icon}</span>{label}
-              </div>
-            ))}
           </div>
           {/* Intake queue button */}
           <div style={{padding:"12px 14px",borderTop:"1px solid rgba(255,255,255,0.07)"}}>
