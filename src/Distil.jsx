@@ -103,6 +103,7 @@ import NurturePreview from "./views/NurturePreview.jsx";
 import CampaignManager from "./views/CampaignManager.jsx";
 import LimaCharlie from "./views/LimaCharlie.jsx";
 import FollowUpQueue, { countFollowUpPatients } from "./views/FollowUpQueue.jsx";
+import ProvidersAdmin from "./views/ProvidersAdmin.jsx";
 
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
@@ -8159,7 +8160,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
             {/* Admin group — catalog/config tooling; admin role only (backlog #17) */}
             {checkRole(staffRole, ["admin"]) && <>
               <div className="nav-section-label">Admin</div>
-              {[["📋","Product Catalog","catalog"],["⚙️","Settings","settings"]].map(([icon,label,id])=>(
+              {[["🪪","Providers","providers"],["📋","Product Catalog","catalog"],["⚙️","Settings","settings"]].map(([icon,label,id])=>(
                 <div key={id} className={`nav-item ${view===id?"active":""}`} onClick={()=>setView(id)}>
                   <span className="nav-icon">{icon}</span>{label}
                 </div>
@@ -8230,6 +8231,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
           })()}
           {view === "settings" && renderSettings()}
           {view === "catalog" && renderCatalog()}
+          {view === "providers" && <ProvidersAdmin />}
           {view === "campaigns" && <CampaignManager clinicId={clinicId} staffId={staffId} patients={patients} />}
           {view === "content" && <ContentLibrary clinicId={clinicId} staffId={staffId} />}
           {view === "lima-charlie" && <LimaCharlie clinicId={clinicId} staffId={staffId} />}

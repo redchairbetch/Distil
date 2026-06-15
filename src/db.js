@@ -1399,6 +1399,87 @@ export async function deleteCatalogEntry(id) {
   if (error) { console.error('deleteCatalogEntry:', error); throw error }
 }
 
+
+// ============================================================
+// DISPENSING PROVIDERS & CLINIC NETWORK (closer-role admin manager)
+// ============================================================
+
+// Load everything the Providers & Locations admin screen needs in one shot:
+// every dispensing provider, every clinic, and the clinic<->provider links.
+// Admin-only by RLS (dp_admin_all / cp_admin_all); clinics readable to all auth.
+export async function loadProvidersAdmin() {
+  const [provRes, clinicRes, linkRes] = await Promise.all([
+    supabase.from('dispensing_providers')
+      .select('id, full_name, licenses, npi, credentials, signature_url, staff_id, active')
+      .order('full_name'),
+    supabase.from('clinics')
+      .select('id, organization_id, name, clinic_code, address, phone, active')
+      .order('name'),
+    supabase.from('clinic_providers').select('clinic_id, provider_id'),
+  ])
+  if (provRes.error)   { console.error('loadProvidersAdmin providers:', provRes.error); throw provRes.error }
+  if (clinicRes.error) { console.error('loadProvidersAdmin clinics:', clinicRes.error); throw clinicRes.error }
+  if (linkRes.error)   { console.error('loadProvidersAdmin links:', linkRes.error); throw linkRes.error }
+  return { providers: provRes.data || [], clinics: clinicRes.data || [], links: linkRes.data || [] }
+}
+
+// Upsert a single dispensing provider. `licenses` is a {STATE: number} object.
+// Returns the row id (new id on insert). Admin only (RLS). Throws on error.
+export async function saveDispensingProvider(p) {
+  const row = {
+    ...(p.id ? { id: p.id } : {}),
+    full_name:   (p.full_name || '').trim(),
+    licenses:    p.licenses || {},
+    npi:         p.npi || null,
+    credentials: p.credentials || null,
+    active:      p.active ?? true,
+  }
+  const { data, error } = await supabase
+    .from('dispensing_providers').upsert([row]).select('id').single()
+  if (error) { console.error('saveDispensingProvider:', error); throw error }
+  return data.id
+}
+
+// Delete a dispensing provider. clinic_providers links cascade via FK.
+// Refuses to delete a provider linked to a login account. Admin only. Throws.
+export async function deleteDispensingProvider(id) {
+  const { error } = await supabase.from('dispensing_providers').delete().eq('id', id)
+  if (error) { console.error('deleteDispensingProvider:', error); throw error }
+}
+
+// Replace the full set of clinics a provider serves with `clinicIds`.
+// Admin only (RLS). Throws on error.
+export async function setProviderClinics(providerId, clinicIds) {
+  const { error: delErr } = await supabase
+    .from('clinic_providers').delete().eq('provider_id', providerId)
+  if (delErr) { console.error('setProviderClinics delete:', delErr); throw delErr }
+  if (clinicIds.length) {
+    const rows = clinicIds.map(cid => ({ clinic_id: cid, provider_id: providerId }))
+    const { error } = await supabase.from('clinic_providers').insert(rows)
+    if (error) { console.error('setProviderClinics insert:', error); throw error }
+  }
+}
+
+// Upsert a clinic location. New rows need organization_id (the caller passes one
+// from an existing clinic). location_key stays null for admin-created rows.
+// Admin only (RLS clinics_admin_write). Returns the row id. Throws on error.
+export async function saveClinicAdmin(c) {
+  const row = {
+    ...(c.id ? { id: c.id } : {}),
+    name:        (c.name || '').trim(),
+    address:     c.address || null,
+    phone:       c.phone || null,
+    clinic_code: c.clinic_code || null,
+    active:      c.active ?? true,
+    ...(c.id ? {} : { organization_id: c.organization_id, accent_color: '#16a34a' }),
+  }
+  const { data, error } = await supabase
+    .from('clinics').upsert([row]).select('id').single()
+  if (error) { console.error('saveClinicAdmin:', error); throw error }
+  return data.id
+}
+
+
 // Load all tier rows (one per device tier within a family) with their parent
 // family fields denormalized onto each row for convenient consumption.
 // Used by the Device Selection screen's recommendation engine and tier comparison.
