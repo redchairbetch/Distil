@@ -924,6 +924,19 @@ export async function loadVisitHistory(patientId) {
   return data || []
 }
 
+// Patch a visit as the established-patient flow advances (notes, status, type).
+export async function updateVisit(visitId, fields = {}) {
+  if (!visitId) return
+  const updates = {}
+  if (fields.visitType !== undefined) updates.visit_type = fields.visitType
+  if (fields.status    !== undefined) updates.status     = fields.status
+  if (fields.notes     !== undefined) updates.notes      = fields.notes
+  if (fields.visitDate !== undefined) updates.visit_date = fields.visitDate
+  if (Object.keys(updates).length === 0) return
+  const { error } = await supabase.from('visits').update(updates).eq('id', visitId)
+  if (error) console.error('updateVisit:', error)
+}
+
 
 // ============================================================
 // INCREMENTAL WIZARD SAVE

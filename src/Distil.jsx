@@ -24,6 +24,7 @@ import logoTruHearing from "./assets/logos/TruHearing.png";
 import logoWidex from "./assets/logos/Widex.png";
 import CareJourney from "./views/CareJourney.jsx";
 import HealthHistory from "./views/HealthHistory.jsx";
+import UpgradeWizard from "./views/UpgradeWizard.jsx";
 import IntakeResponsesAccordion from "./views/IntakeResponsesAccordion.jsx";
 import TierSelection from "./views/TierSelection.jsx";
 import PrompterSidebar from "./components/PrompterSidebar.jsx";
@@ -3244,48 +3245,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     setStep(0); setSaved(false); setView("new");
   };
 
-  // Re-enter the wizard for an established patient. Pre-fills identity and
-  // insurance from the existing record so the clinician confirms-and-skips
-  // through patient info, then performs a fresh visit (audiogram, devices,
-  // care plan). `wizardPatientId = p.id` makes downstream saves update the
-  // existing patient row rather than insert a new draft. Visit-specific
-  // fields (devices, audiology, carePlan, appointments, notes) stay blank
-  // so the new visit doesn't inherit stale data from the prior fitting.
-  const startNewVisitForPatient = async (p) => {
+  // Established-patient flow (backlog #23): route to the dedicated UpgradeWizard
+  // instead of the new-patient 8-step form. The wizard opens its own visit once
+  // the provider picks a visit type, so an established patient's baseline (their
+  // original fit) is never overwritten.
+  const startNewVisitForPatient = (p) => {
     if (!p) return;
-    const nameParts = (p.name || "").trim().split(/\s+/);
-    const firstName = nameParts[0] || "";
-    const lastName  = nameParts.slice(1).join(" ");
-    setForm({
-      intakeId: null,
-      firstName, lastName,
-      dob:     p.dob     || "",
-      phone:   p.phone   || "",
-      email:   p.email   || "",
-      address: p.address || "",
-      payType: p.payType || "insurance",
-      carrier:    p.insurance?.carrier   || "",
-      planGroup:  p.insurance?.planGroup || "",
-      tpa:        p.insurance?.tpa       || "",
-      tier:       p.insurance?.tier      || "",
-      tierPrice:  p.insurance?.tierPrice ?? null,
-      left:  EMPTY_SIDE(),
-      right: EMPTY_SIDE(),
-      audiology: { rightT:{}, leftT:{}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:null, unaidedL:null, aidedR:null, aidedL:null, wrMclR:null, wrMclL:null, sinBin:null, cctR:null, cctL:null, cctLevelR:null, cctLevelL:null },
-      carePlan: "",
-      appointments: [],
-      notes: "",
-    });
-    setActiveSide("left");
-    setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
-    setWizardPatientId(p.id);
-    // Open a fresh visit so this re-visit's audiogram/fitting saves are scoped
-    // to it — the patient's baseline (original fit) stays intact. PR1 will add
-    // the visit-type selector; 'annual_check' is the neutral default for now.
-    const vid = await createVisit(p.id, { clinicId, staffId, visitType: 'annual_check' });
-    setWizardVisitId(vid);
-    setSaveToast(false);
-    setStep(0); setSaved(false); setView("new");
+    setSelectedPatient(p);
+    setView("upgrade");
   };
 
 
@@ -6591,7 +6558,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
             <button
               style={{background:"#0f766e",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
               onClick={() => startNewVisitForPatient(p)}
-              title="Start a new visit — opens the wizard pre-filled from this patient's record"
+              title="Start a new visit — opens the upgrade flow for this established patient"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>
               Start a New Visit
@@ -8749,6 +8716,15 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
               patients={patients}
               onSelectPatient={(p) => { setSelectedPatient(p); setView("patient"); }}
               onRefresh={refreshPatients}
+            />
+          )}
+          {view === "upgrade" && selectedPatient && (
+            <UpgradeWizard
+              patient={selectedPatient}
+              clinicId={clinicId}
+              staffId={staffId}
+              onExit={() => setView("patient")}
+              onCompleted={async () => { await refreshPatients(); setView("patient"); }}
             />
           )}
           {view === "new" && (() => {
