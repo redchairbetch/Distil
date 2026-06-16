@@ -82,6 +82,7 @@ import {
   updatePatientStatus,
   convertTnsToActive,
   createPatientDraft,
+  createVisit,
   updatePatientAudiology,
   updatePatientDevices,
   updatePatientCarePlan,
@@ -1922,6 +1923,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState(null);
   const [wizardPatientId, setWizardPatientId] = useState(null);
+  // The visit (clinical encounter) the wizard is currently saving into. Audiogram
+  // and device saves are scoped to it so prior visits' records survive (visits model).
+  const [wizardVisitId, setWizardVisitId] = useState(null);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [wizardIntake, setWizardIntake] = useState(null);
   // Provider prompter drawer — open by default, toggleable via the handle
@@ -3146,7 +3150,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
           form.notes,
           finalizeAppointments,
           staffId, clinicId,
-          privatePay
+          privatePay,
+          wizardVisitId
         );
         setSaved(true);
         await refreshPatients();
@@ -3235,7 +3240,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     setForm({ intakeId:null,firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},audiology:{rightT:{},leftT:{},rightBC:{},leftBC:{},rightMask:{},leftMask:{},rightBCMask:{},leftBCMask:{},tinnitusRight:false,tinnitusLeft:false,unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,wrMclR:null,wrMclL:null,sinBin:null},carePlan:"",appointments:[],notes:"" });
     setActiveSide("left");
     setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
-    setWizardPatientId(null); setSaveToast(false);
+    setWizardPatientId(null); setWizardVisitId(null); setSaveToast(false);
     setStep(0); setSaved(false); setView("new");
   };
 
@@ -3246,7 +3251,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   // existing patient row rather than insert a new draft. Visit-specific
   // fields (devices, audiology, carePlan, appointments, notes) stay blank
   // so the new visit doesn't inherit stale data from the prior fitting.
-  const startNewVisitForPatient = (p) => {
+  const startNewVisitForPatient = async (p) => {
     if (!p) return;
     const nameParts = (p.name || "").trim().split(/\s+/);
     const firstName = nameParts[0] || "";
@@ -3274,6 +3279,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     setActiveSide("left");
     setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
     setWizardPatientId(p.id);
+    // Open a fresh visit so this re-visit's audiogram/fitting saves are scoped
+    // to it — the patient's baseline (original fit) stays intact. PR1 will add
+    // the visit-type selector; 'annual_check' is the neutral default for now.
+    const vid = await createVisit(p.id, { clinicId, staffId, visitType: 'annual_check' });
+    setWizardVisitId(vid);
     setSaveToast(false);
     setStep(0); setSaved(false); setView("new");
   };
@@ -3359,6 +3369,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
       notes:   [f.notes, notes].filter(Boolean).join("\n"),
     }));
     setWizardPatientId(newPatientId);
+    const vid = await createVisit(newPatientId, { clinicId, staffId, visitType: 'initial_fit' });
+    setWizardVisitId(vid);
     setPendingIntakes(prev => prev.filter(i => i._meta?.intakeId !== intakeId));
     setShowIntakeQueue(false);
     setIntakeToast(null);
@@ -8811,6 +8823,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                             try {
                               const pid = await createPatientDraft({ id: genId(), name, dob: form.dob, phone: form.phone, email: form.email, address: form.address, payType: form.payType, notes: form.notes, insurance: ins }, staffId, clinicId);
                               setWizardPatientId(pid);
+                              const vid = await createVisit(pid, { clinicId, staffId, visitType: 'initial_fit' });
+                              setWizardVisitId(vid);
                               if (form.intakeId) {
                                 try { await linkIntakeToPatient(form.intakeId, pid, clinicId); }
                                 catch (e) { console.error('linkIntakeToPatient:', e); }
@@ -8825,14 +8839,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                           } else {
                             try {
                               if (step === 2 && wizardPatientId) {
-                                await updatePatientAudiology(wizardPatientId, form.audiology, staffId);
+                                await updatePatientAudiology(wizardPatientId, form.audiology, staffId, wizardVisitId);
                                 setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
                               } else if (step === 5 && wizardPatientId) {
                                 const leftRec = buildSideRecord(form.left);
                                 const rightRec = buildSideRecord(form.right);
                                 const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
                                 const fittingType = leftRec && rightRec ? (isCROS ? "cros_bicros" : "bilateral") : leftRec ? "monaural_left" : "monaural_right";
-                                await updatePatientDevices(wizardPatientId, { left: leftRec, right: rightRec, fittingType, serialLeft: genId(), serialRight: genId() }, staffId);
+                                await updatePatientDevices(wizardPatientId, { left: leftRec, right: rightRec, fittingType, serialLeft: genId(), serialRight: genId() }, staffId, wizardVisitId);
                                 setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
                               }
                             } catch(e) { console.error("incremental save:", e); }

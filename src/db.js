@@ -454,14 +454,25 @@ function splitName(fullName = '') {
   return { first_name: parts.join(' '), last_name: last }
 }
 
+// Most-recently-created row from an embedded array (or null). With the visits
+// model a patient accrues multiple fittings/audiograms (one per visit), so the
+// "current" record is the newest — not whatever order PostgREST happens to return.
+function pickNewest(rows) {
+  if (!rows?.length) return null
+  return rows.reduce((newest, r) =>
+    new Date(r.created_at || 0) > new Date(newest.created_at || 0) ? r : newest)
+}
+
 // Reassemble DB row back into the flat patient shape Distil UI expects
 function assemblePatient(row) {
   const coverage = row.insurance_coverage?.[0] || null
-  const fitting  = row.device_fittings?.[0] || null
+  // Current fitting/audiogram = the newest. Baseline + full history load on
+  // demand (loadBaselineAudiology / loadVisitHistory) for the upgrade flow.
+  const fitting  = pickNewest(row.device_fittings)
   const sides    = fitting?.device_sides || []
   const leftSide  = sides.find(s => s.ear === 'left')  || null
   const rightSide = sides.find(s => s.ear === 'right') || null
-  const audiogram = row.audiograms?.[0] || null
+  const audiogram = pickNewest(row.audiograms)
   const thresholds = audiogram?.audiogram_thresholds || []
   const appts = row.appointments || []
 
@@ -662,6 +673,15 @@ export async function savePatient(patient, staffId, clinicId) {
 
   if (patientError) throw patientError
 
+  // Open the initial visit so this full-save's fitting + audiogram are tagged
+  // with a clinical encounter (longitudinal history) — mirrors the incremental
+  // wizard opening a visit at step 0.
+  const visitId = await createVisit(patientRow.id, {
+    clinicId, staffId, visitType: 'initial_fit',
+    visitDate: patient.devices?.fittingDate || null,
+    status: patient.patientStatus === 'active' ? 'completed' : 'in_progress',
+  })
+
   // 2. Insert insurance coverage (if applicable)
   if (patient.insurance && patient.payType === 'insurance') {
     const planId = await resolveInsurancePlanId(
@@ -694,6 +714,7 @@ export async function savePatient(patient, staffId, clinicId) {
       .from('device_fittings')
       .insert({
         patient_id:      patientRow.id,
+        visit_id:        visitId,
         fitted_by:       staffId,
         fitting_date:    patient.devices.fittingDate    || null,
         fitting_type:    fittingType,
@@ -738,6 +759,7 @@ export async function savePatient(patient, staffId, clinicId) {
         .from('audiograms')
         .insert({
           patient_id:        patientRow.id,
+          visit_id:          visitId,
           tested_by:         staffId,
           test_date:         new Date().toISOString().split('T')[0],
           unaided_wrs_right: a.unaidedR ?? null,
@@ -848,6 +870,62 @@ function buildSideRow(fittingId, ear, side) {
 
 
 // ============================================================
+// VISITS (clinical encounters — longitudinal history)
+// ============================================================
+
+// Open a visit (clinical encounter) for a patient. The new-patient wizard
+// opens an 'initial_fit' visit at draft time; the established-patient flow
+// opens an 'upgrade_consult' / 'annual_check' / etc. Audiograms and device
+// fittings saved during a wizard are tagged with this visit_id, so prior
+// visits' records survive instead of being overwritten on save.
+export async function createVisit(patientId, { clinicId = null, staffId = null, visitType = 'initial_fit', visitDate = null, status = 'in_progress' } = {}) {
+  const { data, error } = await supabase
+    .from('visits')
+    .insert({
+      patient_id: patientId,
+      clinic_id:  clinicId,
+      staff_id:   staffId,
+      visit_type: visitType,
+      visit_date: visitDate || new Date().toISOString().split('T')[0],
+      status,
+    })
+    .select('id')
+    .single()
+  if (error) { console.error('createVisit:', error); return null }
+  return data.id
+}
+
+// Oldest audiogram on file (the baseline from the original fit), with its
+// thresholds — the reference the upgrade flow diffs the new visit against.
+// Returns null if the patient has no audiogram history.
+export async function loadBaselineAudiology(patientId) {
+  const { data, error } = await supabase
+    .from('audiograms')
+    .select('*, audiogram_thresholds(*)')
+    .eq('patient_id', patientId)
+    .order('test_date',  { ascending: true })
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle()
+  if (error) { console.error('loadBaselineAudiology:', error); return null }
+  return data || null
+}
+
+// All visits for a patient, newest first, each with its audiogram(s) +
+// fitting(s). Feeds the upgrade consultation timeline + history views.
+export async function loadVisitHistory(patientId) {
+  const { data, error } = await supabase
+    .from('visits')
+    .select('*, audiograms(*, audiogram_thresholds(*)), device_fittings(*, device_sides(*))')
+    .eq('patient_id', patientId)
+    .order('visit_date',  { ascending: false })
+    .order('created_at', { ascending: false })
+  if (error) { console.error('loadVisitHistory:', error); return [] }
+  return data || []
+}
+
+
+// ============================================================
 // INCREMENTAL WIZARD SAVE
 // ============================================================
 
@@ -903,7 +981,7 @@ export async function createPatientDraft(data, staffId, clinicId) {
 }
 
 // Step 1 — save audiogram data for an existing patient
-export async function updatePatientAudiology(patientId, audiology, staffId) {
+export async function updatePatientAudiology(patientId, audiology, staffId, visitId = null) {
   if (!audiology) return
   const a = audiology
   const hasAudioData = Object.keys(a.rightT || {}).length > 0 ||
@@ -915,22 +993,26 @@ export async function updatePatientAudiology(patientId, audiology, staffId) {
                        a.tinnitusRight || a.tinnitusLeft
   if (!hasAudioData) return
 
-  // Delete existing audiogram + thresholds for this patient (re-save pattern)
-  const { data: existing } = await supabase
-    .from('audiograms')
-    .select('id')
-    .eq('patient_id', patientId)
+  // Re-save pattern, scoped to THIS visit so prior visits' audiograms survive
+  // (the longitudinal-history the upgrade pathway depends on). Pre-visits
+  // callers (visitId null) fall back to the legacy patient-wide replace.
+  let existingQ = supabase.from('audiograms').select('id').eq('patient_id', patientId)
+  if (visitId) existingQ = existingQ.eq('visit_id', visitId)
+  const { data: existing } = await existingQ
   if (existing?.length) {
     for (const row of existing) {
       await supabase.from('audiogram_thresholds').delete().eq('audiogram_id', row.id)
     }
-    await supabase.from('audiograms').delete().eq('patient_id', patientId)
+    let delQ = supabase.from('audiograms').delete().eq('patient_id', patientId)
+    if (visitId) delQ = delQ.eq('visit_id', visitId)
+    await delQ
   }
 
   const { data: audioRow, error: audioError } = await supabase
     .from('audiograms')
     .insert({
       patient_id:        patientId,
+      visit_id:          visitId,
       tested_by:         staffId,
       test_date:         new Date().toISOString().split('T')[0],
       unaided_wrs_right: a.unaidedR ?? null,
@@ -981,27 +1063,31 @@ export async function updatePatientAudiology(patientId, audiology, staffId) {
 }
 
 // Step 3 — save device fitting + sides for existing patient
-export async function updatePatientDevices(patientId, devices, staffId) {
+export async function updatePatientDevices(patientId, devices, staffId, visitId = null) {
   if (!devices) return
   const fittingType = (devices.fittingType || 'bilateral')
     .toLowerCase().replace('/', '_').replace(' ', '_')
 
-  // Delete existing fittings + sides (re-save)
-  const { data: existing } = await supabase
-    .from('device_fittings')
-    .select('id')
-    .eq('patient_id', patientId)
+  // Re-save pattern, scoped to THIS visit so a prior visit's fitting survives
+  // (an upgrade visit adds a new fitting; the original aids stay on record).
+  // Pre-visits callers (visitId null) fall back to the legacy patient-wide replace.
+  let existingQ = supabase.from('device_fittings').select('id').eq('patient_id', patientId)
+  if (visitId) existingQ = existingQ.eq('visit_id', visitId)
+  const { data: existing } = await existingQ
   if (existing?.length) {
     for (const row of existing) {
       await supabase.from('device_sides').delete().eq('fitting_id', row.id)
     }
-    await supabase.from('device_fittings').delete().eq('patient_id', patientId)
+    let delQ = supabase.from('device_fittings').delete().eq('patient_id', patientId)
+    if (visitId) delQ = delQ.eq('visit_id', visitId)
+    await delQ
   }
 
   const { data: fittingRow, error: fittingError } = await supabase
     .from('device_fittings')
     .insert({
       patient_id:      patientId,
+      visit_id:        visitId,
       fitted_by:       staffId,
       fitting_type:    fittingType,
       serial_left:     devices.serialLeft  || null,
@@ -1052,13 +1138,20 @@ export async function logAnalyticsEvent(eventName, payload = {}) {
 }
 
 // Final — promote draft to active/tns and set warranty/fitting info
-export async function finalizePatient(patientId, status, devices, carePlan, notes, appointments, staffId, clinicId, privatePay = null) {
+export async function finalizePatient(patientId, status, devices, carePlan, notes, appointments, staffId, clinicId, privatePay = null, visitId = null) {
   // Update patient status + notes. Stamp care_plan_start_date with the
   // fitting date when the patient is being finalized with a care plan
   // selected — gives the year-4 upgrade pathway a ground-truth anchor.
   const updates = { patient_status: status || 'active' }
   if (notes != null) updates.notes = notes
-  if (carePlan && devices?.fittingDate) updates.care_plan_start_date = devices.fittingDate
+  if (carePlan && devices?.fittingDate) {
+    // Set-once: care_plan_start_date is the "Year 0" of the patient's original
+    // journey. An upgrade re-finalize must not reset it (current-aids age is
+    // derived from the latest fitting's date instead).
+    const { data: existing } = await supabase
+      .from('patients').select('care_plan_start_date').eq('id', patientId).maybeSingle()
+    if (!existing?.care_plan_start_date) updates.care_plan_start_date = devices.fittingDate
+  }
   // Snapshot private-pay tier + price at finalize time. The patient picks
   // their tier mid-wizard (TierSelection), well after createPatientDraft
   // ran, so this is the canonical write moment.
@@ -1079,10 +1172,9 @@ export async function finalizePatient(patientId, status, devices, carePlan, note
     const devUpdate = {}
     if (devices.fittingDate)    devUpdate.fitting_date    = devices.fittingDate
     if (devices.warrantyExpiry) devUpdate.warranty_expiry = devices.warrantyExpiry
-    const { error } = await supabase
-      .from('device_fittings')
-      .update(devUpdate)
-      .eq('patient_id', patientId)
+    let updQ = supabase.from('device_fittings').update(devUpdate).eq('patient_id', patientId)
+    if (visitId) updQ = updQ.eq('visit_id', visitId)   // target only this visit's fitting
+    const { error } = await updQ
     if (error) console.error('finalizePatient fittings:', error)
   }
 
@@ -2214,16 +2306,18 @@ export async function loadDonationCandidates() {
     .from('patients')
     .select(`
       id, first_name, last_name,
-      device_fittings(id, fitting_date, warranty_expiry),
+      device_fittings(id, fitting_date, warranty_expiry, created_at),
       lima_charlie_donations(id, intent_status, intent_date, donation_date, recipient_id)
     `)
   if (error) { console.error('loadDonationCandidates:', error); return [] }
 
+  // A patient may now have multiple fittings (one per visit). Donation
+  // candidacy keys off the CURRENT aids — the newest fitting's warranty.
   const now = new Date()
   return data
-    .filter(p => p.device_fittings?.[0]?.warranty_expiry)
+    .filter(p => pickNewest(p.device_fittings)?.warranty_expiry)
     .map(p => {
-      const fitting = p.device_fittings[0]
+      const fitting = pickNewest(p.device_fittings)
       const expiry = new Date(fitting.warranty_expiry)
       const daysLeft = Math.ceil((expiry - now) / 86400000)
       const donation = p.lima_charlie_donations?.[0] || null
@@ -2479,7 +2573,11 @@ export async function backfillCampaignEnrollment(clinicId, staffId) {
   let enrolled = 0
   let skipped = 0
   for (const p of (patients || [])) {
-    const fitting = p.device_fittings?.[0]
+    // Earliest fitting = the original fit, which anchors the care-journey
+    // cadence (a patient may now have multiple fittings across visits).
+    const fitting = (p.device_fittings || [])
+      .filter(f => f.fitting_date)
+      .sort((a, b) => new Date(a.fitting_date) - new Date(b.fitting_date))[0]
     if (!fitting?.fitting_date) { skipped++; continue }
     if (enrolledSet.has(p.id)) { skipped++; continue }
 
