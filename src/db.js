@@ -1500,6 +1500,38 @@ export async function getClinicProviders(clinicId) {
   return data || []
 }
 
+// Price adjustment audit log (spec §6/§10). Routed through the
+// log_price_adjustment SECURITY DEFINER RPC, which stamps provider_id =
+// auth.uid() server-side (so every adjustment is recorded under the real actor)
+// and derives clinic_id from the patient — letting a traveling closer log an
+// adjustment at an event clinic that isn't their home clinic, which the table's
+// clinic-scoped RLS write check would otherwise block. Manager-auth columns are
+// left inert (closers have unlimited discount authority, name attached).
+// Returns the new log row id; throws on error so the caller can surface it.
+export async function logPriceAdjustment({
+  patientId,
+  originalPrice,
+  adjustedPrice,
+  reasonCode,
+  reasonText = null,
+  productType = 'device',
+  sku = null,
+  purchaseId = null,
+}) {
+  const { data, error } = await supabase.rpc('log_price_adjustment', {
+    p_patient_id: patientId,
+    p_original_price: originalPrice,
+    p_adjusted_price: adjustedPrice,
+    p_reason_code: reasonCode,
+    p_reason_text: reasonText,
+    p_product_type: productType,
+    p_sku: sku,
+    p_purchase_id: purchaseId,
+  })
+  if (error) throw error
+  return data
+}
+
 
 // Load all tier rows (one per device tier within a family) with their parent
 // family fields denormalized onto each row for convenient consumption.
