@@ -1,13 +1,18 @@
 import { useState, useMemo } from 'react'
 import { downloadQuote } from '../generateQuote.js'
-import { uploadPatientDocument } from '../db.js'
+import { uploadPatientDocument, logPriceAdjustment } from '../db.js'
+import { ADJUST_REASON_CODES } from '../views/AdjustPriceModal.jsx'
 
-// Custom-quote modal launched from the patient profile. Lets the provider
-// pick any devices the patient is eligible for and override per-ear pricing
-// without touching the patient's saved fitting. Ephemeral — does not write to
-// device_fittings or update form.tierPrice. Quote PDF is archived to
-// patient_documents with kind='quote' and metadata.customized=true so the
-// chart distinguishes provider-generated custom quotes from wizard quotes.
+// Custom-quote modal launched from the patient profile (the sole quote entry
+// point — the saved-config "Generate Quote" button was retired). Lets the
+// provider pick any devices the patient is eligible for and, for private pay,
+// discount off the clinic's retail anchor rather than typing an arbitrary
+// price — so every printed quote reflects the clinic's selected retail pricing.
+// Any discount is recorded to the §6 price_adjustment_log (a paper trail
+// explaining the reason). Ephemeral — does not write to device_fittings or
+// update form.tierPrice. Quote PDF is archived to patient_documents with
+// kind='quote' and metadata.customized=true so the chart distinguishes
+// provider-generated custom quotes from wizard quotes.
 
 const CROS_PRICE_PER_UNIT = 1250
 
@@ -74,6 +79,9 @@ function sideFromSaved(s) {
   }
 }
 
+// Fallback retail when the live clinic anchor can't resolve (e.g. anchors not
+// yet loaded, or a saved device the catalog can't rank). Uses the snapshot
+// price the patient was fit at so the discount flow still has a base.
 function defaultPricePerAid(patient) {
   if (patient?.payType === 'private') {
     return patient?.privatePay?.tierPrice || 2750
@@ -88,6 +96,11 @@ const C = {
   bgSoft: '#f9fafb',
   accent: '#1d4ed8',
 }
+
+const money = (n) =>
+  (n == null || isNaN(n))
+    ? '—'
+    : '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 const inputStyle = {
   width: '100%', padding: '7px 10px',
@@ -110,6 +123,7 @@ export default function CreateQuoteModal({
   clinicId,
   staffId,
   catalog = [],
+  resolveRetailPerAid,
   onClose,
   onArchived,
 }) {
@@ -142,9 +156,19 @@ export default function CreateQuoteModal({
     return { ...s, style: normalizeStyle(activeCatalog, s.manufacturer, s.style) }
   })
 
+  // Insurance keeps an editable per-aid copay price. Private pay derives the
+  // price from the clinic retail anchor minus the per-ear discount below.
   const initialPrice = defaultPricePerAid(patient) || 2750
   const [leftPrice,  setLeftPrice]  = useState(initialPrice)
   const [rightPrice, setRightPrice] = useState(initialPrice)
+
+  // Per-ear discount off the retail anchor (private pay only). mode = '$' | '%'.
+  const [leftDisc,  setLeftDisc]  = useState({ mode: '$', value: '' })
+  const [rightDisc, setRightDisc] = useState({ mode: '$', value: '' })
+
+  // Discount justification (one reason per quote — required when discounting).
+  const [reasonCode, setReasonCode] = useState('')
+  const [reasonText, setReasonText] = useState('')
 
   const [note, setNote] = useState('')
   const [generating, setGenerating] = useState(false)
@@ -211,6 +235,12 @@ export default function CreateQuoteModal({
     if (which === 'right') setRight(update)
   }
 
+  const setDiscField = (which, field, value) => {
+    const upd = (prev) => ({ ...prev, [field]: value })
+    if (which === 'left')  setLeftDisc(upd)
+    if (which === 'right') setRightDisc(upd)
+  }
+
   const fittingType = (() => {
     if (!hasLeft && !hasRight) return null
     const eitherCros = (hasLeft && left.isCROS) || (hasRight && right.isCROS)
@@ -218,25 +248,63 @@ export default function CreateQuoteModal({
     return hasLeft ? 'monaural_left' : 'monaural_right'
   })()
 
-  const sidePrice = (active, side, price) => {
-    if (!active) return null
-    if (side.isCROS || isCrosVariant(side.variant)) return CROS_PRICE_PER_UNIT
-    return Number(price) || 0
+  // Per-ear pricing. Private pay anchors to the clinic retail price (resolved
+  // by the parent from clinic_retail_anchors) and applies the $/% discount;
+  // insurance keeps the editable copay price. CROS units are a fixed $1,250
+  // add-on with no discount.
+  const fallbackRetail = defaultPricePerAid(patient) || 2750
+  const earPricing = (active, side, disc, priceState) => {
+    if (!active) return { retail: null, discountAmt: 0, net: null }
+    if (side.isCROS || isCrosVariant(side.variant)) {
+      return { retail: CROS_PRICE_PER_UNIT, discountAmt: 0, net: CROS_PRICE_PER_UNIT }
+    }
+    if (payType === 'private') {
+      const resolved = resolveRetailPerAid ? resolveRetailPerAid(side) : null
+      const retail = resolved != null ? resolved : fallbackRetail
+      if (retail == null) return { retail: null, discountAmt: 0, net: null }
+      const v = Number(disc.value) || 0
+      let amt = disc.mode === '%' ? retail * (v / 100) : v
+      amt = Math.max(0, Math.min(amt, retail))
+      return { retail, discountAmt: amt, net: Math.max(0, retail - amt) }
+    }
+    // insurance — editable copay, no retail anchor
+    return { retail: null, discountAmt: 0, net: Number(priceState) || 0 }
   }
 
-  const leftEarP  = sidePrice(hasLeft,  left,  leftPrice)
-  const rightEarP = sidePrice(hasRight, right, rightPrice)
+  const leftPx  = earPricing(hasLeft,  left,  leftDisc,  leftPrice)
+  const rightPx = earPricing(hasRight, right, rightDisc, rightPrice)
+  const leftEarP  = leftPx.net
+  const rightEarP = rightPx.net
 
   const carePlanCost = payType === 'private'
     ? 0
     : (CARE_PLAN_OPTIONS.find(c => c.id === carePlan)?.price || 0)
 
-  const deviceTotal = (leftEarP || 0) + (rightEarP || 0)
-  const grandTotal  = deviceTotal + carePlanCost
+  const retailSubtotal = (leftPx.retail || 0) + (rightPx.retail || 0)
+  const totalDiscount  = (leftPx.discountAmt || 0) + (rightPx.discountAmt || 0)
+  const hasDiscount    = totalDiscount > 0.005
+  const deviceTotal    = (leftEarP || 0) + (rightEarP || 0)
+  const grandTotal     = deviceTotal + carePlanCost
+
+  // A discount must carry a documented reason (recorded to the audit log).
+  const needsReason = payType === 'private' && hasDiscount
+  const reasonOk = !needsReason ||
+    (!!reasonCode && (reasonCode !== 'other' || reasonText.trim().length > 0))
+  // Private-pay ears must be fully configured (family + tech level) so the
+  // retail anchor is the real clinic price, not the fallback. CROS units and
+  // insurance quotes have no such requirement.
+  const sideConfigured = (active, side) =>
+    !active ||
+    side.isCROS || isCrosVariant(side.variant) ||
+    (!!side.familyId && !!side.techLevel)
+  const earsResolved = payType !== 'private' ||
+    (sideConfigured(hasLeft, left) && sideConfigured(hasRight, right))
 
   const canGenerate = !!fittingType
     && (!hasLeft  || left.manufacturer)
     && (!hasRight || right.manufacturer)
+    && reasonOk
+    && earsResolved
     && !generating
 
   const handleGenerate = async () => {
@@ -247,6 +315,10 @@ export default function CreateQuoteModal({
       const pricePerAid = (leftEarP && rightEarP)
         ? Math.max(leftEarP, rightEarP)
         : (leftEarP || rightEarP || 0)
+      const leftRetail  = payType === 'private' && hasLeft  ? leftPx.retail  : null
+      const rightRetail = payType === 'private' && hasRight ? rightPx.retail : null
+      const reasonTextClean = reasonCode === 'other' ? (reasonText.trim() || null) : null
+
       const { blob, fileName } = downloadQuote({
         patient: { name: patient.name, phone: patient.phone },
         devices: {
@@ -257,6 +329,9 @@ export default function CreateQuoteModal({
         pricePerAid,
         leftPrice:  leftEarP,
         rightPrice: rightEarP,
+        // Per-ear retail anchor — drives the "Retail / Discount" lines on the PDF.
+        leftRetail,
+        rightRetail,
         selectedCarePlan: carePlan || 'complete',
         payType,
         tpa:     patient.insurance?.tpa     || null,
@@ -268,6 +343,33 @@ export default function CreateQuoteModal({
           activeLicense: staffProfile?.activeLicense || '',
         },
       })
+
+      // Paper trail first: record each distinct discounted per-aid price to the
+      // §6 price-adjustment audit log. A matched bilateral pair logs once.
+      if (needsReason && reasonCode) {
+        const seen = new Set()
+        for (const px of [leftPx, rightPx]) {
+          if (px.net == null || !(px.discountAmt > 0)) continue
+          const key = `${px.retail}|${px.net}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          try {
+            await logPriceAdjustment({
+              patientId: patient.id,
+              originalPrice: px.retail,
+              adjustedPrice: px.net,
+              reasonCode,
+              reasonText: reasonTextClean,
+              productType: 'device',
+            })
+          } catch (e) {
+            console.error('Log custom-quote discount:', e)
+            setError('Quote downloaded, but recording the discount to the audit log failed: ' + (e?.message || e))
+            return
+          }
+        }
+      }
+
       try {
         await uploadPatientDocument({
           patientId: patient.id,
@@ -281,6 +383,11 @@ export default function CreateQuoteModal({
             pricePerAid,
             leftPrice:  leftEarP,
             rightPrice: rightEarP,
+            leftRetail,
+            rightRetail,
+            totalDiscount: payType === 'private' ? totalDiscount : 0,
+            discountReasonCode: needsReason ? reasonCode : null,
+            discountReasonText: needsReason ? reasonTextClean : null,
             aidCount: (hasLeft ? 1 : 0) + (hasRight ? 1 : 0),
             selectedCarePlan: carePlan || 'complete',
             payType,
@@ -305,8 +412,10 @@ export default function CreateQuoteModal({
     }
   }
 
-  const renderEarColumn = (label, active, setActive, side, which, price, setPrice, onCopyFromLeft) => {
+  const renderEarColumn = (label, active, setActive, side, which, price, setPrice, disc, onCopyFromLeft) => {
     const opts = optionsFor(side)
+    const isCros = side.isCROS || isCrosVariant(side.variant)
+    const px = earPricing(active, side, disc, price)
     return (
       <div style={{ flex: 1, minWidth: 280 }}>
         <div style={{
@@ -326,7 +435,7 @@ export default function CreateQuoteModal({
                   border: `1px solid ${C.accent}`, borderRadius: 6,
                   cursor: 'pointer',
                 }}
-                title="Mirror the left ear's device and price to this ear"
+                title="Mirror the left ear's device, price, and discount to this ear"
               >Copy from left →</button>
             )}
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.muted, cursor: 'pointer' }}>
@@ -395,23 +504,73 @@ export default function CreateQuoteModal({
               </div>
             )}
           </div>
-          <div>
-            <label style={labelStyle}>
-              {side.isCROS || isCrosVariant(side.variant)
-                ? 'Price per unit (CROS — fixed)'
-                : 'Price per aid'}
-            </label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ color: C.muted, fontSize: 14 }}>$</span>
-              <input
-                type="number" min="0" step="1"
-                style={{ ...inputStyle, flex: 1 }}
-                value={side.isCROS || isCrosVariant(side.variant) ? CROS_PRICE_PER_UNIT : price}
-                disabled={side.isCROS || isCrosVariant(side.variant)}
-                onChange={e => setPrice(Number(e.target.value) || 0)}
-              />
+
+          {/* Pricing — retail-anchored discount (private pay) or editable copay (insurance) */}
+          {isCros ? (
+            <div>
+              <label style={labelStyle}>Price per unit</label>
+              <div style={{ fontSize: 13, color: C.muted }}>
+                CROS unit — fixed {money(CROS_PRICE_PER_UNIT)}, no discount.
+              </div>
             </div>
-          </div>
+          ) : payType === 'private' ? (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+                <span style={labelStyle}>Retail (clinic anchor)</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>
+                  {px.retail != null ? `${money(px.retail)} / aid` : '—'}
+                </span>
+              </div>
+              <label style={labelStyle}>Discount</label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ display: 'flex', border: `1px solid ${C.line}`, borderRadius: 6, overflow: 'hidden' }}>
+                  {['$', '%'].map(m => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setDiscField(which, 'mode', m)}
+                      style={{
+                        padding: '7px 12px', fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer',
+                        background: disc.mode === m ? C.accent : 'white',
+                        color: disc.mode === m ? 'white' : C.ink,
+                      }}
+                    >{m}</button>
+                  ))}
+                </div>
+                <input
+                  type="number" min="0" step={disc.mode === '%' ? '1' : '10'}
+                  style={{ ...inputStyle, flex: 1 }}
+                  placeholder={disc.mode === '%' ? 'e.g. 10' : 'e.g. 500'}
+                  value={disc.value}
+                  onChange={e => setDiscField(which, 'value', e.target.value)}
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.line}` }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Your price</span>
+                <span style={{ fontSize: 15, fontWeight: 800, color: px.discountAmt > 0 ? '#15803d' : C.ink }}>
+                  {px.net != null ? `${money(px.net)} / aid` : '—'}
+                  {px.discountAmt > 0 && (
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#15803d', marginLeft: 6 }}>
+                      (−{money(px.discountAmt)})
+                    </span>
+                  )}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <label style={labelStyle}>Price per aid</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ color: C.muted, fontSize: 14 }}>$</span>
+                <input
+                  type="number" min="0" step="1"
+                  style={{ ...inputStyle, flex: 1 }}
+                  value={price}
+                  onChange={e => setPrice(Number(e.target.value) || 0)}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
     )
@@ -496,19 +655,49 @@ export default function CreateQuoteModal({
             </div>
           </div>
 
+          {payType === 'private' && (
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 16, lineHeight: 1.5 }}>
+              Pricing starts from the clinic's retail anchor for the selected device. Enter a discount to
+              adjust — the quote prints the retail price and the discount, and the reason is recorded to the audit log.
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
-            {renderEarColumn('Left ear',  hasLeft,  setHasLeft,  left,  'left',  leftPrice,  setLeftPrice)}
+            {renderEarColumn('Left ear',  hasLeft,  setHasLeft,  left,  'left',  leftPrice,  setLeftPrice,  leftDisc)}
             {renderEarColumn(
-              'Right ear', hasRight, setHasRight, right, 'right', rightPrice, setRightPrice,
+              'Right ear', hasRight, setHasRight, right, 'right', rightPrice, setRightPrice, rightDisc,
               (left.style || left.manufacturer || left.familyId)
                 ? () => {
                     setHasRight(true)
                     setRight({ ...left })
                     setRightPrice(leftPrice)
+                    setRightDisc({ ...leftDisc })
                   }
                 : null
             )}
           </div>
+
+          {/* Discount reason — required once any ear is discounted (private pay) */}
+          {needsReason && (
+            <div style={{
+              background: '#f0fdf4', border: '1px solid #bbf7d0',
+              borderRadius: 8, padding: 14, marginBottom: 16,
+            }}>
+              <label style={labelStyle}>Reason for discount (recorded to the audit log)</label>
+              <select style={inputStyle} value={reasonCode} onChange={e => setReasonCode(e.target.value)}>
+                <option value="">Select a reason…</option>
+                {ADJUST_REASON_CODES.map(r => <option key={r.code} value={r.code}>{r.label}</option>)}
+              </select>
+              {reasonCode === 'other' && (
+                <textarea
+                  style={{ ...inputStyle, marginTop: 8, minHeight: 60, resize: 'vertical' }}
+                  placeholder="Required — briefly explain the discount"
+                  value={reasonText}
+                  onChange={e => setReasonText(e.target.value)}
+                />
+              )}
+            </div>
+          )}
 
           <div style={{ marginBottom: 16 }}>
             <label style={labelStyle}>Internal note (optional)</label>
@@ -525,14 +714,26 @@ export default function CreateQuoteModal({
             background: C.bgSoft, border: `1px solid ${C.line}`,
             borderRadius: 8, padding: 14, marginBottom: 16,
           }}>
+            {payType === 'private' && retailSubtotal > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: C.muted, marginBottom: 6 }}>
+                <span>Retail subtotal</span>
+                <span>{money(retailSubtotal)}</span>
+              </div>
+            )}
+            {hasDiscount && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, color: '#15803d', marginBottom: 6 }}>
+                <span>Discount</span>
+                <span>−{money(totalDiscount)}</span>
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: C.muted, marginBottom: 6 }}>
               <span>Device subtotal</span>
-              <span>${deviceTotal.toLocaleString()}</span>
+              <span>{money(deviceTotal)}</span>
             </div>
             {carePlanCost > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: C.muted, marginBottom: 6 }}>
                 <span>{CARE_PLAN_OPTIONS.find(c => c.id === carePlan)?.label}</span>
-                <span>${carePlanCost.toLocaleString()}</span>
+                <span>{money(carePlanCost)}</span>
               </div>
             )}
             <div style={{
@@ -541,7 +742,7 @@ export default function CreateQuoteModal({
               paddingTop: 8, borderTop: `1px solid ${C.line}`,
             }}>
               <span>Total</span>
-              <span>${grandTotal.toLocaleString()}</span>
+              <span>{money(grandTotal)}</span>
             </div>
           </div>
 
