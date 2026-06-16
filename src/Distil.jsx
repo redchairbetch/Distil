@@ -11,6 +11,7 @@ import imgITE from "./assets/body-styles/ITE.png";
 import imgITC from "./assets/body-styles/ITC.png";
 import imgCIC from "./assets/body-styles/cic.png";
 import imgIIC from "./assets/body-styles/IIC.png";
+import hearingSimUrl from "./assets/audio/hearing-sim.m4a";
 
 // ── Manufacturer logos ──
 import logoOticon from "./assets/logos/Oticon.png";
@@ -1209,6 +1210,34 @@ function interpolateThreshold(thresholds, freq){
 }
 
 
+// ── HEARING-LOSS SIMULATION (Web Audio) ──────────────────────────────────────
+// A biquad peaking bank attenuates each octave band by the patient's hearing
+// loss at that frequency, so a normal-hearing listener hears roughly what the
+// patient hears. Drives the A/B "your hearing" mode on the results screen and is
+// kept consistent with the phoneme-dimming logic so audio + dimmed text agree.
+const SIM_BANDS = [250, 500, 1000, 2000, 4000, 8000];
+const SIM_NORMAL_DB = 20;   // domain rule: normal hearing threshold = 20 dB
+const SIM_MAX_ATTEN = 55;   // cap per band so it never goes fully silent
+
+// Threshold driving a band's attenuation for the selected ear. 'both' uses the
+// worse ear per band — matching the dimming paragraph's "inaudible if either ear
+// misses it" rule, so the audio tells the same story as the dimmed text.
+function simBandThreshold(aud, freq, ear) {
+  const r = interpolateThreshold(aud?.rightT, freq);
+  const l = interpolateThreshold(aud?.leftT, freq);
+  if (ear === "right") return r;
+  if (ear === "left") return l;
+  if (r == null) return l;
+  if (l == null) return r;
+  return Math.max(r, l);
+}
+function simAttenForBand(aud, freq, ear) {
+  const thr = simBandThreshold(aud, freq, ear);
+  if (thr == null) return 0;
+  return Math.max(0, Math.min(SIM_MAX_ATTEN, thr - SIM_NORMAL_DB));
+}
+
+
 // ── SPEECH BANANA BOUNDARY COORDINATES ───────────────────────────────────────
 const SPEECH_BANANA_UPPER=[
   {freq:250,db:20},{freq:500,db:15},{freq:1000,db:20},{freq:2000,db:20},
@@ -2130,6 +2159,80 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   const [maskMode, setMaskMode] = useState(false);
   const [phonemeDimMode, setPhonemeDimMode] = useState("both");
   const [dimIntensity, setDimIntensity] = useState(75); // 0 = no dimming, 100 = full fade
+
+  // ── Hearing-loss simulation (audio) ──
+  const [simPlaying, setSimPlaying] = useState(false);
+  const [simMode, setSimMode] = useState("yours"); // 'typical' | 'yours'
+  const audioCtxRef = useRef(null);
+  const simBufferRef = useRef(null);   // decoded AudioBuffer (fetched once)
+  const simSourceRef = useRef(null);   // current AudioBufferSourceNode
+  const simFiltersRef = useRef([]);    // current BiquadFilterNode bank
+  const simAudRef = useRef(null);      // audiology snapshot driving the live bank
+
+  const applySimGains = useCallback(() => {
+    const ctx = audioCtxRef.current, filters = simFiltersRef.current;
+    if (!ctx || !filters.length) return;
+    filters.forEach((flt, i) => {
+      const atten = simMode === "yours" ? simAttenForBand(simAudRef.current, SIM_BANDS[i], phonemeDimMode) : 0;
+      flt.gain.setTargetAtTime(-atten, ctx.currentTime, 0.04);
+    });
+  }, [simMode, phonemeDimMode]);
+
+  const stopHearingSim = useCallback(() => {
+    try { simSourceRef.current?.stop(); } catch (e) { /* already stopped */ }
+    simSourceRef.current = null;
+    setSimPlaying(false);
+  }, []);
+
+  const playHearingSim = useCallback(async (aud) => {
+    try {
+      if (!audioCtxRef.current) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        audioCtxRef.current = new AC();
+      }
+      const ctx = audioCtxRef.current;
+      if (ctx.state === "suspended") await ctx.resume();
+      if (!simBufferRef.current) {
+        const bytes = await (await fetch(hearingSimUrl)).arrayBuffer();
+        simBufferRef.current = await ctx.decodeAudioData(bytes);
+      }
+      try { simSourceRef.current?.stop(); } catch (e) { /* none playing */ }
+      simAudRef.current = aud;
+      const src = ctx.createBufferSource();
+      src.buffer = simBufferRef.current;
+      // Peaking filter bank — one per octave band, attenuated by that band's loss.
+      const filters = SIM_BANDS.map((f) => {
+        const flt = ctx.createBiquadFilter();
+        flt.type = "peaking";
+        flt.frequency.value = f;
+        flt.Q.value = 1.0;
+        flt.gain.value = simMode === "yours" ? -simAttenForBand(aud, f, phonemeDimMode) : 0;
+        return flt;
+      });
+      let node = src;
+      filters.forEach((flt) => { node.connect(flt); node = flt; });
+      node.connect(ctx.destination);
+      simFiltersRef.current = filters;
+      simSourceRef.current = src;
+      src.onended = () => { if (simSourceRef.current === src) { simSourceRef.current = null; setSimPlaying(false); } };
+      setSimPlaying(true);
+      src.start();
+    } catch (e) {
+      console.error("hearing sim playback:", e);
+      alert("Could not play the hearing simulation: " + (e.message || e));
+      setSimPlaying(false);
+    }
+  }, [simMode, phonemeDimMode]);
+
+  // Live-update the bank when the A/B mode or ear changes mid-playback so the
+  // audio always agrees with the on-screen dimming.
+  useEffect(() => { if (simPlaying) applySimGains(); }, [simMode, phonemeDimMode, simPlaying, applySimGains]);
+
+  // Tear down audio on unmount.
+  useEffect(() => () => {
+    try { simSourceRef.current?.stop(); } catch (e) { /* noop */ }
+    try { audioCtxRef.current?.close?.(); } catch (e) { /* noop */ }
+  }, []);
 
   // Audiogram drawing overlay state
   const [drawingEnabled, setDrawingEnabled] = useState(false);
@@ -4288,6 +4391,29 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                     style={{width:100,accentColor:"#6366f1",cursor:"pointer"}}/>
                   <span style={{fontSize:10,color:"#9ca3af",fontWeight:600,minWidth:28}}>{dimIntensity}%</span>
                 </div>
+              </div>
+              {/* A/B hearing simulation — plays the sentence through the patient's
+                  audiogram (Web Audio biquad bank); uses the ear selector above. */}
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:14,paddingBottom:14,borderBottom:"1px solid #f3f4f6"}}>
+                <button onClick={()=> simPlaying ? stopHearingSim() : playHearingSim(aud)}
+                  style={{display:"flex",alignItems:"center",gap:7,padding:"8px 16px",borderRadius:8,border:"none",cursor:"pointer",
+                    background: simPlaying ? "#dc2626" : "#4f46e5", color:"#fff", fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:13}}>
+                  <span style={{fontSize:12}}>{simPlaying ? "■" : "▶"}</span>
+                  {simPlaying ? "Stop" : "Hear this"}
+                </button>
+                <div style={{display:"inline-flex",border:"1px solid #d1d5db",borderRadius:8,overflow:"hidden"}}>
+                  {[["typical","Typical hearing"],["yours","Your hearing"]].map(([m,label])=>(
+                    <button key={m} onClick={()=>setSimMode(m)}
+                      style={{padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",border:"none",fontFamily:"'Sora',sans-serif",
+                        background: simMode===m ? (m==="yours" ? "#4f46e5" : "#0a1628") : "#fff",
+                        color: simMode===m ? "#fff" : "#6b7280"}}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <span style={{fontSize:11,color:"#9ca3af"}}>
+                  {simPlaying ? "Toggle to compare — same clip, your audiogram applied" : "Plays the sentence through your hearing loss"}
+                </span>
               </div>
               <p style={{fontSize:16,lineHeight:2,fontFamily:"'DM Sans',sans-serif",margin:0,letterSpacing:"0.01em"}}>
                 {HEARING_SIM_TEXT.map((seg,i) => {
