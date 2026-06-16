@@ -146,6 +146,11 @@ export function generateQuote({
   // produce identical output.
   leftPrice = null,
   rightPrice = null,
+  // Optional per-ear retail anchor (custom quote, private pay). When provided,
+  // the device table prints the retail price and a Discount line shows the
+  // markdown down to the after-discount Device Total (= leftPrice + rightPrice).
+  leftRetail = null,
+  rightRetail = null,
   selectedCarePlan,
   payType,
   tpa,
@@ -163,6 +168,21 @@ export function generateQuote({
   const deviceTotal = hasPerEar
     ? (leftPrice || 0) + (rightPrice || 0)
     : (pricePerAid || 0) * aidCount
+  // Retail anchor (optional) — per-ear retail for the device table + a discount
+  // line. Falls back to the net price per side when no retail was passed.
+  const hasRetail = leftRetail != null || rightRetail != null
+  const sideRetail = (side, retail, net) =>
+    side ? (retail != null ? retail : (net != null ? net : 0)) : 0
+  let retailTotal = 0
+  if (isBilateral) {
+    retailTotal = sideRetail(devices.right, rightRetail, rightPrice) + sideRetail(devices.left, leftRetail, leftPrice)
+  } else if (devices.fittingType === 'monaural_right') {
+    retailTotal = sideRetail(devices.right, rightRetail, rightPrice)
+  } else {
+    retailTotal = sideRetail(devices.left, leftRetail, leftPrice)
+  }
+  const totalDiscount = Math.max(0, retailTotal - deviceTotal)
+  const hasDiscount = hasRetail && totalDiscount > 0.005
   const carePlanPrice = cpMeta.price || 0
   // Private pay bundles the care plan into the per-aid retail price, so the
   // total reflects devices only and the care plan renders as a $0 line item.
@@ -251,7 +271,7 @@ export function generateQuote({
   colLabels.forEach((label, i) => doc.text(label, colX[i] + 6, y + 2))
   y += 16
 
-  const renderDeviceRow = (sideLabel, side, bgColor, sidePrice) => {
+  const renderDeviceRow = (sideLabel, side, bgColor, sidePrice, sideRetailVal) => {
     if (!side) return
     doc.setFillColor(...bgColor)
     doc.rect(MARGIN, y - 10, CONTENT_W, 20, 'F')
@@ -273,20 +293,33 @@ export function generateQuote({
     doc.text(styleLabel, colX[3] + 6, y + 2)
     doc.text(side.battery || '—', colX[4] + 6, y + 2)
     doc.setFont('helvetica', 'bold')
-    // Per-ear price falls back to pricePerAid for legacy callers that
-    // didn't pass leftPrice/rightPrice through.
-    const rowPrice = sidePrice != null ? sidePrice : pricePerAid
+    // Print the retail anchor when provided (custom quote) so the table shows
+    // clinic retail pricing — the discount is summarized below. Otherwise the
+    // per-ear net, falling back to pricePerAid for legacy callers.
+    const rowPrice = sideRetailVal != null ? sideRetailVal : (sidePrice != null ? sidePrice : pricePerAid)
     doc.text(fmt$(rowPrice), colX[5] + 6, y + 2)
     y += 20
   }
 
   if (isBilateral) {
-    renderDeviceRow('Right', devices.right, [248, 250, 252], rightPrice)
-    renderDeviceRow('Left', devices.left, WHITE, leftPrice)
+    renderDeviceRow('Right', devices.right, [248, 250, 252], rightPrice, rightRetail)
+    renderDeviceRow('Left', devices.left, WHITE, leftPrice, leftRetail)
   } else if (devices.fittingType === 'monaural_right') {
-    renderDeviceRow('Right', devices.right, [248, 250, 252], rightPrice)
+    renderDeviceRow('Right', devices.right, [248, 250, 252], rightPrice, rightRetail)
   } else {
-    renderDeviceRow('Left', devices.left, [248, 250, 252], leftPrice)
+    renderDeviceRow('Left', devices.left, [248, 250, 252], leftPrice, leftRetail)
+  }
+
+  // Discount line (custom quote) — between the retail rows and the net total.
+  if (hasDiscount) {
+    doc.setFillColor(240, 253, 244) // light green
+    doc.rect(MARGIN, y - 10, CONTENT_W, 20, 'F')
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(9)
+    doc.setTextColor(...GREEN)
+    doc.text('Discount applied', colX[0] + 6, y + 2)
+    doc.text(`- ${fmt$(totalDiscount)}`, colX[5] + 6, y + 2)
+    y += 20
   }
 
   // Device subtotal

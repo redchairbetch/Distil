@@ -3445,7 +3445,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     .radio-pill.mfr-pill img[alt="Phonak"]     { height: 28px; }
     .radio-pill.mfr-pill img[alt="Resound"],
     .radio-pill.mfr-pill img[alt="ReSound"]    { height: 36px; }
-    .radio-pill.mfr-pill img[alt="Signia"]     { height: 40px; }
+    .radio-pill.mfr-pill img[alt="Signia"]     { height: 50px; }
     .radio-pill.mfr-pill img[alt="Starkey"]    { height: 36px; }
     /* TruHearing is square ~1:1 — punch out of the max-height cap so the
        mark renders ~30% larger than the wide wordmarks, matching their
@@ -5462,19 +5462,24 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
               // pre-device-pick states still render a sane headline.
               const hasPerEarPair = bothDone && perEar?.pairTotal != null;
               const investmentDisplay = hasPerEarPair ? perEar.pairTotal : copayPerAid * multiplier;
-              const hasCrosSide = perEar?.left?.source === 'cros' || perEar?.right?.source === 'cros';
-              // For CROS fittings, full retail = aid retail + $1,250 (CROS
-              // has no markup). Non-CROS bilateral retail stays at the
-              // per-aid anchor times 2.
-              const retailDisplay = (bothDone && hasCrosSide)
-                ? retailPerAid + CROS_PRICE_PER_UNIT
-                : retailPerAid * multiplier;
-              const planCoversDisplay = retailDisplay - investmentDisplay;
-              const savingsDisplay = Math.max(0, planCoversDisplay);
-              // Private-pay bundles Complete Care+ at no charge. Surface its retail
-              // value as an included line item and fold it into the retail/savings
-              // totals (insurance keeps CC+ as a separate step-6 care-plan choice).
               const isPrivatePay = form.payType === "private";
+              const hasCrosSide = perEar?.left?.source === 'cros' || perEar?.right?.source === 'cros';
+              // Private pay carries no insurance discount on the device — the
+              // price the patient pays IS the device's full retail, so device
+              // retail == investment and the only value-add is the bundled
+              // Complete Care+. Insurance keeps the real retail-vs-copay anchor:
+              // for CROS fittings full retail = aid retail + $1,250 (CROS has no
+              // markup); otherwise it's the per-aid anchor times the aid count.
+              const retailDisplay = isPrivatePay
+                ? investmentDisplay
+                : ((bothDone && hasCrosSide)
+                    ? retailPerAid + CROS_PRICE_PER_UNIT
+                    : retailPerAid * multiplier);
+              const planCoversDisplay = retailDisplay - investmentDisplay;
+              // Private-pay bundles Complete Care+ at no charge. Its $1,250 value
+              // takes the "Plan covers" line (there's no insurance plan in private
+              // pay) and folds into the retail/savings totals. Insurance keeps CC+
+              // as a separate step-6 care-plan choice (ccPlusValue = 0 here).
               const CC_PLUS_VALUE = 1250;
               const ccPlusValue = isPrivatePay ? CC_PLUS_VALUE : 0;
               const retailWithCare = retailDisplay + ccPlusValue;
@@ -5548,21 +5553,18 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                         </div>
                       );
                     })()}
-                    {isPrivatePay && (
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10,paddingTop:10,borderTop:"1px solid #e5e7eb",fontSize:12}}>
-                        <span style={{color:"#374151",display:"flex",alignItems:"center",gap:6}}>
-                          <span style={{color:"#16a34a",fontWeight:700}}>✓</span> Complete Care+ <span style={{color:"#9ca3af"}}>(included)</span>
-                        </span>
-                        <span style={{color:"#9ca3af"}}>
-                          <span style={{textDecoration:"line-through"}}>${fmt(CC_PLUS_VALUE)}</span> value
-                        </span>
-                      </div>
-                    )}
                   </div>
 
-                  {/* Plan covers */}
+                  {/* Insurance: plan coverage. Private pay: the bundled Complete
+                      Care+ value takes this line — there is no insurance plan. */}
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
-                    <span style={{color:"#6b7280"}}>Plan covers</span>
+                    {isPrivatePay ? (
+                      <span style={{color:"#374151",display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{color:"#16a34a",fontWeight:700}}>✓</span> Complete Care+ <span style={{color:"#9ca3af"}}>(included)</span>
+                      </span>
+                    ) : (
+                      <span style={{color:"#6b7280"}}>Plan covers</span>
+                    )}
                     <span style={{fontWeight:600,color:"#16a34a"}}>${fmt(planCoversWithCare)}</span>
                   </div>
 
@@ -6465,73 +6467,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 Consultation Mode
               </button>
             )}
-            {p.devices && (p.carePlan || p.payType === "private") && (
-              <button
-                style={{background:"#f0fdf4",color:"#15803d",border:"1px solid #86efac",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
-                onClick={async () => {
-                  const isCROS = [p.devices?.left, p.devices?.right].some(r => r?.variant?.toLowerCase().includes("cros"));
-                  const hasLeft = !!p.devices?.left;
-                  const hasRight = !!p.devices?.right;
-                  const fittingType = hasLeft && hasRight ? (isCROS ? "cros_bicros" : "bilateral") : hasLeft ? "monaural_left" : "monaural_right";
-                  const counselingSections = p.audiology ? generateCounseling(p.audiology) : null;
-                  // Private pay reads from the snapshot persisted at finalize.
-                  // Legacy records (pre-migration) fall back to the historical $2,750.
-                  const pricePerAid = p.payType === "private"
-                    ? (p.privatePay?.tierPrice || 2750)
-                    : (p.insurance?.tierPrice || 0);
-                  // Per-ear prices — CROS sides substitute $1,250. Patient-list
-                  // regen doesn't have access to the live manufacturer-aware
-                  // helper, so non-CROS sides keep the snapshotted pricePerAid
-                  // (the historical value the quote was first generated at).
-                  const sideHasCros = (s) => !!s && /^(CROS|BICROS)/i.test(s.variant || '');
-                  const leftEarP  = p.devices?.left  ? (sideHasCros(p.devices.left)  ? CROS_PRICE_PER_UNIT : pricePerAid) : null;
-                  const rightEarP = p.devices?.right ? (sideHasCros(p.devices.right) ? CROS_PRICE_PER_UNIT : pricePerAid) : null;
-                  if (closerNeedsLocation) { alert("Set your dispensing location in the sidebar first."); setShowCloserPicker(true); return; } const { blob, fileName } = downloadQuote({
-                    patient: { name: p.name, phone: p.phone },
-                    devices: { fittingType, left: p.devices?.left || null, right: p.devices?.right || null },
-                    pricePerAid,
-                    leftPrice: leftEarP,
-                    rightPrice: rightEarP,
-                    selectedCarePlan: p.carePlan || "complete",
-                    payType: p.payType,
-                    tpa: p.insurance?.tpa,
-                    carrier: p.insurance?.carrier,
-                    audiology: p.audiology,
-                    counselingSections,
-                    clinic: paClinic,
-                    provider: paProvider,
-                  });
-                  try {
-                    const isBilateral = (fittingType === 'bilateral' || fittingType === 'cros_bicros');
-                    await uploadPatientDocument({
-                      patientId: p.id,
-                      clinicId,
-                      staffId,
-                      kind: 'quote',
-                      blob, fileName,
-                      metadata: {
-                        fittingType,
-                        pricePerAid,
-                        aidCount: isBilateral ? 2 : 1,
-                        selectedCarePlan: p.carePlan || "complete",
-                        payType: p.payType,
-                        carrier: p.insurance?.carrier || null,
-                        tpa: p.insurance?.tpa || null,
-                        leftFamily: p.devices?.left?.family || null,
-                        rightFamily: p.devices?.right?.family || null,
-                      },
-                    });
-                    await refreshDocuments();
-                  } catch (e) {
-                    console.error('Archive quote PDF:', e);
-                    alert('Quote downloaded, but failed to archive to chart: ' + (e.message || e));
-                  }
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-                Generate Quote
-              </button>
-            )}
+            {/* "Generate Quote" (saved-config quote) removed — Custom Quote is
+                now the single quote entry point so every printed quote is
+                anchored to clinic retail pricing with any discount documented. */}
             <button
               style={{background:"#eff6ff",color:"#1d4ed8",border:"1px solid #bfdbfe",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
               onClick={() => setShowCreateQuote(true)}
@@ -6621,6 +6559,21 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
             staffId={staffId}
             catalog={catalog}
             insurancePlans={insurancePlans}
+            resolveRetailPerAid={(side) => {
+              // Clinic retail anchor for a device side — manufacturer class ×
+              // tech-level rank, the same resolution private-pay deriveEarPrice
+              // uses. Lets the Custom Quote anchor discounts to clinic retail
+              // regardless of the patient's pay type.
+              if (!side || !side.familyId || !side.techLevel) return null;
+              const ep = deriveEarPrice(side, {
+                form: { payType: "private" },
+                catalog,
+                productCatalogTiers,
+                anchorsByClass: retailAnchorsByClass,
+                plans: activePlans,
+              });
+              return ep && ep.price != null ? ep.price : null;
+            }}
             onClose={() => setShowCreateQuote(false)}
             onArchived={() => { refreshDocuments?.(); }}
           />
