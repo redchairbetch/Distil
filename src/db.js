@@ -937,6 +937,45 @@ export async function updateVisit(visitId, fields = {}) {
   if (error) console.error('updateVisit:', error)
 }
 
+// ── Upgrade assessments (readiness + performance; backlog #23) ──────────────
+// One row per visit; upsert keyed on visit_id so re-saving within a visit updates
+// rather than duplicates. decision* fields are written later by the PR3 engine.
+export async function saveUpgradeAssessment(visitId, patientId, clinicId, fields = {}) {
+  if (!visitId || !patientId) return null
+  const row = {
+    visit_id:         visitId,
+    patient_id:       patientId,
+    clinic_id:        clinicId ?? null,
+    responses:        fields.responses       ?? {},
+    readiness_score:  fields.readinessScore  ?? null,
+    readiness_band:   fields.readinessBand   ?? null,
+    performance_tier: fields.performanceTier ?? null,
+    performance_tags: fields.performanceTags ?? [],
+  }
+  if (fields.decision                !== undefined) row.decision = fields.decision
+  if (fields.decisionScore           !== undefined) row.decision_score = fields.decisionScore
+  if (fields.decisionRationale       !== undefined) row.decision_rationale = fields.decisionRationale
+  if (fields.providerEditedRationale !== undefined) row.provider_edited_rationale = fields.providerEditedRationale
+  const { data, error } = await supabase
+    .from('upgrade_assessments')
+    .upsert(row, { onConflict: 'visit_id' })
+    .select()
+    .single()
+  if (error) { console.error('saveUpgradeAssessment:', error); return null }
+  return data
+}
+
+export async function loadUpgradeAssessment(visitId) {
+  if (!visitId) return null
+  const { data, error } = await supabase
+    .from('upgrade_assessments')
+    .select('*')
+    .eq('visit_id', visitId)
+    .maybeSingle()
+  if (error) { console.error('loadUpgradeAssessment:', error); return null }
+  return data || null
+}
+
 
 // ============================================================
 // INCREMENTAL WIZARD SAVE
