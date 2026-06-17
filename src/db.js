@@ -911,6 +911,23 @@ export async function loadBaselineAudiology(patientId) {
   return data || null
 }
 
+// Audiogram captured during a specific visit — the "current" side of the upgrade
+// delta, in the same shape as loadBaselineAudiology so it drops straight into
+// computeAudiometricDelta. Newest if a visit somehow carries more than one;
+// null if the visit has no audiogram on file yet.
+export async function loadVisitAudiology(visitId) {
+  if (!visitId) return null
+  const { data, error } = await supabase
+    .from('audiograms')
+    .select('*, audiogram_thresholds(*)')
+    .eq('visit_id', visitId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) { console.error('loadVisitAudiology:', error); return null }
+  return data || null
+}
+
 // All visits for a patient, newest first, each with its audiogram(s) +
 // fitting(s). Feeds the upgrade consultation timeline + history views.
 export async function loadVisitHistory(patientId) {
