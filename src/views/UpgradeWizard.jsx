@@ -1,5 +1,9 @@
-import React, { useState, useMemo } from "react";
-import { createVisit, updateVisit, saveUpgradeAssessment } from "../db.js";
+import React, { useState, useMemo, useEffect } from "react";
+import {
+  createVisit, updateVisit, saveUpgradeAssessment,
+  updatePatientAudiology, loadBaselineAudiology, loadVisitAudiology,
+  recordUpgradeOutcome,
+} from "../db.js";
 import {
   scoreReadiness,
   computePerformanceTier,
@@ -8,6 +12,10 @@ import {
   PERFORMANCE_TAGS,
   BAND_LABELS,
 } from "../upgradeReadiness.js";
+import { computeAudiometricDelta, decideReprogramVsUpgrade } from "../reprogramVsUpgradeEngine.js";
+import AudiogramEntry from "../components/AudiogramEntry.jsx";
+import CareJourney from "./CareJourney.jsx";
+import UpgradeClose from "./UpgradeClose.jsx";
 
 // Established-patient visit flow (backlog #23). Parallel to the new-patient
 // 8-step wizard — opens from "Start a New Visit" on a patient who already has a
@@ -24,10 +32,36 @@ const VISIT_TYPES = [
   { key: "fit_follow_up",   label: "Fit Follow-up",        icon: "🔧", blurb: "Post-fitting adjustment and acclimatization." },
 ];
 
-const STEPS = ["Visit Type", "Confirm Details", "Current Aids", "Upgrade Readiness", "Summary"];
+const STEPS = ["Visit Type", "Confirm Details", "Audiogram", "Current Aids", "Upgrade Readiness", "Summary", "Close"];
 const TIERS = ["Excellent", "Adequate", "Marginal", "Failing"];
 const TIER_COLORS = { Excellent: "#059669", Adequate: "#0f766e", Marginal: "#b45309", Failing: "#dc2626" };
 const BAND_COLORS = { 1: "#6b7280", 2: "#0f766e", 3: "#0d9488", 4: "#b45309", 5: "#dc2626" };
+
+// Current-aid performance tier → an ability point (0–1) for the CareJourney
+// "you are here" overlay. Worse tiers sit further below the ideal care curve.
+const TIER_ABILITY = { Excellent: 0.85, Adequate: 0.70, Marginal: 0.50, Failing: 0.32 };
+
+// Decision verdict display (reprogram-vs-upgrade engine output).
+const DECISION_META = {
+  upgrade:           { label: "Upgrade recommended",       color: "#b45309", bg: "#fffbeb", border: "#fcd34d" },
+  reprogram:         { label: "Reprogram current devices", color: "#0f766e", bg: "#f0fdfa", border: "#5eead4" },
+  provider_judgment: { label: "Provider judgment",         color: "#4338ca", bg: "#eef2ff", border: "#c7d2fe" },
+};
+
+// Blank audiology in the camelCase shape AudiogramEntry / updatePatientAudiology
+// expect. The upgrade visit captures a fresh test (the prior one overlays as a
+// greyscale ghost) rather than pre-filling, so an unchanged grid never reads as
+// a false "no change".
+function makeEmptyAudiology() {
+  return {
+    rightT: {}, leftT: {}, rightBC: {}, leftBC: {},
+    rightMask: {}, leftMask: {}, rightBCMask: {}, leftBCMask: {},
+    tinnitusRight: false, tinnitusLeft: false,
+    unaidedR: null, unaidedL: null, aidedR: null, aidedL: null,
+    wrMclR: null, wrMclL: null, sinBin: null,
+    cctR: null, cctL: null, cctLevelR: null, cctLevelL: null,
+  };
+}
 
 function parseDateOnly(s) {
   if (!s) return null;
@@ -51,6 +85,10 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
   const [visitId, setVisitId] = useState(null);
   const [changeNotes, setChangeNotes] = useState("");
 
+  // Current audiogram captured this visit (starts blank; the prior test overlays
+  // in greyscale via AudiogramEntry's ghost prop).
+  const [audiology, setAudiology] = useState(makeEmptyAudiology);
+
   // Current-aid performance inputs
   const [aidedWrsRight, setAidedWrsRight] = useState("");
   const [aidedWrsLeft, setAidedWrsLeft] = useState("");
@@ -62,6 +100,18 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
   const [environments, setEnvironments] = useState([]);
   const [featureGaps, setFeatureGaps] = useState([]);
   const [benefitRefreshed, setBenefitRefreshed] = useState(false);
+
+  // Reprogram-vs-upgrade decision — computed on the Summary step from the baseline
+  // audiogram vs. this visit's, plus the perf tier + readiness band.
+  const [decisionState, setDecisionState] = useState(null);
+  const [decisionLoading, setDecisionLoading] = useState(false);
+  const [rationaleDraft, setRationaleDraft] = useState("");
+  const [rationaleEdited, setRationaleEdited] = useState(false);
+
+  // Consultation close (PR4) — path defaults to the decision but is provider-overridable.
+  const [closeState, setCloseState] = useState({
+    path: "", tierOffered: "", outcome: "", disposition: "", donationRecipient: "", followUpDate: "", notes: "",
+  });
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -81,6 +131,58 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
     [satisfaction, environments, featureGaps, benefitRefreshed, effectiveTier, years]
   );
 
+  // CareJourney inputs: timeline position from years-since-fit, ability overlay
+  // from the perf tier, warranty span from the fitting/warranty dates (CC+ 4-yr default).
+  const journeyPosition = years != null ? Math.max(0, Math.min(1, years / 5)) : 0;
+  const currentAbility = effectiveTier ? TIER_ABILITY[effectiveTier] : null;
+
+  // Default close path = the recommendation (provider_judgment falls to the lean).
+  const defaultClosePath = decisionState
+    ? (decisionState.decision === "reprogram"
+        ? "reprogram"
+        : decisionState.decision === "upgrade"
+          ? "upgrade"
+          : (decisionState.lean === "reprogram" ? "reprogram" : "upgrade"))
+    : "upgrade";
+  const warrantyYears = useMemo(() => {
+    const fit = parseDateOnly(fittingDate);
+    const exp = parseDateOnly(patient?.devices?.warrantyExpiry);
+    if (fit && exp && !Number.isNaN(fit.getTime()) && !Number.isNaN(exp.getTime())) {
+      const yrs = (exp.getTime() - fit.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+      if (yrs > 0) return Math.round(yrs);
+    }
+    return 4;
+  }, [fittingDate, patient?.devices?.warrantyExpiry]);
+
+  // Compute the decision once the provider reaches the Summary step (index 5),
+  // re-running if they step back and change the perf tier or readiness inputs.
+  useEffect(() => {
+    if (step !== 5 || !visitId) return;
+    let cancelled = false;
+    setDecisionState(null); // clear any prior verdict so a re-fetch never shows a stale one
+    (async () => {
+      setDecisionLoading(true);
+      try {
+        const [baseline, current] = await Promise.all([
+          loadBaselineAudiology(patient.id),
+          loadVisitAudiology(visitId),
+        ]);
+        if (cancelled) return;
+        // If the oldest audiogram on file IS the one we just saved this visit, there's
+        // no true prior to diff against — treat the baseline as absent.
+        const realBaseline = (baseline && current && baseline.id === current.id) ? null : baseline;
+        const delta = computeAudiometricDelta(realBaseline, current);
+        const result = decideReprogramVsUpgrade(delta, effectiveTier, readiness.band);
+        setDecisionState({ ...result, delta, hasBaseline: !!realBaseline, hasCurrent: !!current });
+        setRationaleDraft((prev) => (rationaleEdited ? prev : result.rationale));
+      } finally {
+        if (!cancelled) setDecisionLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, visitId, effectiveTier, readiness.band]);
+
   const toggle = (arr, setArr, key) =>
     setArr(arr.includes(key) ? arr.filter((k) => k !== key) : [...arr, key]);
 
@@ -94,17 +196,71 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
     setStep(1);
   };
 
+  const saveAudiogramAndNext = async () => {
+    setBusy(true); setError(null);
+    try {
+      // Visit-scoped save — prior visits' audiograms survive (longitudinal history).
+      await updatePatientAudiology(patient.id, audiology, staffId, visitId);
+      setStep((s) => s + 1);
+    } catch (e) {
+      console.error("save upgrade audiogram:", e);
+      setError(e?.message || "Couldn't save the audiogram.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const finishVisit = async () => {
     setBusy(true); setError(null);
     try {
+      const effPath = closeState.path || defaultClosePath;
+      // Reprogram is its own retention outcome; the upgrade path uses the picked one.
+      const outcome = effPath === "reprogram" ? "reprogrammed" : (closeState.outcome || null);
+      const decisionFields = decisionState ? {
+        decision: decisionState.decision,
+        decisionRationale: decisionState.rationale,
+        providerEditedRationale: rationaleEdited && rationaleDraft.trim() ? rationaleDraft : null,
+      } : {};
       await saveUpgradeAssessment(visitId, patient.id, clinicId, {
-        responses: { satisfaction, environments, featureGaps, benefitRefreshed, aidedWrsRight, aidedWrsLeft, changeNotes, yearsSinceFit: years },
+        responses: {
+          satisfaction, environments, featureGaps, benefitRefreshed,
+          aidedWrsRight, aidedWrsLeft, changeNotes, yearsSinceFit: years,
+          close: {
+            path: effPath,
+            tierOffered: closeState.tierOffered || null,
+            outcome,
+            disposition: closeState.disposition || null,
+            donationRecipient: closeState.donationRecipient || null,
+            followUpDate: closeState.followUpDate || null,
+            notes: closeState.notes || null,
+          },
+        },
         readinessScore: readiness.score,
         readinessBand: readiness.band,
         performanceTier: effectiveTier,
         performanceTags: perfTags,
+        ...decisionFields,
       });
-      await updateVisit(visitId, { notes: changeNotes || null, status: "completed" });
+      // Patient-level upgrade tracking — gates the off-warranty follow-up bucket
+      // and surfaces in the patient-detail Upgrade Tracking card. Reprogram only
+      // sets the outcome, leaving any prior tier/donation values untouched.
+      await recordUpgradeOutcome(
+        patient.id,
+        effPath === "upgrade"
+          ? {
+              tierOffered: closeState.tierOffered || null,
+              outcome,
+              // Only write the recipient when actually donating — omitting the key
+              // leaves any prior recipient untouched (recordUpgradeOutcome skips
+              // undefined fields). Passing null would clobber it.
+              ...(closeState.disposition === "donate"
+                ? { donationRecipient: closeState.donationRecipient || null }
+                : {}),
+            }
+          : { outcome }
+      );
+      const mergedNotes = [changeNotes, closeState.notes].map((s) => (s || "").trim()).filter(Boolean).join("\n\n");
+      await updateVisit(visitId, { notes: mergedNotes || null, status: "completed" });
       onCompleted?.();
     } catch (e) {
       console.error("finish upgrade visit:", e);
@@ -192,6 +348,18 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
           )}
 
           {step === 2 && (
+            <>
+              <div className="card" style={{ padding: 24, marginBottom: 16 }}>
+                <h2 style={{ margin: "0 0 4px", fontFamily: "'Sora',sans-serif", fontSize: 20 }}>Today's hearing test</h2>
+                <p style={{ margin: 0, color: "#6b7280", fontSize: 14 }}>
+                  Capture a fresh audiogram for {patient?.name?.split(" ")[0] || "the patient"}. Toggle <strong>Overlay previous test</strong> on the chart to show the prior test in grey and see what's changed since the last visit.
+                </p>
+              </div>
+              <AudiogramEntry value={audiology} onChange={setAudiology} ghost={patient?.audiology || null} />
+            </>
+          )}
+
+          {step === 3 && (
             <div className="card" style={{ padding: 24 }}>
               <h2 style={{ margin: "0 0 4px", fontFamily: "'Sora',sans-serif", fontSize: 20 }}>Current-aid performance</h2>
               <p style={{ margin: "0 0 20px", color: "#6b7280", fontSize: 14 }}>
@@ -237,7 +405,7 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
             </div>
           )}
 
-          {step === 3 && (
+          {step === 4 && (
             <div className="card" style={{ padding: 24 }}>
               <h2 style={{ margin: "0 0 4px", fontFamily: "'Sora',sans-serif", fontSize: 20 }}>Upgrade readiness</h2>
               <p style={{ margin: "0 0 20px", color: "#6b7280", fontSize: 14 }}>
@@ -291,7 +459,7 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
             </div>
           )}
 
-          {step === 4 && (
+          {step === 5 && (
             <div className="card" style={{ padding: 24 }}>
               <h2 style={{ margin: "0 0 16px", fontFamily: "'Sora',sans-serif", fontSize: 20 }}>Visit summary</h2>
 
@@ -329,10 +497,75 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
                 </div>
               )}
 
-              <div style={{ background: "#f0fdfa", border: "1px dashed #5eead4", borderRadius: 10, padding: 16, fontSize: 13, color: "#0f766e" }}>
-                <strong>Coming next:</strong> the reprogram-vs-upgrade decision aid (audiogram delta vs. baseline) and the hearing-journey infographic anchored on {patient?.name?.split(" ")[0] || "the patient"}'s timeline — both keyed off this readiness band and performance tier.
-              </div>
+              {/* ── Reprogram-vs-upgrade decision + anchored hearing journey ── */}
+              {decisionLoading && (
+                <div style={{ fontSize: 13, color: "#6b7280", padding: "8px 0" }}>Computing recommendation…</div>
+              )}
+              {decisionState && (() => {
+                const meta = DECISION_META[decisionState.decision] || DECISION_META.provider_judgment;
+                const d = decisionState.delta;
+                const deltaBits = [];
+                if (d?.ptaShift != null) deltaBits.push(`PTA ${d.ptaShift > 0 ? "+" : ""}${Math.round(d.ptaShift)} dB`);
+                if (d?.wrsDrop != null) deltaBits.push(d.wrsDrop > 0 ? `WRS −${d.wrsDrop} pts` : "WRS stable");
+                return (
+                  <>
+                    <CareJourney position={journeyPosition} warrantyYears={warrantyYears} currentAbility={currentAbility} />
+                    <div style={{ background: meta.bg, border: `1px solid ${meta.border}`, borderRadius: 12, padding: 20 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+                        <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em", color: "#9ca3af" }}>Recommendation</span>
+                        <span style={{ padding: "4px 12px", borderRadius: 999, background: meta.color, color: "white", fontSize: 13, fontWeight: 700, fontFamily: "'Sora',sans-serif" }}>
+                          {meta.label}
+                        </span>
+                        <span style={{ fontSize: 12, color: "#6b7280" }}>
+                          {decisionState.hasCurrent
+                            ? <>Δ {decisionState.severity}{deltaBits.length ? ` · ${deltaBits.join(", ")}` : ""}{d?.anchorEar ? ` (poorer ${d.anchorEar} ear)` : ""}</>
+                            : "no audiogram captured this visit"}
+                          {decisionState.lean ? ` · readiness leans ${decisionState.lean}` : ""}
+                        </span>
+                      </div>
+                      {!decisionState.hasBaseline && (
+                        <div style={{ fontSize: 12, color: "#b45309", marginBottom: 10 }}>
+                          No baseline audiogram on file — the delta can't be computed, so this defaults to provider judgment.
+                        </div>
+                      )}
+                      <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#374151", marginBottom: 6 }}>
+                        Patient-facing rationale
+                      </label>
+                      <textarea
+                        value={rationaleDraft}
+                        onChange={(e) => { setRationaleDraft(e.target.value); setRationaleEdited(true); }}
+                        rows={4}
+                        style={{ width: "100%", padding: 12, borderRadius: 8, border: "1px solid #e5e7eb", fontFamily: "inherit", fontSize: 14, resize: "vertical", boxSizing: "border-box", background: "white" }}
+                      />
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
+                        <span style={{ fontSize: 11, color: "#9ca3af" }}>
+                          {rationaleEdited ? "Provider-edited · saves with the visit" : "Engine-generated · edit to personalize"}
+                        </span>
+                        {rationaleEdited && (
+                          <button onClick={() => { setRationaleDraft(decisionState.rationale); setRationaleEdited(false); }}
+                            style={{ fontSize: 12, color: "#0f766e", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                            ↺ Reset to engine draft
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
+          )}
+
+          {step === 6 && (
+            <UpgradeClose
+              value={closeState}
+              onChange={setCloseState}
+              defaultPath={defaultClosePath}
+              patient={patient}
+              decision={decisionState}
+              journeyPosition={journeyPosition}
+              warrantyYears={warrantyYears}
+              currentAbility={currentAbility}
+            />
           )}
 
           <div className="wizard-nav">
@@ -344,10 +577,20 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
                 {busy ? "Opening…" : "Continue →"}
               </button>
             )}
-            {(step === 1 || step === 2 || step === 3) && (
+            {step === 2 && (
+              <button className="btn-primary" disabled={busy} style={{ opacity: busy ? 0.4 : 1 }} onClick={saveAudiogramAndNext}>
+                {busy ? "Saving…" : "Save & Continue →"}
+              </button>
+            )}
+            {(step === 1 || step === 3 || step === 4) && (
               <button className="btn-primary" onClick={() => setStep((s) => s + 1)}>Continue →</button>
             )}
-            {step === 4 && (
+            {step === 5 && (
+              <button className="btn-primary" disabled={decisionLoading} style={{ opacity: decisionLoading ? 0.4 : 1 }} onClick={() => setStep((s) => s + 1)}>
+                {decisionLoading ? "Computing…" : "Continue →"}
+              </button>
+            )}
+            {step === 6 && (
               <button className="btn-primary green" disabled={busy} onClick={finishVisit}>
                 {busy ? "Saving…" : "✓ Save Visit"}
               </button>

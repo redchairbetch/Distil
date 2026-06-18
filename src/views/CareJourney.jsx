@@ -83,10 +83,17 @@ function abilityAt(xPct) {
  *                      marker on the trend line.
  * @param warrantyYears length of the warranty period, drawn as a coverage bar
  *                      under the timeline (the full 5-year span = full width).
+ * @param currentAbility optional 0–1 measured ability (e.g. mapped from the
+ *                      current-aid performance tier). When given, the "you are
+ *                      here" marker sits at the measured ability with a dashed
+ *                      connector up to the ideal curve — making the gap that
+ *                      regular care (or an upgrade) closes visible.
  */
-export default function CareJourney({ position = 0, warrantyYears = 4 }) {
+export default function CareJourney({ position = 0, warrantyYears = 4, currentAbility = null }) {
   const pos = Math.max(0, Math.min(1, position));
   const wYears = Math.max(0, Math.min(5, warrantyYears));
+  const hasAbility = currentAbility != null;
+  const abilityClamped = hasAbility ? Math.max(0, Math.min(1, currentAbility)) : null;
 
   const curvePath = catmullRomPath(curvePts, 0.35);
   // Fill path closes down to bottom of plot area
@@ -97,9 +104,11 @@ export default function CareJourney({ position = 0, warrantyYears = 4 }) {
   const normalY = toY(NORMAL);
   const plotMidY = MT + PH / 2;
 
-  // "You are here" marker — placed on the trend line at the patient's position.
+  // "You are here" marker — placed on the trend line at the patient's position,
+  // or at their measured ability (with a connector to the curve) when supplied.
   const posX = msX(pos);
   const posY = toY(abilityAt(pos));
+  const markerY = hasAbility ? toY(abilityClamped) : posY;
   const posLabelAnchor = pos < 0.12 ? "start" : pos > 0.88 ? "end" : "middle";
 
   // Warranty coverage bar geometry (sits in the bottom margin band).
@@ -234,12 +243,24 @@ export default function CareJourney({ position = 0, warrantyYears = 4 }) {
 
         {/* ── "You are here" position marker ─────────────── */}
         <g>
-          <circle cx={posX} cy={posY} r="13" fill="#0a1628" opacity="0.12" />
-          <circle cx={posX} cy={posY} r="7"
+          {/* Measured-ability gap: hollow "expected" dot on the curve + a
+              dashed drop to the patient's actual current ability. */}
+          {hasAbility && Math.abs(markerY - posY) > 1 && (
+            <g>
+              <circle cx={posX} cy={posY} r="4"
+                fill="#ffffff" stroke="#9ca3af" strokeWidth="1.5" strokeDasharray="2 2"
+              />
+              <line x1={posX} y1={posY} x2={posX} y2={markerY}
+                stroke="#9ca3af" strokeWidth="1.5" strokeDasharray="3 3"
+              />
+            </g>
+          )}
+          <circle cx={posX} cy={markerY} r="13" fill="#0a1628" opacity="0.12" />
+          <circle cx={posX} cy={markerY} r="7"
             fill="#0a1628" stroke="#ffffff" strokeWidth="2.5"
           />
           <text
-            x={posX} y={posY - 17}
+            x={posX} y={markerY - 17}
             textAnchor={posLabelAnchor} fontSize="9.5" fontWeight="700"
             fill="#0a1628" fontFamily="'DM Sans', sans-serif"
           >
