@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import {
   createVisit, updateVisit, saveUpgradeAssessment,
   updatePatientAudiology, loadBaselineAudiology, loadVisitAudiology,
+  recordUpgradeOutcome,
 } from "../db.js";
 import {
   scoreReadiness,
@@ -14,6 +15,7 @@ import {
 import { computeAudiometricDelta, decideReprogramVsUpgrade } from "../reprogramVsUpgradeEngine.js";
 import AudiogramEntry from "../components/AudiogramEntry.jsx";
 import CareJourney from "./CareJourney.jsx";
+import UpgradeClose from "./UpgradeClose.jsx";
 
 // Established-patient visit flow (backlog #23). Parallel to the new-patient
 // 8-step wizard — opens from "Start a New Visit" on a patient who already has a
@@ -30,7 +32,7 @@ const VISIT_TYPES = [
   { key: "fit_follow_up",   label: "Fit Follow-up",        icon: "🔧", blurb: "Post-fitting adjustment and acclimatization." },
 ];
 
-const STEPS = ["Visit Type", "Confirm Details", "Audiogram", "Current Aids", "Upgrade Readiness", "Summary"];
+const STEPS = ["Visit Type", "Confirm Details", "Audiogram", "Current Aids", "Upgrade Readiness", "Summary", "Close"];
 const TIERS = ["Excellent", "Adequate", "Marginal", "Failing"];
 const TIER_COLORS = { Excellent: "#059669", Adequate: "#0f766e", Marginal: "#b45309", Failing: "#dc2626" };
 const BAND_COLORS = { 1: "#6b7280", 2: "#0f766e", 3: "#0d9488", 4: "#b45309", 5: "#dc2626" };
@@ -106,6 +108,11 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
   const [rationaleDraft, setRationaleDraft] = useState("");
   const [rationaleEdited, setRationaleEdited] = useState(false);
 
+  // Consultation close (PR4) — path defaults to the decision but is provider-overridable.
+  const [closeState, setCloseState] = useState({
+    path: "", tierOffered: "", outcome: "", disposition: "", donationRecipient: "", followUpDate: "", notes: "",
+  });
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -128,6 +135,15 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
   // from the perf tier, warranty span from the fitting/warranty dates (CC+ 4-yr default).
   const journeyPosition = years != null ? Math.max(0, Math.min(1, years / 5)) : 0;
   const currentAbility = effectiveTier ? TIER_ABILITY[effectiveTier] : null;
+
+  // Default close path = the recommendation (provider_judgment falls to the lean).
+  const defaultClosePath = decisionState
+    ? (decisionState.decision === "reprogram"
+        ? "reprogram"
+        : decisionState.decision === "upgrade"
+          ? "upgrade"
+          : (decisionState.lean === "reprogram" ? "reprogram" : "upgrade"))
+    : "upgrade";
   const warrantyYears = useMemo(() => {
     const fit = parseDateOnly(fittingDate);
     const exp = parseDateOnly(patient?.devices?.warrantyExpiry);
@@ -185,7 +201,7 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
     try {
       // Visit-scoped save — prior visits' audiograms survive (longitudinal history).
       await updatePatientAudiology(patient.id, audiology, staffId, visitId);
-      setStep(3);
+      setStep((s) => s + 1);
     } catch (e) {
       console.error("save upgrade audiogram:", e);
       setError(e?.message || "Couldn't save the audiogram.");
@@ -197,20 +213,54 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
   const finishVisit = async () => {
     setBusy(true); setError(null);
     try {
+      const effPath = closeState.path || defaultClosePath;
+      // Reprogram is its own retention outcome; the upgrade path uses the picked one.
+      const outcome = effPath === "reprogram" ? "reprogrammed" : (closeState.outcome || null);
       const decisionFields = decisionState ? {
         decision: decisionState.decision,
         decisionRationale: decisionState.rationale,
         providerEditedRationale: rationaleEdited && rationaleDraft.trim() ? rationaleDraft : null,
       } : {};
       await saveUpgradeAssessment(visitId, patient.id, clinicId, {
-        responses: { satisfaction, environments, featureGaps, benefitRefreshed, aidedWrsRight, aidedWrsLeft, changeNotes, yearsSinceFit: years },
+        responses: {
+          satisfaction, environments, featureGaps, benefitRefreshed,
+          aidedWrsRight, aidedWrsLeft, changeNotes, yearsSinceFit: years,
+          close: {
+            path: effPath,
+            tierOffered: closeState.tierOffered || null,
+            outcome,
+            disposition: closeState.disposition || null,
+            donationRecipient: closeState.donationRecipient || null,
+            followUpDate: closeState.followUpDate || null,
+            notes: closeState.notes || null,
+          },
+        },
         readinessScore: readiness.score,
         readinessBand: readiness.band,
         performanceTier: effectiveTier,
         performanceTags: perfTags,
         ...decisionFields,
       });
-      await updateVisit(visitId, { notes: changeNotes || null, status: "completed" });
+      // Patient-level upgrade tracking — gates the off-warranty follow-up bucket
+      // and surfaces in the patient-detail Upgrade Tracking card. Reprogram only
+      // sets the outcome, leaving any prior tier/donation values untouched.
+      await recordUpgradeOutcome(
+        patient.id,
+        effPath === "upgrade"
+          ? {
+              tierOffered: closeState.tierOffered || null,
+              outcome,
+              // Only write the recipient when actually donating — omitting the key
+              // leaves any prior recipient untouched (recordUpgradeOutcome skips
+              // undefined fields). Passing null would clobber it.
+              ...(closeState.disposition === "donate"
+                ? { donationRecipient: closeState.donationRecipient || null }
+                : {}),
+            }
+          : { outcome }
+      );
+      const mergedNotes = [changeNotes, closeState.notes].map((s) => (s || "").trim()).filter(Boolean).join("\n\n");
+      await updateVisit(visitId, { notes: mergedNotes || null, status: "completed" });
       onCompleted?.();
     } catch (e) {
       console.error("finish upgrade visit:", e);
@@ -505,6 +555,19 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
             </div>
           )}
 
+          {step === 6 && (
+            <UpgradeClose
+              value={closeState}
+              onChange={setCloseState}
+              defaultPath={defaultClosePath}
+              patient={patient}
+              decision={decisionState}
+              journeyPosition={journeyPosition}
+              warrantyYears={warrantyYears}
+              currentAbility={currentAbility}
+            />
+          )}
+
           <div className="wizard-nav">
             <button className="btn-ghost" onClick={() => { if (step === 0) onExit?.(); else setStep((s) => s - 1); }}>
               {step === 0 ? "Cancel" : "← Back"}
@@ -523,6 +586,11 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
               <button className="btn-primary" onClick={() => setStep((s) => s + 1)}>Continue →</button>
             )}
             {step === 5 && (
+              <button className="btn-primary" disabled={decisionLoading} style={{ opacity: decisionLoading ? 0.4 : 1 }} onClick={() => setStep((s) => s + 1)}>
+                {decisionLoading ? "Computing…" : "Continue →"}
+              </button>
+            )}
+            {step === 6 && (
               <button className="btn-primary green" disabled={busy} onClick={finishVisit}>
                 {busy ? "Saving…" : "✓ Save Visit"}
               </button>

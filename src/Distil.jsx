@@ -6884,11 +6884,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                       <option value="pending">Pending — conversation started</option>
                       <option value="declined">Declined upgrade</option>
                       <option value="upgraded">Upgraded</option>
+                      <option value="reprogrammed">Reprogrammed (kept devices)</option>
                       <option value="donated">Donated old aids</option>
                     </select>
                   </div>
                 </div>
-                {selectedPatient.upgradeOutcome === "donated" && (
+                {(selectedPatient.upgradeOutcome === "donated" || selectedPatient.donationRecipient) && (
                   <div style={{marginTop:14}}>
                     <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#9ca3af",display:"block",marginBottom:6}}>Donation recipient</label>
                     <input
