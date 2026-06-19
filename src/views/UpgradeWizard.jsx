@@ -43,6 +43,10 @@ const STEP = { VISIT: 0, CONFIRM: 1, CURRENT: 2, EXAM: 3, REVIEW: 4, CLOSE: 5 };
 
 const YEAR_LABELS = { 1: "First annual", 2: "Annual review", 3: "Warranty review", 4: "Upgrade eval", 5: "Definitive upgrade" };
 
+// Journey-year → x-position on the CareJourney curve (aligns with its AHT milestones:
+// AHT1 .20 · AHT2 .40 · AHT3 .60 · AHT4 .78 · Upgrade 1.0).
+const YEAR_TO_POSITION = { 1: 0.20, 2: 0.40, 3: 0.60, 4: 0.78, 5: 1.0 };
+
 // The promised five-year care protocol — the "boxes we check" the patient sees
 // laid out on the review screen. Current year is highlighted; prior years read
 // as done, future years as what's coming.
@@ -161,9 +165,11 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
     [satisfaction, environments, featureGaps, benefitRefreshed, effectiveTier, years]
   );
 
-  // CareJourney inputs: timeline position from years-since-fit, ability overlay
-  // from the perf tier, warranty span from the fitting/warranty dates (CC+ 4-yr default).
-  const journeyPosition = years != null ? Math.max(0, Math.min(1, years / 5)) : 0;
+  // CareJourney inputs: "you are here" sits at the SELECTED journey year's milestone
+  // (the provider's explicit call — more reliable than elapsed time, which is null for
+  // patients with no fitting date on file). Ability overlay from the perf tier; warranty
+  // span from the fitting/warranty dates (CC+ 4-yr default).
+  const journeyPosition = YEAR_TO_POSITION[journeyYear] ?? (years != null ? Math.max(0, Math.min(1, years / 5)) : 0);
   const currentAbility = effectiveTier ? TIER_ABILITY[effectiveTier] : null;
 
   // Verdict derived from the loaded delta + current tier/band — no DB reload.
@@ -437,7 +443,7 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
             <div className="card" style={{ padding: 24 }}>
               <h2 style={{ margin: "0 0 4px", fontFamily: "'Sora',sans-serif", fontSize: 20 }}>Current-aid performance</h2>
               <p style={{ margin: "0 0 20px", color: "#6b7280", fontSize: 14 }}>
-                How are the current aids actually performing? Flag any real-world issues, note Real Ear Measurement, and set a performance tier.
+                How are the current aids actually performing? Flag any real-world issues and set a performance tier.
               </p>
               <div style={{ marginBottom: 20 }}>
                 <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>Real-world issues</label>
@@ -447,26 +453,6 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
                       {t.severe ? "⚠ " : ""}{t.label}
                     </Chip>
                   ))}
-                </div>
-              </div>
-
-              {/* Real Ear Measurement — captured as a note for now (visualization deferred). */}
-              <div style={{ marginBottom: 20 }}>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 2 }}>Real Ear Measurement (REM)</label>
-                <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 8 }}>
-                  The accurate check of whether the aids hit prescriptive target. Detailed visualization coming later.
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13, color: "#374151" }}>Performed?</span>
-                  <Chip active={remDone === "yes"} onClick={() => setRemDone("yes")}>Yes</Chip>
-                  <Chip active={remDone === "no"} onClick={() => { setRemDone("no"); setRemTarget(""); }}>No</Chip>
-                  {remDone === "yes" && (
-                    <>
-                      <span style={{ fontSize: 13, color: "#374151", marginLeft: 8 }}>Within target?</span>
-                      <Chip active={remTarget === "yes"} onClick={() => setRemTarget("yes")}>On target</Chip>
-                      <Chip active={remTarget === "no"} onClick={() => setRemTarget("no")}>Off target</Chip>
-                    </>
-                  )}
                 </div>
               </div>
 
@@ -504,7 +490,25 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
                   Capture a fresh audiogram for {firstName}. Toggle <strong>Overlay previous test</strong> on the chart to show the prior test in grey and see what's changed since the last visit.
                 </p>
               </div>
-              <AudiogramEntry value={audiology} onChange={setAudiology} ghost={patient?.audiology || null} />
+              <AudiogramEntry value={audiology} onChange={setAudiology} ghost={patient?.audiology || null} hideUnaidedSpeech />
+              <div className="card">
+                <div className="card-title">Real Ear Measurement (REM)</div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 14, lineHeight: 1.6 }}>
+                  The accurate check of whether the aids hit prescriptive target. Detailed visualization coming later.
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13, color: "#374151" }}>Performed?</span>
+                  <Chip active={remDone === "yes"} onClick={() => setRemDone("yes")}>Yes</Chip>
+                  <Chip active={remDone === "no"} onClick={() => { setRemDone("no"); setRemTarget(""); }}>No</Chip>
+                  {remDone === "yes" && (
+                    <>
+                      <span style={{ fontSize: 13, color: "#374151", marginLeft: 8 }}>Within target?</span>
+                      <Chip active={remTarget === "yes"} onClick={() => setRemTarget("yes")}>On target</Chip>
+                      <Chip active={remTarget === "no"} onClick={() => setRemTarget("no")}>Off target</Chip>
+                    </>
+                  )}
+                </div>
+              </div>
             </>
           )}
 
