@@ -17,7 +17,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 // ear/test/mask toggles and the import banner are internal state. Pass an optional
 // `ghost` (a prior audiology object) to overlay the previous test in greyscale.
 
-export default function AudiogramEntry({ value, onChange, ghost = null }) {
+export default function AudiogramEntry({ value, onChange, ghost = null, hideUnaidedSpeech = false }) {
   const [audEar, setAudEar] = useState("right");
   const [audTestType, setAudTestType] = useState("AC");
   const [maskMode, setMaskMode] = useState(false);
@@ -333,7 +333,8 @@ export default function AudiogramEntry({ value, onChange, ghost = null }) {
         )}
       </div>
 
-      {/* ── CCT / Unaided Speech Discrimination ── */}
+      {/* ── CCT / Unaided Speech Discrimination — hidden in the upgrade flow (not tested at annual/upgrade visits) ── */}
+      {!hideUnaidedSpeech && (
       <div className="card" style={pdfImport?.fields?.has("cctR") || pdfImport?.fields?.has("cctL") ? {border:"1.5px solid #f59e0b",background:"#fffbeb"} : {}}>
         <div className="card-title">Unaided Speech Discrimination</div>
         <div style={{fontSize:12,color:"#6b7280",marginBottom:14,lineHeight:1.6}}>
@@ -374,6 +375,7 @@ export default function AudiogramEntry({ value, onChange, ghost = null }) {
           </div>
         </div>
       </div>
+      )}
 
       {/* ── WR at MCL (from MedRx report) ── */}
       <div className="card" style={pdfImport?.fields?.has("wrMclR") || pdfImport?.fields?.has("wrMclL") ? {border:"1.5px solid #f59e0b",background:"#fffbeb"} : {}}>

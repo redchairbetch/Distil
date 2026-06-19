@@ -46,32 +46,20 @@ export const PERFORMANCE_TAGS = [
 
 export const BAND_LABELS = { 1: "Not ready", 2: "Early", 3: "Warming", 4: "Ready", 5: "Overdue" };
 
-const TIER_ORDER = ["Excellent", "Adequate", "Marginal", "Failing"];
 const TIER_POINTS = { Excellent: 0, Adequate: 1, Marginal: 2, Failing: 3 };
 
-// ── Performance tier from aided word-recognition + real-world tags ─────────
-export function performanceTierFromWRS(wrs) {
-  if (wrs == null) return null;
-  if (wrs >= 90) return "Excellent";
-  if (wrs >= 80) return "Adequate";
-  if (wrs >= 70) return "Marginal";
-  return "Failing";
-}
-
-// Worse ear drives the tier when both are present (conservative — a failing ear
-// should surface, and poor SDS should push toward upgrade per spec). Severe tags
-// force Failing; other tags drop one tier.
-export function computePerformanceTier({ aidedWrsRight = null, aidedWrsLeft = null, tags = [] } = {}) {
-  const vals = [aidedWrsRight, aidedWrsLeft]
-    .map((v) => (v === "" || v == null ? null : Number(v)))
-    .filter((v) => v != null && !Number.isNaN(v));
-  let tier = vals.length ? performanceTierFromWRS(Math.min(...vals)) : null;
+// ── Performance tier from real-world failure tags ──────────────────────────
+// Aided WRS (binaural aided sound field) was dropped from the upgrade flow — it's
+// available in only one office and is unreliable, so it no longer feeds the tier.
+// The tier is now provider judgment, nudged by the real-world tags: a severe tag
+// (won't charge / not wearing) forces Failing; any other issue suggests Marginal;
+// no tags → no suggestion and the provider sets it. Real Ear Measurement is
+// captured as a provider note for now and will feed this objectively in a later pass.
+export function computePerformanceTier({ tags = [] } = {}) {
   const tagDefs = PERFORMANCE_TAGS.filter((t) => tags.includes(t.key));
   if (tagDefs.some((t) => t.severe)) return "Failing";
-  if (tier && tagDefs.length) {
-    tier = TIER_ORDER[Math.min(TIER_ORDER.indexOf(tier) + 1, TIER_ORDER.length - 1)];
-  }
-  return tier;
+  if (tagDefs.length) return "Marginal";
+  return null;
 }
 
 // ── Warranty / tenure, keyed to the 3-year manufacturer warranty ───────────
