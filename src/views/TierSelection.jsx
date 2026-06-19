@@ -1,5 +1,12 @@
 import { useState, useEffect, useMemo } from "react";
 import { generateRecommendation, loadCurrentRecommendation } from "../db.js";
+import { COLOR, FONT, SHADOW } from "../theme.js";
+import {
+  ENVIRONMENTS,
+  COVERAGE_BY_RANK,
+  SITUATION_LABEL,
+  flaggedEnvironments,
+} from "../listeningSituations.js";
 
 // Technology Tier Selection — wizard step between Results and Device
 // Selection. Shows the patient three tier cards (filtered by insurance
@@ -10,61 +17,24 @@ import { generateRecommendation, loadCurrentRecommendation } from "../db.js";
 // (PR #52 infrastructure) — this component is the visual surface, not
 // the brains. Plain-transparency rationale shown above the cards.
 
-const TEAL = "#0A7B8C";
-const TEAL_BG = "#F0F9FA";
-const TEAL_DARK = "#075E6B";
-const TEXT = "#0a1628";
-const MUTED = "#6b7280";
-const FAINT = "#9ca3af";
-const BORDER = "#e5e7eb";
-const RECOMMEND = "#0f766e";
-const BG_SOFT = "#f9fafb";
+// Colors mapped onto the Clinical-luxe design tokens (src/theme.js). The names
+// are kept so the render below reads unchanged; the values now come from the
+// shared system (warm paper · pine/teal brand · brass for value).
+const TEAL = COLOR.teal;
+const TEAL_BG = COLOR.tealSoft;
+const TEAL_DARK = COLOR.tealInk;
+const TEXT = COLOR.ink;
+const MUTED = COLOR.ink2;
+const FAINT = COLOR.ink3;
+const BORDER = COLOR.line;
+const RECOMMEND = COLOR.pine;
+const BG_SOFT = COLOR.paper2;
+const BRASS = COLOR.brass;
+const BRASS_SOFT = COLOR.brassSoft;
+const BRASS_INK = COLOR.brassInk;
 
-// Listening environments displayed in the chart. Order is fixed —
-// roughly left-to-right ramp from "easy" to "hardest". The patient's
-// flagged environments appear in the upper card section; the rest
-// appear in the lower section.
-const ENVIRONMENTS = [
-  { id: "home",       label: "Quiet home / private conversation" },
-  { id: "tv",         label: "TV / movies" },
-  { id: "phone",      label: "Phone calls" },
-  { id: "religious",  label: "Religious services" },
-  { id: "car",        label: "Car (road noise)" },
-  { id: "restaurant", label: "Restaurant" },
-  { id: "groups",     label: "Group conversations / meetings" },
-  { id: "outdoors",   label: "Outdoors / wind" },
-  { id: "crowds",     label: "Crowds / cocktail / concerts" },
-];
-
-// Tier × environment coverage, 0–100. Premium tops at 95% on
-// cocktail-class environments — honest, no industry chart pretends to
-// fully solve those. Levels 0/-1 (Signia "2"/"1") are below the
-// three-tier matrix; rendered behind the "Show all options" accordion
-// for patients with affordability constraints. Engine never picks
-// from these (pickRecommendedTier floors at rank ≥ 1).
-const COVERAGE_BY_RANK = {
-  5: { home:100, tv:100, phone:100, religious:100, car:100, restaurant:100, groups:100, outdoors:100, crowds: 95 }, // Premium / Select
-  3: { home:100, tv:100, phone:100, religious: 80, car: 85, restaurant: 80, groups: 80, outdoors: 75, crowds: 65 }, // Advanced
-  1: { home:100, tv: 90, phone: 90, religious: 60, car: 60, restaurant: 50, groups: 50, outdoors: 40, crowds: 30 }, // Standard / entry
-    0: { home:100, tv: 80, phone: 80, religious: 50, car: 50, restaurant: 40, groups: 40, outdoors: 30, crowds: 28 }, // Level 2
- '-1': { home: 95, tv: 70, phone: 70, religious: 40, car: 40, restaurant: 30, groups: 30, outdoors: 25, crowds: 25 }, // Level 1
-};
-
-// Intake answer (true) → environment IDs the patient struggles with.
-// Multiple flags can map to the same environment; we de-duplicate
-// in flaggedEnvironments(). Drawn from #56 backlog comment + the
-// structured signals shipped in #62.
-const INTAKE_TO_ENVS = {
-  hear_tv:                ["tv"],
-  hear_noisy:             ["restaurant", "crowds", "groups"],
-  hear_understand:        ["groups", "restaurant"],
-  hear_kids:              ["religious", "groups"],
-  hear_repeat:            ["groups"],
-  hear_mumble:            ["home", "groups"],
-  hear_loud:              ["home"],
-  med_noise_recreational: ["outdoors"],
-  med_noise_occupational: ["groups", "outdoors"],
-};
+// ENVIRONMENTS, COVERAGE_BY_RANK, INTAKE_TO_ENVS → moved to
+// ../listeningSituations.js (shared with the Pricing Reveal — context.md #25).
 
 // Marketing labels → engine ranks. Anchored on the three TruHearing
 // plan tiers and the three clinic_retail_anchors slugs in current use.
@@ -85,19 +55,7 @@ function tierLabelToRank(label) {
   return null;
 }
 
-// Compute the set of environments this patient flagged in their
-// intake. Empty set if no intake / nothing flagged → chart falls
-// back to "all environments shown in lower section."
-function flaggedEnvironments(intakeAnswers) {
-  if (!intakeAnswers) return new Set();
-  const envs = new Set();
-  for (const [key, envList] of Object.entries(INTAKE_TO_ENVS)) {
-    if (intakeAnswers[key] === true) {
-      for (const e of envList) envs.add(e);
-    }
-  }
-  return envs;
-}
+// flaggedEnvironments → moved to ../listeningSituations.js
 
 // Pick the tier the engine recommends, capped to what the plan covers.
 // If the engine's pick isn't available (TruHearing locks tier list),
@@ -273,8 +231,15 @@ export default function TierSelection({
   );
 
   return (
-    <div className="card">
-      <div className="card-title">Technology Tier</div>
+    <div style={{ background: COLOR.card, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 24, boxShadow: SHADOW.md, fontFamily: FONT.ui }}>
+      <div style={{ fontFamily: FONT.display, fontSize: 22, fontWeight: 600, color: TEXT, letterSpacing: "0.1px" }}>
+        Here's what we found — and your options
+      </div>
+      <div style={{ fontSize: 13, color: FAINT, marginTop: 3, marginBottom: 18 }}>
+        Based on what you told us and your hearing test.
+      </div>
+
+      <IntakeReflection flagged={flagged} hasIntakeAnswers={hasIntakeAnswers} />
 
       <RecommendationBanner
         loading={loading}
@@ -320,6 +285,36 @@ export default function TierSelection({
   );
 }
 
+// "Here's what you told us" — reflects the patient's flagged listening
+// situations back as warm chips at the top of the step. Renders nothing if
+// there's no intake on file or nothing was flagged.
+function IntakeReflection({ flagged, hasIntakeAnswers }) {
+  if (!hasIntakeAnswers || flagged.size === 0) return null;
+  const labels = ENVIRONMENTS
+    .filter(e => flagged.has(e.id))
+    .map(e => SITUATION_LABEL[e.id] || e.label);
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: TEAL_DARK, marginBottom: 9 }}>
+        From your intake — what you told us was getting harder
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {labels.map(l => (
+          <span key={l} style={{
+            display: "inline-flex", alignItems: "center", gap: 7,
+            background: TEAL_BG, color: TEAL_DARK,
+            border: `1px solid ${TEAL_BG}`, borderRadius: 20,
+            padding: "6px 13px", fontSize: 12.5, fontWeight: 600,
+          }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: BRASS }} />
+            {l}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function RecommendationBanner({ loading, engineError, recommended, rationaleText, flaggedCount, hasIntakeAnswers }) {
   if (loading) {
     return (
@@ -349,7 +344,7 @@ function RecommendationBanner({ loading, engineError, recommended, rationaleText
   return (
     <div style={{ background:TEAL_BG, borderLeft:`4px solid ${TEAL}`, borderRadius:6, padding:"12px 16px" }}>
       <div style={{ fontSize:13, fontWeight:700, color:TEAL_DARK, marginBottom:4 }}>
-        ⭐ Recommended: {recommended.tier.label}
+        Recommended: {recommended.tier.label}
       </div>
       <div style={{ fontSize:13, color:TEXT, lineHeight:1.5 }}>
         {rationaleText}{cappedNote}{sourceNote}
@@ -371,37 +366,39 @@ function TierCard({ tier, selected, recommended, selectable, blurb, flagged, onS
   // state only matters in the manual-fallback mode — when the engine has
   // produced a pick, cards are read-only and `selectable` is false.
   const showSelectionRing = selectable && selected;
-  const borderColor = recommended ? TEAL : showSelectionRing ? RECOMMEND : BORDER;
+  const borderColor = recommended ? BRASS : showSelectionRing ? RECOMMEND : BORDER;
   const borderWidth = recommended || showSelectionRing ? 2 : 1;
 
   return (
     <div
       style={{
         border:`${borderWidth}px solid ${borderColor}`,
-        borderRadius:10,
+        borderRadius:12,
         padding:0,
-        background:"#fff",
+        background:COLOR.card,
+        boxShadow: SHADOW.sm,
         cursor: selectable ? "pointer" : "default",
         position:"relative",
         display:"flex",
         flexDirection:"column",
-        transition:"border-color 0.15s",
+        transition:"border-color 0.15s, box-shadow 0.15s",
+        fontFamily: FONT.ui,
       }}
       onClick={selectable ? onSelect : undefined}
     >
       {recommended && (
         <div style={{
           position:"absolute", top:-10, left:14,
-          background:TEAL, color:"#fff",
-          padding:"2px 10px", borderRadius:99,
-          fontSize:11, fontWeight:700, letterSpacing:"0.04em",
+          background:BRASS, color:"#fff",
+          padding:"3px 11px", borderRadius:99,
+          fontSize:11, fontWeight:700, letterSpacing:"0.03em",
         }}>
-          ⭐ Recommended
+          Recommended for you
         </div>
       )}
 
       <div style={{ padding:"16px 16px 12px" }}>
-        <div style={{ fontSize:18, fontWeight:700, color:TEXT }}>{tier.label}</div>
+        <div style={{ fontFamily:FONT.display, fontSize:19, fontWeight:600, color:TEXT }}>{tier.label}</div>
         {blurb && (
           <div style={{ marginTop:6, fontSize:12, lineHeight:1.45, color:"#475569" }}>{blurb}</div>
         )}

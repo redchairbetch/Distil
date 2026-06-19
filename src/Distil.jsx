@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from "react";
 import { unwrapIntakeAnswers } from "./recommendationEngine.js";
+import { ENVIRONMENTS, SITUATION_LABEL, flaggedEnvironments } from "./listeningSituations.js";
+import Icon from "./components/Icon.jsx";
 
 // ── Body style images ──
 import imgRIC from "./assets/body-styles/RIC.png";
@@ -3061,84 +3063,84 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   const styles = `
     @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Sora', sans-serif; background: #1e293b; }
+    body { font-family: 'Sora', sans-serif; background: #F4F1EA; }
     .app { display: flex; height: 100vh; overflow: hidden; }
     /* SIDEBAR */
-    .sidebar { width: 260px; background: #0a1628; display: flex; flex-direction: column; flex-shrink: 0; }
+    .sidebar { width: 260px; background: #0C211E; display: flex; flex-direction: column; flex-shrink: 0; }
     .sidebar-logo { padding: 24px 20px 20px; border-bottom: 1px solid rgba(255,255,255,0.07); }
-    .logo-badge { font-size: 10px; font-weight: 600; letter-spacing: 2px; color: #4ade80; text-transform: uppercase; margin-bottom: 6px; }
+    .logo-badge { font-size: 10px; font-weight: 600; letter-spacing: 2px; color: #C79A3F; text-transform: uppercase; margin-bottom: 6px; }
     .logo-name { font-size: 18px; font-weight: 700; color: white; line-height: 1.2; }
     .logo-sub { font-size: 11px; color: rgba(255,255,255,0.35); margin-top: 3px; }
     .location-select { margin: 14px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 8px 10px; color: white; font-size: 11px; font-family: 'Sora',sans-serif; width: calc(100% - 28px); cursor: pointer; }
     .sidebar-nav { flex: 1; padding: 8px 0; overflow-y: auto; }
     .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 20px; cursor: pointer; font-size: 13px; color: rgba(255,255,255,0.5); transition: all 0.15s; border-left: 3px solid transparent; }
     .nav-item:hover { background: rgba(255,255,255,0.05); color: white; }
-    .nav-item.active { background: rgba(74,222,128,0.1); color: #4ade80; border-left-color: #4ade80; }
+    .nav-item.active { background: rgba(216,169,63,0.12); color: #D8A93F; border-left-color: #C79A3F; }
     .nav-section-label { padding: 14px 20px 6px; font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(255,255,255,0.3); }
-    .nav-icon { font-size: 16px; width: 20px; text-align: center; }
+    .nav-icon { width: 20px; display: flex; align-items: center; justify-content: center; }
     .sidebar-footer { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.07); font-size: 11px; color: rgba(255,255,255,0.3); }
     /* MAIN */
     .main { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
-    .topbar { background: white; padding: 16px 28px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e5e7eb; flex-shrink: 0; }
+    .topbar { background: white; padding: 16px 28px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #E4E0D5; flex-shrink: 0; }
     .topbar-title { font-size: 20px; font-weight: 700; color: #0a1628; }
     .topbar-sub { font-size: 12px; color: #9ca3af; margin-top: 2px; }
-    .btn-primary { background: #0a1628; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'Sora',sans-serif; display: flex; align-items: center; gap: 8px; transition: background 0.15s; }
-    .btn-primary:hover { background: #1a3050; }
-    .btn-primary.green { background: #16a34a; }
-    .btn-primary.green:hover { background: #15803d; }
-    .btn-ghost { background: transparent; border: 1px solid #e5e7eb; color: #6b7280; padding: 8px 16px; border-radius: 8px; font-size: 13px; cursor: pointer; font-family: 'Sora',sans-serif; }
+    .btn-primary { background: #0B4A42; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: 'Sora',sans-serif; display: flex; align-items: center; gap: 8px; transition: background 0.15s; }
+    .btn-primary:hover { background: #0E5A50; }
+    .btn-primary.green { background: #1B8A7A; }
+    .btn-primary.green:hover { background: #0F6E56; }
+    .btn-ghost { background: transparent; border: 1px solid #E4E0D5; color: #6b7280; padding: 8px 16px; border-radius: 8px; font-size: 13px; cursor: pointer; font-family: 'Sora',sans-serif; }
     .content { padding: 28px; flex: 1; }
     /* STATS */
     .stats-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 28px; }
-    .stat-card { background: white; border-radius: 12px; padding: 20px; border: 1px solid #e5e7eb; }
+    .stat-card { background: white; border-radius: 12px; padding: 20px; border: 1px solid #E4E0D5; box-shadow: 0 1px 2px rgba(16,32,28,0.04), 0 10px 22px -18px rgba(16,32,28,0.4); }
     .stat-icon { font-size: 22px; margin-bottom: 10px; }
     .stat-val { font-size: 32px; font-weight: 700; color: #0a1628; line-height: 1; }
     .stat-label { font-size: 12px; color: #9ca3af; margin-top: 6px; }
-    .stat-card.highlight { background: #0a1628; }
-    .stat-card.highlight .stat-val { color: #4ade80; }
+    .stat-card.highlight { background: #0B4A42; }
+    .stat-card.highlight .stat-val { color: #D8A93F; }
     .stat-card.highlight .stat-label { color: rgba(255,255,255,0.4); }
     /* PATIENT TABLE */
-    .table-card { background: white; border-radius: 12px; border: 1px solid #e5e7eb; overflow: hidden; }
-    .table-header { padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f3f4f6; }
+    .table-card { background: white; border-radius: 12px; border: 1px solid #E4E0D5; overflow: hidden; }
+    .table-header { padding: 16px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #F0EDE3; }
     .table-title { font-size: 14px; font-weight: 600; color: #0a1628; }
-    .search-input { border: 1px solid #e5e7eb; border-radius: 8px; padding: 7px 12px; font-size: 13px; font-family: 'Sora',sans-serif; width: 220px; outline: none; }
+    .search-input { border: 1px solid #E4E0D5; border-radius: 8px; padding: 7px 12px; font-size: 13px; font-family: 'Sora',sans-serif; width: 220px; outline: none; }
     table { width: 100%; border-collapse: collapse; }
-    th { padding: 10px 16px; text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: #9ca3af; background: #f9fafb; }
-    td { padding: 12px 16px; font-size: 13px; color: #374151; border-top: 1px solid #f3f4f6; }
-    tr:hover td { background: #f9fafb; cursor: pointer; }
+    th { padding: 10px 16px; text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: #9ca3af; background: #FAF8F2; }
+    td { padding: 12px 16px; font-size: 13px; color: #374151; border-top: 1px solid #F0EDE3; }
+    tr:hover td { background: #FAF8F2; cursor: pointer; }
     .patient-name { font-weight: 600; color: #0a1628; }
     .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
     .badge.insurance { background: #dbeafe; color: #1d4ed8; }
-    .badge.private { background: #fef3c7; color: #92400e; }
-    .badge.complete { background: #dcfce7; color: #16a34a; }
+    .badge.private { background: #F4EAD4; color: #6E4E16; }
+    .badge.complete { background: #E2EFEA; color: #0C4A40; }
     .badge.punch { background: #e0f2fe; color: #0c4a6e; }
-    .badge.paygo { background: #f3f4f6; color: #6b7280; }
-    .warranty-bar { height: 4px; background: #e5e7eb; border-radius: 2px; margin-top: 4px; overflow: hidden; width: 80px; }
-    .warranty-fill { height: 100%; border-radius: 2px; background: #16a34a; }
-    .warranty-fill.warn { background: #f59e0b; }
-    .warranty-fill.exp { background: #ef4444; }
+    .badge.paygo { background: #F0EDE3; color: #6b7280; }
+    .warranty-bar { height: 4px; background: #E4E0D5; border-radius: 2px; margin-top: 4px; overflow: hidden; width: 80px; }
+    .warranty-fill { height: 100%; border-radius: 2px; background: #1B8A7A; }
+    .warranty-fill.warn { background: #B5832E; }
+    .warranty-fill.exp { background: #C7553C; }
     /* WIZARD */
     .wizard-wrap { max-width: 1140px; }
     .wizard-steps { display: flex; gap: 0; margin-bottom: 32px; }
     .wizard-step { flex: 1; display: flex; flex-direction: column; align-items: center; position: relative; }
-    .wizard-step:not(:last-child)::after { content:''; position: absolute; top: 14px; left: 50%; width: 100%; height: 2px; background: #e5e7eb; z-index: 0; }
-    .wizard-step.done::after { background: #16a34a; }
-    .step-dot { width: 28px; height: 28px; border-radius: 50%; border: 2px solid #e5e7eb; background: white; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #9ca3af; z-index: 1; position: relative; }
-    .step-dot.active { border-color: #0a1628; background: #0a1628; color: white; }
-    .step-dot.done { border-color: #16a34a; background: #16a34a; color: white; }
+    .wizard-step:not(:last-child)::after { content:''; position: absolute; top: 14px; left: 50%; width: 100%; height: 2px; background: #E4E0D5; z-index: 0; }
+    .wizard-step.done::after { background: #1B8A7A; }
+    .step-dot { width: 28px; height: 28px; border-radius: 50%; border: 2px solid #E4E0D5; background: white; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #9ca3af; z-index: 1; position: relative; }
+    .step-dot.active { border-color: #0B4A42; background: #0B4A42; color: white; }
+    .step-dot.done { border-color: #1B8A7A; background: #1B8A7A; color: white; }
     .step-name { font-size: 10px; color: #9ca3af; margin-top: 6px; font-weight: 500; letter-spacing: 0.5px; }
-    .step-name.active { color: #0a1628; font-weight: 700; }
-    .card { background: white; border-radius: 14px; border: 1px solid #e5e7eb; padding: 28px; margin-bottom: 20px; }
+    .step-name.active { color: #16201D; font-weight: 700; }
+    .card { background: white; border-radius: 14px; border: 1px solid #E4E0D5; padding: 28px; margin-bottom: 20px; box-shadow: 0 1px 2px rgba(16,32,28,0.04), 0 12px 28px -18px rgba(16,32,28,0.4); }
     .card-title { font-size: 16px; font-weight: 700; color: #0a1628; margin-bottom: 20px; }
     .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     .field { display: flex; flex-direction: column; gap: 6px; }
     .field.full { grid-column: 1/-1; }
     label { font-size: 11px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; }
-    input, select, textarea { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; font-size: 14px; font-family: 'Sora',sans-serif; outline: none; transition: border 0.15s; width: 100%; background: white; }
-    input:focus, select:focus, textarea:focus { border-color: #0a1628; }
+    input, select, textarea { border: 1px solid #E4E0D5; border-radius: 8px; padding: 10px 12px; font-size: 14px; font-family: 'Sora',sans-serif; outline: none; transition: border 0.15s; width: 100%; background: white; }
+    input:focus, select:focus, textarea:focus { border-color: #0B4A42; }
     .radio-group { display: flex; gap: 10px; flex-wrap: wrap; }
-    .radio-pill { flex: 1; border: 2px solid #e5e7eb; border-radius: 10px; padding: 12px; cursor: pointer; text-align: center; transition: all 0.15s; }
-    .radio-pill.active { border-color: #0a1628; background: #0a1628; color: white; }
+    .radio-pill { flex: 1; border: 2px solid #E4E0D5; border-radius: 10px; padding: 12px; cursor: pointer; text-align: center; transition: all 0.15s; }
+    .radio-pill.active { border-color: #0B4A42; background: #0B4A42; color: white; }
     .radio-pill-label { font-size: 13px; font-weight: 600; }
     .radio-pill-sub { font-size: 11px; opacity: 0.6; margin-top: 2px; }
     /* Manufacturer pills: fixed 140x68 footprint with per-brand logo heights
@@ -3148,7 +3150,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
        background, and drop Starkey's "Hearing Technologies" tagline. */
     .radio-group.mfr-group { justify-content: flex-start; }
     .radio-pill.mfr-pill { flex: 0 0 auto; width: 140px; height: 68px; display: flex; align-items: center; justify-content: center; padding: 8px 12px; background: #fff; box-sizing: border-box; }
-    .radio-pill.mfr-pill.active { background: #f8fafc; color: inherit; box-shadow: inset 0 0 0 2px #0a1628; }
+    .radio-pill.mfr-pill.active { background: #FBF9F3; color: inherit; box-shadow: inset 0 0 0 2px #0B4A42; }
     .radio-pill.mfr-pill img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
     .radio-pill.mfr-pill img[alt="Oticon"]     { height: 24px; }
     .radio-pill.mfr-pill img[alt="Widex"]      { height: 24px; }
@@ -3163,27 +3165,27 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     .radio-pill.mfr-pill img[alt="TruHearing"] { height: 52px; max-height: none; }
     .radio-pill.mfr-pill img[alt="Rexton"]     { height: 24px; }
     .plan-select-list { display: flex; flex-direction: column; gap: 8px; }
-    .plan-row { border: 2px solid #e5e7eb; border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: all 0.15s; }
+    .plan-row { border: 2px solid #E4E0D5; border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: all 0.15s; }
     .plan-row:hover { border-color: #9ca3af; }
-    .plan-row.active { border-color: #0a1628; background: #f8fafc; }
+    .plan-row.active { border-color: #0B4A42; background: #FBF9F3; }
     .plan-row-top { display: flex; justify-content: space-between; }
     .plan-row-name { font-size: 14px; font-weight: 600; color: #0a1628; }
     .plan-row-tpa { font-size: 11px; color: #9ca3af; margin-top: 2px; }
     .tier-pills { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-    .tier-pill { padding: 5px 14px; border-radius: 20px; border: 1px solid #e5e7eb; font-size: 12px; cursor: pointer; transition: all 0.15s; }
-    .tier-pill:hover { border-color: #0a1628; }
-    .tier-pill.active { background: #0a1628; color: white; border-color: #0a1628; }
+    .tier-pill { padding: 5px 14px; border-radius: 20px; border: 1px solid #E4E0D5; font-size: 12px; cursor: pointer; transition: all 0.15s; }
+    .tier-pill:hover { border-color: #0B4A42; }
+    .tier-pill.active { background: #0B4A42; color: white; border-color: #0B4A42; }
     .style-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-    .style-card { border: 2px solid #e5e7eb; border-radius: 10px; padding: 14px 12px; text-align: center; cursor: pointer; transition: all 0.15s; }
+    .style-card { border: 2px solid #E4E0D5; border-radius: 10px; padding: 14px 12px; text-align: center; cursor: pointer; transition: all 0.15s; }
     .style-card:hover { border-color: #9ca3af; }
-    .style-card.active { border-color: #0a1628; background: #f8fafc; }
+    .style-card.active { border-color: #0B4A42; background: #FBF9F3; }
     .style-id { font-size: 14px; font-weight: 700; color: #0a1628; }
     .style-desc { font-size: 10px; color: #9ca3af; margin-top: 3px; line-height: 1.3; }
     .color-swatches { display: flex; gap: 8px; flex-wrap: wrap; }
-    .color-swatch { padding: 6px 14px; border-radius: 20px; border: 2px solid #e5e7eb; font-size: 12px; cursor: pointer; transition: all 0.15s; }
-    .color-swatch.active { border-color: #0a1628; background: #f0f4f8; color: #0a1628; font-weight: 700; box-shadow: 0 0 0 1px #0a1628; }
+    .color-swatch { padding: 6px 14px; border-radius: 20px; border: 2px solid #E4E0D5; font-size: 12px; cursor: pointer; transition: all 0.15s; }
+    .color-swatch.active { border-color: #0B4A42; background: #E2EFEA; color: #0C4A40; font-weight: 700; box-shadow: 0 0 0 1px #0B4A42; }
     .appt-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
-    .appt-row { display: flex; gap: 8px; align-items: center; background: #f9fafb; border-radius: 8px; padding: 10px 12px; }
+    .appt-row { display: flex; gap: 8px; align-items: center; background: #FAF8F2; border-radius: 8px; padding: 10px 12px; }
     .appt-row span { font-size: 12px; color: #374151; }
     .appt-del { background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 16px; margin-left: auto; }
     .add-appt-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end; }
@@ -3191,23 +3193,23 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     /* REVIEW */
     .review-section { margin-bottom: 20px; }
     .review-label { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; color: #9ca3af; text-transform: uppercase; margin-bottom: 10px; }
-    .review-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f3f4f6; font-size: 13px; }
+    .review-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #F0EDE3; font-size: 13px; }
     .review-key { color: #6b7280; }
     .review-val { font-weight: 600; color: #0a1628; }
     /* PATIENT DETAIL */
     .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
-    .detail-card { background: white; border-radius: 12px; border: 1px solid #e5e7eb; padding: 20px; }
+    .detail-card { background: white; border-radius: 12px; border: 1px solid #E4E0D5; padding: 20px; }
     .detail-card.full { grid-column: 1/-1; }
     .detail-card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #9ca3af; margin-bottom: 14px; }
-    .detail-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #f9fafb; font-size: 13px; }
+    .detail-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #FAF8F2; font-size: 13px; }
     .detail-row:last-child { border-bottom: none; }
     .detail-key { color: #9ca3af; }
     .detail-val { font-weight: 500; color: #0a1628; }
-    .qr-prompt { background: linear-gradient(135deg, #0a1628, #1a3050); color: white; border-radius: 14px; padding: 28px; text-align: center; margin-bottom: 20px; }
+    .qr-prompt { background: linear-gradient(135deg, #0B4A42, #0E5A50); color: white; border-radius: 14px; padding: 28px; text-align: center; margin-bottom: 20px; }
     .qr-title { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
     .qr-sub { font-size: 13px; opacity: 0.65; margin-bottom: 20px; }
     .qr-box { background: white; border-radius: 12px; width: 120px; height: 120px; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-    .qr-id { font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 700; color: #4ade80; letter-spacing: 3px; margin-bottom: 4px; }
+    .qr-id { font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 700; color: #1B8A7A; letter-spacing: 3px; margin-bottom: 4px; }
     .qr-inst { font-size: 12px; opacity: 0.5; }
     .warranty-ring { position: relative; display: inline-flex; align-items: center; justify-content:: center; }
     .empty-state { text-align: center; padding: 60px; color: #9ca3af; }
@@ -3216,41 +3218,41 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     .empty-sub { font-size: 14px; }
     /* SETTINGS */
     .settings-wrap { max-width: 560px; }
-    .settings-section { background: white; border-radius: 14px; border: 1px solid #e5e7eb; padding: 28px; margin-bottom: 20px; }
+    .settings-section { background: white; border-radius: 14px; border: 1px solid #E4E0D5; padding: 28px; margin-bottom: 20px; }
     .settings-title { font-size: 16px; font-weight: 700; color: #0a1628; margin-bottom: 20px; }
     .settings-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
     .settings-field:last-child { margin-bottom: 0; }
-    .settings-preview { background: #0a1628; border-radius: 12px; padding: 20px; display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+    .settings-preview { background: #0B4A42; border-radius: 12px; padding: 20px; display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
     .settings-preview-logo { font-size: 28px; font-weight: 800; color: white; letter-spacing: -0.5px; }
     .settings-preview-sub { font-size: 12px; color: rgba(255,255,255,0.4); margin-top: 2px; }
     .color-options { display: flex; gap: 10px; flex-wrap: wrap; }
     .color-option { width: 32px; height: 32px; border-radius: 50%; cursor: pointer; border: 3px solid transparent; transition: all 0.15s; }
-    .color-option.active { border-color: #0a1628; transform: scale(1.15); }
-    .save-success { background: #dcfce7; color: #16a34a; border-radius: 8px; padding: 10px 16px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+    .color-option.active { border-color: #0B4A42; transform: scale(1.15); }
+    .save-success { background: #E2EFEA; color: #0C4A40; border-radius: 8px; padding: 10px 16px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
     .save-error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 8px; padding: 10px 16px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
     .distil-badge { font-size: 9px; font-weight: 700; letter-spacing: 2px; color: rgba(255,255,255,0.3); text-transform: uppercase; margin-bottom: 2px; }
     /* PUNCH CARD */
-    .punch-panel { background: linear-gradient(135deg, #0a1628 0%, #1a3050 100%); border-radius: 14px; padding: 24px; color: white; }
+    .punch-panel { background: linear-gradient(135deg, #0B4A42 0%, #0E5A50 100%); border-radius: 14px; padding: 24px; color: white; }
     .punch-panel-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
     .punch-panel-title { font-size: 16px; font-weight: 700; }
     .punch-panel-sub { font-size: 12px; opacity: 0.45; margin-top: 3px; }
     .punch-remaining { text-align: right; }
-    .punch-remaining-num { font-size: 32px; font-weight: 800; color: #4ade80; line-height: 1; }
+    .punch-remaining-num { font-size: 32px; font-weight: 800; color: #1B8A7A; line-height: 1; }
     .punch-remaining-label { font-size: 10px; opacity: 0.45; margin-top: 2px; letter-spacing: 1px; text-transform: uppercase; }
     .punch-row { margin-bottom: 20px; }
     .punch-row-label { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; opacity: 0.45; margin-bottom: 10px; display: flex; justify-content: space-between; }
-    .punch-row-label span { color: #4ade80; opacity: 1; }
+    .punch-row-label span { color: #1B8A7A; opacity: 1; }
     .punch-dots { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
     .punch-dot { width: 26px; height: 26px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
-    .punch-dot.used { background: #4ade80; border-color: #4ade80; color: #0a1628; }
+    .punch-dot.used { background: #1B8A7A; border-color: #1B8A7A; color: #0a1628; }
     .punch-actions { display: flex; align-items: center; gap: 10px; }
     .punch-btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 600; color: white; cursor: pointer; font-family: 'Sora',sans-serif; transition: background 0.15s; }
     .punch-btn:hover { background: rgba(255,255,255,0.18); }
     .punch-btn:disabled { opacity: 0.25; cursor: default; }
-    .punch-btn.confirm { background: #4ade80; color: #0a1628; border-color: #4ade80; }
-    .punch-btn.confirm:hover { background: #22c55e; }
+    .punch-btn.confirm { background: #1B8A7A; color: #0a1628; border-color: #1B8A7A; }
+    .punch-btn.confirm:hover { background: #0F6E56; }
     .punch-undo { font-size: 11px; color: rgba(255,255,255,0.3); cursor: pointer; text-decoration: underline; }
-    .punch-success { background: rgba(74,222,128,0.15); border: 1px solid rgba(74,222,128,0.3); border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 700; color: #4ade80; display: flex; align-items: center; gap: 8px; }
+    .punch-success { background: rgba(27,138,122,0.15); border: 1px solid rgba(27,138,122,0.3); border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 700; color: #1B8A7A; display: flex; align-items: center; gap: 8px; }
     .punch-divider { height: 1px; background: rgba(255,255,255,0.08); margin: 16px 0; }
     .punch-log-title { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; opacity: 0.35; margin-bottom: 10px; }
     .punch-log-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 12px; }
@@ -3260,42 +3262,42 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     /* CATALOG EDITOR */
     .catalog-wrap { max-width: 860px; }
     .catalog-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; }
-    .catalog-search { flex: 1; padding: 9px 14px; border-radius: 8px; border: 1px solid #e5e7eb; font-size: 13px; font-family: 'Sora',sans-serif; }
+    .catalog-search { flex: 1; padding: 9px 14px; border-radius: 8px; border: 1px solid #E4E0D5; font-size: 13px; font-family: 'Sora',sans-serif; }
     .catalog-mfr-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
-    .catalog-mfr-tab { padding: 5px 14px; border-radius: 20px; border: 1px solid #e5e7eb; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s; background: white; color: #6b7280; }
+    .catalog-mfr-tab { padding: 5px 14px; border-radius: 20px; border: 1px solid #E4E0D5; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s; background: white; color: #6b7280; }
     .catalog-mfr-tab:hover { border-color: #9ca3af; }
-    .catalog-mfr-tab.active { background: #0a1628; color: white; border-color: #0a1628; }
-    .catalog-entry { background: white; border: 1px solid #e5e7eb; border-radius: 12px; padding: 18px 20px; margin-bottom: 10px; transition: box-shadow 0.15s; }
+    .catalog-mfr-tab.active { background: #0B4A42; color: white; border-color: #0B4A42; }
+    .catalog-entry { background: white; border: 1px solid #E4E0D5; border-radius: 12px; padding: 18px 20px; margin-bottom: 10px; transition: box-shadow 0.15s; }
     .catalog-entry:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.07); }
     .catalog-entry-header { display: flex; align-items: center; gap: 12px; }
-    .catalog-entry-badge { font-size: 10px; font-weight: 700; letter-spacing: 1px; background: #f3f4f6; color: #6b7280; border-radius: 4px; padding: 2px 7px; text-transform: uppercase; }
-    .catalog-entry-badge.active-badge { background: #dcfce7; color: #16a34a; }
+    .catalog-entry-badge { font-size: 10px; font-weight: 700; letter-spacing: 1px; background: #F0EDE3; color: #6b7280; border-radius: 4px; padding: 2px 7px; text-transform: uppercase; }
+    .catalog-entry-badge.active-badge { background: #E2EFEA; color: #0C4A40; }
     .catalog-entry-name { font-size: 14px; font-weight: 700; color: #0a1628; flex: 1; }
     .catalog-entry-gen { font-size: 11px; color: #9ca3af; margin-top: 1px; }
     .catalog-entry-actions { display: flex; gap: 6px; }
-    .cat-btn { padding: 5px 12px; border-radius: 6px; border: 1px solid #e5e7eb; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'Sora',sans-serif; background: white; color: #374151; transition: all 0.12s; }
-    .cat-btn:hover { border-color: #9ca3af; background: #f9fafb; }
+    .cat-btn { padding: 5px 12px; border-radius: 6px; border: 1px solid #E4E0D5; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'Sora',sans-serif; background: white; color: #374151; transition: all 0.12s; }
+    .cat-btn:hover { border-color: #9ca3af; background: #FAF8F2; }
     .cat-btn.danger { color: #dc2626; border-color: #fecaca; }
     .cat-btn.danger:hover { background: #fef2f2; }
-    .cat-btn.primary { background: #0a1628; color: white; border-color: #0a1628; }
-    .cat-btn.primary:hover { background: #1a3050; }
-    .catalog-edit-panel { margin-top: 14px; padding-top: 14px; border-top: 1px solid #f3f4f6; display: flex; flex-direction: column; gap: 14px; }
+    .cat-btn.primary { background: #0B4A42; color: white; border-color: #0B4A42; }
+    .cat-btn.primary:hover { background: #0E5A50; }
+    .catalog-edit-panel { margin-top: 14px; padding-top: 14px; border-top: 1px solid #F0EDE3; display: flex; flex-direction: column; gap: 14px; }
     .cat-field { display: flex; flex-direction: column; gap: 5px; }
     .cat-field label { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #9ca3af; }
-    .cat-field input, .cat-field textarea, .cat-field select { padding: 8px 12px; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 13px; font-family: 'Sora',sans-serif; }
+    .cat-field input, .cat-field textarea, .cat-field select { padding: 8px 12px; border: 1px solid #E4E0D5; border-radius: 8px; font-size: 13px; font-family: 'Sora',sans-serif; }
     .cat-field textarea { resize: vertical; min-height: 58px; }
     .chip-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-    .chip { display: flex; align-items: center; gap: 4px; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 20px; padding: 3px 10px; font-size: 12px; color: #374151; }
+    .chip { display: flex; align-items: center; gap: 4px; background: #F0EDE3; border: 1px solid #E4E0D5; border-radius: 20px; padding: 3px 10px; font-size: 12px; color: #374151; }
     .chip-del { background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 13px; line-height: 1; padding: 0; }
     .chip-del:hover { color: #dc2626; }
     .chip-add-input { padding: 4px 10px; border: 1px dashed #d1d5db; border-radius: 20px; font-size: 12px; font-family: 'Sora',sans-serif; width: 130px; }
-    .chip-add-input:focus { outline: none; border-color: #0a1628; }
+    .chip-add-input:focus { outline: none; border-color: #0B4A42; }
     .cat-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     .catalog-add-btn { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px; border: 2px dashed #d1d5db; border-radius: 12px; color: #6b7280; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; background: none; width: 100%; font-family: 'Sora',sans-serif; margin-bottom: 16px; }
-    .catalog-add-btn:hover { border-color: #0a1628; color: #0a1628; background: #f8fafc; }
+    .catalog-add-btn:hover { border-color: #0B4A42; color: #0B4A42; background: #FBF9F3; }
     .cat-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-    .cat-toggle-track { width: 36px; height: 20px; border-radius: 10px; background: #e5e7eb; position: relative; transition: background 0.15s; }
-    .cat-toggle-track.on { background: #16a34a; }
+    .cat-toggle-track { width: 36px; height: 20px; border-radius: 10px; background: #E4E0D5; position: relative; transition: background 0.15s; }
+    .cat-toggle-track.on { background: #1B8A7A; }
     .cat-toggle-thumb { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: white; transition: left 0.15s; }
     .cat-toggle-track.on .cat-toggle-thumb { left: 18px; }
     .cat-toggle-label { font-size: 13px; color: #374151; }
@@ -3303,31 +3305,31 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     /* AUDIOLOGY */
     .audig-pta-chips { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
     /* SIDE TABS */
-    .side-tabs { display: flex; gap: 0; border-radius: 10px; border: 1px solid #e5e7eb; overflow: hidden; margin-bottom: 20px; background: #f9fafb; }
+    .side-tabs { display: flex; gap: 0; border-radius: 10px; border: 1px solid #E4E0D5; overflow: hidden; margin-bottom: 20px; background: #FAF8F2; }
     .side-tab { flex: 1; padding: 12px 16px; text-align: center; cursor: pointer; transition: all 0.15s; border: none; font-family: 'Sora',sans-serif; font-size: 13px; font-weight: 600; background: transparent; color: #6b7280; }
-    .side-tab:not(:last-child) { border-right: 1px solid #e5e7eb; }
-    .side-tab.active { background: #0a1628; color: white; }
-    .side-tab.configured { color: #16a34a; }
-    .side-tab.active.configured { background: #0a1628; color: #4ade80; }
+    .side-tab:not(:last-child) { border-right: 1px solid #E4E0D5; }
+    .side-tab.active { background: #0B4A42; color: white; }
+    .side-tab.configured { color: #0F6E56; }
+    .side-tab.active.configured { background: #0B4A42; color: #D8A93F; }
     .side-tab-label { font-size: 13px; font-weight: 700; }
     .side-tab-sub { font-size: 10px; opacity: 0.65; margin-top: 2px; font-weight: 400; line-height: 1.3; }
     .side-actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
-    .side-action-btn { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; border: 1px solid #e5e7eb; background: white; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'Sora',sans-serif; color: #374151; transition: all 0.15s; }
-    .side-action-btn:hover { border-color: #9ca3af; background: #f9fafb; }
+    .side-action-btn { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; border: 1px solid #E4E0D5; background: white; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'Sora',sans-serif; color: #374151; transition: all 0.15s; }
+    .side-action-btn:hover { border-color: #9ca3af; background: #FAF8F2; }
     .side-action-btn.cros { border-color: #a5b4fc; color: #4f46e5; background: #eef2ff; }
     .side-action-btn.cros:hover { background: #e0e7ff; }
     /* TWO-COLUMN DEVICE LAYOUT */
     .device-columns { display: grid; grid-template-columns: 1fr 120px 1fr; gap: 0; margin-bottom: 16px; max-width: 1100px; margin-left: auto; margin-right: auto; }
-    .device-col { border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; background: white; min-width: 0; overflow: visible; transition: border-color 0.15s; }
-    .device-col.active { border-color: #93c5fd; box-shadow: 0 0 0 2px rgba(59,130,246,0.12); }
-    .device-col-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #f3f4f6; }
+    .device-col { border: 1px solid #E4E0D5; border-radius: 10px; padding: 16px; background: white; min-width: 0; overflow: visible; transition: border-color 0.15s; }
+    .device-col.active { border-color: #1B8A7A; box-shadow: 0 0 0 2px rgba(27,138,122,0.15); }
+    .device-col-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #F0EDE3; }
     .device-col-header .ear-label { font-size: 14px; font-weight: 700; color: #0a1628; }
     .device-col-header .ear-status { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
-    .device-col-header .ear-status.configured { background: #dcfce7; color: #16a34a; }
-    .device-col-header .ear-status.empty { background: #f3f4f6; color: #9ca3af; }
+    .device-col-header .ear-status.configured { background: #E2EFEA; color: #0C4A40; }
+    .device-col-header .ear-status.empty { background: #F0EDE3; color: #9ca3af; }
     .copy-actions { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 0 10px; }
-    .copy-btn { display: flex; align-items: center; gap: 4px; padding: 6px 10px; border-radius: 8px; border: 1px solid #e5e7eb; background: white; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Sora',sans-serif; color: #374151; transition: all 0.15s; white-space: nowrap; }
-    .copy-btn:hover { border-color: #9ca3af; background: #f9fafb; }
+    .copy-btn { display: flex; align-items: center; gap: 4px; padding: 6px 10px; border-radius: 8px; border: 1px solid #E4E0D5; background: white; font-size: 11px; font-weight: 600; cursor: pointer; font-family: 'Sora',sans-serif; color: #374151; transition: all 0.15s; white-space: nowrap; }
+    .copy-btn:hover { border-color: #9ca3af; background: #FAF8F2; }
     .copy-btn.cros { border-color: #a5b4fc; color: #4f46e5; background: #eef2ff; font-size: 10px; }
     .copy-btn.cros:hover { background: #e0e7ff; }
     .copy-btn:disabled { opacity: 0.35; cursor: not-allowed; }
@@ -3336,14 +3338,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
       .copy-actions { flex-direction: row; padding: 10px 0; }
     }
     /* INTAKE TOAST */
-    .intake-toast { position: fixed; bottom: 28px; right: 28px; z-index: 9000; background: #0a1628; color: white; border-radius: 14px; padding: 16px 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.28); display: flex; align-items: center; gap: 14px; min-width: 300px; animation: slideUp 0.3s ease; }
+    .intake-toast { position: fixed; bottom: 28px; right: 28px; z-index: 9000; background: #0B4A42; color: white; border-radius: 14px; padding: 16px 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.28); display: flex; align-items: center; gap: 14px; min-width: 300px; animation: slideUp 0.3s ease; }
     @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-    .intake-toast-dot { width: 10px; height: 10px; border-radius: 50%; background: #4ade80; flex-shrink: 0; box-shadow: 0 0 0 3px rgba(74,222,128,0.25); animation: pulse 1.5s infinite; }
-    @keyframes pulse { 0%,100% { box-shadow: 0 0 0 3px rgba(74,222,128,0.25); } 50% { box-shadow: 0 0 0 7px rgba(74,222,128,0.1); } }
+    .intake-toast-dot { width: 10px; height: 10px; border-radius: 50%; background: #1B8A7A; flex-shrink: 0; box-shadow: 0 0 0 3px rgba(27,138,122,0.25); animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100% { box-shadow: 0 0 0 3px rgba(27,138,122,0.25); } 50% { box-shadow: 0 0 0 7px rgba(27,138,122,0.1); } }
     .intake-toast-body { flex: 1; }
     .intake-toast-title { font-size: 13px; font-weight: 700; }
     .intake-toast-sub { font-size: 11px; opacity: 0.55; margin-top: 2px; }
-    .intake-toast-btn { background: #4ade80; color: #0a1628; border: none; border-radius: 8px; padding: 7px 14px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: 'Sora',sans-serif; flex-shrink: 0; }
+    .intake-toast-btn { background: #1B8A7A; color: #0a1628; border: none; border-radius: 8px; padding: 7px 14px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: 'Sora',sans-serif; flex-shrink: 0; }
     .intake-toast-btn:hover { background: #22c55e; }
     .intake-toast-dismiss { background: none; border: none; color: rgba(255,255,255,0.35); font-size: 18px; cursor: pointer; padding: 0 0 0 6px; line-height: 1; }
     .intake-toast-dismiss:hover { color: white; }
@@ -3351,19 +3353,19 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     .intake-badge { position: absolute; top: -5px; right: -5px; background: #ef4444; color: white; border-radius: 50%; width: 18px; height: 18px; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
     .queue-modal-overlay { position: fixed; inset: 0; z-index: 8000; background: rgba(0,0,0,0.5); display: flex; align-items: flex-start; justify-content: flex-end; padding: 20px; }
     .queue-modal { background: white; border-radius: 16px; width: 480px; max-height: 80vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
-    .queue-modal-header { padding: 20px 24px 16px; border-bottom: 1px solid #f3f4f6; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: white; border-radius: 16px 16px 0 0; }
+    .queue-modal-header { padding: 20px 24px 16px; border-bottom: 1px solid #F0EDE3; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: white; border-radius: 16px 16px 0 0; }
     .queue-modal-title { font-size: 16px; font-weight: 700; color: #0a1628; }
     .queue-modal-close { background: none; border: none; font-size: 22px; color: #9ca3af; cursor: pointer; line-height: 1; }
-    .queue-card { margin: 12px 16px; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; }
+    .queue-card { margin: 12px 16px; background: #FBF9F3; border: 1px solid #E4E0D5; border-radius: 12px; padding: 16px; }
     .queue-card-name { font-size: 15px; font-weight: 700; color: #0a1628; }
     .queue-card-meta { font-size: 11px; color: #9ca3af; margin-top: 3px; }
     .queue-card-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 10px 0; }
     .queue-card-field { font-size: 12px; color: #374151; }
     .queue-card-field span { color: #9ca3af; display: block; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; }
     .queue-card-actions { display: flex; gap: 8px; margin-top: 12px; }
-    .queue-accept { flex: 1; background: #16a34a; color: white; border: none; border-radius: 8px; padding: 9px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: 'Sora',sans-serif; }
-    .queue-accept:hover { background: #15803d; }
-    .queue-dismiss { background: white; border: 1px solid #e5e7eb; color: #9ca3af; border-radius: 8px; padding: 9px 14px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'Sora',sans-serif; }
+    .queue-accept { flex: 1; background: #1B8A7A; color: white; border: none; border-radius: 8px; padding: 9px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: 'Sora',sans-serif; }
+    .queue-accept:hover { background: #0F6E56; }
+    .queue-dismiss { background: white; border: 1px solid #E4E0D5; color: #9ca3af; border-radius: 8px; padding: 9px 14px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'Sora',sans-serif; }
     .queue-dismiss:hover { border-color: #9ca3af; color: #374151; }
   `;
 
@@ -3547,7 +3549,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 {[["all","All"],["active","Active"],["tns","TNS"]].map(([val,label])=>(
                   <button key={val} onClick={()=>setStatusFilter(val)} style={{
                     padding:"3px 10px",fontSize:11,fontWeight:600,borderRadius:99,border:"none",cursor:"pointer",
-                    background: statusFilter===val ? (val==="tns"?"#fef3c7":"#dcfce7") : "#f3f4f6",
+                    background: statusFilter===val ? (val==="tns"?"#fef3c7":"#dcfce7") : "#F0EDE3",
                     color: statusFilter===val ? (val==="tns"?"#92400e":"#15803d") : "#6b7280",
                   }}>{label}</button>
                 ))}
@@ -3968,7 +3970,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 </>}
               </div>
             </div>
-            <div style={{position:"relative",background:"#fafafa",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 8px",marginBottom:14}}>
+            <div style={{position:"relative",background:"#fafafa",border:"1px solid #E4E0D5",borderRadius:10,padding:"12px 8px",marginBottom:14}}>
               <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false} showBanana={true} phonemeDimMode={phonemeDimMode} dimIntensity={dimIntensity}/>
               {drawingEnabled && (
                 <canvas
@@ -3989,7 +3991,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
             </div>
 
             {/* Hearing Simulation Paragraph */}
-            <div style={{margin:"0 0 16px",padding:"16px 20px",background:"#fff",border:"1px solid #e5e7eb",borderRadius:10}}>
+            <div style={{margin:"0 0 16px",padding:"16px 20px",background:"#fff",border:"1px solid #E4E0D5",borderRadius:10}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:8}}>
                 <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>What speech sounds like with your hearing</div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -4001,7 +4003,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
               </div>
               {/* A/B hearing simulation — plays the sentence through the patient's
                   audiogram (Web Audio biquad bank); uses the ear selector above. */}
-              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:14,paddingBottom:14,borderBottom:"1px solid #f3f4f6"}}>
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginBottom:14,paddingBottom:14,borderBottom:"1px solid #F0EDE3"}}>
                 <button onClick={()=> simPlaying ? stopHearingSim() : playHearingSim(aud)}
                   style={{display:"flex",alignItems:"center",gap:7,padding:"8px 16px",borderRadius:8,border:"none",cursor:"pointer",
                     background: simPlaying ? "#dc2626" : "#4f46e5", color:"#fff", fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:13}}>
@@ -4039,7 +4041,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                   else { inaudible = rIn || lIn; borderline = !inaudible && (rBorder || lBorder); }
                   const t = dimIntensity / 100;
                   const base = [30, 41, 59]; // #1e293b
-                  const inaudTarget = [229, 231, 235]; // #e5e7eb
+                  const inaudTarget = [229, 231, 235]; // #E4E0D5
                   const borderTarget = [176, 181, 189]; // #b0b5bd
                   const lerp = (a,b,f) => Math.round(a + (b - a) * f);
                   const color = inaudible
@@ -4067,7 +4069,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 </div>
               )}
               {aud.sinBin!=null&&(
-                <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 16px"}}>
+                <div style={{background:"#FAF8F2",border:"1px solid #E4E0D5",borderRadius:8,padding:"10px 16px"}}>
                   <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>QuickSIN SNR Loss</div>
                   <div style={{fontSize:18,fontWeight:800,color:"#0a1628"}}>{aud.sinBin} <span style={{fontSize:11,color:"#9ca3af",fontWeight:400}}>dB</span></div>
                   <div style={{fontSize:11,fontWeight:600,marginTop:2,
@@ -4145,7 +4147,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 {missingCopy}
               </div>
             )}
-            <div style={{fontSize:13,color:"#6b7280",fontWeight:500,lineHeight:1.7,paddingTop:8,borderTop:"1px solid #f3f4f6"}}>
+            <div style={{fontSize:13,color:"#6b7280",fontWeight:500,lineHeight:1.7,paddingTop:8,borderTop:"1px solid #F0EDE3"}}>
               Below, you'll see how treatment addresses each of these gaps.
             </div>
           </div>
@@ -4184,10 +4186,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
             <label>Address</label>
             <input value={form.address} onChange={e=>searchAddress(e.target.value)} onFocus={()=>{ if (addressSuggestions.length) setAddressOpen(true); }} placeholder="Start typing an address..." autoComplete="off" />
             {addressOpen && addressSuggestions.length > 0 && (
-              <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:50,background:"white",border:"1px solid #e5e7eb",borderRadius:8,marginTop:4,boxShadow:"0 4px 12px rgba(0,0,0,0.1)",maxHeight:220,overflowY:"auto"}}>
+              <div style={{position:"absolute",top:"100%",left:0,right:0,zIndex:50,background:"white",border:"1px solid #E4E0D5",borderRadius:8,marginTop:4,boxShadow:"0 4px 12px rgba(0,0,0,0.1)",maxHeight:220,overflowY:"auto"}}>
                 {addressSuggestions.map((s,i)=>(
-                  <div key={i} onClick={()=>selectAddress(s)} style={{padding:"10px 14px",fontSize:13,cursor:"pointer",borderBottom:i<addressSuggestions.length-1?"1px solid #f3f4f6":"none",color:"#0a1628",lineHeight:1.4}}
-                    onMouseOver={e=>e.currentTarget.style.background="#f9fafb"} onMouseOut={e=>e.currentTarget.style.background="white"}>
+                  <div key={i} onClick={()=>selectAddress(s)} style={{padding:"10px 14px",fontSize:13,cursor:"pointer",borderBottom:i<addressSuggestions.length-1?"1px solid #F0EDE3":"none",color:"#0a1628",lineHeight:1.4}}
+                    onMouseOver={e=>e.currentTarget.style.background="#FAF8F2"} onMouseOut={e=>e.currentTarget.style.background="white"}>
                     {s.display_name}
                   </div>
                 ))}
@@ -4219,7 +4221,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
           {/* Inline insurance plan search when Insurance selected */}
           {form.payType === "insurance" && (
             <div className="field full" style={{marginTop:4}}>
-              <div style={{background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:12,padding:"16px 18px"}}>
+              <div style={{background:"#FBF9F3",border:"1px solid #E4E0D5",borderRadius:12,padding:"16px 18px"}}>
                 <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:12}}>Insurance Plan</div>
                 <input
                   placeholder="Search by carrier or plan name…"
@@ -4251,9 +4253,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                   }
                 </div>
                 {form.planGroup && (
-                  <div style={{marginTop:12,paddingTop:12,borderTop:"1px solid #e5e7eb",display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{marginTop:12,paddingTop:12,borderTop:"1px solid #E4E0D5",display:"flex",alignItems:"center",gap:10}}>
                     <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>TPA</span>
-                    <span style={{fontSize:13,fontWeight:600,color:"#374151",background:"#f3f4f6",borderRadius:6,padding:"3px 10px"}}>{form.tpa}</span>
+                    <span style={{fontSize:13,fontWeight:600,color:"#374151",background:"#F0EDE3",borderRadius:6,padding:"3px 10px"}}>{form.tpa}</span>
                     <button style={{marginLeft:"auto",fontSize:11,color:"#9ca3af",background:"none",border:"none",cursor:"pointer",padding:0}}
                       onClick={()=>{upd("planGroup","");upd("carrier","");upd("tpa","");upd("tier","");upd("tierPrice",null);}}>
                       ✕ Clear
@@ -4590,7 +4592,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
               {/* 5. Battery Type (auto-populated, read-only) */}
               {s.style && d.thBattery && (
                 <div className="field" style={{marginBottom:16}}><label>Battery Type</label>
-                  <div style={{padding:"8px 12px",background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,fontSize:13,color:"#374151"}}>
+                  <div style={{padding:"8px 12px",background:"#FAF8F2",border:"1px solid #E4E0D5",borderRadius:8,fontSize:13,color:"#374151"}}>
                     {d.thBattery}
                   </div>
                 </div>
@@ -4610,7 +4612,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
               {s.style && d.thGainOptions.length > 0 && (
                 <div className="field" style={{marginBottom:16}}><label>Receiver Gain / Matrix</label>
                   {d.thGainOptions.length === 1 ? (
-                    <div style={{padding:"8px 12px",background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,fontSize:13,color:"#374151"}}>
+                    <div style={{padding:"8px 12px",background:"#FAF8F2",border:"1px solid #E4E0D5",borderRadius:8,fontSize:13,color:"#374151"}}>
                       {d.thGainOptions[0].label}
                     </div>
                   ) : (
@@ -4687,7 +4689,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
             {/* ── 9. Receiver + Dome (RIC — standard catalog only) ── */}
             {!isPrivateLabel && s.style === "ric" && s.techLevel && availPowers.length > 0 && (
               <>
-                <div style={{height:1,background:"#f3f4f6",margin:"4px 0 16px"}} />
+                <div style={{height:1,background:"#F0EDE3",margin:"4px 0 16px"}} />
                 <div className="field-grid" style={{marginBottom:0}}>
                   <div className="field"><label>Receiver Length</label>
                     <select value={s.receiverLength} onChange={e=>updSide(side,"receiverLength",e.target.value)}>
@@ -4728,7 +4730,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
             {/* ── IF (Instant Fit) — Dome only, no separate receiver ── */}
             {!isPrivateLabel && s.style === "if" && s.techLevel && availDomes.length > 0 && (
               <>
-                <div style={{height:1,background:"#f3f4f6",margin:"4px 0 16px"}} />
+                <div style={{height:1,background:"#F0EDE3",margin:"4px 0 16px"}} />
                 <div className="field" style={{marginBottom:0}}>
                   <label>Dome Type</label>
                   <select value={s.dome} onChange={e=>updSide(side,"dome",e.target.value)}>
@@ -4782,7 +4784,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                     📡 CROS →
                   </button>
                 )}
-                <div style={{height:1,width:24,background:"#e5e7eb",margin:"4px 0"}} />
+                <div style={{height:1,width:24,background:"#E4E0D5",margin:"4px 0"}} />
                 <button className="copy-btn" disabled={!rightConfigured}
                   onClick={()=>{ setForm(f=>({...f,left:{...f.right}})); setActiveSide("left"); }}
                   title="Copy right ear settings to left ear">
@@ -4862,7 +4864,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
               // on the prior step) only yields the bare baseline, not a real price.
               if (!pricingRevealData || form.tierPrice == null || !anyConfigured) {
                 return (
-                  <div style={{background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:12,padding:"20px 24px",marginTop:12,textAlign:"center",color:"#9ca3af",fontSize:13}}>
+                  <div style={{background:"#FCF8EF",border:"1px solid #EADFC7",borderRadius:14,padding:"22px 24px",marginTop:12,textAlign:"center",color:"#9AA39B",fontSize:13,fontFamily:"'Sora',sans-serif"}}>
                     Select a device to see your investment.
                   </div>
                 );
@@ -4917,26 +4919,41 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 .join("\n")
                 .trim();
 
+              const financeMonthly = investmentDisplay > 0 ? Math.round(investmentDisplay / 24) : 0;
+              // Structured reflection from intake answers — "you told us the hardest
+              // moments are X, Y, Z" — replaces the free-text provider-notes quote.
+              const reflectFlags = flaggedEnvironments(unwrapIntakeAnswers(wizardIntake?.answers) || null);
+              const reflectSits = ENVIRONMENTS.filter(e => reflectFlags.has(e.id)).map(e => (SITUATION_LABEL[e.id] || e.label).toLowerCase());
+              const reflectText = reflectSits.length === 0 ? null
+                : reflectSits.length === 1 ? reflectSits[0]
+                : reflectSits.slice(0, -1).join(", ") + " and " + reflectSits[reflectSits.length - 1];
+
               return (
-                <div style={{background:"linear-gradient(135deg,#f0fdf4 0%,#f8fafc 100%)",border:"1px solid #bbf7d0",borderRadius:12,padding:"20px 24px",marginTop:12}}>
-                  {/* Chief complaint quote */}
-                  {chiefComplaint && (
-                    <div style={{fontSize:13,color:"#374151",fontStyle:"italic",borderLeft:"3px solid #16a34a",paddingLeft:12,marginBottom:16,lineHeight:1.5}}>
+                <div style={{background:"#FCF8EF",border:"1px solid #EADFC7",borderRadius:14,padding:"22px 24px",marginTop:12,fontFamily:"'Sora',sans-serif",boxShadow:"0 1px 2px rgba(16,32,28,.04),0 14px 30px -22px rgba(120,90,30,.4)"}}>
+                  {/* What the patient told us — structured from their intake
+                      answers, falling back to the provider-notes quote when
+                      nothing was flagged. */}
+                  {reflectText ? (
+                    <div style={{fontSize:13.5,color:"#54625C",fontStyle:"italic",borderLeft:"3px solid #B5832E",paddingLeft:13,marginBottom:16,lineHeight:1.55}}>
+                      You told us the hardest moments have been {reflectText}.
+                    </div>
+                  ) : chiefComplaint ? (
+                    <div style={{fontSize:13.5,color:"#54625C",fontStyle:"italic",borderLeft:"3px solid #B5832E",paddingLeft:13,marginBottom:16,lineHeight:1.55}}>
                       "{chiefComplaint}"
                     </div>
-                  )}
+                  ) : null}
 
                   {/* Technology tier label */}
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#9ca3af",marginBottom:12}}>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#B5832E",marginBottom:12}}>
                     {tierLabel} Technology
                   </div>
 
-                  {/* Your Investment Today — headline */}
+                  {/* Your investment — cost first, stated plainly, in the display serif */}
                   <div style={{marginBottom:16}}>
-                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}}>Your Investment Today</div>
-                    <div style={{display:"flex",alignItems:"baseline",gap:8}}>
-                      <span style={{fontSize:28,fontWeight:800,color:"#0a1628"}}>${fmt(investmentDisplay)}</span>
-                      <span style={{fontSize:12,color:"#6b7280"}}>{bothDone ? "pair (2 aids)" : "per aid"}</span>
+                    <div style={{fontSize:11,fontWeight:600,color:"#9AA39B",textTransform:"uppercase",letterSpacing:0.6,marginBottom:5}}>Your investment</div>
+                    <div style={{display:"flex",alignItems:"baseline",gap:9}}>
+                      <span style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:38,fontWeight:600,color:"#16201D",lineHeight:1}}>${fmt(investmentDisplay)}</span>
+                      <span style={{fontSize:12.5,color:"#54625C"}}>{bothDone ? "for both hearing aids" : "per aid"}</span>
                     </div>
                     {/* Per-aid toggle / per-ear breakdown. Shows the
                         simple "$X / aid" when ears match, and a labeled
@@ -4948,7 +4965,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                       const earsDiffer = lp != null && rp != null && lp !== rp;
                       if (!earsDiffer) {
                         return (
-                          <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>
+                          <div style={{fontSize:12,color:"#9AA39B",marginTop:3}}>
                             ${fmt(copayPerAid)} / aid
                           </div>
                         );
@@ -4958,13 +4975,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                       const leftLabel  = perEar.left.source === 'cros' ? 'CROS unit' : (leftFam?.family || '—');
                       const rightLabel = perEar.right.source === 'cros' ? 'CROS unit' : (rightFam?.family || '—');
                       return (
-                        <div style={{marginTop:8,fontSize:12,color:"#374151"}}>
+                        <div style={{marginTop:8,fontSize:12,color:"#54625C"}}>
                           <div style={{display:"flex",justifyContent:"space-between",padding:"3px 0"}}>
-                            <span>👂 Right · {rightLabel}</span>
+                            <span>Right · {rightLabel}</span>
                             <span style={{fontWeight:600}}>${fmt(rp)}</span>
                           </div>
                           <div style={{display:"flex",justifyContent:"space-between",padding:"3px 0"}}>
-                            <span>👂 Left · {leftLabel}</span>
+                            <span>Left · {leftLabel}</span>
                             <span style={{fontWeight:600}}>${fmt(lp)}</span>
                           </div>
                         </div>
@@ -4973,33 +4990,61 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                   </div>
 
                   {/* Insurance: plan coverage. Private pay: the bundled Complete
-                      Care+ value takes this line — there is no insurance plan. */}
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
+                      Care+ value takes this line — there is no insurance plan.
+                      Brass carries the value (the number that helps them). */}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderTop:"1px solid #EADFC7",fontSize:13}}>
                     {isPrivatePay ? (
-                      <span style={{color:"#374151",display:"flex",alignItems:"center",gap:6}}>
-                        <span style={{color:"#16a34a",fontWeight:700}}>✓</span> Complete Care+ <span style={{color:"#9ca3af"}}>(included)</span>
+                      <span style={{color:"#54625C",display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{color:"#1B8A7A",fontWeight:700}}>✓</span> Complete Care+ <span style={{color:"#9AA39B"}}>(included)</span>
                       </span>
                     ) : (
-                      <span style={{color:"#6b7280"}}>Plan covers</span>
+                      <span style={{color:"#54625C"}}>Your plan covers</span>
                     )}
-                    <span style={{fontWeight:600,color:"#16a34a"}}>${fmt(planCoversWithCare)}</span>
+                    <span style={{fontWeight:700,color:"#6E4E16"}}>${fmt(planCoversWithCare)}</span>
                   </div>
 
-                  {/* Full retail value */}
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderTop:"1px solid #e5e7eb",fontSize:13}}>
-                    <span style={{color:"#9ca3af"}}>Full retail value</span>
-                    <span style={{color:"#9ca3af",textDecoration:"line-through"}}>${fmt(retailWithCare)}</span>
+                  {/* Full retail value — never shown without the savings beside it */}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderTop:"1px solid #EADFC7",fontSize:13}}>
+                    <span style={{color:"#9AA39B"}}>Full retail value</span>
+                    <span style={{color:"#9AA39B",textDecoration:"line-through"}}>${fmt(retailWithCare)}</span>
                   </div>
 
-                  {/* Savings badge */}
-                  <div style={{background:"#dcfce7",borderRadius:8,padding:"10px 14px",marginTop:8,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-                    <span style={{fontSize:13,fontWeight:700,color:"#166534"}}>
+                  {/* Savings — the helping number, in brass */}
+                  <div style={{background:"#F4EAD4",borderRadius:9,padding:"11px 14px",marginTop:10,display:"flex",alignItems:"center",justifyContent:"center",gap:9}}>
+                    <span style={{fontSize:13.5,fontWeight:700,color:"#6E4E16"}}>
                       You save ${fmt(savingsWithCare)}
                     </span>
-                    <span style={{background:"#16a34a",color:"white",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>
+                    <span style={{background:"#B5832E",color:"white",borderRadius:20,padding:"2px 11px",fontSize:11,fontWeight:700}}>
                       {savingsPctDisplay}% off
                     </span>
                   </div>
+
+                  {/* Complete Care+ — transparent terms, stated plainly ("5 years",
+                      not "lifetime"). Bundled for private pay; the opt-out default
+                      care plan for insurance (confirmed on the step-6 care-plan step). */}
+                  <div style={{marginTop:16,background:"#0B4A42",borderRadius:11,padding:"15px 17px",color:"#fff"}}>
+                    <div style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:15,fontWeight:600,marginBottom:6}}>Five years of care, included</div>
+                    <div style={{fontSize:12.5,lineHeight:1.6,color:"rgba(255,255,255,0.82)"}}>
+                      Unlimited visits for 5 years · a 4-year repair warranty (your manufacturer's 3 years plus 1 more from us) · cleanings, adjustments, and a check-in call two days after you start.
+                    </div>
+                    {!isPrivatePay && (
+                      <div style={{fontSize:11.5,lineHeight:1.5,color:"rgba(255,255,255,0.6)",marginTop:8}}>
+                        Your default care plan — we'll confirm it together on the next step.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Comfortable monthly options — CareCredit / Allegro, 0% for 24 mo */}
+                  {financeMonthly > 0 && (
+                    <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #EADFC7"}}>
+                      <div style={{fontSize:11,fontWeight:600,color:"#9AA39B",textTransform:"uppercase",letterSpacing:0.6,marginBottom:8}}>Ways to make it comfortable</div>
+                      <div style={{display:"flex",alignItems:"center",gap:12,background:"#fff",border:"1px solid #E4E0D5",borderRadius:11,padding:"12px 14px"}}>
+                        <span style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:20,fontWeight:600,color:"#16201D",whiteSpace:"nowrap"}}>${financeMonthly.toLocaleString('en-US')}/mo</span>
+                        <span style={{fontSize:12.5,color:"#54625C",lineHeight:1.45}}>for 24 months, <span style={{color:"#0C4A40",fontWeight:600}}>0% interest</span> with CareCredit / Allegro — paid off in that window, not a penny more than ${fmt(investmentDisplay)}.</span>
+                      </div>
+                      <div style={{fontSize:11.5,color:"#9AA39B",marginTop:8,lineHeight:1.5}}>Prefer smaller payments? Longer plans are available — we'll walk the exact terms together, no surprises.</div>
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -5009,22 +5054,22 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
             <div style={{marginTop:24,display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
               <div style={{display:"flex",gap:12,width:"100%",justifyContent:"center",flexWrap:"wrap"}}>
                 <button
-                  style={{background:"#15803d",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:8}}
+                  style={{background:"#0B4A42",color:"white",border:"none",borderRadius:9,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",boxShadow:"0 8px 18px -8px rgba(11,74,66,0.7)"}}
                   onClick={()=>{ setPaSignatureName(""); setPaStep("review"); setShowWizardPaModal(true); }}
                 >
-                  <span style={{fontSize:16}}>📝</span> Sign Purchase Agreement
+                  Sign Purchase Agreement
                 </button>
                 <button
-                  style={{background:"#1e40af",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:8}}
+                  style={{background:"#fff",color:"#54625C",border:"1px solid #E4E0D5",borderRadius:9,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}
                   onClick={handleGenerateQuote}
                 >
-                  <span style={{fontSize:16}}>📄</span> Generate Quote
+                  Generate Quote
                 </button>
                 <button
-                  style={{background: form.priceOverridePerAid != null ? "#f0fdf4" : "#fff", color: form.priceOverridePerAid != null ? "#15803d" : "#374151", border:`1px solid ${form.priceOverridePerAid != null ? "#bbf7d0" : "#d1d5db"}`, borderRadius:8, padding:"12px 24px", fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:13, cursor:"pointer", display:"flex", alignItems:"center", gap:8}}
+                  style={{background: form.priceOverridePerAid != null ? "#F4EAD4" : "#fff", color: form.priceOverridePerAid != null ? "#6E4E16" : "#54625C", border:`1px solid ${form.priceOverridePerAid != null ? "#EADFC7" : "#E4E0D5"}`, borderRadius:9, padding:"12px 24px", fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:13, cursor:"pointer"}}
                   onClick={()=>setShowAdjustModal(true)}
                 >
-                  <span style={{fontSize:16}}>🏷️</span> {form.priceOverridePerAid != null ? "Price Adjusted" : "Adjust Price"}
+                  {form.priceOverridePerAid != null ? "Price Adjusted" : "Adjust Price"}
                 </button>
               </div>
             </div>
@@ -5071,7 +5116,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
             : `${fam?.family || ""} · ${d.techLevel}`;
           const sidePrice = perAidFor(side);
           return (
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #f3f4f6"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #F0EDE3"}}>
               <div>
                 <div style={{fontSize:13,fontWeight:600,color:"#0a1628"}}>{label}</div>
                 <div style={{fontSize:11,color:"#6b7280",marginTop:1}}>{name}</div>
@@ -5088,13 +5133,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
           );
         };
         return (
-          <div style={{background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:10,padding:"14px 16px",marginBottom:20}}>
+          <div style={{background:"#FBF9F3",border:"1px solid #E4E0D5",borderRadius:10,padding:"14px 16px",marginBottom:20}}>
             <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:8}}>Selected Devices</div>
             {renderSide("left","👂 Left Ear")}
             {renderSide("right","Right Ear 👂")}
             {aidBase != null && (
               <>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,paddingTop:10,borderTop:"2px solid #e5e7eb"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,paddingTop:10,borderTop:"2px solid #E4E0D5"}}>
                   <div>
                     <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>Device Total</div>
                     <div style={{fontSize:11,color:"#6b7280"}}>{aidCount} aid{aidCount!==1?"s":""}{form.tier ? ` · ${form.tier} tier` : form.payType === "private" ? " · Private Pay" : ""}</div>
@@ -5222,7 +5267,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                       display:"flex",
                       flexDirection:"column",
                       background:"#fff",
-                      border: selected ? "2px solid #0a1628" : "1.5px solid #e5e7eb",
+                      border: selected ? "2px solid #0a1628" : "1.5px solid #E4E0D5",
                       borderRadius:14,
                       padding:"22px 20px 18px",
                       cursor:"pointer",
@@ -5236,7 +5281,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                     <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",paddingRight:28}}>
                       <h3 style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:20,fontWeight:700,color:"#111827",margin:0,letterSpacing:"-0.01em"}}>{opt.title}</h3>
                       {opt.flag && (
-                        <span style={{fontSize:10,fontWeight:600,letterSpacing:"0.06em",textTransform:"uppercase",color:"#6b7280",background:"#f3f4f6",padding:"3px 8px",borderRadius:4,whiteSpace:"nowrap"}}>{opt.flag}</span>
+                        <span style={{fontSize:10,fontWeight:600,letterSpacing:"0.06em",textTransform:"uppercase",color:"#6b7280",background:"#F0EDE3",padding:"3px 8px",borderRadius:4,whiteSpace:"nowrap"}}>{opt.flag}</span>
                       )}
                     </div>
 
@@ -5272,7 +5317,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
 
             {/* Total investment */}
             {(aidTotal != null || form.carePlan) && (
-              <div style={{marginTop:20,borderTop:"2px solid #e5e7eb",paddingTop:16}}>
+              <div style={{marginTop:20,borderTop:"2px solid #E4E0D5",paddingTop:16}}>
                 <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:10}}>Total Patient Investment</div>
                 <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
                   {aidTotal != null && (
@@ -5303,7 +5348,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                     )}
                   </div>
                   <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:32,fontWeight:800,color:"#4ade80",lineHeight:1}}>
+                    <div style={{fontSize:32,fontWeight:800,color:"#1B8A7A",lineHeight:1}}>
                       {grandTotal===0?"No Charge":`$${grandTotal.toLocaleString()}`}
                     </div>
                   </div>
@@ -5391,7 +5436,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
           ?.tiers?.find(t=>t.label===d.techLevel)?.price ?? null;
         return (
           <>
-            <div className="review-row" style={{background:"#f8fafc",borderRadius:6,padding:"6px 10px",margin:"4px 0"}}>
+            <div className="review-row" style={{background:"#FBF9F3",borderRadius:6,padding:"6px 10px",margin:"4px 0"}}>
               <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>{label}</span>
             </div>
             {[
@@ -5627,7 +5672,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
               Appears on the purchase agreements you generate.{staffProfile?.activeLicense ? ` License on file: ${staffProfile.activeLicense}.` : ""}
             </div>
             <div style={{display:"flex",alignItems:"center",gap:18,flexWrap:"wrap"}}>
-              <div style={{width:240,height:90,border:"1px solid #e5e7eb",borderRadius:10,background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+              <div style={{width:240,height:90,border:"1px solid #E4E0D5",borderRadius:10,background:"#fff",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
                 {providerSignatureB64
                   ? <img src={providerSignatureB64} alt="Your signature" style={{maxWidth:"92%",maxHeight:"80%",objectFit:"contain"}} />
                   : <span style={{fontSize:12,color:"#cbd5e1"}}>No signature yet</span>}
@@ -5672,7 +5717,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
               <select
                 value={anchorsClass}
                 onChange={e => setAnchorsClass(e.target.value)}
-                style={{padding:"6px 10px",borderRadius:6,border:"1px solid #e5e7eb",fontSize:13,fontFamily:"'Sora',sans-serif",background:"white"}}
+                style={{padding:"6px 10px",borderRadius:6,border:"1px solid #E4E0D5",fontSize:13,fontFamily:"'Sora',sans-serif",background:"white"}}
               >
                 {MANUFACTURER_CLASSES.map(c => (
                   <option key={c.value} value={c.value}>{c.label}</option>
@@ -5704,7 +5749,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                           const v = e.target.value;
                           setAnchorsDraft(d => d.map((row, j) => j === i ? {...row, label: v} : row));
                         }}
-                        style={{padding:"6px 10px",borderRadius:6,border:"1px solid #e5e7eb",fontSize:13,fontFamily:"'Sora',sans-serif"}}
+                        style={{padding:"6px 10px",borderRadius:6,border:"1px solid #E4E0D5",fontSize:13,fontFamily:"'Sora',sans-serif"}}
                       />
                       <div style={{display:"flex",alignItems:"center",gap:4}}>
                         <span style={{fontSize:13,color:"#9ca3af"}}>$</span>
@@ -5721,7 +5766,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                             const next = raw === "" ? null : Math.max(0, Number(raw));
                             setAnchorsDraft(d => d.map((row, j) => j === i ? {...row, price_per_aid: next} : row));
                           }}
-                          style={{flex:1,padding:"6px 10px",borderRadius:6,border:"1px solid #e5e7eb",fontSize:13,fontFamily:"'Sora',sans-serif",textAlign:"right"}}
+                          style={{flex:1,padding:"6px 10px",borderRadius:6,border:"1px solid #E4E0D5",fontSize:13,fontFamily:"'Sora',sans-serif",textAlign:"right"}}
                         />
                       </div>
                       <button
@@ -5750,7 +5795,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
           <div className="settings-section">
             <div className="settings-title">About Distil</div>
             {[["Version","1.0 Prototype"],["Patient App","Aided"],["Noah Integration","Coming soon — Noah ES API"],["HIPAA","Data stored locally in this session"]].map(([k,v])=>(
-              <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #f3f4f6",fontSize:13}}>
+              <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #F0EDE3",fontSize:13}}>
                 <span style={{color:"#9ca3af"}}>{k}</span>
                 <span style={{fontWeight:500,color:"#374151"}}>{v}</span>
               </div>
@@ -5788,15 +5833,15 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
           const pct = total ? (delivered / total) * 100 : 0;
           const next = deliveries.filter(d => d.status === "pending").sort((a,b) => a.scheduled_date.localeCompare(b.scheduled_date))[0];
           return (
-            <div key={c.id} style={{marginBottom:16,padding:14,background:"#f9fafb",borderRadius:10,border:"1px solid #e5e7eb"}}>
+            <div key={c.id} style={{marginBottom:16,padding:14,background:"#FAF8F2",borderRadius:10,border:"1px solid #E4E0D5"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
                 <div style={{fontWeight:600,fontSize:13,color:"#0a1628"}}>{c.campaign_templates?.name || "Campaign"}</div>
                 <span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:12,
-                  background:c.status==="active"?"#dcfce7":c.status==="paused"?"#fef3c7":"#f3f4f6",
+                  background:c.status==="active"?"#dcfce7":c.status==="paused"?"#fef3c7":"#F0EDE3",
                   color:c.status==="active"?"#16a34a":c.status==="paused"?"#92400e":"#6b7280"}}>{c.status}</span>
               </div>
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-                <div style={{flex:1,height:4,background:"#e5e7eb",borderRadius:2,overflow:"hidden"}}>
+                <div style={{flex:1,height:4,background:"#E4E0D5",borderRadius:2,overflow:"hidden"}}>
                   <div style={{width:`${pct}%`,height:"100%",background:"#16a34a",borderRadius:2}} />
                 </div>
                 <span style={{fontSize:11,color:"#9ca3af",whiteSpace:"nowrap"}}>{delivered}/{total} delivered</span>
@@ -5813,7 +5858,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                   return (
                     <div key={i} title={`${d.campaign_steps?.campaign_content?.title || ""} (${d.status})`} style={{
                       width:8,height:8,borderRadius:"50%",
-                      background: d.status==="delivered" ? (CAT_COLORS[cat] || "#6b7280") : d.status==="pending" ? "#e5e7eb" : "#fecaca",
+                      background: d.status==="delivered" ? (CAT_COLORS[cat] || "#6b7280") : d.status==="pending" ? "#E4E0D5" : "#fecaca",
                     }} />
                   );
                 })}
@@ -6114,7 +6159,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 </div>
 
                 {/* Summary */}
-                <div style={{background:"#f8fafc",borderRadius:10,padding:16,marginBottom:20,border:"1px solid #e5e7eb"}}>
+                <div style={{background:"#FBF9F3",borderRadius:10,padding:16,marginBottom:20,border:"1px solid #E4E0D5"}}>
                   <div style={{fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:11,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,marginBottom:8}}>Agreement Summary</div>
                   {hasDevices && (
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
@@ -6134,7 +6179,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                       <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#6b7280"}}>$0.00</span>
                     </div>
                   )}
-                  <div style={{borderTop:"1px solid #e5e7eb",marginTop:8,paddingTop:8,display:"flex",justifyContent:"space-between"}}>
+                  <div style={{borderTop:"1px solid #E4E0D5",marginTop:8,paddingTop:8,display:"flex",justifyContent:"space-between"}}>
                     <span style={{fontFamily:"'Sora',sans-serif",fontSize:14,fontWeight:700,color:"#0a1628"}}>Total</span>
                     <span style={{fontFamily:"'Sora',sans-serif",fontSize:14,fontWeight:700,color:"#0a1628"}}>${totalPurchasePrice.toLocaleString('en-US',{minimumFractionDigits:2})}</span>
                   </div>
@@ -6151,10 +6196,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                         onChange={e => setPaSignatureName(e.target.value)}
                         placeholder="Full legal name"
                         autoFocus
-                        style={{width:"100%",padding:"12px 14px",border:"1px solid #e5e7eb",borderRadius:10,fontFamily:"'Sora',sans-serif",fontSize:14,outline:"none",boxSizing:"border-box"}}
+                        style={{width:"100%",padding:"12px 14px",border:"1px solid #E4E0D5",borderRadius:10,fontFamily:"'Sora',sans-serif",fontSize:14,outline:"none",boxSizing:"border-box"}}
                       />
                       {paSignatureName.trim().length > 2 && (
-                        <div style={{marginTop:12,padding:"14px 18px",background:"#f8fafc",borderRadius:10,border:"1px dashed #d1d5db"}}>
+                        <div style={{marginTop:12,padding:"14px 18px",background:"#FBF9F3",borderRadius:10,border:"1px dashed #d1d5db"}}>
                           <div style={{fontFamily:"'Georgia','Times New Roman',serif",fontSize:24,fontStyle:"italic",color:"#0a1628",letterSpacing:0.5}}>{paSignatureName}</div>
                           <div style={{fontFamily:"'Sora',sans-serif",fontSize:10,color:"#9ca3af",marginTop:4}}>Electronic signature preview</div>
                         </div>
@@ -6171,7 +6216,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                       </button>
                       <button
                         onClick={() => setPaStep("delivery")}
-                        style={{background:"none",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",color:"#6b7280",whiteSpace:"nowrap"}}
+                        style={{background:"none",border:"1px solid #E4E0D5",borderRadius:10,padding:"12px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",color:"#6b7280",whiteSpace:"nowrap"}}
                       >
                         + Delivery
                       </button>
@@ -6197,7 +6242,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                             onChange={e => setPaDeliveryName(e.target.value)}
                             placeholder="Full legal name"
                             autoFocus
-                            style={{width:"100%",padding:"10px 12px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}}
+                            style={{width:"100%",padding:"10px 12px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}}
                           />
                         </div>
                         <div>
@@ -6206,7 +6251,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                             type="date"
                             value={paDeliveryDate}
                             onChange={e => setPaDeliveryDate(e.target.value)}
-                            style={{width:"100%",padding:"10px 12px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}}
+                            style={{width:"100%",padding:"10px 12px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}}
                           />
                         </div>
                       </div>
@@ -6215,7 +6260,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                     <div style={{display:"flex",gap:10}}>
                       <button
                         onClick={() => setPaStep("sign")}
-                        style={{background:"none",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",color:"#6b7280"}}
+                        style={{background:"none",border:"1px solid #E4E0D5",borderRadius:10,padding:"12px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",color:"#6b7280"}}
                       >
                         ← Back
                       </button>
@@ -6270,17 +6315,17 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
               {editSection === "contact" ? (
                 <div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>First Name</label><input value={editDraft.firstName} onChange={e=>setEditDraft(d=>({...d,firstName:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
-                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Last Name</label><input value={editDraft.lastName} onChange={e=>setEditDraft(d=>({...d,lastName:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
-                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Date of Birth</label><input type="date" value={editDraft.dob} onChange={e=>setEditDraft(d=>({...d,dob:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
-                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Phone</label><input value={editDraft.phone} onChange={e=>setEditDraft(d=>({...d,phone:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
-                    <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Email</label><input value={editDraft.email} onChange={e=>setEditDraft(d=>({...d,email:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>First Name</label><input value={editDraft.firstName} onChange={e=>setEditDraft(d=>({...d,firstName:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Last Name</label><input value={editDraft.lastName} onChange={e=>setEditDraft(d=>({...d,lastName:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Date of Birth</label><input type="date" value={editDraft.dob} onChange={e=>setEditDraft(d=>({...d,dob:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Phone</label><input value={editDraft.phone} onChange={e=>setEditDraft(d=>({...d,phone:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div style={{gridColumn:"1/-1"}}><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Email</label><input value={editDraft.email} onChange={e=>setEditDraft(d=>({...d,email:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
                   </div>
                   <div style={{marginBottom:10}}>
                     <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:6}}>Pay Type</label>
                     <div style={{display:"flex",gap:8}}>
                       {[["insurance","Insurance"],["private","Private Pay"]].map(([val,label])=>(
-                        <div key={val} onClick={()=>setEditDraft(d=>({...d,payType:val}))} style={{flex:1,border:`2px solid ${editDraft.payType===val?"#0a1628":"#e5e7eb"}`,borderRadius:10,padding:"10px",cursor:"pointer",textAlign:"center",background:editDraft.payType===val?"#f8fafc":"white",transition:"all 0.15s"}}>
+                        <div key={val} onClick={()=>setEditDraft(d=>({...d,payType:val}))} style={{flex:1,border:`2px solid ${editDraft.payType===val?"#0a1628":"#E4E0D5"}`,borderRadius:10,padding:"10px",cursor:"pointer",textAlign:"center",background:editDraft.payType===val?"#FBF9F3":"white",transition:"all 0.15s"}}>
                           <div style={{fontSize:13,fontWeight:600,color:"#0a1628"}}>{label}</div>
                         </div>
                       ))}
@@ -6288,11 +6333,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                   </div>
                   <div style={{marginBottom:4}}>
                     <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Notes</label>
-                    <textarea value={editDraft.notes} onChange={e=>setEditDraft(d=>({...d,notes:e.target.value}))} rows={3} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",resize:"vertical",boxSizing:"border-box"}} />
+                    <textarea value={editDraft.notes} onChange={e=>setEditDraft(d=>({...d,notes:e.target.value}))} rows={3} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",resize:"vertical",boxSizing:"border-box"}} />
                   </div>
                   <div style={{display:"flex",gap:8,alignItems:"center",marginTop:10}}>
                     <button onClick={saveEditContact} disabled={editSaving} style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 18px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:editSaving?"wait":"pointer",opacity:editSaving?0.7:1}}>{editSaving?"Saving…":"Save Changes"}</button>
-                    <button onClick={cancelEdit} style={{background:"none",border:"1px solid #e5e7eb",borderRadius:8,padding:"8px 14px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
+                    <button onClick={cancelEdit} style={{background:"none",border:"1px solid #E4E0D5",borderRadius:8,padding:"8px 14px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
                     {editError && <span style={{fontSize:12,color:"#ef4444"}}>{editError}</span>}
                     {editSuccess && <span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>✓ {editSuccess}</span>}
                   </div>
@@ -6319,13 +6364,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
               {editSection === "coverage" ? (
                 <div>
                   {/* Insurance plan search — reuses same component pattern as Step 0 of new patient form */}
-                  <div style={{background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:12,padding:"14px 16px",marginBottom:12}}>
+                  <div style={{background:"#FBF9F3",border:"1px solid #E4E0D5",borderRadius:12,padding:"14px 16px",marginBottom:12}}>
                     <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:10}}>Insurance Plan Search</div>
                     <input
                       placeholder="Search carrier or plan name…"
                       value={editPlanSearch}
                       onChange={e=>setEditPlanSearch(e.target.value)}
-                      style={{width:"100%",marginBottom:8,padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}}
+                      style={{width:"100%",marginBottom:8,padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}}
                     />
                     <div style={{maxHeight:180,overflowY:"auto",display:"flex",flexDirection:"column",gap:5,paddingRight:2}}>
                       {activePlans
@@ -6342,9 +6387,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                         ))}
                     </div>
                     {editDraft.planGroup && (
-                      <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid #e5e7eb",display:"flex",alignItems:"center",gap:8}}>
+                      <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid #E4E0D5",display:"flex",alignItems:"center",gap:8}}>
                         <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>TPA</span>
-                        <span style={{fontSize:13,fontWeight:600,color:"#374151",background:"#f3f4f6",borderRadius:6,padding:"3px 10px"}}>{editDraft.tpa}</span>
+                        <span style={{fontSize:13,fontWeight:600,color:"#374151",background:"#F0EDE3",borderRadius:6,padding:"3px 10px"}}>{editDraft.tpa}</span>
                         <button style={{marginLeft:"auto",fontSize:11,color:"#9ca3af",background:"none",border:"none",cursor:"pointer",padding:0}}
                           onClick={()=>setEditDraft(d=>({...d,carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null}))}>✕ Clear</button>
                       </div>
@@ -6352,14 +6397,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                   </div>
                   {/* Individual field overrides */}
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
-                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Carrier</label><input value={editDraft.carrier} onChange={e=>setEditDraft(d=>({...d,carrier:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
-                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>TPA</label><input value={editDraft.tpa} onChange={e=>setEditDraft(d=>({...d,tpa:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
-                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Tier</label><input value={editDraft.tier} onChange={e=>setEditDraft(d=>({...d,tier:e.target.value}))} placeholder="e.g. Level 3" style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
-                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Copay ($/aid)</label><input type="number" value={editDraft.tierPrice??""} onChange={e=>setEditDraft(d=>({...d,tierPrice:e.target.value?Number(e.target.value):null}))} placeholder="e.g. 999" style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
-                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Warranty Expiry</label><input type="date" value={editDraft.warrantyExpiry} onChange={e=>setEditDraft(d=>({...d,warrantyExpiry:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Carrier</label><input value={editDraft.carrier} onChange={e=>setEditDraft(d=>({...d,carrier:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>TPA</label><input value={editDraft.tpa} onChange={e=>setEditDraft(d=>({...d,tpa:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Tier</label><input value={editDraft.tier} onChange={e=>setEditDraft(d=>({...d,tier:e.target.value}))} placeholder="e.g. Level 3" style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Copay ($/aid)</label><input type="number" value={editDraft.tierPrice??""} onChange={e=>setEditDraft(d=>({...d,tierPrice:e.target.value?Number(e.target.value):null}))} placeholder="e.g. 999" style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Warranty Expiry</label><input type="date" value={editDraft.warrantyExpiry} onChange={e=>setEditDraft(d=>({...d,warrantyExpiry:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
                     <div>
                       <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Care Plan</label>
-                      <select value={editDraft.carePlanType} onChange={e=>setEditDraft(d=>({...d,carePlanType:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",background:"white",boxSizing:"border-box"}}>
+                      <select value={editDraft.carePlanType} onChange={e=>setEditDraft(d=>({...d,carePlanType:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",background:"white",boxSizing:"border-box"}}>
                         <option value="">— None —</option>
                         {CARE_PLANS.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
                       </select>
@@ -6367,7 +6412,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                   </div>
                   <div style={{display:"flex",gap:8,alignItems:"center",marginTop:10}}>
                     <button onClick={saveEditCoverage} disabled={editSaving} style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 18px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:editSaving?"wait":"pointer",opacity:editSaving?0.7:1}}>{editSaving?"Saving…":"Save Changes"}</button>
-                    <button onClick={cancelEdit} style={{background:"none",border:"1px solid #e5e7eb",borderRadius:8,padding:"8px 14px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
+                    <button onClick={cancelEdit} style={{background:"none",border:"1px solid #E4E0D5",borderRadius:8,padding:"8px 14px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
                     {editError && <span style={{fontSize:12,color:"#ef4444"}}>{editError}</span>}
                     {editSuccess && <span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>✓ {editSuccess}</span>}
                   </div>
@@ -6411,13 +6456,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                     <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:8}}>Fitting Info</div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10}}>
                       <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Fitting Type</label>
-                        <select value={editDraft.fittingType} onChange={e=>setEditDraft(d=>({...d,fittingType:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",background:"white",boxSizing:"border-box"}}>
+                        <select value={editDraft.fittingType} onChange={e=>setEditDraft(d=>({...d,fittingType:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",background:"white",boxSizing:"border-box"}}>
                           {["Bilateral","Monaural Left","Monaural Right","CROS/BiCROS"].map(t=><option key={t}>{t}</option>)}
                         </select>
                       </div>
-                      <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Serial (L)</label><input value={editDraft.serialLeft} onChange={e=>setEditDraft(d=>({...d,serialLeft:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
-                      <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Serial (R)</label><input value={editDraft.serialRight} onChange={e=>setEditDraft(d=>({...d,serialRight:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
-                      <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Warranty Expiry</label><input type="date" value={editDraft.warrantyExpiry} onChange={e=>setEditDraft(d=>({...d,warrantyExpiry:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                      <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Serial (L)</label><input value={editDraft.serialLeft} onChange={e=>setEditDraft(d=>({...d,serialLeft:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                      <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Serial (R)</label><input value={editDraft.serialRight} onChange={e=>setEditDraft(d=>({...d,serialRight:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                      <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Warranty Expiry</label><input type="date" value={editDraft.warrantyExpiry} onChange={e=>setEditDraft(d=>({...d,warrantyExpiry:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
                     </div>
                   </div>
                   {/* Per-side device fields — cascading dropdowns */}
@@ -6429,11 +6474,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                     const { availMfrs, availGens, availFamilies, selectedFamily, availColors, availBatteries, availPowers, availDomes } = derived;
                     const requiresEarmold = availPowers.find(p=>p.id===sd.receiverPower)?.earmold === true;
                     const variantRequired = (selectedFamily?.variants?.length || 0) > 1;
-                    const selSty = {width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",background:"white",boxSizing:"border-box"};
+                    const selSty = {width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",background:"white",boxSizing:"border-box"};
                     const lblSty = {fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4};
                     const updSD = (updates) => setEditDraft(d=>({...d,[side]:{...d[side],...updates}}));
                     return (
-                      <div key={side} style={{marginBottom:14,paddingBottom:14,borderTop:"1px solid #f3f4f6",paddingTop:14}}>
+                      <div key={side} style={{marginBottom:14,paddingBottom:14,borderTop:"1px solid #F0EDE3",paddingTop:14}}>
                         <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:8}}>{sideLabel}</div>
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
 
@@ -6557,7 +6602,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                   })}
                   <div style={{display:"flex",gap:8,alignItems:"center",marginTop:10}}>
                     <button onClick={saveEditDevices} disabled={editSaving} style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 18px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:editSaving?"wait":"pointer",opacity:editSaving?0.7:1}}>{editSaving?"Saving…":"Save Changes"}</button>
-                    <button onClick={cancelEdit} style={{background:"none",border:"1px solid #e5e7eb",borderRadius:8,padding:"8px 14px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
+                    <button onClick={cancelEdit} style={{background:"none",border:"1px solid #E4E0D5",borderRadius:8,padding:"8px 14px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
                     {editError && <span style={{fontSize:12,color:"#ef4444"}}>{editError}</span>}
                     {editSuccess && <span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>✓ {editSuccess}</span>}
                   </div>
@@ -6566,13 +6611,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 <>
                   <div style={{marginBottom:10,display:"flex",alignItems:"center",gap:8}}>
                     <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>Fitting Type</span>
-                    <span style={{fontSize:12,fontWeight:700,color:"#0a1628",background:"#f3f4f6",borderRadius:6,padding:"2px 8px"}}>{p.devices?.fittingType||"Bilateral"}</span>
+                    <span style={{fontSize:12,fontWeight:700,color:"#0a1628",background:"#F0EDE3",borderRadius:6,padding:"2px 8px"}}>{p.devices?.fittingType||"Bilateral"}</span>
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
                   {[p.devices?.left, p.devices?.right].map((side, idx) => {
                     const sideLabel = idx===0 ? "👂 Left Ear" : "Right Ear 👂";
                     if (!side) return (
-                      <div key={idx}><div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:6,paddingBottom:4,borderBottom:"1px solid #e5e7eb"}}>{sideLabel}</div><div style={{color:"#9ca3af",fontSize:13,padding:"8px 0"}}>Not configured</div></div>
+                      <div key={idx}><div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:6,paddingBottom:4,borderBottom:"1px solid #E4E0D5"}}>{sideLabel}</div><div style={{color:"#9ca3af",fontSize:13,padding:"8px 0"}}>Not configured</div></div>
                     );
                     const isTH = side.manufacturer === "TruHearing";
                     const pwrLabel = isTH
@@ -6586,7 +6631,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                       : (isEm ? "Custom Earmold" : (side.dome || "N/A"));
                     return (
                       <div key={idx}>
-                        <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:6,paddingBottom:4,borderBottom:"1px solid #e5e7eb"}}>{sideLabel}</div>
+                        <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:6,paddingBottom:4,borderBottom:"1px solid #E4E0D5"}}>{sideLabel}</div>
                         {[["Manufacturer",side.manufacturer],["Model",side.family||"—"],["Tech Level",side.techLevel||"—"],["Body Style",BODY_STYLES.find(s=>s.id===side.style)?.label||side.style],["Color",side.color||"N/A"],["Battery",side.battery||"—"],
                           ...(side.style==="ric"||side.style==="ric_bct"||side.style==="sr" ? [["Receiver Length",side.receiverLength||"—"],["Receiver Power",pwrLabel]] : []),
                           ...(BODY_STYLES.find(b=>b.id===side.style)?.hasDome||side.style==="ric_bct"||side.style==="sr" ? [["Dome / Coupling",domeVal]] : []),
@@ -6597,7 +6642,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                     );
                   })}
                   </div>
-                  <div style={{borderTop:"1px solid #f3f4f6",paddingTop:12,display:"grid",gridTemplateColumns:"1fr 1fr"}}>
+                  <div style={{borderTop:"1px solid #F0EDE3",paddingTop:12,display:"grid",gridTemplateColumns:"1fr 1fr"}}>
                     {[["Serial (L)",p.devices?.serialLeft],["Serial (R)",p.devices?.serialRight],["Fitting Date",fmtDate(p.devices?.fittingDate||p.createdAt)],["Warranty Expires",fmtDate(p.devices?.warrantyExpiry)],["Warranty Status",days<0?"Expired":`${days} days remaining`]].map(([k,v])=>(
                       <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val" style={k==="Warranty Status"?{color:days<0?"#ef4444":days<90?"#f59e0b":"#16a34a"}:{}}>{v||"—"}</span></div>
                     ))}
@@ -6634,7 +6679,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                           </div>
                         )}
                         {(aud.unaidedR!=null||aud.unaidedL!=null)&&(
-                          <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 12px"}}>
+                          <div style={{background:"#FAF8F2",border:"1px solid #E4E0D5",borderRadius:8,padding:"10px 12px"}}>
                             <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>CCT Unaided</div>
                             {aud.unaidedR!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>R: {aud.unaidedR}%</div>}
                             {aud.unaidedL!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>L: {aud.unaidedL}%</div>}
@@ -6663,14 +6708,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                           </div>
                         )}
                         {(aud.aidedR!=null||aud.aidedL!=null)&&(
-                          <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 12px"}}>
+                          <div style={{background:"#FAF8F2",border:"1px solid #E4E0D5",borderRadius:8,padding:"10px 12px"}}>
                             <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>WRS @ MCL</div>
                             {aud.aidedR!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>R: {aud.aidedR}%</div>}
                             {aud.aidedL!=null&&<div style={{fontSize:13,color:"#0a1628",fontWeight:600}}>L: {aud.aidedL}%</div>}
                           </div>
                         )}
                         {aud.sinBin!=null&&(
-                          <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 12px"}}>
+                          <div style={{background:"#FAF8F2",border:"1px solid #E4E0D5",borderRadius:8,padding:"10px 12px"}}>
                             <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>QuickSIN</div>
                             <div style={{fontSize:20,fontWeight:800,color:"#0a1628",lineHeight:1}}>{aud.sinBin} <span style={{fontSize:10,fontWeight:400,color:"#9ca3af"}}>dB SNR</span></div>
                             <div style={{fontSize:10,fontWeight:600,marginTop:2,
@@ -6689,7 +6734,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                         )}
                       </div>
                       {/* Right column: audiogram chart */}
-                      <div style={{background:"#fafafa",border:"1px solid #e5e7eb",borderRadius:10,padding:"12px 8px"}}>
+                      <div style={{background:"#fafafa",border:"1px solid #E4E0D5",borderRadius:10,padding:"12px 8px"}}>
                         <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false}/>
                       </div>
                     </div>
@@ -6733,7 +6778,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                                     : '#dcfce7';
                     const sizeKb = d.byte_size ? Math.round(d.byte_size / 1024) : null;
                     return (
-                      <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#f9fafb",borderRadius:8,border:"1px solid #e5e7eb"}}>
+                      <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#FAF8F2",borderRadius:8,border:"1px solid #E4E0D5"}}>
                         <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20,background:kindBg,color:kindColor,letterSpacing:0.4,textTransform:"uppercase"}}>{kindLabel}</span>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{fontSize:13,fontWeight:600,color:"#0a1628",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.file_name}</div>
@@ -6763,7 +6808,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                                  console.error("getDocumentSignedUrl:", err);
                                }
                              }}
-                             style={{fontSize:12,fontWeight:600,color:"#0a1628",background:"white",border:"1px solid #e5e7eb",borderRadius:6,padding:"6px 12px",textDecoration:"none"}}>
+                             style={{fontSize:12,fontWeight:600,color:"#0a1628",background:"white",border:"1px solid #E4E0D5",borderRadius:6,padding:"6px 12px",textDecoration:"none"}}>
                             Open ↗
                           </a>
                         ) : (
@@ -6804,7 +6849,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                     return (
                       <div key={m.id}
                         onClick={() => setExpandedMessageId(expanded ? null : m.id)}
-                        style={{padding:"12px 14px",background:"#f9fafb",borderRadius:8,border:"1px solid #e5e7eb",cursor:"pointer",transition:"background 0.15s"}}
+                        style={{padding:"12px 14px",background:"#FAF8F2",borderRadius:8,border:"1px solid #E4E0D5",cursor:"pointer",transition:"background 0.15s"}}
                       >
                         <div style={{display:"flex",alignItems:"center",gap:10}}>
                           <div style={{flex:1,minWidth:0}}>
@@ -6819,7 +6864,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                           <span style={{fontSize:11,color:"#9ca3af",marginLeft:4}}>{expanded ? "▲" : "▼"}</span>
                         </div>
                         {expanded && (
-                          <div style={{fontSize:13,color:"#374151",lineHeight:1.55,marginTop:10,paddingTop:10,borderTop:"1px dashed #e5e7eb",whiteSpace:"pre-wrap"}}>
+                          <div style={{fontSize:13,color:"#374151",lineHeight:1.55,marginTop:10,paddingTop:10,borderTop:"1px dashed #E4E0D5",whiteSpace:"pre-wrap"}}>
                             {m.body}
                           </div>
                         )}
@@ -6859,7 +6904,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                           setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
                         } catch (err) { console.error("recordUpgradeOutcome tier:", err); }
                       }}
-                      style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:6,fontSize:13,fontFamily:"'Sora',sans-serif"}}
+                      style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:6,fontSize:13,fontFamily:"'Sora',sans-serif"}}
                     />
                   </div>
                   <div>
@@ -6878,7 +6923,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                           setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
                         } catch (err) { console.error("recordUpgradeOutcome outcome:", err); }
                       }}
-                      style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:6,fontSize:13,fontFamily:"'Sora',sans-serif",background:"white"}}
+                      style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:6,fontSize:13,fontFamily:"'Sora',sans-serif",background:"white"}}
                     >
                       <option value="">— not yet discussed —</option>
                       <option value="pending">Pending — conversation started</option>
@@ -6905,7 +6950,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                           setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
                         } catch (err) { console.error("recordUpgradeOutcome donation:", err); }
                       }}
-                      style={{width:"100%",padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:6,fontSize:13,fontFamily:"'Sora',sans-serif"}}
+                      style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:6,fontSize:13,fontFamily:"'Sora',sans-serif"}}
                     />
                   </div>
                 )}
@@ -6940,7 +6985,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                         <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:6}}>Campaign Status</label>
                         <div style={{display:"flex",gap:8}}>
                           {[["active","▶ Active"],["paused","⏸ Paused"],["cancelled","✕ Cancelled"]].map(([val,label])=>(
-                            <div key={val} onClick={()=>setEditDraft(d=>({...d,status:val}))} style={{padding:"8px 16px",border:`2px solid ${editDraft.status===val?"#0a1628":"#e5e7eb"}`,borderRadius:10,cursor:"pointer",background:editDraft.status===val?"#f8fafc":"white",transition:"all 0.15s",fontSize:13,fontWeight:600,color:editDraft.status===val?"#0a1628":"#6b7280"}}>
+                            <div key={val} onClick={()=>setEditDraft(d=>({...d,status:val}))} style={{padding:"8px 16px",border:`2px solid ${editDraft.status===val?"#0a1628":"#E4E0D5"}`,borderRadius:10,cursor:"pointer",background:editDraft.status===val?"#FBF9F3":"white",transition:"all 0.15s",fontSize:13,fontWeight:600,color:editDraft.status===val?"#0a1628":"#6b7280"}}>
                               {label}
                             </div>
                           ))}
@@ -6949,7 +6994,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                       {/* Trigger date */}
                       <div style={{marginBottom:14}}>
                         <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Trigger Date (campaign start anchor)</label>
-                        <input type="date" value={editDraft.triggerDate} onChange={e=>setEditDraft(d=>({...d,triggerDate:e.target.value}))} style={{padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none"}} />
+                        <input type="date" value={editDraft.triggerDate} onChange={e=>setEditDraft(d=>({...d,triggerDate:e.target.value}))} style={{padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none"}} />
                         <div style={{fontSize:11,color:"#9ca3af",marginTop:4}}>Changing this date shifts all pending deliveries forward or backward relative to their original schedule.</div>
                       </div>
                       {/* Per-delivery scheduled dates */}
@@ -6958,11 +7003,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                           <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:8}}>Delivery Schedule</label>
                           <div style={{display:"flex",flexDirection:"column",gap:6}}>
                             {editDraft.deliveries.map((d,i) => (
-                              <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"#f9fafb",borderRadius:8,border:"1px solid #e5e7eb"}}>
+                              <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"#FAF8F2",borderRadius:8,border:"1px solid #E4E0D5"}}>
                                 <span style={{fontSize:11,fontWeight:700,color:"#9ca3af",width:20,flexShrink:0}}>#{d.stepOrder}</span>
                                 <span style={{fontSize:12,color:"#374151",flex:1}}>{d.channel || "Message"} · Day {d.delayDays}</span>
                                 <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:600,background:d.status==="sent"||d.status==="delivered"?"#dcfce7":d.status==="pending"?"#fef9c3":"#fee2e2",color:d.status==="sent"||d.status==="delivered"?"#16a34a":d.status==="pending"?"#854d0e":"#dc2626"}}>{d.status}</span>
-                                <input type="date" value={d.scheduledDate} onChange={e=>{const ds=[...editDraft.deliveries];ds[i]={...ds[i],scheduledDate:e.target.value};setEditDraft(dd=>({...dd,deliveries:ds}));}} style={{padding:"5px 8px",border:"1px solid #e5e7eb",borderRadius:6,fontFamily:"'Sora',sans-serif",fontSize:12,outline:"none"}} />
+                                <input type="date" value={d.scheduledDate} onChange={e=>{const ds=[...editDraft.deliveries];ds[i]={...ds[i],scheduledDate:e.target.value};setEditDraft(dd=>({...dd,deliveries:ds}));}} style={{padding:"5px 8px",border:"1px solid #E4E0D5",borderRadius:6,fontFamily:"'Sora',sans-serif",fontSize:12,outline:"none"}} />
                               </div>
                             ))}
                           </div>
@@ -6970,7 +7015,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                       )}
                       <div style={{display:"flex",gap:8,alignItems:"center",marginTop:10}}>
                         <button onClick={saveEditCampaign} disabled={editSaving} style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 18px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:editSaving?"wait":"pointer",opacity:editSaving?0.7:1}}>{editSaving?"Saving…":"Save Changes"}</button>
-                        <button onClick={cancelEdit} style={{background:"none",border:"1px solid #e5e7eb",borderRadius:8,padding:"8px 14px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
+                        <button onClick={cancelEdit} style={{background:"none",border:"1px solid #E4E0D5",borderRadius:8,padding:"8px 14px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",color:"#6b7280"}}>Cancel</button>
                         {editError && <span style={{fontSize:12,color:"#ef4444"}}>{editError}</span>}
                         {editSuccess && <span style={{fontSize:12,color:"#16a34a",fontWeight:600}}>✓ {editSuccess}</span>}
                       </div>
@@ -6979,14 +7024,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                     <div>
                       {/* Status + progress bar */}
                       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
-                        <span style={{fontSize:12,fontWeight:700,padding:"3px 12px",borderRadius:20,border:"1px solid",background:campaign.status==="active"?"#dcfce7":campaign.status==="paused"?"#fef9c3":"#f3f4f6",color:campaign.status==="active"?"#16a34a":campaign.status==="paused"?"#854d0e":"#6b7280",borderColor:campaign.status==="active"?"#bbf7d0":campaign.status==="paused"?"#fde68a":"#e5e7eb"}}>
+                        <span style={{fontSize:12,fontWeight:700,padding:"3px 12px",borderRadius:20,border:"1px solid",background:campaign.status==="active"?"#dcfce7":campaign.status==="paused"?"#fef9c3":"#F0EDE3",color:campaign.status==="active"?"#16a34a":campaign.status==="paused"?"#854d0e":"#6b7280",borderColor:campaign.status==="active"?"#bbf7d0":campaign.status==="paused"?"#fde68a":"#E4E0D5"}}>
                           {campaign.status==="active"?"▶ Active":campaign.status==="paused"?"⏸ Paused":"✕ Cancelled"}
                         </span>
                         <span style={{fontSize:12,color:"#6b7280"}}>{completedCount} of {totalCount} steps completed</span>
                         {campaign.trigger_date && <span style={{fontSize:11,color:"#9ca3af",marginLeft:"auto"}}>Started {fmtDate(campaign.trigger_date)}</span>}
                       </div>
                       {totalCount > 0 && (
-                        <div style={{background:"#f3f4f6",borderRadius:20,height:6,marginBottom:14,overflow:"hidden"}}>
+                        <div style={{background:"#F0EDE3",borderRadius:20,height:6,marginBottom:14,overflow:"hidden"}}>
                           <div style={{height:"100%",background:"#16a34a",borderRadius:20,width:`${progressPct}%`,transition:"width 0.3s"}} />
                         </div>
                       )}
@@ -6994,8 +7039,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                       {deliveries.length > 0 && (
                         <div style={{display:"flex",flexDirection:"column",gap:6}}>
                           {deliveries.map(d => (
-                            <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"#f9fafb",borderRadius:8,border:"1px solid #e5e7eb"}}>
-                              <div style={{width:20,height:20,borderRadius:"50%",background:d.status==="sent"||d.status==="delivered"?"#16a34a":d.status==="pending"?"#e5e7eb":"#ef4444",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                            <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"#FAF8F2",borderRadius:8,border:"1px solid #E4E0D5"}}>
+                              <div style={{width:20,height:20,borderRadius:"50%",background:d.status==="sent"||d.status==="delivered"?"#16a34a":d.status==="pending"?"#E4E0D5":"#ef4444",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                                 {(d.status==="sent"||d.status==="delivered") && <span style={{color:"white",fontSize:10,fontWeight:700}}>✓</span>}
                               </div>
                               <span style={{fontSize:12,color:"#374151",flex:1}}>{d.campaign_steps?.delivery_channel || "Message"} · Day {d.campaign_steps?.delay_days ?? "?"}</span>
@@ -7114,7 +7159,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
 
 
                     {totalLeft === 0 && (
-                      <div style={{marginTop:16,background:"rgba(74,222,128,0.1)",border:"1px solid rgba(74,222,128,0.2)",borderRadius:10,padding:"12px 16px",fontSize:13,color:"#4ade80",fontWeight:600,textAlign:"center"}}>
+                      <div style={{marginTop:16,background:"rgba(27,138,122,0.1)",border:"1px solid rgba(27,138,122,0.2)",borderRadius:10,padding:"12px 16px",fontSize:13,color:"#1B8A7A",fontWeight:600,textAlign:"center"}}>
                         All 28 visits used · Discuss renewal options with patient
                       </div>
                     )}
@@ -7257,7 +7302,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                   min={0}
                   step={0.01}
                   placeholder="—"
-                  style={{width:110,padding:"5px 9px",borderRadius:6,border:"1px solid #e5e7eb",fontSize:13,fontFamily:"'Sora',sans-serif",textAlign:"right"}}
+                  style={{width:110,padding:"5px 9px",borderRadius:6,border:"1px solid #E4E0D5",fontSize:13,fontFamily:"'Sora',sans-serif",textAlign:"right"}}
                   value={focused ? (msrp ?? "") : formatMoney(msrp)}
                   onFocus={() => setFocusedMoneyKey(fkey)}
                   onBlur={() => setFocusedMoneyKey(null)}
@@ -7421,7 +7466,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                   <div className="chip-row">
                     {STYLE_OPTS.map(s=>(
                       <div key={s} className={`chip ${catDraft.styles.includes(s)?"":"opacity:0.4"}`}
-                        style={{cursor:"pointer",background:catDraft.styles.includes(s)?"#0a1628":"#f3f4f6",color:catDraft.styles.includes(s)?"white":"#374151",border:catDraft.styles.includes(s)?"1px solid #0a1628":"1px solid #e5e7eb"}}
+                        style={{cursor:"pointer",background:catDraft.styles.includes(s)?"#0a1628":"#F0EDE3",color:catDraft.styles.includes(s)?"white":"#374151",border:catDraft.styles.includes(s)?"1px solid #0a1628":"1px solid #E4E0D5"}}
                         onClick={()=>setCatDraft(d=>({...d,styles:d.styles.includes(s)?d.styles.filter(x=>x!==s):[...d.styles,s]}))}>
                         {s.toUpperCase()}
                       </div>
@@ -7520,7 +7565,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                       <div className="chip-row">
                         {STYLE_OPTS.map(s=>(
                           <div key={s}
-                            style={{cursor:"pointer",display:"flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:20,fontSize:12,border:catDraft.styles.includes(s)?"1px solid #0a1628":"1px solid #e5e7eb",background:catDraft.styles.includes(s)?"#0a1628":"#f3f4f6",color:catDraft.styles.includes(s)?"white":"#374151"}}
+                            style={{cursor:"pointer",display:"flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:20,fontSize:12,border:catDraft.styles.includes(s)?"1px solid #0a1628":"1px solid #E4E0D5",background:catDraft.styles.includes(s)?"#0a1628":"#F0EDE3",color:catDraft.styles.includes(s)?"white":"#374151"}}
                             onClick={()=>setCatDraft(d=>({...d,styles:d.styles.includes(s)?d.styles.filter(x=>x!==s):[...d.styles,s]}))}>
                             {s.toUpperCase()}
                           </div>
@@ -7670,7 +7715,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     setInsDraft(d => ({ ...d, tiers: d.tiers.map((t, i) => i === idx ? { ...t, ...patch } : t) }));
   };
 
-  const insSelectStyle = { padding:"8px 12px", border:"1px solid #e5e7eb", borderRadius:8, fontSize:13, background:"white", fontFamily:"inherit" };
+  const insSelectStyle = { padding:"8px 12px", border:"1px solid #E4E0D5", borderRadius:8, fontSize:13, background:"white", fontFamily:"inherit" };
 
   const renderPlanEditPanel = (isNew) => (
     <div className="catalog-edit-panel">
@@ -7881,7 +7926,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                     </div>
                     {reason && (
                       <div style={{fontSize:12,color:"#374151",background:"white",borderRadius:8,
-                        padding:"8px 10px",border:"1px solid #f3f4f6",marginBottom:8}}>
+                        padding:"8px 10px",border:"1px solid #F0EDE3",marginBottom:8}}>
                         <span style={{fontSize:10,fontWeight:700,color:"#9ca3af",display:"block",
                           textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>Reason for Visit</span>
                         {reason}
@@ -7916,7 +7961,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
           </div>
           {isCloser && (
             <div onClick={()=>setShowCloserPicker(true)} title="Set the clinic + provider this is dispensed under"
-              style={{margin:"0 14px 12px",background:closerProvider?"rgba(74,222,128,0.1)":"rgba(245,158,11,0.12)",border:`1px solid ${closerProvider?"rgba(74,222,128,0.3)":"rgba(245,158,11,0.45)"}`,borderRadius:8,padding:"8px 10px",cursor:"pointer"}}>
+              style={{margin:"0 14px 12px",background:closerProvider?"rgba(27,138,122,0.1)":"rgba(245,158,11,0.12)",border:`1px solid ${closerProvider?"rgba(27,138,122,0.3)":"rgba(245,158,11,0.45)"}`,borderRadius:8,padding:"8px 10px",cursor:"pointer"}}>
               <div style={{fontSize:9,fontWeight:700,letterSpacing:2,color:"rgba(255,255,255,0.4)",textTransform:"uppercase",marginBottom:3}}>Dispensing Location</div>
               {closerProvider ? (
                 <div style={{fontSize:12,color:"rgba(255,255,255,0.85)",fontWeight:600,lineHeight:1.35}}>
@@ -7929,7 +7974,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
             </div>
           )}
           <div className="sidebar-nav">
-            {[["🏠","Dashboard","dashboard"],["👥","Patients","patients"],["🔔","Follow-up","followup"],["📅","Schedule","schedule"],["📊","Reports","reports"],["📬","Campaigns","campaigns"],["📚","Content Library","content"],["🎖️","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
+            {[["dashboard","Dashboard","dashboard"],["users","Patients","patients"],["bell","Follow-up","followup"],["calendar","Schedule","schedule"],["chart","Reports","reports"],["campaign","Campaigns","campaigns"],["book","Content Library","content"],["medal","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
               const badge = id === "followup" ? countFollowUpPatients(patients) : 0;
               return (
               <div key={id} className={`nav-item ${view===id||(id==="dashboard"&&view==="new")||(id==="patients"&&(view==="dashboard"||view==="patient"))?"active":""}`}
@@ -7937,7 +7982,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                   if(id==="dashboard"||id==="patients") setView("dashboard");
                   else setView(id);
                 }}>
-                <span className="nav-icon">{icon}</span>{label}
+                <span className="nav-icon"><Icon name={icon} size={17}/></span>{label}
                 {badge > 0 && (
                   <span style={{marginLeft:"auto",background:"#ef4444",color:"white",borderRadius:20,padding:"1px 7px",fontSize:10,fontWeight:700}}>{badge}</span>
                 )}
@@ -7948,9 +7993,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 were separately added and produced two Admin sections on merge. */}
             {checkRole(staffRole, ["admin"]) && <>
               <div className="nav-section-label">Admin</div>
-              {[["🪪","Providers","providers"],["🛡️","Insurance Plans","insurance-plans"],["📋","Product Catalog","catalog"],["⚙️","Settings","settings"]].map(([icon,label,id])=>(
+              {[["badge","Providers","providers"],["shield","Insurance Plans","insurance-plans"],["clipboard","Product Catalog","catalog"],["settings","Settings","settings"]].map(([icon,label,id])=>(
                 <div key={id} className={`nav-item ${view===id?"active":""}`} onClick={()=>setView(id)}>
-                  <span className="nav-icon">{icon}</span>{label}
+                  <span className="nav-icon"><Icon name={icon} size={17}/></span>{label}
                 </div>
               ))}
             </>}
@@ -7958,11 +8003,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
           {/* Intake queue button */}
           <div style={{padding:"12px 14px",borderTop:"1px solid rgba(255,255,255,0.07)"}}>
             <button onClick={() => setShowIntakeQueue(true)} style={{
-              width:"100%", background:"rgba(74,222,128,0.1)", border:"1px solid rgba(74,222,128,0.25)",
+              width:"100%", background:"rgba(27,138,122,0.1)", border:"1px solid rgba(27,138,122,0.25)",
               borderRadius:8, padding:"10px 14px", cursor:"pointer", display:"flex",
               alignItems:"center", justifyContent:"space-between", fontFamily:"'Sora',sans-serif",
             }}>
-              <span style={{fontSize:12,fontWeight:700,color:"#4ade80"}}>📋 Intake Queue</span>
+              <span style={{display:"flex",alignItems:"center",gap:8,fontSize:12,fontWeight:700,color:"#1B8A7A"}}><Icon name="inbox" size={16}/> Intake Queue</span>
               {pendingIntakes.length > 0 && (
                 <span style={{background:"#ef4444",color:"white",borderRadius:20,
                   padding:"2px 8px",fontSize:11,fontWeight:700}}>
@@ -7990,8 +8035,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
         <div className="main" ref={mainRef}>
           {/* Save toast */}
           {saveToast && (
-            <div style={{position:"fixed",top:16,right:16,zIndex:9999,background:"#0a1628",color:"#4ade80",padding:"10px 20px",borderRadius:10,fontSize:13,fontWeight:700,fontFamily:"'Sora',sans-serif",boxShadow:"0 4px 20px rgba(0,0,0,0.25)",display:"flex",alignItems:"center",gap:8,animation:"fadeIn 0.2s ease"}}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            <div style={{position:"fixed",top:16,right:16,zIndex:9999,background:"#0a1628",color:"#1B8A7A",padding:"10px 20px",borderRadius:10,fontSize:13,fontWeight:700,fontFamily:"'Sora',sans-serif",boxShadow:"0 4px 20px rgba(0,0,0,0.25)",display:"flex",alignItems:"center",gap:8,animation:"fadeIn 0.2s ease"}}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1B8A7A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
               Saved
             </div>
           )}
@@ -8195,7 +8240,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                         </div>
                         <button onClick={()=>setShowWizardPaModal(false)} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"#9ca3af",padding:"0 0 0 12px",lineHeight:1}}>✕</button>
                       </div>
-                      <div style={{height:1,background:"#e5e7eb",margin:"12px 0"}}/>
+                      <div style={{height:1,background:"#E4E0D5",margin:"12px 0"}}/>
 
                       {/* Patient */}
                       <div style={ss.section}>Patient Information</div>
@@ -8213,7 +8258,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                         </tr></thead>
                         <tbody>
                           {[["Right",rightRec],["Left",leftRec]].map(([label,d],i)=> d && (
-                            <tr key={label} style={{background:i%2===0?"#f8fafc":"white"}}>
+                            <tr key={label} style={{background:i%2===0?"#FBF9F3":"white"}}>
                               <td style={{padding:"6px 8px",fontWeight:600,color:"#0a1628"}}>{label}</td>
                               <td style={{padding:"6px 8px"}}>{d.manufacturer||"—"}</td>
                               <td style={{padding:"6px 8px"}}>{[d.family,d.variant,d.techLevel].filter(Boolean).join(" ")||"—"}</td>
@@ -8222,7 +8267,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                               <td style={{padding:"6px 8px",fontWeight:700}}>${effPerAid.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
                             </tr>
                           ))}
-                          <tr style={{background:"#e5e7eb"}}>
+                          <tr style={{background:"#E4E0D5"}}>
                             <td colSpan={5} style={{padding:"6px 8px",fontWeight:700,color:"#0a1628"}}>Device Total ({ac===2?"pair":"single"})</td>
                             <td style={{padding:"6px 8px",fontWeight:700,color:"#0a1628"}}>${devTotal.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
                           </tr>
@@ -8231,7 +8276,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
 
                       {/* Care Plan */}
                       <div style={ss.section}>{isPrivate ? "Included Care Plan" : "Care Plan"}</div>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid #e5e7eb",borderRadius:8,padding:"10px 14px"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid #E4E0D5",borderRadius:8,padding:"10px 14px"}}>
                         <div>
                           <div style={{fontWeight:700,fontSize:13,color:"#0a1628"}}>{cpLabel}</div>
                           <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{isPrivate ? "Bundled with your device purchase — no separate charge" : cpDesc}</div>
@@ -8259,7 +8304,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                       <div style={ss.body}>Patient is responsible to carefully follow all rehabilitation instructions and communicate with the provider on the progress with adjustments. During this time MHC may make any needed adjustments on the hearing aid(s) for the benefit of the patient's listening and hearing comfort. Patient should realize that adjusting to hearing aids is not an overnight experience and may take time. Patient also agrees to allow themselves time to adjust and allows MHC to assist them in their hearing rehabilitation. If MHC believes that, during the rehabilitation period, a different choice of circuitry, model, or choice of hearing aid(s) is better suited to the patient's needs, no extra cost will be incurred by the patient unless an upgrade of quality, model, or style is chosen. Suggested rehabilitation time is a minimum of 30 days. Additional time may be granted subject to approval by MHC.</div>
 
                       {/* Signature section */}
-                      <div style={{height:1,background:"#e5e7eb",margin:"24px 0"}}/>
+                      <div style={{height:1,background:"#E4E0D5",margin:"24px 0"}}/>
 
                       {paStep !== "sign" ? (
                         <div style={{textAlign:"center",padding:"20px 0"}}>
@@ -8278,7 +8323,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                             style={{width:"100%",padding:"12px 14px",borderRadius:8,border:"1px solid #d1d5db",fontFamily:"'Sora',sans-serif",fontSize:15,boxSizing:"border-box"}}
                           />
                           {paSignatureName.trim().length > 2 && (
-                            <div style={{marginTop:12,padding:"14px 18px",background:"#f8fafc",border:"1px solid #e5e7eb",borderRadius:10}}>
+                            <div style={{marginTop:12,padding:"14px 18px",background:"#FBF9F3",border:"1px solid #E4E0D5",borderRadius:10}}>
                               <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:6}}>Signature Preview</div>
                               <div style={{fontFamily:"Georgia,serif",fontStyle:"italic",fontSize:28,color:"#0a1628"}}>{paSignatureName}</div>
                             </div>
