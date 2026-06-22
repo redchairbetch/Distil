@@ -107,6 +107,7 @@ import CampaignManager from "./views/CampaignManager.jsx";
 import LimaCharlie from "./views/LimaCharlie.jsx";
 import FollowUpQueue, { countFollowUpPatients } from "./views/FollowUpQueue.jsx";
 import ProvidersAdmin from "./views/ProvidersAdmin.jsx";
+import AdjustmentHistory from "./views/AdjustmentHistory.jsx";
 import CloserLocationPicker from "./views/CloserLocationPicker.jsx";
 import AdjustPriceModal from "./views/AdjustPriceModal.jsx";
 
@@ -7988,6 +7989,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 )}
               </div>
             )})}
+            {/* Provider reflection tool — own price-adjustment history (spec §6/§11).
+                Not admin-gated: anyone who can adjust a price sees their own log. */}
+            {checkRole(staffRole, ["provider","closer","admin"]) && (
+              <div className={`nav-item ${view==="adjustments"?"active":""}`} onClick={()=>setView("adjustments")}>
+                <span className="nav-icon"><Icon name="tag" size={17}/></span>My Adjustments
+              </div>
+            )}
             {/* Admin group — catalog/config tooling; admin role only (backlog #17).
                 Single consolidated group: Providers (#102) + Insurance Plans (#100)
                 were separately added and produced two Admin sections on merge. */}
@@ -8065,6 +8073,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
           {view === "settings" && renderSettings()}
           {view === "catalog" && renderCatalog()}
           {view === "providers" && <ProvidersAdmin />}
+          {view === "adjustments" && <AdjustmentHistory staffId={staffId} patients={patients} />}
           {view === "insurance-plans" && renderInsurancePlans()}
           {view === "campaigns" && <CampaignManager clinicId={clinicId} staffId={staffId} patients={patients} />}
           {view === "content" && <ContentLibrary clinicId={clinicId} staffId={staffId} />}
