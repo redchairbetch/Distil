@@ -17,8 +17,11 @@ import {
 import {
   normalizeAudiogramInput,
   normalizeIntakeInput,
+  unwrapIntakeAnswers,
 } from '../recommendationEngine.js'
 import { tnsTagLabel } from '../tns_tags.js'
+import { flaggedEnvironments, COVERAGE_BY_RANK } from '../listeningSituations.js'
+import { EnvironmentCoverage } from '../components/CoverageBars.jsx'
 
 // Narrative §3 — Chapter 3: Recommendation. Patient cost first, always.
 // Retail shown only as "full retail value" anchor. Premium label is banned;
@@ -237,6 +240,14 @@ export default function DeviceSelection({ patientId, staffId, clinicId }) {
     return normalizeIntakeInput(recInputs.intakeAnswers)
   }, [recInputs])
 
+  // Environments the patient flagged as struggles — drives the prominent
+  // rows in the environment-fit chart. Unwrap first: the kiosk stores
+  // answers as {_meta, answers, consent}; flaggedEnvironments wants flat keys.
+  const flaggedEnvs = useMemo(
+    () => flaggedEnvironments(unwrapIntakeAnswers(recInputs?.intakeAnswers)),
+    [recInputs],
+  )
+
   if (state.loading) {
     return (
       <div style={styles.page}>
@@ -283,6 +294,12 @@ export default function DeviceSelection({ patientId, staffId, clinicId }) {
         payType={patient?.pay_type}
         selectedRank={selectedRank}
         onSelectRank={setSelectedRank}
+      />
+
+      <EnvironmentFit
+        selectedRank={selectedRank}
+        anchorsByKey={anchorsByKey}
+        flagged={flaggedEnvs}
       />
 
       <RationaleEditor rec={rec} onSaved={updated => setRec(r => ({ ...r, ...updated }))} />
@@ -621,6 +638,39 @@ function FeatureList({ tier }) {
 }
 
 // ============================================================
+// ENVIRONMENT FIT — how the selected tier handles the patient's day
+// ============================================================
+
+// Carries the Technology Tier step's listening-environment comparison onto
+// this screen (context.md Distil #25). Reflects the currently-selected tier,
+// so the bars re-fill when the provider/patient moves between tier cards.
+function EnvironmentFit({ selectedRank, anchorsByKey, flagged }) {
+  if (selectedRank == null || !COVERAGE_BY_RANK[selectedRank]) return null
+  const tierLabel = anchorsByKey?.[ANCHOR_KEY_BY_RANK[selectedRank]]?.label || `Tier ${selectedRank}`
+  const hasFlagged = flagged && flagged.size > 0
+  return (
+    <div style={styles.envPanel}>
+      <div style={styles.zoneLabel}>Environment fit</div>
+      <div style={styles.envTitle}>How {tierLabel} technology handles your day</div>
+      <div style={styles.envSub}>
+        {hasFlagged
+          ? 'Performance across the situations you told us are hardest — and everywhere else.'
+          : 'Expected performance across everyday listening environments.'}
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <EnvironmentCoverage rank={selectedRank} flagged={flagged} />
+      </div>
+      <div style={styles.envLegend}>
+        Bars show how fully each environment is supported —
+        <span style={{ color: '#16a34a', fontWeight: 700 }}> green</span> is fully covered,
+        <span style={{ color: '#dc2626', fontWeight: 700 }}> red</span> is where even the best
+        technology has limits.
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
 // RATIONALE EDITOR — always-open textarea, save on blur
 // ============================================================
 
@@ -943,6 +993,33 @@ const styles = {
     gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
     gap: 16,
     marginBottom: 24,
+  },
+  envPanel: {
+    background: 'white',
+    border: `1px solid ${COLOR.line}`,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+  },
+  envTitle: {
+    fontFamily: "'Fraunces', Georgia, serif",
+    fontSize: 18,
+    fontWeight: 700,
+    color: COLOR.ink,
+    marginTop: 2,
+  },
+  envSub: {
+    fontSize: 12,
+    color: COLOR.muted,
+    marginTop: 3,
+  },
+  envLegend: {
+    fontSize: 11,
+    color: COLOR.faint,
+    marginTop: 14,
+    paddingTop: 12,
+    borderTop: `1px solid ${COLOR.line}`,
+    lineHeight: 1.5,
   },
   card: {
     position: 'relative',

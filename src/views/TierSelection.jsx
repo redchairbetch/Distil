@@ -7,6 +7,7 @@ import {
   SITUATION_LABEL,
   flaggedEnvironments,
 } from "../listeningSituations.js";
+import { EnvironmentCoverage } from "../components/CoverageBars.jsx";
 
 // Technology Tier Selection — wizard step between Results and Device
 // Selection. Shows the patient three tier cards (filtered by insurance
@@ -357,11 +358,6 @@ function TierCard({ tier, selected, recommended, selectable, blurb, flagged, onS
   const rank = tierLabelToRank(tier.label);
   const coverage = rank != null ? COVERAGE_BY_RANK[rank] : null;
 
-  // Split environments into "flagged for this patient" vs "other".
-  // If the patient flagged none, show all in the "other" group.
-  const flaggedEnvs = flagged.size > 0 ? ENVIRONMENTS.filter(e => flagged.has(e.id)) : [];
-  const otherEnvs   = flagged.size > 0 ? ENVIRONMENTS.filter(e => !flagged.has(e.id)) : ENVIRONMENTS;
-
   // Recommended (engine pick) is the dominant visual state. The selected
   // state only matters in the manual-fallback mode — when the engine has
   // produced a pick, cards are read-only and `selectable` is false.
@@ -406,26 +402,7 @@ function TierCard({ tier, selected, recommended, selectable, blurb, flagged, onS
 
       {coverage ? (
         <div style={{ borderTop:`1px solid ${BORDER}`, padding:"12px 16px", flex:1 }}>
-          {flaggedEnvs.length > 0 && (
-            <>
-              <div style={{ fontSize:10, fontWeight:700, color:TEAL_DARK, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>
-                Your most challenging environments
-              </div>
-              <div style={{ display:"flex", flexDirection:"column", gap:5, marginBottom:14 }}>
-                {flaggedEnvs.map(env => (
-                  <CoverageRow key={env.id} label={env.label} pct={coverage[env.id]} prominent />
-                ))}
-              </div>
-            </>
-          )}
-          <div style={{ fontSize:10, fontWeight:700, color:MUTED, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>
-            {flaggedEnvs.length > 0 ? "Other environments" : "All listening environments"}
-          </div>
-          <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
-            {otherEnvs.map(env => (
-              <CoverageRow key={env.id} label={env.label} pct={coverage[env.id]} />
-            ))}
-          </div>
+          <EnvironmentCoverage rank={rank} flagged={flagged} />
         </div>
       ) : (
         <div style={{ borderTop:`1px solid ${BORDER}`, padding:"12px 16px", flex:1, fontSize:12, color:MUTED, fontStyle:"italic" }}>
@@ -449,39 +426,6 @@ function TierCard({ tier, selected, recommended, selectable, blurb, flagged, onS
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// Red (≤50%) → Yellow (75%) → Green (100%) gradient. Linear RGB
-// interpolation between anchors so adjacent percentages read as
-// distinct shades — easier to scan than the prior 4-bucket palette.
-function coverageColor(pct) {
-  const RED = [220, 38, 38];   // #dc2626
-  const YEL = [234, 179, 8];   // #eab308
-  const GRN = [22, 163, 74];   // #16a34a
-  const lerp = (a, b, t) => Math.round(a + (b - a) * t);
-  const mix = (c1, c2, t) =>
-    `rgb(${lerp(c1[0], c2[0], t)}, ${lerp(c1[1], c2[1], t)}, ${lerp(c1[2], c2[2], t)})`;
-  if (pct <= 50) return `rgb(${RED.join(",")})`;
-  if (pct >= 100) return `rgb(${GRN.join(",")})`;
-  if (pct <= 75) return mix(RED, YEL, (pct - 50) / 25);
-  return mix(YEL, GRN, (pct - 75) / 25);
-}
-
-function CoverageRow({ label, pct, prominent = false }) {
-  const fillColor = coverageColor(pct);
-  return (
-    <div style={{ display:"flex", alignItems:"center", gap:8, fontSize: prominent ? 12 : 11 }}>
-      <div style={{ flex:1, color: prominent ? TEXT : MUTED, fontWeight: prominent ? 600 : 500 }}>
-        {label}
-      </div>
-      <div style={{ flex:"0 0 70px", height:6, background:BORDER, borderRadius:3, overflow:"hidden" }}>
-        <div style={{ width:`${pct}%`, height:"100%", background:fillColor, transition:"width 0.2s" }} />
-      </div>
-      <div style={{ flex:"0 0 32px", textAlign:"right", fontSize:10, color: prominent ? TEXT : FAINT, fontWeight:600 }}>
-        {pct}%
-      </div>
     </div>
   );
 }
