@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import {
   createVisit, updateVisit, saveUpgradeAssessment,
   updatePatientAudiology, loadBaselineAudiology, loadVisitAudiology,
-  recordUpgradeOutcome,
+  recordUpgradeOutcome, loadLatestUpgradeIntake,
 } from "../db.js";
 import {
   scoreReadiness,
@@ -149,6 +149,11 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
+  // Patient self-reported check-in from the kiosk annual/upgrade route (backlog
+  // #23). Pre-fills the REVIEW check-in + CURRENT performance tags so the
+  // provider confirms/adjusts rather than re-asks. { refId, submittedAt } | null.
+  const [kioskPrefill, setKioskPrefill] = useState(null);
+
   const firstName = patient?.name?.split(" ")[0] || "the patient";
   const isUpgradeYear = journeyYear >= 4;
 
@@ -229,6 +234,40 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
   useEffect(() => {
     if (decisionState && !rationaleEdited) setRationaleDraft(decisionState.rationale);
   }, [decisionState, rationaleEdited]);
+
+  // Pre-fill the check-in from the patient's most recent kiosk annual/upgrade
+  // submission (if linked to this patient). Runs once on mount; only seeds the
+  // fields the provider hasn't touched yet. Keys are filtered against the live
+  // option lists so a stale kiosk key never sets an un-rendered chip.
+  useEffect(() => {
+    if (!patient?.id) return;
+    let cancelled = false;
+    (async () => {
+      const hit = await loadLatestUpgradeIntake(patient.id);
+      if (cancelled || !hit?.readiness) return;
+      const r = hit.readiness;
+      const envKeys = new Set(STRUGGLE_ENVIRONMENTS.map((e) => e.key));
+      const featKeys = new Set(FEATURE_GAPS.map((f) => f.key));
+      const tagKeys = new Set(PERFORMANCE_TAGS.map((t) => t.key));
+      if (typeof r.satisfaction === "number") setSatisfaction((prev) => (prev == null ? r.satisfaction : prev));
+      if (Array.isArray(r.environments)) {
+        const vals = r.environments.filter((k) => envKeys.has(k));
+        if (vals.length) setEnvironments((prev) => (prev.length ? prev : vals));
+      }
+      if (Array.isArray(r.featureGaps)) {
+        const vals = r.featureGaps.filter((k) => featKeys.has(k));
+        if (vals.length) setFeatureGaps((prev) => (prev.length ? prev : vals));
+      }
+      if (Array.isArray(r.issues)) {
+        const vals = r.issues.filter((k) => tagKeys.has(k));
+        if (vals.length) setPerfTags((prev) => (prev.length ? prev : vals));
+      }
+      if (r.notes) setChangeNotes((prev) => (prev ? prev : r.notes));
+      setKioskPrefill({ refId: hit.refId, submittedAt: hit.submittedAt });
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patient?.id]);
 
   const toggle = (arr, setArr, key) =>
     setArr(arr.includes(key) ? arr.filter((k) => k !== key) : [...arr, key]);
@@ -445,6 +484,11 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
               <p style={{ margin: "0 0 20px", color: "#6b7280", fontSize: 14 }}>
                 How are the current aids actually performing? Flag any real-world issues and set a performance tier.
               </p>
+              {kioskPrefill && perfTags.length > 0 && (
+                <div style={{ background: "#f0fdfa", border: "1px solid #5eead4", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#0f766e", lineHeight: 1.5 }}>
+                  ✓ Issues below pre-filled from {firstName}'s kiosk check-in. Confirm or adjust.
+                </div>
+              )}
               <div style={{ marginBottom: 20 }}>
                 <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>Real-world issues</label>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -533,6 +577,11 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
               <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 20 }}>
                 <h3 style={{ margin: "0 0 2px", fontFamily: "'Sora',sans-serif", fontSize: 16 }}>Annual check-in</h3>
                 <p style={{ margin: "0 0 16px", color: "#6b7280", fontSize: 13 }}>How are things going with the current aids?</p>
+                {kioskPrefill && (
+                  <div style={{ background: "#f0fdfa", border: "1px solid #5eead4", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#0f766e", lineHeight: 1.5 }}>
+                    ✓ Pre-filled from {firstName}'s kiosk check-in{kioskPrefill.submittedAt ? ` (${fmtDate(kioskPrefill.submittedAt)})` : ""}. Confirm or adjust below.
+                  </div>
+                )}
 
                 <div style={{ marginBottom: 20 }}>
                   <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>

@@ -1889,6 +1889,33 @@ export async function loadIntakesForPatient(patientId) {
   }))
 }
 
+// Load the patient's most recent kiosk annual/upgrade check-in (backlog #23,
+// kiosk side). Returns the structured upgradeReadiness object the kiosk wrote
+// (satisfaction / environments / featureGaps / issues / notes — keys aligned
+// with upgradeReadiness.js) so the UpgradeWizard REVIEW step can pre-fill from
+// the patient's self-report. The intake must already be LINKED to the patient
+// (patient_id set via the provider intake-queue accept step); an unlinked kiosk
+// submission isn't visible here yet. Returns null when no upgrade intake exists.
+export async function loadLatestUpgradeIntake(patientId) {
+  if (!patientId) return null
+  const { data, error } = await supabase
+    .from('intakes')
+    .select('id, answers, submitted_at')
+    .eq('patient_id', patientId)
+    .order('submitted_at', { ascending: false })
+  if (error) { console.error('loadLatestUpgradeIntake:', error); return null }
+  // intakes.answers wraps the kiosk payload: { _meta, answers, consent }.
+  const row = (data || []).find(r => r?.answers?._meta?.intakeType === 'upgrade')
+  if (!row) return null
+  const readiness = row.answers?.answers?.upgradeReadiness || null
+  return {
+    intakeId:    row.id,
+    submittedAt: row.submitted_at,
+    refId:       row.answers?._meta?.intakeId || null,
+    readiness,
+  }
+}
+
 // Patch a single answer field on an intake. Called per-field on blur
 // from the Health History wizard step so the provider's clinical review
 // edits persist without a Save button.
