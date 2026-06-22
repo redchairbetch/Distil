@@ -1679,6 +1679,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   const [pendingIntakes,  setPendingIntakes]  = useState([]);
   const [intakeToast,     setIntakeToast]     = useState(null);
   const [showIntakeQueue, setShowIntakeQueue] = useState(false);
+  // Intake currently being matched to an existing patient (annual/upgrade
+  // check-ins link to the existing chart instead of spawning a new draft),
+  // plus the manual-search box for that match panel.
+  const [matchIntake,     setMatchIntake]     = useState(null);
+  const [matchSearch,     setMatchSearch]     = useState("");
   const seenIntakeIds = useRef(new Set());
 
   // ── TNS queue state ───────────────────────────────────────────────
@@ -2978,6 +2983,33 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   const handleDismissIntake = async (intakeId) => {
     try { await dismissIntake(intakeId); } catch {}
     setPendingIntakes(prev => prev.filter(i => i._meta?.intakeId !== intakeId));
+  };
+
+  // Link an annual/upgrade check-in to an EXISTING patient instead of creating
+  // a new draft (the create-new path is handleAcceptIntake). Sets
+  // intakes.patient_id so the UpgradeWizard's loadLatestUpgradeIntake can read
+  // the patient's self-reported readiness, then drops the provider straight into
+  // that wizard for the matched patient.
+  const handleMatchToPatient = async (intake, patient) => {
+    const intakeId = intake?._meta?.intakeId;
+    if (!intakeId || !patient) return;
+    try {
+      await linkIntakeToPatient(intakeId, patient.id, clinicId);
+      await dbAcceptIntake(intakeId);
+    } catch (e) {
+      console.error("handleMatchToPatient:", e);
+      alert(`Couldn't link this check-in to ${patient.name}. Please try again.`);
+      return;
+    }
+    setPendingIntakes(prev => prev.filter(i => i._meta?.intakeId !== intakeId));
+    setMatchIntake(null);
+    setMatchSearch("");
+    setShowIntakeQueue(false);
+    setIntakeToast(null);
+    refreshPatients();
+    // Open the established-patient flow for the matched chart — the wizard
+    // pre-fills from the check-in we just linked.
+    startNewVisitForPatient(patient);
   };
 
 
@@ -7912,10 +7944,20 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 const submitted = intake._meta?.submittedAt
                   ? new Date(intake._meta.submittedAt).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})
                   : "—";
+                // Annual/upgrade check-ins link to an existing chart (matcher
+                // below) instead of creating a new patient draft.
+                const isUpgrade = intake.answers?._meta?.intakeType === "upgrade";
+                const matchingThis = matchIntake?._meta?.intakeId === intake._meta?.intakeId;
                 return (
                   <div className="queue-card" key={intake._meta?.intakeId}>
                     <div className="queue-card-name">
                       {[a.firstName, a.lastName].filter(Boolean).join(" ") || "Unknown"}
+                      {isUpgrade && (
+                        <span style={{marginLeft:8,background:"#0f766e",color:"white",borderRadius:20,
+                          padding:"2px 9px",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,verticalAlign:"middle"}}>
+                          Annual / Upgrade
+                        </span>
+                      )}
                     </div>
                     <div className="queue-card-meta">Submitted {submitted}</div>
                     <div className="queue-card-fields">
@@ -7933,13 +7975,81 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                       </div>
                     )}
                     <div className="queue-card-actions">
-                      <button className="queue-accept" onClick={() => handleAcceptIntake(intake)}>
-                        ✓ Accept &amp; Start Intake
-                      </button>
+                      {isUpgrade ? (
+                        <button className="queue-accept" onClick={() => { setMatchIntake(matchingThis ? null : intake); setMatchSearch(""); }}>
+                          {matchingThis ? "Close" : "🔗 Match to Patient"}
+                        </button>
+                      ) : (
+                        <button className="queue-accept" onClick={() => handleAcceptIntake(intake)}>
+                          ✓ Accept &amp; Start Intake
+                        </button>
+                      )}
                       <button className="queue-dismiss" onClick={() => handleDismissIntake(intake._meta?.intakeId)}>
                         Dismiss
                       </button>
                     </div>
+                    {isUpgrade && matchingThis && (() => {
+                      // Candidates: same DOB first (strong key), then last-name
+                      // matches, then the manual-search results. De-duplicated by id.
+                      const intakeDob = a.dob || "";
+                      const lastLc = (a.lastName || "").toLowerCase();
+                      const q = matchSearch.trim().toLowerCase();
+                      const seen = new Set();
+                      const push = (list, p) => { if (p && !seen.has(p.id)) { seen.add(p.id); list.push(p); } };
+                      const dobMatches = []; const nameMatches = []; const searchResults = [];
+                      patients.forEach(p => {
+                        if (intakeDob && p.dob === intakeDob) push(dobMatches, p);
+                      });
+                      patients.forEach(p => {
+                        if (!seen.has(p.id) && lastLc && (p.name || "").toLowerCase().includes(lastLc)) push(nameMatches, p);
+                      });
+                      if (q) patients.forEach(p => {
+                        if (!seen.has(p.id) && ((p.name || "").toLowerCase().includes(q) || (p.dob || "").includes(q))) push(searchResults, p);
+                      });
+                      const Row = (p, tag) => (
+                        <button key={p.id} onClick={() => handleMatchToPatient(intake, p)}
+                          style={{display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",textAlign:"left",
+                            padding:"9px 12px",marginBottom:6,borderRadius:8,border:"1px solid #e5e7eb",background:"white",cursor:"pointer"}}>
+                          <span>
+                            <span style={{fontWeight:700,fontSize:13,color:"#111"}}>{p.name}</span>
+                            <span style={{fontSize:12,color:"#6b7280",marginLeft:8}}>DOB {p.dob || "—"}</span>
+                          </span>
+                          {tag && <span style={{fontSize:10,fontWeight:700,color:"#0f766e",background:"#f0fdfa",border:"1px solid #5eead4",borderRadius:12,padding:"1px 8px"}}>{tag}</span>}
+                        </button>
+                      );
+                      return (
+                        <div style={{marginTop:8,background:"#FAFAF7",border:"1px solid #F0EDE3",borderRadius:10,padding:"12px 12px 10px"}}>
+                          <div style={{fontSize:11,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:0.5,marginBottom:8}}>
+                            Match to existing patient
+                          </div>
+                          {dobMatches.length > 0 && (
+                            <div style={{marginBottom:8}}>
+                              <div style={{fontSize:11,color:"#0f766e",fontWeight:600,marginBottom:6}}>Same date of birth</div>
+                              {dobMatches.map(p => Row(p, "DOB match"))}
+                            </div>
+                          )}
+                          {nameMatches.length > 0 && (
+                            <div style={{marginBottom:8}}>
+                              <div style={{fontSize:11,color:"#6b7280",fontWeight:600,marginBottom:6}}>Same last name</div>
+                              {nameMatches.slice(0,5).map(p => Row(p, null))}
+                            </div>
+                          )}
+                          <input type="text" value={matchSearch} onChange={e => setMatchSearch(e.target.value)}
+                            placeholder="Search by name or DOB…"
+                            style={{width:"100%",boxSizing:"border-box",fontSize:13,padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,marginBottom:8,outline:"none"}} />
+                          {q && (searchResults.length > 0
+                            ? searchResults.slice(0,8).map(p => Row(p, null))
+                            : <div style={{fontSize:12,color:"#9ca3af",padding:"4px 2px 8px"}}>No patients match “{matchSearch}”.</div>)}
+                          {dobMatches.length === 0 && nameMatches.length === 0 && !q && (
+                            <div style={{fontSize:12,color:"#9ca3af",padding:"2px 2px 8px"}}>No automatic match — search above, or create a new patient.</div>
+                          )}
+                          <button onClick={() => handleAcceptIntake(intake)}
+                            style={{width:"100%",fontSize:12,fontWeight:600,color:"#6b7280",background:"transparent",border:"1px dashed #d1d5db",borderRadius:8,padding:"8px",cursor:"pointer"}}>
+                            + Not in the system — create a new patient
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })
