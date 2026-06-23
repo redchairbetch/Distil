@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { submitIntake, uploadPatientDocument } from "./db.js";
+import { submitIntake, uploadPatientDocument, redeemUpgradeCheckinCode } from "./db.js";
 import { generateIntakePdf } from "./generateIntakePdf.js";
 
 // MHC logo for the intake-PDF header. Resolved via import.meta.glob so the
@@ -293,6 +293,14 @@ const T = {
     secUpgCheckin: "Annual Check-In",
     upgWelcomeTitle: "Welcome back to",
     upgWelcomeBody: "Good to see you again. This quick check-in takes about 2–3 minutes and helps us pick up right where we left off — just confirm a few details and tell us how your hearing has been this year.",
+    upgCodePrompt: "Have a check-in code from the front desk?",
+    upgCodePlaceholder: "Enter your code",
+    upgCodeLoad: "Load My Info",
+    upgCodeLoading: "Loading…",
+    upgCodeLoaded: "✓ Your information is loaded — tap Begin to review it.",
+    upgCodeErrorGeneric: "We couldn't find that code. Please check it, or continue without one.",
+    upgCodeErrorExpired: "That code has expired. Please ask the front desk for a new one.",
+    upgCodeErrorUsed: "That code was already used. Please ask the front desk for a new one.",
     upgIdentityTitle: "Let's confirm who you are.",
     upgDobTitle: "And your date of birth?",
     upgContactTitle: "Has your contact information changed?",
@@ -513,6 +521,14 @@ const T = {
     secUpgCheckin: "Revisión Anual",
     upgWelcomeTitle: "Bienvenido de nuevo a",
     upgWelcomeBody: "Qué gusto verlo de nuevo. Esta revisión rápida toma unos 2–3 minutos y nos ayuda a continuar donde lo dejamos — solo confirme algunos datos y cuéntenos cómo ha estado su audición este año.",
+    upgCodePrompt: "¿Tiene un código de registro de la recepción?",
+    upgCodePlaceholder: "Ingrese su código",
+    upgCodeLoad: "Cargar Mi Información",
+    upgCodeLoading: "Cargando…",
+    upgCodeLoaded: "✓ Su información está cargada — toque Comencemos para revisarla.",
+    upgCodeErrorGeneric: "No encontramos ese código. Verifíquelo o continúe sin él.",
+    upgCodeErrorExpired: "Ese código ha expirado. Pídale uno nuevo a la recepción.",
+    upgCodeErrorUsed: "Ese código ya fue utilizado. Pídale uno nuevo a la recepción.",
     upgIdentityTitle: "Confirmemos quién es usted.",
     upgDobTitle: "¿Y su fecha de nacimiento?",
     upgContactTitle: "¿Ha cambiado su información de contacto?",
@@ -1086,6 +1102,10 @@ export default function IntakeKiosk() {
   const [hasSignature, setHasSignature] = useState(false);
   const [intakeId] = useState(genIntakeId);
   const [submitted, setSubmitted] = useState(false);
+  // Returning-patient check-in code (Phase 2 prefill): the code the patient
+  // types on the upgrade welcome screen, and the redeem status.
+  const [codeInput, setCodeInput] = useState("");
+  const [prefill, setPrefill] = useState({ status: "idle", message: "" }); // idle|loading|loaded|error
   const signatureRef = useRef(null);
   const isDrawing = useRef(false);
   const t = lang ? T[lang] : T.en;
@@ -1102,6 +1122,37 @@ export default function IntakeKiosk() {
   const progressPct = stepIdx <= 1 ? 0 : Math.min(100, Math.round(((stepIdx - 1) / (totalSteps - 1)) * 100));
 
   const setAnswer = (key, val) => setAnswers(prev => ({ ...prev, [key]: val }));
+
+  // Redeem a front-desk check-in code → seed identity, contact, and last year's
+  // readiness so the patient reviews (not retypes). On failure, show a specific,
+  // friendly message keyed to the edge function's error code.
+  const handleLoadCode = async () => {
+    const code = codeInput.trim();
+    if (!code) return;
+    setPrefill({ status: "loading", message: "" });
+    const result = await redeemUpgradeCheckinCode(code);
+    if (result?.error) {
+      const msg = result.error === "expired" ? t.upgCodeErrorExpired
+        : result.error === "already_used" ? t.upgCodeErrorUsed
+        : t.upgCodeErrorGeneric;
+      setPrefill({ status: "error", message: msg });
+      return;
+    }
+    const p = result?.payload || {};
+    setAnswers(prev => ({
+      ...prev,
+      ...(p.patient?.firstName ? { firstName: p.patient.firstName } : {}),
+      ...(p.patient?.lastName  ? { lastName:  p.patient.lastName  } : {}),
+      ...(p.patient?.dob       ? { dob:       p.patient.dob       } : {}),
+      ...(p.contact?.mobilePhone ? { mobilePhone: p.contact.mobilePhone } : {}),
+      ...(p.contact?.email       ? { email:       p.contact.email       } : {}),
+      ...(p.readiness?.satisfaction != null ? { upg_satisfaction: p.readiness.satisfaction } : {}),
+      ...(Array.isArray(p.readiness?.environments) ? { upg_environments: p.readiness.environments } : {}),
+      ...(Array.isArray(p.readiness?.featureGaps)  ? { upg_featureGaps:  p.readiness.featureGaps  } : {}),
+      ...(Array.isArray(p.readiness?.issues)       ? { upg_issues:       p.readiness.issues       } : {}),
+    }));
+    setPrefill({ status: "loaded", message: t.upgCodeLoaded });
+  };
 
   const validate = () => {
     if (step.type === "form") {
@@ -1331,7 +1382,32 @@ export default function IntakeKiosk() {
     <div style={{ textAlign: "center", padding: "8px 0 4px" }}>
       <div style={{ fontSize: 13, fontWeight: 800, color: C.teal, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 20 }}>)) MY HEARING CENTERS</div>
       <h1 style={{ fontFamily: serif, fontSize: 34, color: C.text, margin: "0 0 16px", lineHeight: 1.2 }}>{isUpgrade ? t.upgWelcomeTitle : t.welcomeTitle}<br /><span style={{ color: C.teal }}>{t.welcomeBrand}</span></h1>
-      <p style={{ fontSize: 17, color: C.muted, lineHeight: 1.7, whiteSpace: "pre-line", marginBottom: 36, maxWidth: 460, margin: "0 auto 36px" }}>{isUpgrade ? t.upgWelcomeBody : t.welcomeBody}</p>
+      <p style={{ fontSize: 17, color: C.muted, lineHeight: 1.7, whiteSpace: "pre-line", marginBottom: isUpgrade ? 24 : 36, maxWidth: 460, margin: isUpgrade ? "0 auto 24px" : "0 auto 36px" }}>{isUpgrade ? t.upgWelcomeBody : t.welcomeBody}</p>
+      {isUpgrade && (
+        <div style={{ maxWidth: 420, margin: "0 auto 28px", background: C.tealL, borderRadius: 14, padding: "18px" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.tealD, marginBottom: 10 }}>{t.upgCodePrompt}</div>
+          {prefill.status === "loaded" ? (
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.teal, padding: "6px 0" }}>{prefill.message}</div>
+          ) : (
+            <>
+              <div style={{ display: "flex", gap: 10 }}>
+                <input type="text" value={codeInput}
+                  onChange={e => setCodeInput(e.target.value.toUpperCase())}
+                  placeholder={t.upgCodePlaceholder} autoCapitalize="characters"
+                  style={{ flex: 1, boxSizing: "border-box", fontSize: 18, fontWeight: 700, letterSpacing: 3, textAlign: "center", padding: "12px 10px", border: `2px solid ${prefill.status === "error" ? C.red : C.border}`, borderRadius: 10, color: C.text, fontFamily: font, outline: "none", textTransform: "uppercase" }} />
+                <button onClick={handleLoadCode}
+                  disabled={prefill.status === "loading" || !codeInput.trim()}
+                  style={{ padding: "12px 18px", fontSize: 15, fontWeight: 800, color: "#fff", background: C.teal, border: "none", borderRadius: 10, cursor: (prefill.status === "loading" || !codeInput.trim()) ? "default" : "pointer", opacity: (prefill.status === "loading" || !codeInput.trim()) ? 0.5 : 1, fontFamily: font, whiteSpace: "nowrap" }}>
+                  {prefill.status === "loading" ? t.upgCodeLoading : t.upgCodeLoad}
+                </button>
+              </div>
+              {prefill.status === "error" && (
+                <div style={{ fontSize: 13, color: C.red, marginTop: 8 }}>{prefill.message}</div>
+              )}
+            </>
+          )}
+        </div>
+      )}
       <button onClick={() => setStepIdx(1)} style={{ padding: "16px 48px", fontSize: 19, fontWeight: 800, color: "#fff", background: C.teal, border: "none", borderRadius: 14, cursor: "pointer", fontFamily: font, letterSpacing: "0.03em" }}
         onMouseOver={e => e.target.style.background = C.tealD} onMouseOut={e => e.target.style.background = C.teal}>{t.begin}</button>
     </div>

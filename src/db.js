@@ -1916,6 +1916,71 @@ export async function loadLatestUpgradeIntake(patientId) {
   }
 }
 
+// ── Upgrade check-in handoff (backlog #23, Phase 2) ─────────────────────────
+// Cross-device prefill: a provider mints a short single-use code in the CRM that
+// the anonymous kiosk redeems to review last year's answers. The kiosk can't
+// read patient data directly (anon, no SELECT), so the code carries a frozen
+// payload (prior contact + last readiness) redeemed via the kiosk-upgrade-prefill
+// edge function (service role). 8-char unambiguous alphabet (no 0/O/1/I/L), so a
+// patient can read it off a screen without confusion.
+function genCheckinCode() {
+  const alpha = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+  const arr = new Uint32Array(8)
+  crypto.getRandomValues(arr)
+  let s = ''
+  for (let i = 0; i < 8; i++) s += alpha[arr[i] % alpha.length]
+  return s
+}
+
+// Provider-side (authenticated): build the prefill payload from the patient's
+// current contact + most recent kiosk upgrade readiness, store it under a fresh
+// code, and return the code + expiry for the front desk to read to the patient.
+// 30-minute TTL, single-use (the edge function marks it consumed on redeem).
+export async function createUpgradeCheckinSession(patientId, clinicId, staffId) {
+  if (!patientId || !clinicId) throw new Error('createUpgradeCheckinSession: patientId and clinicId required')
+  const { data: p, error: pErr } = await supabase
+    .from('patients')
+    .select('first_name, last_name, dob, phone, email')
+    .eq('id', patientId)
+    .single()
+  if (pErr) throw pErr
+  const prior = await loadLatestUpgradeIntake(patientId)
+  const payload = {
+    patient:   { firstName: p.first_name || '', lastName: p.last_name || '', dob: p.dob || '' },
+    contact:   { mobilePhone: p.phone || '', email: p.email || '' },
+    readiness: prior?.readiness || null,
+  }
+  // Retry on the rare code collision (unique constraint) with a fresh code.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const code = genCheckinCode()
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString()
+    const { error } = await supabase
+      .from('kiosk_upgrade_sessions')
+      .insert({ code, patient_id: patientId, clinic_id: clinicId, created_by: staffId || null, payload, expires_at: expiresAt })
+    if (!error) return { code, expiresAt }
+    if (error.code !== '23505') throw error // not a unique violation → real failure
+  }
+  throw new Error('Could not generate a unique check-in code. Please try again.')
+}
+
+// Kiosk-side (anon): redeem a code via the edge function. Returns
+// { payload } on success or { error } (missing_code | not_found | already_used |
+// expired | redeem_failed) so the kiosk can show a specific message.
+export async function redeemUpgradeCheckinCode(code) {
+  const clean = String(code || '').trim().toUpperCase()
+  if (!clean) return { error: 'missing_code' }
+  const { data, error } = await supabase.functions.invoke('kiosk-upgrade-prefill', { body: { code: clean } })
+  if (error) {
+    try {
+      const body = await error.context?.json?.()
+      if (body?.error) return { error: body.error }
+    } catch { /* fall through to generic */ }
+    console.error('redeemUpgradeCheckinCode:', error)
+    return { error: 'redeem_failed' }
+  }
+  return data || { error: 'redeem_failed' }
+}
+
 // Patch a single answer field on an intake. Called per-field on blur
 // from the Health History wizard step so the provider's clinical review
 // edits persist without a Save button.

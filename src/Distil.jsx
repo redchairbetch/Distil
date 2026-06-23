@@ -47,6 +47,7 @@ import {
   acceptIntake as dbAcceptIntake,
   linkIntakeToPatient,
   loadIntakesForPatient,
+  createUpgradeCheckinSession,
   updateIntakeAnswers,
   updateIntakeProviderNotes,
   updateIntakeAssessment,
@@ -1684,6 +1685,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   // plus the manual-search box for that match panel.
   const [matchIntake,     setMatchIntake]     = useState(null);
   const [matchSearch,     setMatchSearch]     = useState("");
+  // Upgrade check-in handoff code shown to the front desk (Phase 2 prefill).
+  const [checkinSession,  setCheckinSession]  = useState(null); // { code, expiresAt, patientName } | null
+  const [checkinBusy,     setCheckinBusy]     = useState(false);
   const seenIntakeIds = useRef(new Set());
 
   // ── TNS queue state ───────────────────────────────────────────────
@@ -2888,6 +2892,22 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     if (!p) return;
     setSelectedPatient(p);
     setView("upgrade");
+  };
+
+  // Mint a short single-use code the front desk reads to a returning patient so
+  // the kiosk's annual/upgrade check-in pre-fills last year's answers (Phase 2).
+  const handleCreateCheckinCode = async (p) => {
+    if (!p || checkinBusy) return;
+    setCheckinBusy(true);
+    try {
+      const { code, expiresAt } = await createUpgradeCheckinSession(p.id, clinicId, staffId);
+      setCheckinSession({ code, expiresAt, patientName: p.name });
+    } catch (e) {
+      console.error("createUpgradeCheckinSession:", e);
+      alert(`Couldn't create a check-in code: ${e?.message || "unknown error"}`);
+    } finally {
+      setCheckinBusy(false);
+    }
   };
 
 
@@ -5952,6 +5972,15 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>
               Start a New Visit
             </button>
+            <button
+              style={{background:"white",color:"#0f766e",border:"1px solid #0f766e",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:checkinBusy?"default":"pointer",opacity:checkinBusy?0.6:1,display:"flex",alignItems:"center",gap:6}}
+              disabled={checkinBusy}
+              onClick={() => handleCreateCheckinCode(p)}
+              title="Generate a code the patient enters on the kiosk to review last year's answers before the visit"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3"/></svg>
+              {checkinBusy ? "Generating…" : "Kiosk Check-In Code"}
+            </button>
             {p.audiology && (getPTA(p.audiology.rightT)!=null || getPTA(p.audiology.leftT)!=null) && (
               <button
                 style={{background:"#4f46e5",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
@@ -7915,6 +7944,38 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
       )}
 
       {/* ── Intake queue modal ── */}
+      {checkinSession && (
+        <div className="queue-modal-overlay" onClick={() => setCheckinSession(null)}>
+          <div className="queue-modal" onClick={e => e.stopPropagation()} style={{maxWidth:440,textAlign:"center"}}>
+            <div style={{padding:"28px 28px 24px"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:0.6,marginBottom:6}}>Kiosk Upgrade Check-In</div>
+              <h2 style={{margin:"0 0 4px",fontFamily:"'Sora',sans-serif",fontSize:20,color:"#111"}}>{checkinSession.patientName}</h2>
+              <p style={{margin:"0 0 18px",color:"#6b7280",fontSize:13,lineHeight:1.5}}>
+                On the kiosk, the patient taps <strong>Returning patient</strong>, then enters this code to review last year's answers.
+              </p>
+              <div style={{fontFamily:"'Sora',monospace",fontSize:38,fontWeight:800,letterSpacing:6,color:"#0f766e",background:"#f0fdfa",border:"2px solid #5eead4",borderRadius:12,padding:"16px 12px",marginBottom:14}}>
+                {checkinSession.code}
+              </div>
+              <div style={{display:"flex",gap:10,justifyContent:"center",marginBottom:6}}>
+                <button
+                  onClick={() => { try { navigator.clipboard?.writeText(checkinSession.code); } catch {} }}
+                  style={{background:"white",color:"#0f766e",border:"1px solid #0f766e",borderRadius:8,padding:"8px 18px",fontWeight:600,fontSize:13,cursor:"pointer"}}>
+                  Copy code
+                </button>
+                <button
+                  onClick={() => setCheckinSession(null)}
+                  style={{background:"#0f766e",color:"white",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:600,fontSize:13,cursor:"pointer"}}>
+                  Done
+                </button>
+              </div>
+              <p style={{margin:"10px 0 0",color:"#9ca3af",fontSize:11}}>
+                Expires in 30 minutes · one-time use
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showIntakeQueue && (
         <div className="queue-modal-overlay" onClick={() => setShowIntakeQueue(false)}>
           <div className="queue-modal" onClick={e => e.stopPropagation()}>
