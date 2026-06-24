@@ -34,6 +34,10 @@ as $$
 $$;
 
 revoke all on function public.list_intake_orphans(int, int) from public;
+-- Supabase grants EXECUTE to anon/authenticated directly (not just via PUBLIC),
+-- and orphan paths embed the patient name in the filename, so revoke from those
+-- roles explicitly — only the service role (the edge function) may call it.
+revoke all on function public.list_intake_orphans(int, int) from anon, authenticated;
 grant execute on function public.list_intake_orphans(int, int) to service_role;
 
 -- ── Section 2 (arms the autonomous sweep) ─────────────────────────────────────
