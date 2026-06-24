@@ -1366,7 +1366,11 @@ const CHAPTER_TITLES = ["Patient story", "Evidence", "Recommendation", "Investme
 
 // ── ROLE CHECK UTILITY ─────────────────────────────────────────────────────────
 // Role categories: 'care_coordinator' | 'provider' | 'closer' | 'admin'
-// UX gating only — catalog/pricing writes are enforced by admin-only RLS.
+// This is UI gating (defense-in-depth). The real enforcement is in Postgres RLS:
+// catalog (product_catalog/product_catalog_tier), pricing (clinic_retail_anchors)
+// and insurance_plans writes are all admin-only, and a trigger blocks non-admins
+// from self-escalating their staff.role — see migration
+// 20260624000000_harden_admin_rls_catalog_and_staff_role.sql.
 function checkRole(staffRole, allowedRoles) {
   return Array.isArray(allowedRoles) && allowedRoles.includes(staffRole);
 }
@@ -7479,6 +7483,29 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   const STYLE_OPTS = BODY_STYLES.map(s => s.id);
 
 
+  // Defense-in-depth fallback for the admin-only views. The nav already hides
+  // these for non-admins (and RLS rejects the writes), but guard the render
+  // sites too so a non-admin who reaches the view by any other path sees this
+  // instead of the editor.
+  const renderAdminDenied = () => (
+    <>
+      <div className="topbar">
+        <div>
+          <div className="topbar-title">Admin access required</div>
+          <div className="topbar-sub">This area is restricted to administrators.</div>
+        </div>
+      </div>
+      <div className="content">
+        <div style={{maxWidth:560,margin:"48px auto",textAlign:"center",color:"#6b7280"}}>
+          <div style={{fontSize:40,marginBottom:12}}>🔒</div>
+          <div style={{fontSize:15,fontWeight:600,color:"#374151",marginBottom:6}}>You don't have access to this page</div>
+          <div style={{fontSize:13}}>Catalog, pricing, insurance plans, and provider management are limited to admin accounts. Contact your administrator if you need access.</div>
+        </div>
+      </div>
+    </>
+  );
+
+
   const renderCatalog = () => (
     <>
       <div className="topbar">
@@ -8234,9 +8261,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
             );
           })()}
           {view === "settings" && renderSettings()}
-          {view === "catalog" && renderCatalog()}
-          {view === "providers" && <ProvidersAdmin />}
-          {view === "insurance-plans" && renderInsurancePlans()}
+          {view === "catalog" && (checkRole(staffRole, ["admin"]) ? renderCatalog() : renderAdminDenied())}
+          {view === "providers" && (checkRole(staffRole, ["admin"]) ? <ProvidersAdmin /> : renderAdminDenied())}
+          {view === "insurance-plans" && (checkRole(staffRole, ["admin"]) ? renderInsurancePlans() : renderAdminDenied())}
           {view === "campaigns" && <CampaignManager clinicId={clinicId} staffId={staffId} patients={patients} />}
           {view === "content" && <ContentLibrary clinicId={clinicId} staffId={staffId} />}
           {view === "lima-charlie" && <LimaCharlie clinicId={clinicId} staffId={staffId} />}
