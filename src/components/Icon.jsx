@@ -16,6 +16,7 @@ const PATHS = {
   clipboard: <><rect x="5" y="4.5" width="14" height="16" rx="2"/><path d="M9 4.5v-.8a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v.8H9Z"/><path d="M8.6 10h6.8M8.6 13.5h6.8M8.6 17h4"/></>,
   settings: <><path d="M5 7h9M5 12h14M5 17h7"/><circle cx="17" cy="7" r="2.1"/><circle cx="9" cy="17" r="2.1"/></>,
   inbox: <><path d="M3.5 13 6 5.6A2 2 0 0 1 7.9 4.2h8.2A2 2 0 0 1 18 5.6L20.5 13"/><path d="M3.5 13v5a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-5"/><path d="M3.5 13h4.2l1.4 2.5h5.8l1.4-2.5h4.2"/></>,
+  tag: <><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 2.8 12V4.8a2 2 0 0 1 2-2H12a2 2 0 0 1 1.4.6l7.2 7.2a2 2 0 0 1 0 2.8Z"/><circle cx="8" cy="8" r="1.4"/></>,
 };
 
 export default function Icon({ name, size = 18, strokeWidth = 1.75, style }) {

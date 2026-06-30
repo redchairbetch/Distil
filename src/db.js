@@ -1693,6 +1693,23 @@ export async function logPriceAdjustment({
   return data
 }
 
+// The provider's own price-adjustment history (spec §6/§11 reflection tool).
+// provider_id is stamped = auth.uid() by log_price_adjustment, and staff.id
+// IS auth.uid() (getCurrentStaff joins on it), so the caller's staffId is the
+// provider_id — a provider only ever sees their own rows here. Rows are sorted
+// client-side: the table's timestamp column name isn't relied on (select *),
+// so this stays correct whether it's created_at or timestamp.
+export async function loadPriceAdjustmentHistory(providerId, { limit = 500 } = {}) {
+  if (!providerId) return []
+  const { data, error } = await supabase
+    .from('price_adjustment_log')
+    .select('*')
+    .eq('provider_id', providerId)
+    .limit(limit)
+  if (error) { console.error('loadPriceAdjustmentHistory:', error); return [] }
+  return data || []
+}
+
 
 // Load all tier rows (one per device tier within a family) with their parent
 // family fields denormalized onto each row for convenient consumption.

@@ -17,8 +17,11 @@ import {
 import {
   normalizeAudiogramInput,
   normalizeIntakeInput,
+  unwrapIntakeAnswers,
 } from '../recommendationEngine.js'
 import { tnsTagLabel } from '../tns_tags.js'
+import { flaggedEnvironments, COVERAGE_BY_RANK } from '../listeningSituations.js'
+import { EnvironmentCoverage } from '../components/CoverageBars.jsx'
 
 // Narrative §3 — Chapter 3: Recommendation. Patient cost first, always.
 // Retail shown only as "full retail value" anchor. Premium label is banned;
@@ -162,10 +165,13 @@ export default function DeviceSelection({ patientId, staffId, clinicId }) {
   const [anchors, setAnchors] = useState([])
   const [tiers, setTiers] = useState([])
   const [tnsFlag, setTnsFlag] = useState(null)
-  const [clinicSettings, setClinicSettings] = useState(null)
   const [carePlans, setCarePlans] = useState([])
   const [existingPurchase, setExistingPurchase] = useState(null)
   const [selectedRank, setSelectedRank] = useState(null)
+  // Bundled vs unbundled lives here (not in Zone5) so the "What's included"
+  // detail panel can reflect it too. Initialized from the saved purchase /
+  // clinic default in the load effect once data arrives.
+  const [bundleMode, setBundleMode] = useState('bundled')
 
   useEffect(() => {
     if (!patientId || !clinicId) return
@@ -207,12 +213,12 @@ export default function DeviceSelection({ patientId, staffId, clinicId }) {
         setAnchors(anchorRows || [])
         setTiers(tierRows || [])
         setTnsFlag(tnsRow)
-        setClinicSettings(clinicRow)
         setCarePlans(carePlanRows || [])
         setExistingPurchase(purchaseRow)
         const savedTierId = purchaseRow?.lineItems?.find(li => li.productType === 'device_left' || li.productType === 'device_right')?.productCatalogTierId
         const savedRank = savedTierId ? (tierRows || []).find(t => t.id === savedTierId)?.tierRank : null
         setSelectedRank(savedRank ?? current?.recommended_tier_rank ?? null)
+        setBundleMode(purchaseRow?.bundleMode || clinicRow?.defaultBundleMode || 'bundled')
         setState({ loading: false, error: null })
       } catch (e) {
         if (!cancelled) setState({ loading: false, error: e.message || String(e) })
@@ -236,6 +242,18 @@ export default function DeviceSelection({ patientId, staffId, clinicId }) {
     if (!recInputs?.intakeAnswers) return null
     return normalizeIntakeInput(recInputs.intakeAnswers)
   }, [recInputs])
+
+  // Environments the patient flagged as struggles — drives the prominent
+  // rows in the environment-fit chart. Unwrap first: the kiosk stores
+  // answers as {_meta, answers, consent}; flaggedEnvironments wants flat keys.
+  const flaggedEnvs = useMemo(
+    () => flaggedEnvironments(unwrapIntakeAnswers(recInputs?.intakeAnswers)),
+    [recInputs],
+  )
+
+  // The product-catalog tier row for the selected rank — feeds the Zone 4
+  // device-specs and fit-confirmation panels (Zone 5 derives its own copy).
+  const selectedTier = useMemo(() => pickTierForRank(tiers, selectedRank), [tiers, selectedRank])
 
   if (state.loading) {
     return (
@@ -285,6 +303,21 @@ export default function DeviceSelection({ patientId, staffId, clinicId }) {
         onSelectRank={setSelectedRank}
       />
 
+      <EnvironmentFit
+        selectedRank={selectedRank}
+        anchorsByKey={anchorsByKey}
+        flagged={flaggedEnvs}
+      />
+
+      <Zone4
+        selectedRank={selectedRank}
+        selectedTier={selectedTier}
+        audio={normalizedAudio}
+        payType={patient?.pay_type}
+        bundleMode={bundleMode}
+        anchorsByKey={anchorsByKey}
+      />
+
       <RationaleEditor rec={rec} onSaved={updated => setRec(r => ({ ...r, ...updated }))} />
 
       <Zone5
@@ -294,7 +327,8 @@ export default function DeviceSelection({ patientId, staffId, clinicId }) {
         anchorsByKey={anchorsByKey}
         payType={patient?.pay_type}
         carePlans={carePlans}
-        defaultBundleMode={clinicSettings?.defaultBundleMode || 'bundled'}
+        bundleMode={bundleMode}
+        setBundleMode={setBundleMode}
         existingPurchase={existingPurchase}
         patientId={patientId}
         clinicId={clinicId}
@@ -621,6 +655,219 @@ function FeatureList({ tier }) {
 }
 
 // ============================================================
+// ENVIRONMENT FIT — how the selected tier handles the patient's day
+// ============================================================
+
+// Carries the Technology Tier step's listening-environment comparison onto
+// this screen (context.md Distil #25). Reflects the currently-selected tier,
+// so the bars re-fill when the provider/patient moves between tier cards.
+function EnvironmentFit({ selectedRank, anchorsByKey, flagged }) {
+  if (selectedRank == null || !COVERAGE_BY_RANK[selectedRank]) return null
+  const tierLabel = anchorsByKey?.[ANCHOR_KEY_BY_RANK[selectedRank]]?.label || `Tier ${selectedRank}`
+  const hasFlagged = flagged && flagged.size > 0
+  return (
+    <div style={styles.envPanel}>
+      <div style={styles.zoneLabel}>Environment fit</div>
+      <div style={styles.envTitle}>How {tierLabel} technology handles your day</div>
+      <div style={styles.envSub}>
+        {hasFlagged
+          ? 'Performance across the situations you told us are hardest — and everywhere else.'
+          : 'Expected performance across everyday listening environments.'}
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <EnvironmentCoverage rank={selectedRank} flagged={flagged} />
+      </div>
+      <div style={styles.envLegend}>
+        Bars show how fully each environment is supported —
+        <span style={{ color: '#16a34a', fontWeight: 700 }}> green</span> is fully covered,
+        <span style={{ color: '#dc2626', fontWeight: 700 }}> red</span> is where even the best
+        technology has limits.
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// ZONE 4 — Expandable detail panels (specs · what's included · fit)
+// ============================================================
+
+// Spec §3 Zone 4: collapsed-by-default accordions so the deeper detail doesn't
+// crowd the primary view. Cross-manufacturer comparison (the spec's 4th panel)
+// is parked until the cross_manufacturer_equivalence table is populated —
+// context.md Distil #16.
+function Zone4({ selectedRank, selectedTier, audio, payType, bundleMode, anchorsByKey }) {
+  const [open, setOpen] = useState({})
+  if (selectedRank == null) return null
+  const toggle = key => setOpen(o => ({ ...o, [key]: !o[key] }))
+
+  const tierLabel = anchorsByKey?.[ANCHOR_KEY_BY_RANK[selectedRank]]?.label || ''
+  const deviceName = (selectedTier?.family || tierLabel || '').trim()
+  const fit = computeFitConfirmation(selectedTier, audio)
+
+  // Fit-confirmation panel only appears when the catalog carries a fitting
+  // range for this device — otherwise there's nothing honest to claim.
+  const panels = [
+    { key: 'specs',    title: 'Device specifications', body: <DeviceSpecsPanel tier={selectedTier} /> },
+    { key: 'included', title: "What's included",       body: <WhatsIncludedPanel payType={payType} bundleMode={bundleMode} /> },
+  ]
+  if (fit) {
+    panels.push({ key: 'fit', title: 'Does this device fit your hearing?', body: <FitConfirmationPanel fit={fit} deviceName={deviceName} /> })
+  }
+
+  return (
+    <div style={styles.zone4}>
+      <div style={styles.zoneLabel}>The details</div>
+      {panels.map(p => (
+        <div key={p.key} style={styles.accordionItem}>
+          <button
+            type="button"
+            onClick={() => toggle(p.key)}
+            aria-expanded={!!open[p.key]}
+            style={styles.accordionHeader}
+          >
+            <span style={styles.accordionTitle}>{p.title}</span>
+            <span style={{ ...styles.chevron, transform: open[p.key] ? 'rotate(90deg)' : 'none' }}>›</span>
+          </button>
+          {open[p.key] && <div style={styles.accordionBody}>{p.body}</div>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// Patient-friendly battery descriptor. Rechargeable wins; otherwise humanize
+// the raw catalog enum (e.g. 'disposable_312' → 'Size 312 battery').
+function batteryLabel(tier) {
+  if (tier.rechargeable) return 'Rechargeable (lithium-ion)'
+  const t = tier.batteryType || ''
+  if (/312/.test(t)) return 'Size 312 battery'
+  if (/\b10\b|_10/.test(t)) return 'Size 10 battery'
+  if (/13/.test(t)) return 'Size 13 battery'
+  if (/675/.test(t)) return 'Size 675 battery'
+  return t ? t.replace(/_/g, ' ') : 'Disposable battery'
+}
+
+function DeviceSpecsPanel({ tier }) {
+  if (!tier) return <div style={styles.stripEmpty}>Select a device tier to see its specifications.</div>
+  const rows = []
+  const device = [tier.family, tier.generation].filter(Boolean).join(' · ')
+  if (device)                    rows.push(['Device', device])
+  if (tier.platformChip)         rows.push(['Platform', tier.platformChip])
+  if (tier.rechargeable != null || tier.batteryType) rows.push(['Battery', batteryLabel(tier)])
+  if (tier.streamingProtocols?.length) rows.push(['Wireless streaming', tier.streamingProtocols.join(', ')])
+  if (tier.directionalMic)       rows.push(['Microphones', tier.directionalMic])
+  if (tier.ipRating)             rows.push(['Water & dust resistance', tier.ipRating])
+  if (tier.telecoil != null)     rows.push(['Telecoil', tier.telecoil ? 'Included' : 'Not included'])
+
+  return (
+    <ul style={styles.featureList}>
+      {rows.map(([k, v]) => (
+        <li key={k} style={styles.featureRow}>
+          <span style={styles.featureKey}>{k}</span>
+          <span style={styles.featureVal}>{v}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+// What's covered under Complete Care+. Copy mirrors the vetted pricing-reveal
+// language (transparent: "5 years", never "lifetime"). Framing differs by pay
+// type: private-pay bundles CC+ into the price (spec §7), insurance treats it
+// as a separately purchased add-on.
+function WhatsIncludedPanel({ payType, bundleMode }) {
+  const isPrivate = payType === 'private'
+  const declined = isPrivate && bundleMode !== 'bundled'
+  const items = [
+    'Unlimited office visits for 5 years',
+    "A 4-year repair warranty — your manufacturer's 3 years, plus 1 more from us",
+    'Loss and damage protection',
+    'Cleanings, adjustments, and reprogramming as your hearing changes',
+    'Replacement domes and wax guards',
+    'A check-in call two days after you start',
+    'Remote care between visits',
+  ]
+  return (
+    <div>
+      <div style={styles.includedHead}>
+        <span>Complete Care+</span>
+        {isPrivate
+          ? (declined
+              ? <span style={styles.includedBadgeWarn}>Declined — device only</span>
+              : <span style={styles.includedBadgeGood}>Included with your purchase</span>)
+          : <span style={styles.includedBadgeNeutral}>Available as an add-on</span>}
+      </div>
+      <ul style={styles.includedList}>
+        {items.map(it => (
+          <li key={it} style={{ ...styles.includedItem, opacity: declined ? 0.5 : 1 }}>
+            <span style={styles.includedCheck}>{declined ? '—' : '✓'}</span>
+            <span>{it}</span>
+          </li>
+        ))}
+      </ul>
+      {declined && (
+        <div style={styles.includedNote}>
+          Complete Care+ is currently declined — the price reflects the devices only. You can add it back anytime in the purchase section below.
+        </div>
+      )}
+      {!isPrivate && (
+        <div style={styles.includedNote}>
+          With insurance, Complete Care+ is purchased separately and layered on top of your plan's device benefit.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Conservative audiogram fit check: does the device's published fitting range
+// cover the patient's loss in the low- and high-frequency regions? Uses the
+// worse ear (max PTA) so the "covers your loss" claim is honest. Returns null
+// when the catalog has no fitting range or there's no audiogram — the panel
+// then simply doesn't render.
+function computeFitConfirmation(tier, audio) {
+  if (!tier || !audio) return null
+  const deviceLow = tier.fittingRangeLowHzDb
+  const deviceHigh = tier.fittingRangeHighHzDb
+  if (deviceLow == null || deviceHigh == null) return null
+  const patientLow = maxOrNull([audio.ptaLowRight, audio.ptaLowLeft])
+  const patientHigh = maxOrNull([audio.ptaHighRight, audio.ptaHighLeft])
+  if (patientLow == null && patientHigh == null) return null
+  const lowOk = patientLow == null || patientLow <= deviceLow
+  const highOk = patientHigh == null || patientHigh <= deviceHigh
+  return { covered: lowOk && highOk, lowOk, highOk }
+}
+
+function FitConfirmationPanel({ fit, deviceName }) {
+  if (fit.covered) {
+    return (
+      <div style={styles.fitOk}>
+        <span style={styles.fitIcon}>✓</span>
+        <div>
+          <div style={styles.fitTitle}>This device is built to fit your hearing</div>
+          <div style={styles.fitBody}>
+            {deviceName ? `The ${deviceName}` : 'This device'}'s fitting range covers your hearing levels
+            across the low and high frequencies we tested — it has the power for a full, comfortable fit.
+          </div>
+        </div>
+      </div>
+    )
+  }
+  const where = !fit.highOk && !fit.lowOk ? '' : !fit.highOk ? ' in the higher frequencies' : ' in the lower frequencies'
+  return (
+    <div style={styles.fitWarn}>
+      <span style={styles.fitIcon}>!</span>
+      <div>
+        <div style={styles.fitTitle}>Your provider will confirm the fit</div>
+        <div style={styles.fitBody}>
+          Your hearing levels sit near the edge of this device's fitting range{where}. Your provider will
+          confirm it delivers enough power, or recommend a model with more range.
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
 // RATIONALE EDITOR — always-open textarea, save on blur
 // ============================================================
 
@@ -701,8 +948,7 @@ function aidsFromLineItems(lineItems) {
   return hasL ? 'left' : 'pair'
 }
 
-function Zone5({ selectedRank, tiers, pricing, anchorsByKey, payType, carePlans, defaultBundleMode, existingPurchase, patientId, clinicId }) {
-  const [bundleMode, setBundleMode] = useState(existingPurchase?.bundleMode || defaultBundleMode || 'bundled')
+function Zone5({ selectedRank, tiers, pricing, anchorsByKey, payType, carePlans, bundleMode, setBundleMode, existingPurchase, patientId, clinicId }) {
   const [aids, setAids] = useState(existingPurchase ? aidsFromLineItems(existingPurchase.lineItems) : 'pair')
   const [save, setSave] = useState({ saving: false, savedAt: null, error: null })
 
@@ -849,6 +1095,12 @@ function avgOrNull(arr) {
   return vals.reduce((a, b) => a + b, 0) / vals.length
 }
 
+function maxOrNull(arr) {
+  const vals = (arr || []).filter(v => v != null && !Number.isNaN(v))
+  if (!vals.length) return null
+  return Math.max(...vals)
+}
+
 // ============================================================
 // STYLES
 // ============================================================
@@ -944,6 +1196,122 @@ const styles = {
     gap: 16,
     marginBottom: 24,
   },
+  envPanel: {
+    background: 'white',
+    border: `1px solid ${COLOR.line}`,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+  },
+  envTitle: {
+    fontFamily: "'Fraunces', Georgia, serif",
+    fontSize: 18,
+    fontWeight: 700,
+    color: COLOR.ink,
+    marginTop: 2,
+  },
+  envSub: {
+    fontSize: 12,
+    color: COLOR.muted,
+    marginTop: 3,
+  },
+  envLegend: {
+    fontSize: 11,
+    color: COLOR.faint,
+    marginTop: 14,
+    paddingTop: 12,
+    borderTop: `1px solid ${COLOR.line}`,
+    lineHeight: 1.5,
+  },
+  zone4: {
+    background: 'white',
+    border: `1px solid ${COLOR.line}`,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+  },
+  accordionItem: {
+    border: `1px solid ${COLOR.line}`,
+    borderRadius: 10,
+    marginBottom: 8,
+    overflow: 'hidden',
+    background: 'white',
+  },
+  accordionHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    padding: '12px 14px',
+    background: 'white',
+    border: 'none',
+    cursor: 'pointer',
+    textAlign: 'left',
+    fontFamily: 'inherit',
+  },
+  accordionTitle: {
+    fontSize: 14,
+    fontWeight: 600,
+    color: COLOR.ink,
+  },
+  chevron: {
+    fontSize: 20,
+    lineHeight: 1,
+    color: COLOR.faint,
+    transition: 'transform 0.15s',
+    display: 'inline-block',
+  },
+  accordionBody: {
+    padding: '12px 14px 14px',
+    borderTop: `1px solid ${COLOR.line}`,
+  },
+  includedHead: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    flexWrap: 'wrap',
+    fontSize: 14,
+    fontWeight: 700,
+    color: COLOR.ink,
+    marginBottom: 12,
+  },
+  includedBadgeGood: {
+    fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6,
+    padding: '3px 8px', borderRadius: 10, background: '#dcfce7', color: COLOR.good,
+  },
+  includedBadgeWarn: {
+    fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6,
+    padding: '3px 8px', borderRadius: 10, background: '#fef3c7', color: COLOR.warn,
+  },
+  includedBadgeNeutral: {
+    fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6,
+    padding: '3px 8px', borderRadius: 10, background: COLOR.bgChip, color: COLOR.muted,
+  },
+  includedList: {
+    listStyle: 'none', padding: 0, margin: 0,
+    display: 'flex', flexDirection: 'column', gap: 7,
+  },
+  includedItem: {
+    display: 'flex', alignItems: 'flex-start', gap: 8,
+    fontSize: 13, color: COLOR.ink, lineHeight: 1.45,
+  },
+  includedCheck: { color: COLOR.good, fontWeight: 700, flex: '0 0 auto' },
+  includedNote: {
+    fontSize: 12, color: COLOR.muted, marginTop: 12, lineHeight: 1.5, fontStyle: 'italic',
+  },
+  fitOk: {
+    display: 'flex', gap: 12, alignItems: 'flex-start',
+    background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 10,
+    padding: '12px 14px', color: COLOR.good,
+  },
+  fitWarn: {
+    display: 'flex', gap: 12, alignItems: 'flex-start',
+    background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10,
+    padding: '12px 14px', color: COLOR.warn,
+  },
+  fitIcon: { fontSize: 18, fontWeight: 700, lineHeight: 1.3, flex: '0 0 auto' },
+  fitTitle: { fontSize: 13.5, fontWeight: 700, color: COLOR.ink, marginBottom: 3 },
+  fitBody: { fontSize: 12.5, color: COLOR.muted, lineHeight: 1.5 },
   card: {
     position: 'relative',
     background: 'white',
