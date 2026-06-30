@@ -47,6 +47,7 @@ import {
   acceptIntake as dbAcceptIntake,
   linkIntakeToPatient,
   loadIntakesForPatient,
+  createUpgradeCheckinSession,
   updateIntakeAnswers,
   updateIntakeProviderNotes,
   updateIntakeAssessment,
@@ -1366,7 +1367,11 @@ const CHAPTER_TITLES = ["Patient story", "Evidence", "Recommendation", "Investme
 
 // ── ROLE CHECK UTILITY ─────────────────────────────────────────────────────────
 // Role categories: 'care_coordinator' | 'provider' | 'closer' | 'admin'
-// UX gating only — catalog/pricing writes are enforced by admin-only RLS.
+// This is UI gating (defense-in-depth). The real enforcement is in Postgres RLS:
+// catalog (product_catalog/product_catalog_tier), pricing (clinic_retail_anchors)
+// and insurance_plans writes are all admin-only, and a trigger blocks non-admins
+// from self-escalating their staff.role — see migration
+// 20260624000000_harden_admin_rls_catalog_and_staff_role.sql.
 function checkRole(staffRole, allowedRoles) {
   return Array.isArray(allowedRoles) && allowedRoles.includes(staffRole);
 }
@@ -1680,6 +1685,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   const [pendingIntakes,  setPendingIntakes]  = useState([]);
   const [intakeToast,     setIntakeToast]     = useState(null);
   const [showIntakeQueue, setShowIntakeQueue] = useState(false);
+  // Intake currently being matched to an existing patient (annual/upgrade
+  // check-ins link to the existing chart instead of spawning a new draft),
+  // plus the manual-search box for that match panel.
+  const [matchIntake,     setMatchIntake]     = useState(null);
+  const [matchSearch,     setMatchSearch]     = useState("");
+  // Upgrade check-in handoff code shown to the front desk (Phase 2 prefill).
+  const [checkinSession,  setCheckinSession]  = useState(null); // { code, expiresAt, patientName } | null
+  const [checkinBusy,     setCheckinBusy]     = useState(false);
   const seenIntakeIds = useRef(new Set());
 
   // ── TNS queue state ───────────────────────────────────────────────
@@ -2886,6 +2899,22 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     setView("upgrade");
   };
 
+  // Mint a short single-use code the front desk reads to a returning patient so
+  // the kiosk's annual/upgrade check-in pre-fills last year's answers (Phase 2).
+  const handleCreateCheckinCode = async (p) => {
+    if (!p || checkinBusy) return;
+    setCheckinBusy(true);
+    try {
+      const { code, expiresAt } = await createUpgradeCheckinSession(p.id, clinicId, staffId);
+      setCheckinSession({ code, expiresAt, patientName: p.name });
+    } catch (e) {
+      console.error("createUpgradeCheckinSession:", e);
+      alert(`Couldn't create a check-in code: ${e?.message || "unknown error"}`);
+    } finally {
+      setCheckinBusy(false);
+    }
+  };
+
 
   // ── Intake queue handlers ────────────────────────────────────────────
   // Accept an intake: immediately persist a draft patient from the intake
@@ -2979,6 +3008,33 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   const handleDismissIntake = async (intakeId) => {
     try { await dismissIntake(intakeId); } catch {}
     setPendingIntakes(prev => prev.filter(i => i._meta?.intakeId !== intakeId));
+  };
+
+  // Link an annual/upgrade check-in to an EXISTING patient instead of creating
+  // a new draft (the create-new path is handleAcceptIntake). Sets
+  // intakes.patient_id so the UpgradeWizard's loadLatestUpgradeIntake can read
+  // the patient's self-reported readiness, then drops the provider straight into
+  // that wizard for the matched patient.
+  const handleMatchToPatient = async (intake, patient) => {
+    const intakeId = intake?._meta?.intakeId;
+    if (!intakeId || !patient) return;
+    try {
+      await linkIntakeToPatient(intakeId, patient.id, clinicId);
+      await dbAcceptIntake(intakeId);
+    } catch (e) {
+      console.error("handleMatchToPatient:", e);
+      alert(`Couldn't link this check-in to ${patient.name}. Please try again.`);
+      return;
+    }
+    setPendingIntakes(prev => prev.filter(i => i._meta?.intakeId !== intakeId));
+    setMatchIntake(null);
+    setMatchSearch("");
+    setShowIntakeQueue(false);
+    setIntakeToast(null);
+    refreshPatients();
+    // Open the established-patient flow for the matched chart — the wizard
+    // pre-fills from the check-in we just linked.
+    startNewVisitForPatient(patient);
   };
 
 
@@ -5921,6 +5977,15 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>
               Start a New Visit
             </button>
+            <button
+              style={{background:"white",color:"#0f766e",border:"1px solid #0f766e",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:checkinBusy?"default":"pointer",opacity:checkinBusy?0.6:1,display:"flex",alignItems:"center",gap:6}}
+              disabled={checkinBusy}
+              onClick={() => handleCreateCheckinCode(p)}
+              title="Generate a code the patient enters on the kiosk to review last year's answers before the visit"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3"/></svg>
+              {checkinBusy ? "Generating…" : "Kiosk Check-In Code"}
+            </button>
             {p.audiology && (getPTA(p.audiology.rightT)!=null || getPTA(p.audiology.leftT)!=null) && (
               <button
                 style={{background:"#4f46e5",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
@@ -7419,6 +7484,29 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   const STYLE_OPTS = BODY_STYLES.map(s => s.id);
 
 
+  // Defense-in-depth fallback for the admin-only views. The nav already hides
+  // these for non-admins (and RLS rejects the writes), but guard the render
+  // sites too so a non-admin who reaches the view by any other path sees this
+  // instead of the editor.
+  const renderAdminDenied = () => (
+    <>
+      <div className="topbar">
+        <div>
+          <div className="topbar-title">Admin access required</div>
+          <div className="topbar-sub">This area is restricted to administrators.</div>
+        </div>
+      </div>
+      <div className="content">
+        <div style={{maxWidth:560,margin:"48px auto",textAlign:"center",color:"#6b7280"}}>
+          <div style={{fontSize:40,marginBottom:12}}>🔒</div>
+          <div style={{fontSize:15,fontWeight:600,color:"#374151",marginBottom:6}}>You don't have access to this page</div>
+          <div style={{fontSize:13}}>Catalog, pricing, insurance plans, and provider management are limited to admin accounts. Contact your administrator if you need access.</div>
+        </div>
+      </div>
+    </>
+  );
+
+
   const renderCatalog = () => (
     <>
       <div className="topbar">
@@ -7884,6 +7972,38 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
       )}
 
       {/* ── Intake queue modal ── */}
+      {checkinSession && (
+        <div className="queue-modal-overlay" onClick={() => setCheckinSession(null)}>
+          <div className="queue-modal" onClick={e => e.stopPropagation()} style={{maxWidth:440,textAlign:"center"}}>
+            <div style={{padding:"28px 28px 24px"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:0.6,marginBottom:6}}>Kiosk Upgrade Check-In</div>
+              <h2 style={{margin:"0 0 4px",fontFamily:"'Sora',sans-serif",fontSize:20,color:"#111"}}>{checkinSession.patientName}</h2>
+              <p style={{margin:"0 0 18px",color:"#6b7280",fontSize:13,lineHeight:1.5}}>
+                On the kiosk, the patient taps <strong>Returning patient</strong>, then enters this code to review last year's answers.
+              </p>
+              <div style={{fontFamily:"'Sora',monospace",fontSize:38,fontWeight:800,letterSpacing:6,color:"#0f766e",background:"#f0fdfa",border:"2px solid #5eead4",borderRadius:12,padding:"16px 12px",marginBottom:14}}>
+                {checkinSession.code}
+              </div>
+              <div style={{display:"flex",gap:10,justifyContent:"center",marginBottom:6}}>
+                <button
+                  onClick={() => { try { navigator.clipboard?.writeText(checkinSession.code); } catch {} }}
+                  style={{background:"white",color:"#0f766e",border:"1px solid #0f766e",borderRadius:8,padding:"8px 18px",fontWeight:600,fontSize:13,cursor:"pointer"}}>
+                  Copy code
+                </button>
+                <button
+                  onClick={() => setCheckinSession(null)}
+                  style={{background:"#0f766e",color:"white",border:"none",borderRadius:8,padding:"8px 18px",fontWeight:600,fontSize:13,cursor:"pointer"}}>
+                  Done
+                </button>
+              </div>
+              <p style={{margin:"10px 0 0",color:"#9ca3af",fontSize:11}}>
+                Expires in 30 minutes · one-time use
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showIntakeQueue && (
         <div className="queue-modal-overlay" onClick={() => setShowIntakeQueue(false)}>
           <div className="queue-modal" onClick={e => e.stopPropagation()}>
@@ -7913,10 +8033,20 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 const submitted = intake._meta?.submittedAt
                   ? new Date(intake._meta.submittedAt).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})
                   : "—";
+                // Annual/upgrade check-ins link to an existing chart (matcher
+                // below) instead of creating a new patient draft.
+                const isUpgrade = intake.answers?._meta?.intakeType === "upgrade";
+                const matchingThis = matchIntake?._meta?.intakeId === intake._meta?.intakeId;
                 return (
                   <div className="queue-card" key={intake._meta?.intakeId}>
                     <div className="queue-card-name">
                       {[a.firstName, a.lastName].filter(Boolean).join(" ") || "Unknown"}
+                      {isUpgrade && (
+                        <span style={{marginLeft:8,background:"#0f766e",color:"white",borderRadius:20,
+                          padding:"2px 9px",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,verticalAlign:"middle"}}>
+                          Annual / Upgrade
+                        </span>
+                      )}
                     </div>
                     <div className="queue-card-meta">Submitted {submitted}</div>
                     <div className="queue-card-fields">
@@ -7934,13 +8064,81 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                       </div>
                     )}
                     <div className="queue-card-actions">
-                      <button className="queue-accept" onClick={() => handleAcceptIntake(intake)}>
-                        ✓ Accept &amp; Start Intake
-                      </button>
+                      {isUpgrade ? (
+                        <button className="queue-accept" onClick={() => { setMatchIntake(matchingThis ? null : intake); setMatchSearch(""); }}>
+                          {matchingThis ? "Close" : "🔗 Match to Patient"}
+                        </button>
+                      ) : (
+                        <button className="queue-accept" onClick={() => handleAcceptIntake(intake)}>
+                          ✓ Accept &amp; Start Intake
+                        </button>
+                      )}
                       <button className="queue-dismiss" onClick={() => handleDismissIntake(intake._meta?.intakeId)}>
                         Dismiss
                       </button>
                     </div>
+                    {isUpgrade && matchingThis && (() => {
+                      // Candidates: same DOB first (strong key), then last-name
+                      // matches, then the manual-search results. De-duplicated by id.
+                      const intakeDob = a.dob || "";
+                      const lastLc = (a.lastName || "").toLowerCase();
+                      const q = matchSearch.trim().toLowerCase();
+                      const seen = new Set();
+                      const push = (list, p) => { if (p && !seen.has(p.id)) { seen.add(p.id); list.push(p); } };
+                      const dobMatches = []; const nameMatches = []; const searchResults = [];
+                      patients.forEach(p => {
+                        if (intakeDob && p.dob === intakeDob) push(dobMatches, p);
+                      });
+                      patients.forEach(p => {
+                        if (!seen.has(p.id) && lastLc && (p.name || "").toLowerCase().includes(lastLc)) push(nameMatches, p);
+                      });
+                      if (q) patients.forEach(p => {
+                        if (!seen.has(p.id) && ((p.name || "").toLowerCase().includes(q) || (p.dob || "").includes(q))) push(searchResults, p);
+                      });
+                      const Row = (p, tag) => (
+                        <button key={p.id} onClick={() => handleMatchToPatient(intake, p)}
+                          style={{display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",textAlign:"left",
+                            padding:"9px 12px",marginBottom:6,borderRadius:8,border:"1px solid #e5e7eb",background:"white",cursor:"pointer"}}>
+                          <span>
+                            <span style={{fontWeight:700,fontSize:13,color:"#111"}}>{p.name}</span>
+                            <span style={{fontSize:12,color:"#6b7280",marginLeft:8}}>DOB {p.dob || "—"}</span>
+                          </span>
+                          {tag && <span style={{fontSize:10,fontWeight:700,color:"#0f766e",background:"#f0fdfa",border:"1px solid #5eead4",borderRadius:12,padding:"1px 8px"}}>{tag}</span>}
+                        </button>
+                      );
+                      return (
+                        <div style={{marginTop:8,background:"#FAFAF7",border:"1px solid #F0EDE3",borderRadius:10,padding:"12px 12px 10px"}}>
+                          <div style={{fontSize:11,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:0.5,marginBottom:8}}>
+                            Match to existing patient
+                          </div>
+                          {dobMatches.length > 0 && (
+                            <div style={{marginBottom:8}}>
+                              <div style={{fontSize:11,color:"#0f766e",fontWeight:600,marginBottom:6}}>Same date of birth</div>
+                              {dobMatches.map(p => Row(p, "DOB match"))}
+                            </div>
+                          )}
+                          {nameMatches.length > 0 && (
+                            <div style={{marginBottom:8}}>
+                              <div style={{fontSize:11,color:"#6b7280",fontWeight:600,marginBottom:6}}>Same last name</div>
+                              {nameMatches.slice(0,5).map(p => Row(p, null))}
+                            </div>
+                          )}
+                          <input type="text" value={matchSearch} onChange={e => setMatchSearch(e.target.value)}
+                            placeholder="Search by name or DOB…"
+                            style={{width:"100%",boxSizing:"border-box",fontSize:13,padding:"8px 10px",border:"1px solid #e5e7eb",borderRadius:8,marginBottom:8,outline:"none"}} />
+                          {q && (searchResults.length > 0
+                            ? searchResults.slice(0,8).map(p => Row(p, null))
+                            : <div style={{fontSize:12,color:"#9ca3af",padding:"4px 2px 8px"}}>No patients match “{matchSearch}”.</div>)}
+                          {dobMatches.length === 0 && nameMatches.length === 0 && !q && (
+                            <div style={{fontSize:12,color:"#9ca3af",padding:"2px 2px 8px"}}>No automatic match — search above, or create a new patient.</div>
+                          )}
+                          <button onClick={() => handleAcceptIntake(intake)}
+                            style={{width:"100%",fontSize:12,fontWeight:600,color:"#6b7280",background:"transparent",border:"1px dashed #d1d5db",borderRadius:8,padding:"8px",cursor:"pointer"}}>
+                            + Not in the system — create a new patient
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })
@@ -8071,6 +8269,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
             );
           })()}
           {view === "settings" && renderSettings()}
+          {view === "catalog" && (checkRole(staffRole, ["admin"]) ? renderCatalog() : renderAdminDenied())}
+          {view === "providers" && (checkRole(staffRole, ["admin"]) ? <ProvidersAdmin /> : renderAdminDenied())}
+          {view === "insurance-plans" && (checkRole(staffRole, ["admin"]) ? renderInsurancePlans() : renderAdminDenied())}
           {view === "catalog" && renderCatalog()}
           {view === "providers" && <ProvidersAdmin />}
           {view === "adjustments" && <AdjustmentHistory staffId={staffId} patients={patients} />}
