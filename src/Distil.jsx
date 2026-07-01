@@ -2,6 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useR
 import { unwrapIntakeAnswers } from "./recommendationEngine.js";
 import { ENVIRONMENTS, SITUATION_LABEL, flaggedEnvironments } from "./listeningSituations.js";
 import Icon from "./components/Icon.jsx";
+import FinancingCalculator from "./components/FinancingCalculator.jsx";
 
 // ── Body style images ──
 import imgRIC from "./assets/body-styles/RIC.png";
@@ -5017,7 +5018,6 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 .join("\n")
                 .trim();
 
-              const financeMonthly = investmentDisplay > 0 ? Math.round(investmentDisplay / 24) : 0;
               // Structured reflection from intake answers — "you told us the hardest
               // moments are X, Y, Z" — replaces the free-text provider-notes quote.
               const reflectFlags = flaggedEnvironments(unwrapIntakeAnswers(wizardIntake?.answers) || null);
@@ -5132,17 +5132,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                     )}
                   </div>
 
-                  {/* Comfortable monthly options — CareCredit / Allegro, 0% for 24 mo */}
-                  {financeMonthly > 0 && (
-                    <div style={{marginTop:16,paddingTop:14,borderTop:"1px solid #EADFC7"}}>
-                      <div style={{fontSize:11,fontWeight:600,color:"#9AA39B",textTransform:"uppercase",letterSpacing:0.6,marginBottom:8}}>Ways to make it comfortable</div>
-                      <div style={{display:"flex",alignItems:"center",gap:12,background:"#fff",border:"1px solid #E4E0D5",borderRadius:11,padding:"12px 14px"}}>
-                        <span style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:20,fontWeight:600,color:"#16201D",whiteSpace:"nowrap"}}>${financeMonthly.toLocaleString('en-US')}/mo</span>
-                        <span style={{fontSize:12.5,color:"#54625C",lineHeight:1.45}}>for 24 months, <span style={{color:"#0C4A40",fontWeight:600}}>0% interest</span> with CareCredit / Allegro — paid off in that window, not a penny more than ${fmt(investmentDisplay)}.</span>
-                      </div>
-                      <div style={{fontSize:11.5,color:"#9AA39B",marginTop:8,lineHeight:1.5}}>Prefer smaller payments? Longer plans are available — we'll walk the exact terms together, no surprises.</div>
-                    </div>
-                  )}
+                  {/* Comfortable monthly options — interactive CareCredit / Allegro
+                      calculator: deferred-interest (6/12/18) vs fixed-APR
+                      (24/36/48/60) terms, with real APR + total cost shown. */}
+                  <FinancingCalculator total={investmentDisplay} />
                 </div>
               );
             })()}
