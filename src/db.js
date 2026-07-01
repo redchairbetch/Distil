@@ -1736,7 +1736,7 @@ export async function loadProductCatalogTiers() {
       bundled_cc_plus_compatible,
       active,
       notes,
-      product_catalog ( manufacturer, family, generation )
+      product_catalog ( manufacturer, family, generation, display_generation )
     `)
     .eq('active', true)
     .order('tier_rank', { ascending: false })
@@ -1762,9 +1762,97 @@ export async function loadProductCatalogTiers() {
     manufacturer:             row.product_catalog?.manufacturer,
     family:                   row.product_catalog?.family,
     generation:               row.product_catalog?.generation,
+    // Patient-facing platform label. Falls back to `generation` for brands
+    // where it isn't set. Rexton uses this to show "Reach"/"BiCore" instead of
+    // the Signia IX/AX codes `generation` carries as a dome-resolution key (#28).
+    displayGeneration:        row.product_catalog?.display_generation || row.product_catalog?.generation,
   }))
 }
 
+
+// Active rebates for the device-selection screen (spec §5 "Available Rebates").
+// Returns promos that are flagged active AND inside their [active_from,active_to]
+// window AND either corporate-wide (clinic_id null) or scoped to this clinic.
+// Scope-to-device filtering (manufacturer / family / tier / patient attribute)
+// happens client-side against the selected tier — see AvailableRebates in
+// views/DeviceSelection.jsx. Empty today (Kurt seeds promos); the panel is
+// conditional, so it stays hidden until a matching active promo exists.
+export async function loadActiveRebates(clinicId) {
+  const nowIso = new Date().toISOString()
+  let q = supabase
+    .from('rebate_promo')
+    .select('*')
+    .eq('active', true)
+    .lte('active_from', nowIso)
+    .gte('active_to', nowIso)
+  // Corporate-default rows (clinic_id null) OR this clinic's own rows.
+  q = clinicId ? q.or(`clinic_id.is.null,clinic_id.eq.${clinicId}`) : q.is('clinic_id', null)
+  const { data, error } = await q
+  if (error) { console.error('loadActiveRebates:', error); return [] }
+  return (data || []).map(mapRebateRow)
+}
+
+// Shared rebate_promo row → camelCase mapper (loaders + editor).
+function mapRebateRow(r) {
+  return {
+    id:                    r.id,
+    clinicId:              r.clinic_id,
+    name:                  r.name,
+    type:                  r.type,
+    scopeManufacturer:     r.scope_manufacturer,
+    scopeDeviceFamily:     r.scope_device_family,
+    scopeTierRank:         r.scope_tier_rank,
+    scopePatientAttribute: r.scope_patient_attribute,
+    discountType:          r.discount_type,
+    discountValue:         r.discount_value != null ? Number(r.discount_value) : null,
+    activeFrom:            r.active_from,
+    activeTo:              r.active_to,
+    active:                r.active,
+  }
+}
+
+// ── Rebate editor CRUD (Admin → Rebates) ────────────────────────────────────
+// The rebate_promo write policy is WITH CHECK (clinic_id = my_clinic_id()), so
+// every write must be clinic-scoped — callers stamp clinicId. Corporate rows
+// (clinic_id null) are readable but not writable here (surfaced read-only).
+
+// All promos for the editor (active + inactive + expired), unlike
+// loadActiveRebates which filters to the live window for the device screen.
+export async function loadRebatePromos(clinicId) {
+  let q = supabase.from('rebate_promo').select('*').order('active_to', { ascending: false })
+  if (clinicId) q = q.or(`clinic_id.is.null,clinic_id.eq.${clinicId}`)
+  const { data, error } = await q
+  if (error) { console.error('loadRebatePromos:', error); return [] }
+  return (data || []).map(mapRebateRow)
+}
+
+export async function saveRebatePromo(promo) {
+  const row = {
+    clinic_id:               promo.clinicId ?? null,
+    name:                    promo.name,
+    type:                    promo.type,
+    scope_manufacturer:      promo.scopeManufacturer || null,
+    scope_device_family:     promo.scopeDeviceFamily || null,
+    scope_tier_rank:         promo.scopeTierRank ?? null,
+    scope_patient_attribute: promo.scopePatientAttribute || null,
+    discount_type:           promo.discountType,
+    discount_value:          promo.discountValue,
+    active_from:             promo.activeFrom,
+    active_to:               promo.activeTo,
+    active:                  promo.active !== false,
+    updated_at:              new Date().toISOString(),
+  }
+  const res = promo.id
+    ? await supabase.from('rebate_promo').update(row).eq('id', promo.id).select().single()
+    : await supabase.from('rebate_promo').insert(row).select().single()
+  if (res.error) throw new Error(res.error.message)
+  return mapRebateRow(res.data)
+}
+
+export async function deleteRebatePromo(id) {
+  const { error } = await supabase.from('rebate_promo').delete().eq('id', id)
+  if (error) throw new Error(error.message)
+}
 
 // Load the curated legacy/competitor/trade-in device reference used by the
 // old-vs-new comparator (views/DeviceComparison.jsx). Reads are open to every
