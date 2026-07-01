@@ -17,6 +17,7 @@ const PATHS = {
   settings: <><path d="M5 7h9M5 12h14M5 17h7"/><circle cx="17" cy="7" r="2.1"/><circle cx="9" cy="17" r="2.1"/></>,
   inbox: <><path d="M3.5 13 6 5.6A2 2 0 0 1 7.9 4.2h8.2A2 2 0 0 1 18 5.6L20.5 13"/><path d="M3.5 13v5a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-5"/><path d="M3.5 13h4.2l1.4 2.5h5.8l1.4-2.5h4.2"/></>,
   tag: <><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 2.8 12V4.8a2 2 0 0 1 2-2H12a2 2 0 0 1 1.4.6l7.2 7.2a2 2 0 0 1 0 2.8Z"/><circle cx="8" cy="8" r="1.4"/></>,
+  percent: <><path d="M18.5 5.5 5.5 18.5"/><circle cx="7.8" cy="7.8" r="2.3"/><circle cx="16.2" cy="16.2" r="2.3"/></>,
 };
 
 export default function Icon({ name, size = 18, strokeWidth = 1.75, style }) {
