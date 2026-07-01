@@ -119,7 +119,7 @@ function fmtDate(s) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCompleted }) {
+export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCompleted, onProceedToPurchase }) {
   const fittingDate = patient?.devices?.fittingDate || patient?.carePlanStartDate || null;
   const years = yearsSince(fittingDate);
   const suggestedYear = years != null ? Math.min(5, Math.max(1, Math.round(years))) : 1;
@@ -357,7 +357,11 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
     }
   };
 
-  const finishVisit = async () => {
+  // proceed: save the visit exactly as before, then hand off to the device
+  // selection + purchase agreement flow (Distil's wizard) instead of exiting.
+  // Proceeding implies the patient is upgrading now, so an unset outcome
+  // defaults to "upgraded".
+  const finishVisit = async ({ proceed = false } = {}) => {
     setBusy(true); setError(null);
     try {
       const isUpg = isUpgradeYear;
@@ -368,7 +372,8 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
       } : {};
       const effPath = isUpg ? (closeState.path || defaultClosePath) : null;
       // Reprogram is its own retention outcome; the upgrade path uses the picked one.
-      const outcome = !isUpg ? null : (effPath === "reprogram" ? "reprogrammed" : (closeState.outcome || null));
+      const outcome = !isUpg ? null
+        : (effPath === "reprogram" ? "reprogrammed" : (closeState.outcome || (proceed ? "upgraded" : null)));
 
       const responses = {
         journeyYear,
@@ -422,7 +427,19 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
 
       const mergedNotes = [changeNotes, isUpg ? closeState.notes : null].map((s) => (s || "").trim()).filter(Boolean).join("\n\n");
       await updateVisit(visitId, { notes: mergedNotes || null, status: "completed" });
-      onCompleted?.();
+      if (proceed && effPath === "upgrade" && onProceedToPurchase) {
+        // Hand the purchase flow everything it can't cheaply re-derive: the
+        // visit (keeps the new fitting visit-scoped), the tier discussed at
+        // close with its reference price, and today's audiogram.
+        onProceedToPurchase({
+          visitId,
+          tierOffered: closeState.tierOffered || null,
+          tierPrice: closeState.tierOffered ? (tierPrices?.[closeState.tierOffered] ?? null) : null,
+          audiology,
+        });
+      } else {
+        onCompleted?.();
+      }
     } catch (e) {
       console.error("finish upgrade visit:", e);
       setError(e?.message || "Couldn't save the visit.");
@@ -794,15 +811,24 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
                   {deltaLoading ? "Computing…" : "Continue →"}
                 </button>
               ) : (
-                <button className="btn-primary green" disabled={busy} onClick={finishVisit}>
+                <button className="btn-primary green" disabled={busy} onClick={() => finishVisit()}>
                   {busy ? "Saving…" : "✓ Save Visit"}
                 </button>
               )
             )}
             {step === STEP.CLOSE && (
-              <button className="btn-primary green" disabled={busy} onClick={finishVisit}>
-                {busy ? "Saving…" : "✓ Save Visit"}
-              </button>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button className="btn-primary green" disabled={busy} onClick={() => finishVisit()}>
+                  {busy ? "Saving…" : "✓ Save Visit"}
+                </button>
+                {/* Upgrade path continues into device selection + purchase
+                    agreement instead of ending the visit here. */}
+                {(closeState.path || defaultClosePath) === "upgrade" && onProceedToPurchase && (
+                  <button className="btn-primary" disabled={busy} onClick={() => finishVisit({ proceed: true })}>
+                    {busy ? "Saving…" : "Save & Select Devices →"}
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>

@@ -39,7 +39,9 @@ function normalizeMic(x) {
 // Best-effort tech-level string ("7IX", "80", "90") → coverage rank. Single
 // digits use the plan-tier map (7→Premium); two-digit ladders use the tens
 // digit (80/90→Premium, 60/70→Advanced, else Standard). Provider can override.
-function techLevelToRank(tl) {
+// Exported for the new-patient wizard, which builds a "proposed new" descriptor
+// from its configured device selection.
+export function techLevelToRank(tl) {
   const n = parseInt(String(tl ?? "").match(/\d+/)?.[0] ?? "", 10);
   if (!Number.isFinite(n)) return null;
   if (n < 10) return rankFromTierLabel(String(n));
@@ -349,14 +351,21 @@ function NewPicker({ catalogTiers, onPick, onClose }) {
 
 // ── Main comparator ──────────────────────────────────────────────────────────
 export default function DeviceComparison({
-  patient = null, initialOld = null, initialNew = null,
+  patient = null, initialOld = null, initialNew = null, proposedNew = null,
   flaggedEnvs = null, variant = "standalone", onClose = null,
 }) {
   const [legacyList, setLegacyList] = useState([]);
   const [catalogTiers, setCatalogTiers] = useState([]);
   const [oldDevice, setOldDevice] = useState(initialOld || fittingToDevice(patient?.devices) || null);
-  const [newDevice, setNewDevice] = useState(initialNew || DEFAULT_NEW);
+  const [newDevice, setNewDevice] = useState(initialNew || proposedNew || DEFAULT_NEW);
   const [picker, setPicker] = useState(null); // 'old' | 'new' | null
+
+  // Follow the caller's live pick (the wizard passes its configured device as
+  // proposedNew) so the bars track the device actually being selected. Only
+  // fires when a real device is proposed — deconfiguring keeps the last pick.
+  useEffect(() => {
+    if (proposedNew) setNewDevice(proposedNew);
+  }, [proposedNew?.display, proposedNew?.tierRank]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let alive = true;
