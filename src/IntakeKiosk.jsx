@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { submitIntake, uploadPatientDocument } from "./db.js";
+import { submitIntake, uploadPatientDocument, redeemUpgradeCheckinCode } from "./db.js";
 import { generateIntakePdf } from "./generateIntakePdf.js";
 
 // MHC logo for the intake-PDF header. Resolved via import.meta.glob so the
@@ -43,6 +43,21 @@ async function imageUrlToDataUrl(url) {
 // which clinic to write intakes to without requiring a login.
 // Add VITE_CLINIC_ID=your-clinic-uuid to your .env file.
 const KIOSK_CLINIC_ID = import.meta.env.VITE_CLINIC_ID;
+
+// Visit mode can be forced via the launch URL — front desk opens
+// /intake?visit=upgrade (or ?visit=annual) for a returning patient so the
+// kiosk skips the new-vs-returning picker and goes straight to the check-in.
+// Absent the param, the welcome screen offers the choice (the "Both" entry
+// point). Phase 2 will extend this param into a prefill token so last year's
+// answers can be reviewed; for now it only selects the flow.
+const KIOSK_FORCED_MODE = (() => {
+  try {
+    const v = new URLSearchParams(window.location.search).get("visit");
+    return v === "upgrade" || v === "annual" ? "upgrade" : null;
+  } catch {
+    return null;
+  }
+})();
 
 // ── Font Load ──────────────────────────────────────────────────────────────────
 const _fl = document.createElement("link");
@@ -264,6 +279,74 @@ const T = {
     tyBody: "Your intake form has been received and saved. Please return this iPad to the front desk — we'll be right with you.",
     tyId: "Intake Reference ID:",
     tyDownload: "Download Your Copy (PDF)",
+
+    // ── Mode picker (new patient vs. returning) ──
+    modePromptTitle: "Welcome back — or welcome in.",
+    modePromptBody: "Are you a new patient, or returning for an annual or upgrade visit?",
+    modeNew: "I'm a new patient",
+    modeNewDesc: "First visit — full intake form.",
+    modeReturning: "I'm a returning patient",
+    modeReturningDesc: "Annual check-in or upgrade visit — a few quick questions.",
+
+    // ── Upgrade / returning-visit flow ──
+    secUpgReturning: "Returning Visit",
+    secUpgCheckin: "Annual Check-In",
+    upgWelcomeTitle: "Welcome back to",
+    upgWelcomeBody: "Good to see you again. This quick check-in takes about 2–3 minutes and helps us pick up right where we left off — just confirm a few details and tell us how your hearing has been this year.",
+    upgCodePrompt: "Have a check-in code from the front desk?",
+    upgCodePlaceholder: "Enter your code",
+    upgCodeLoad: "Load My Info",
+    upgCodeLoading: "Loading…",
+    upgCodeLoaded: "✓ Your information is loaded — tap Begin to review it.",
+    upgCodeErrorGeneric: "We couldn't find that code. Please check it, or continue without one.",
+    upgCodeErrorExpired: "That code has expired. Please ask the front desk for a new one.",
+    upgCodeErrorUsed: "That code was already used. Please ask the front desk for a new one.",
+    upgIdentityTitle: "Let's confirm who you are.",
+    upgDobTitle: "And your date of birth?",
+    upgContactTitle: "Has your contact information changed?",
+    upgContactNote: "Only fill in what's changed since your last visit — leave the rest blank.",
+    upgContactOtherLabel: "Other updates (address, emergency contact, physician…)",
+    upgInsuranceQ: "Has your insurance changed since your last visit?",
+    upgInsuranceNewLabel: "Your new insurance carrier",
+    upgSatisfactionQ: "Overall, how satisfied are you with your current hearing aids?",
+    upgSatisfPoor: "1 — Not satisfied", upgSatisfGood: "10 — Very satisfied",
+    upgEnvironmentsQ: "Where are you struggling now that wasn't a problem before?",
+    upgEnvNote: "Select all that apply — or skip if nothing's changed.",
+    upgFeatureGapsQ: "Which of these would you want in new hearing aids?",
+    upgFeatNote: "Select any that interest you.",
+    upgIssuesQ: "Are your current hearing aids giving you any of these problems?",
+    upgIssuesNote: "Select all that apply.",
+    upgNotesQ: "Anything else about how your hearing has changed this year?",
+    upgNotesPlaceholder: "Tell us anything else you'd like your provider to know…",
+    upgSigCert: "By signing below, I confirm that the information I provided today is accurate and current to the best of my knowledge.",
+    upgTyBody: "Thank you — your check-in has been received. Please return this iPad to the front desk; your provider will review your answers before your visit.",
+
+    upgEnv_restaurants: "Restaurants or noisy places",
+    upgEnv_groups: "Groups & meetings",
+    upgEnv_phone: "Phone calls",
+    upgEnv_tv: "Television",
+    upgEnv_one_on_one: "One-on-one conversations",
+    upgEnv_car: "In the car",
+    upgEnv_outdoors: "Outdoors / wind",
+    upgEnv_worship: "Place of worship",
+    upgEnv_music: "Music",
+
+    upgFeat_rechargeable: "Rechargeable batteries",
+    upgFeat_phone_stream: "Stream phone calls",
+    upgFeat_tv_stream: "Stream TV",
+    upgFeat_hands_free: "Hands-free calls",
+    upgFeat_app_control: "Control from a phone app",
+    upgFeat_fall_detection: "Fall detection",
+    upgFeat_tinnitus: "Ringing (tinnitus) relief",
+    upgFeat_noise: "Better hearing in noise",
+
+    upgIssue_feedback: "Whistling or feedback",
+    upgIssue_low_volume: "Not loud enough",
+    upgIssue_streaming_fails: "Streaming drops or fails",
+    upgIssue_comfort: "Uncomfortable fit",
+    upgIssue_frequent_repairs: "Frequent repairs",
+    upgIssue_wont_charge: "Won't hold a charge",
+    upgIssue_not_wearing: "I rarely wear them",
   },
   es: {
     langPrompt: "Por favor seleccione su idioma preferido para comenzar:",
@@ -424,6 +507,74 @@ const T = {
     tyBody: "Su formulario de admisión ha sido recibido y guardado. Por favor devuelva este iPad a la recepción — en un momento estaremos con usted.",
     tyId: "ID de Referencia:",
     tyDownload: "Descargar Su Copia (PDF)",
+
+    // ── Selección de modo (paciente nuevo vs. paciente que regresa) ──
+    modePromptTitle: "Bienvenido de nuevo — o bienvenido.",
+    modePromptBody: "¿Es usted un paciente nuevo o regresa para una visita anual o de actualización?",
+    modeNew: "Soy un paciente nuevo",
+    modeNewDesc: "Primera visita — formulario completo.",
+    modeReturning: "Soy un paciente que regresa",
+    modeReturningDesc: "Revisión anual o visita de actualización — unas preguntas rápidas.",
+
+    // ── Flujo de visita de seguimiento / actualización ──
+    secUpgReturning: "Visita de Seguimiento",
+    secUpgCheckin: "Revisión Anual",
+    upgWelcomeTitle: "Bienvenido de nuevo a",
+    upgWelcomeBody: "Qué gusto verlo de nuevo. Esta revisión rápida toma unos 2–3 minutos y nos ayuda a continuar donde lo dejamos — solo confirme algunos datos y cuéntenos cómo ha estado su audición este año.",
+    upgCodePrompt: "¿Tiene un código de registro de la recepción?",
+    upgCodePlaceholder: "Ingrese su código",
+    upgCodeLoad: "Cargar Mi Información",
+    upgCodeLoading: "Cargando…",
+    upgCodeLoaded: "✓ Su información está cargada — toque Comencemos para revisarla.",
+    upgCodeErrorGeneric: "No encontramos ese código. Verifíquelo o continúe sin él.",
+    upgCodeErrorExpired: "Ese código ha expirado. Pídale uno nuevo a la recepción.",
+    upgCodeErrorUsed: "Ese código ya fue utilizado. Pídale uno nuevo a la recepción.",
+    upgIdentityTitle: "Confirmemos quién es usted.",
+    upgDobTitle: "¿Y su fecha de nacimiento?",
+    upgContactTitle: "¿Ha cambiado su información de contacto?",
+    upgContactNote: "Complete solo lo que haya cambiado desde su última visita — deje el resto en blanco.",
+    upgContactOtherLabel: "Otras actualizaciones (dirección, contacto de emergencia, médico…)",
+    upgInsuranceQ: "¿Ha cambiado su seguro desde su última visita?",
+    upgInsuranceNewLabel: "Su nueva compañía de seguros",
+    upgSatisfactionQ: "En general, ¿qué tan satisfecho está con sus audífonos actuales?",
+    upgSatisfPoor: "1 — Nada satisfecho", upgSatisfGood: "10 — Muy satisfecho",
+    upgEnvironmentsQ: "¿Dónde tiene dificultades ahora que antes no eran un problema?",
+    upgEnvNote: "Seleccione todas las que correspondan — u omita si nada ha cambiado.",
+    upgFeatureGapsQ: "¿Cuáles de estas funciones le gustaría tener en nuevos audífonos?",
+    upgFeatNote: "Seleccione las que le interesen.",
+    upgIssuesQ: "¿Sus audífonos actuales le están dando alguno de estos problemas?",
+    upgIssuesNote: "Seleccione todos los que correspondan.",
+    upgNotesQ: "¿Algo más sobre cómo ha cambiado su audición este año?",
+    upgNotesPlaceholder: "Cuéntenos cualquier otra cosa que quiera que su proveedor sepa…",
+    upgSigCert: "Al firmar a continuación, confirmo que la información que proporcioné hoy es precisa y actual según mi leal saber y entender.",
+    upgTyBody: "Gracias — su revisión ha sido recibida. Por favor devuelva este iPad a la recepción; su proveedor revisará sus respuestas antes de su visita.",
+
+    upgEnv_restaurants: "Restaurantes o lugares ruidosos",
+    upgEnv_groups: "Grupos y reuniones",
+    upgEnv_phone: "Llamadas telefónicas",
+    upgEnv_tv: "Televisión",
+    upgEnv_one_on_one: "Conversaciones uno a uno",
+    upgEnv_car: "En el automóvil",
+    upgEnv_outdoors: "Al aire libre / viento",
+    upgEnv_worship: "Lugar de culto",
+    upgEnv_music: "Música",
+
+    upgFeat_rechargeable: "Baterías recargables",
+    upgFeat_phone_stream: "Transmitir llamadas telefónicas",
+    upgFeat_tv_stream: "Transmitir televisión",
+    upgFeat_hands_free: "Llamadas con manos libres",
+    upgFeat_app_control: "Control desde una aplicación",
+    upgFeat_fall_detection: "Detección de caídas",
+    upgFeat_tinnitus: "Alivio del zumbido (tinnitus)",
+    upgFeat_noise: "Mejor audición en ruido",
+
+    upgIssue_feedback: "Silbido o retroalimentación",
+    upgIssue_low_volume: "No suenan lo suficientemente fuerte",
+    upgIssue_streaming_fails: "La transmisión se corta o falla",
+    upgIssue_comfort: "Ajuste incómodo",
+    upgIssue_frequent_repairs: "Reparaciones frecuentes",
+    upgIssue_wont_charge: "No mantienen la carga",
+    upgIssue_not_wearing: "Rara vez los uso",
   },
 };
 
@@ -466,6 +617,29 @@ const RESISTANCE_OPTIONS = [
   ["bad_experience","resist_bad_experience"],["stigma","resist_stigma"],
   ["dont_know","resist_dont_know"],["fear_dependence","resist_fear_dependence"],
   ["other","resist_other"],
+];
+
+// ── Upgrade / annual check-in option tables ───────────────────────────────────
+// Storage keys deliberately MATCH the provider-side scoring model
+// (upgradeReadiness.js: STRUGGLE_ENVIRONMENTS / FEATURE_GAPS / PERFORMANCE_TAGS)
+// so a kiosk submission maps 1:1 into the UpgradeWizard REVIEW step with no
+// translation table. Display labels are bilingual via the paired translation key.
+const UPG_ENVIRONMENT_OPTIONS = [
+  ["restaurants","upgEnv_restaurants"],["groups","upgEnv_groups"],["phone","upgEnv_phone"],
+  ["tv","upgEnv_tv"],["one_on_one","upgEnv_one_on_one"],["car","upgEnv_car"],
+  ["outdoors","upgEnv_outdoors"],["worship","upgEnv_worship"],["music","upgEnv_music"],
+];
+const UPG_FEATURE_OPTIONS = [
+  ["rechargeable","upgFeat_rechargeable"],["phone_stream","upgFeat_phone_stream"],
+  ["tv_stream","upgFeat_tv_stream"],["hands_free","upgFeat_hands_free"],
+  ["app_control","upgFeat_app_control"],["fall_detection","upgFeat_fall_detection"],
+  ["tinnitus","upgFeat_tinnitus"],["noise","upgFeat_noise"],
+];
+const UPG_ISSUE_OPTIONS = [
+  ["feedback","upgIssue_feedback"],["low_volume","upgIssue_low_volume"],
+  ["streaming_fails","upgIssue_streaming_fails"],["comfort","upgIssue_comfort"],
+  ["frequent_repairs","upgIssue_frequent_repairs"],["wont_charge","upgIssue_wont_charge"],
+  ["not_wearing","upgIssue_not_wearing"],
 ];
 
 // ── Step definitions ───────────────────────────────────────────────────────────
@@ -555,6 +729,44 @@ const STEPS = [
   { id: "aids_detail", type: "aids", sec: "secHearing", conditional: "aids_q" },
   { id: "privacy", type: "scrollConsent", sec: "secConsent", contentKey: "privacy" },
   { id: "insurance", type: "scrollConsent", sec: "secConsent", contentKey: "insurance" },
+  { id: "signature", type: "signature", sec: "secConsent" },
+  { id: "thanks", type: "thanks" },
+];
+
+// ── Upgrade / annual returning-patient flow ───────────────────────────────────
+// A short check-in for established patients (backlog #23, kiosk side). Reuses the
+// same step renderers as the new-patient flow. Captures identity (to match the
+// existing chart), any contact/insurance changes, and the patient-facing
+// upgrade-readiness questionnaire. The structured readiness lands on the intake
+// (handleSubmit) where the provider's UpgradeWizard reads it. HIPAA is already on
+// file for returning patients, so this flow signs a short accuracy attestation
+// instead of re-walking the full privacy + insurance consent screens.
+const UPGRADE_STEPS = [
+  { id: "welcome", type: "welcome" },
+  { id: "name", type: "form", title: "upgIdentityTitle", sec: "secUpgReturning", fields: [
+    { key: "firstName", label: "firstName", req: true, width: "50%" },
+    { key: "mi", label: "mi", req: false, width: "20%" },
+    { key: "lastName", label: "lastName", req: true, width: "100%" },
+  ]},
+  { id: "dob", type: "form", title: "upgDobTitle", sec: "secUpgReturning", fields: [
+    { key: "dob", label: "dob", req: true, width: "100%", type: "dob" },
+  ]},
+  { id: "contact_update", type: "form", title: "upgContactTitle", note: "upgContactNote", sec: "secUpgReturning", fields: [
+    { key: "mobilePhone", label: "mobilePhone", req: false, width: "48%", type: "tel" },
+    { key: "email", label: "email", req: false, width: "48%", type: "email" },
+    { key: "upg_contact_other", label: "upgContactOtherLabel", req: false, type: "textarea", width: "100%" },
+  ]},
+  { id: "upg_insurance", type: "yesno", sec: "secUpgReturning", qKey: "upgInsuranceQ", ansKey: "upg_insurance_changed",
+    followUp: { key: "upg_insurance_new", label: "upgInsuranceNewLabel", showIf: true } },
+  { id: "upg_satisfaction", type: "scale", sec: "secUpgCheckin", qKey: "upgSatisfactionQ", ansKey: "upg_satisfaction",
+    lowKey: "upgSatisfPoor", highKey: "upgSatisfGood" },
+  { id: "upg_environments", type: "multiSelect", sec: "secUpgCheckin", qKey: "upgEnvironmentsQ", note: "upgEnvNote",
+    ansKey: "upg_environments", options: UPG_ENVIRONMENT_OPTIONS, req: false },
+  { id: "upg_issues", type: "multiSelect", sec: "secUpgCheckin", qKey: "upgIssuesQ", note: "upgIssuesNote",
+    ansKey: "upg_issues", options: UPG_ISSUE_OPTIONS, req: false },
+  { id: "upg_featureGaps", type: "multiSelect", sec: "secUpgCheckin", qKey: "upgFeatureGapsQ", note: "upgFeatNote",
+    ansKey: "upg_featureGaps", options: UPG_FEATURE_OPTIONS, req: false },
+  { id: "upg_notes", type: "text", sec: "secUpgCheckin", qKey: "upgNotesQ", ansKey: "upg_notes", phKey: "upgNotesPlaceholder", req: false },
   { id: "signature", type: "signature", sec: "secConsent" },
   { id: "thanks", type: "thanks" },
 ];
@@ -882,18 +1094,26 @@ function ConsentScreen({ t, isPrivacy, scrolled, agreed, onScroll, onToggleAgree
 // ── Main Component ─────────────────────────────────────────────────────────────
 export default function IntakeKiosk() {
   const [lang, setLang] = useState(null);
+  // null until chosen (or forced via ?visit=upgrade): "new" | "upgrade".
+  const [mode, setMode] = useState(KIOSK_FORCED_MODE);
   const [stepIdx, setStepIdx] = useState(0);
   const [answers, setAnswers] = useState({});
   const [errors, setErrors] = useState({});
   const [hasSignature, setHasSignature] = useState(false);
   const [intakeId] = useState(genIntakeId);
   const [submitted, setSubmitted] = useState(false);
+  // Returning-patient check-in code (Phase 2 prefill): the code the patient
+  // types on the upgrade welcome screen, and the redeem status.
+  const [codeInput, setCodeInput] = useState("");
+  const [prefill, setPrefill] = useState({ status: "idle", message: "" }); // idle|loading|loaded|error
   const signatureRef = useRef(null);
   const isDrawing = useRef(false);
   const t = lang ? T[lang] : T.en;
+  const isUpgrade = mode === "upgrade";
+  const activeSteps = isUpgrade ? UPGRADE_STEPS : STEPS;
 
   // Filter steps (skip aids_detail if aids_q === false)
-  const visibleSteps = STEPS.filter(s => {
+  const visibleSteps = activeSteps.filter(s => {
     if (s.conditional) return answers[s.conditional] === true;
     return true;
   });
@@ -902,6 +1122,37 @@ export default function IntakeKiosk() {
   const progressPct = stepIdx <= 1 ? 0 : Math.min(100, Math.round(((stepIdx - 1) / (totalSteps - 1)) * 100));
 
   const setAnswer = (key, val) => setAnswers(prev => ({ ...prev, [key]: val }));
+
+  // Redeem a front-desk check-in code → seed identity, contact, and last year's
+  // readiness so the patient reviews (not retypes). On failure, show a specific,
+  // friendly message keyed to the edge function's error code.
+  const handleLoadCode = async () => {
+    const code = codeInput.trim();
+    if (!code) return;
+    setPrefill({ status: "loading", message: "" });
+    const result = await redeemUpgradeCheckinCode(code);
+    if (result?.error) {
+      const msg = result.error === "expired" ? t.upgCodeErrorExpired
+        : result.error === "already_used" ? t.upgCodeErrorUsed
+        : t.upgCodeErrorGeneric;
+      setPrefill({ status: "error", message: msg });
+      return;
+    }
+    const p = result?.payload || {};
+    setAnswers(prev => ({
+      ...prev,
+      ...(p.patient?.firstName ? { firstName: p.patient.firstName } : {}),
+      ...(p.patient?.lastName  ? { lastName:  p.patient.lastName  } : {}),
+      ...(p.patient?.dob       ? { dob:       p.patient.dob       } : {}),
+      ...(p.contact?.mobilePhone ? { mobilePhone: p.contact.mobilePhone } : {}),
+      ...(p.contact?.email       ? { email:       p.contact.email       } : {}),
+      ...(p.readiness?.satisfaction != null ? { upg_satisfaction: p.readiness.satisfaction } : {}),
+      ...(Array.isArray(p.readiness?.environments) ? { upg_environments: p.readiness.environments } : {}),
+      ...(Array.isArray(p.readiness?.featureGaps)  ? { upg_featureGaps:  p.readiness.featureGaps  } : {}),
+      ...(Array.isArray(p.readiness?.issues)       ? { upg_issues:       p.readiness.issues       } : {}),
+    }));
+    setPrefill({ status: "loaded", message: t.upgCodeLoaded });
+  };
 
   const validate = () => {
     if (step.type === "form") {
@@ -983,9 +1234,26 @@ export default function IntakeKiosk() {
     // Submit intake to Supabase. If this throws, surface the error so the
     // user doesn't see the Thank-You screen with a record that doesn't exist.
     try {
+      // Returning-visit flow attaches a structured upgradeReadiness object whose
+      // keys mirror the provider-side scoring model (upgradeReadiness.js), so the
+      // UpgradeWizard REVIEW step can pre-fill from it without remapping.
+      const wrappedAnswers = isUpgrade
+        ? {
+            ...answers,
+            upgradeReadiness: {
+              satisfaction:    answers.upg_satisfaction ?? null,
+              environments:    answers.upg_environments || [],
+              featureGaps:     answers.upg_featureGaps || [],
+              issues:          answers.upg_issues || [],
+              notes:           answers.upg_notes || "",
+              insuranceChanged: answers.upg_insurance_changed ?? null,
+              insuranceNew:    answers.upg_insurance_new || "",
+            },
+          }
+        : answers;
       const payload = {
-        _meta: { intakeId, submittedAt: timestamp, lang, status: "pending" },
-        answers,
+        _meta: { intakeId, submittedAt: timestamp, lang, status: "pending", intakeType: isUpgrade ? "upgrade" : "new" },
+        answers: wrappedAnswers,
         consent: { privacyAgreed: answers.privacyAgreed, insuranceAgreed: answers.insuranceAgreed, signedAt: timestamp, signatureDataUrl: sigDataUrl }
       };
       await submitIntake(payload, KIOSK_CLINIC_ID, intakeRowId);
@@ -1003,6 +1271,7 @@ export default function IntakeKiosk() {
     const doc = generateIntakePdf({
       answers, intakeId, signatureDataUrl: sigDataUrl, timestamp, lang, T,
       logoDataUrl, clinic: CLINIC_INFO,
+      intakeType: isUpgrade ? "upgrade" : "new",
       lookups: {
         referral: REFERRAL_OPTIONS,
         family: FAMILY_OPTIONS,
@@ -1010,6 +1279,9 @@ export default function IntakeKiosk() {
         noiseRecreational: NOISE_OPTIONS_RECREATIONAL,
         resistance: RESISTANCE_OPTIONS,
         states: US_STATES,
+        upgEnvironments: UPG_ENVIRONMENT_OPTIONS,
+        upgFeatures: UPG_FEATURE_OPTIONS,
+        upgIssues: UPG_ISSUE_OPTIONS,
       },
     });
     const fileName = `Intake_${answers.lastName || "Patient"}_${answers.firstName || ""}_${new Date().toLocaleDateString("en-US").replace(/\//g,"-")}.pdf`;
@@ -1069,6 +1341,32 @@ export default function IntakeKiosk() {
     );
   }
 
+  // ── Mode Select (new vs. returning) ──────────────────────────────────────────
+  // Shown only when the launch URL didn't force a mode (?visit=upgrade). The
+  // "Both" entry point: front desk can pre-set the URL, or a walk-in self-selects.
+  if (!mode) {
+    return (
+      <div style={{ fontFamily: font, backgroundColor: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ background: C.card, borderRadius: 20, padding: "48px 40px", maxWidth: 560, width: "100%", boxShadow: "0 4px 30px rgba(10,123,140,0.10)", textAlign: "center" }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: C.teal, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>)) MY HEARING CENTERS</div>
+          <h1 style={{ fontFamily: serif, fontSize: 28, color: C.text, margin: "0 0 12px" }}>{t.modePromptTitle}</h1>
+          <p style={{ fontSize: 16, color: C.muted, lineHeight: 1.6, marginBottom: 32 }}>{t.modePromptBody}</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {[["new","modeNew","modeNewDesc"],["upgrade","modeReturning","modeReturningDesc"]].map(([m, titleKey, descKey]) => (
+              <button key={m} onClick={() => { setMode(m); setStepIdx(0); }}
+                style={{ padding: "20px 22px", borderRadius: 14, border: `2px solid ${C.border}`, background: "#fff", cursor: "pointer", fontFamily: font, textAlign: "left", transition: "all 0.15s" }}
+                onMouseOver={e => { e.currentTarget.style.borderColor = C.teal; e.currentTarget.style.background = C.tealL; }}
+                onMouseOut={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = "#fff"; }}>
+                <div style={{ fontSize: 19, fontWeight: 800, color: C.tealD, marginBottom: 4 }}>{t[titleKey]}</div>
+                <div style={{ fontSize: 14, color: C.muted }}>{t[descKey]}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── Card Wrapper ─────────────────────────────────────────────────────────────
   const card = (children, noPad = false) => (
     <div style={{ fontFamily: font, backgroundColor: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 16px" }}>
@@ -1083,8 +1381,33 @@ export default function IntakeKiosk() {
   if (step.type === "welcome") return card(
     <div style={{ textAlign: "center", padding: "8px 0 4px" }}>
       <div style={{ fontSize: 13, fontWeight: 800, color: C.teal, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 20 }}>)) MY HEARING CENTERS</div>
-      <h1 style={{ fontFamily: serif, fontSize: 34, color: C.text, margin: "0 0 16px", lineHeight: 1.2 }}>{t.welcomeTitle}<br /><span style={{ color: C.teal }}>{t.welcomeBrand}</span></h1>
-      <p style={{ fontSize: 17, color: C.muted, lineHeight: 1.7, whiteSpace: "pre-line", marginBottom: 36, maxWidth: 460, margin: "0 auto 36px" }}>{t.welcomeBody}</p>
+      <h1 style={{ fontFamily: serif, fontSize: 34, color: C.text, margin: "0 0 16px", lineHeight: 1.2 }}>{isUpgrade ? t.upgWelcomeTitle : t.welcomeTitle}<br /><span style={{ color: C.teal }}>{t.welcomeBrand}</span></h1>
+      <p style={{ fontSize: 17, color: C.muted, lineHeight: 1.7, whiteSpace: "pre-line", marginBottom: isUpgrade ? 24 : 36, maxWidth: 460, margin: isUpgrade ? "0 auto 24px" : "0 auto 36px" }}>{isUpgrade ? t.upgWelcomeBody : t.welcomeBody}</p>
+      {isUpgrade && (
+        <div style={{ maxWidth: 420, margin: "0 auto 28px", background: C.tealL, borderRadius: 14, padding: "18px" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: C.tealD, marginBottom: 10 }}>{t.upgCodePrompt}</div>
+          {prefill.status === "loaded" ? (
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.teal, padding: "6px 0" }}>{prefill.message}</div>
+          ) : (
+            <>
+              <div style={{ display: "flex", gap: 10 }}>
+                <input type="text" value={codeInput}
+                  onChange={e => setCodeInput(e.target.value.toUpperCase())}
+                  placeholder={t.upgCodePlaceholder} autoCapitalize="characters"
+                  style={{ flex: 1, boxSizing: "border-box", fontSize: 18, fontWeight: 700, letterSpacing: 3, textAlign: "center", padding: "12px 10px", border: `2px solid ${prefill.status === "error" ? C.red : C.border}`, borderRadius: 10, color: C.text, fontFamily: font, outline: "none", textTransform: "uppercase" }} />
+                <button onClick={handleLoadCode}
+                  disabled={prefill.status === "loading" || !codeInput.trim()}
+                  style={{ padding: "12px 18px", fontSize: 15, fontWeight: 800, color: "#fff", background: C.teal, border: "none", borderRadius: 10, cursor: (prefill.status === "loading" || !codeInput.trim()) ? "default" : "pointer", opacity: (prefill.status === "loading" || !codeInput.trim()) ? 0.5 : 1, fontFamily: font, whiteSpace: "nowrap" }}>
+                  {prefill.status === "loading" ? t.upgCodeLoading : t.upgCodeLoad}
+                </button>
+              </div>
+              {prefill.status === "error" && (
+                <div style={{ fontSize: 13, color: C.red, marginTop: 8 }}>{prefill.message}</div>
+              )}
+            </>
+          )}
+        </div>
+      )}
       <button onClick={() => setStepIdx(1)} style={{ padding: "16px 48px", fontSize: 19, fontWeight: 800, color: "#fff", background: C.teal, border: "none", borderRadius: 14, cursor: "pointer", fontFamily: font, letterSpacing: "0.03em" }}
         onMouseOver={e => e.target.style.background = C.tealD} onMouseOut={e => e.target.style.background = C.teal}>{t.begin}</button>
     </div>
@@ -1096,7 +1419,7 @@ export default function IntakeKiosk() {
         <span style={{ fontSize: 32 }}>✓</span>
       </div>
       <h1 style={{ fontFamily: serif, fontSize: 34, color: C.teal, margin: "0 0 12px" }}>{t.tyTitle}</h1>
-      <p style={{ fontSize: 17, color: C.muted, lineHeight: 1.7, marginBottom: 28 }}>{t.tyBody}</p>
+      <p style={{ fontSize: 17, color: C.muted, lineHeight: 1.7, marginBottom: 28 }}>{isUpgrade ? t.upgTyBody : t.tyBody}</p>
       <div style={{ background: C.tealL, borderRadius: 12, padding: "14px 20px", display: "inline-block" }}>
         <p style={{ fontSize: 13, color: C.teal, fontWeight: 700, margin: "0 0 4px", textTransform: "uppercase", letterSpacing: "0.07em" }}>{t.tyId}</p>
         <p style={{ fontSize: 22, fontWeight: 800, color: C.tealD, margin: 0, fontFamily: "monospace" }}>{intakeId}</p>
@@ -1107,7 +1430,8 @@ export default function IntakeKiosk() {
   if (step.type === "form") return card(
     <>
       {step.sec && <SectionBadge label={t[step.sec]} />}
-      <h2 style={{ fontFamily: serif, fontSize: 26, color: C.text, margin: "0 0 24px", lineHeight: 1.3 }}>{t[step.title]}</h2>
+      <h2 style={{ fontFamily: serif, fontSize: 26, color: C.text, margin: step.note ? "0 0 8px" : "0 0 24px", lineHeight: 1.3 }}>{t[step.title]}</h2>
+      {step.note && <p style={{ fontSize: 15, color: C.muted, lineHeight: 1.6, margin: "0 0 24px" }}>{t[step.note]}</p>}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "0 16px" }}>
         {step.fields.map(f => (
           <FieldInput key={f.key} field={f} t={t} value={answers[f.key]} onChange={v => setAnswer(f.key, v)} error={errors[f.key]} answers={answers} setAnswer={setAnswer} />
@@ -1239,7 +1563,8 @@ export default function IntakeKiosk() {
   if (step.type === "multiSelect") return card(
     <>
       {step.sec && <SectionBadge label={t[step.sec]} />}
-      <h2 style={{ fontFamily: serif, fontSize: 26, color: C.text, margin: "0 0 24px", lineHeight: 1.35 }}>{t[step.qKey]}</h2>
+      <h2 style={{ fontFamily: serif, fontSize: 26, color: C.text, margin: step.note ? "0 0 8px" : "0 0 24px", lineHeight: 1.35 }}>{t[step.qKey]}</h2>
+      {step.note && <p style={{ fontSize: 15, color: C.muted, lineHeight: 1.6, margin: "0 0 20px" }}>{t[step.note]}</p>}
       <MultiSelectGrid
         options={step.options}
         value={answers[step.ansKey]}
@@ -1271,7 +1596,7 @@ export default function IntakeKiosk() {
       {step.sec && <SectionBadge label={t[step.sec]} />}
       <h2 style={{ fontFamily: serif, fontSize: 26, color: C.text, margin: "0 0 8px", lineHeight: 1.35 }}>{t[step.qKey]}</h2>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: C.muted, marginBottom: 16 }}>
-        <span>{t.poor}</span><span>{t.excellent}</span>
+        <span>{t[step.lowKey] || t.poor}</span><span>{t[step.highKey] || t.excellent}</span>
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center", marginBottom: 28 }}>
         {[1,2,3,4,5,6,7,8,9,10].map(n => (
@@ -1362,7 +1687,7 @@ export default function IntakeKiosk() {
     <>
       <SectionBadge label={t.secConsent} />
       <h2 style={{ fontFamily: serif, fontSize: 26, color: C.text, margin: "0 0 12px" }}>{t.sigTitle}</h2>
-      <p style={{ fontSize: 15, color: C.muted, lineHeight: 1.65, marginBottom: 20 }}>{t.sigCert}</p>
+      <p style={{ fontSize: 15, color: C.muted, lineHeight: 1.65, marginBottom: 20 }}>{isUpgrade ? t.upgSigCert : t.sigCert}</p>
       <div style={{ border: `2px solid ${errors.sig ? C.red : C.border}`, borderRadius: 14, overflow: "hidden", marginBottom: 8, background: "#FDFDFD", position: "relative" }}>
         {!hasSignature && <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", color: C.border, fontSize: 16, fontWeight: 600, pointerEvents: "none", userSelect: "none" }}>{t.sigHere}</div>}
         <canvas ref={signatureRef} width={548} height={150} style={{ display: "block", touchAction: "none", cursor: "crosshair" }}

@@ -249,7 +249,7 @@ function drawLogo(doc, x, y, maxH, maxW, logoDataUrl) {
 }
 
 // ── Header ───────────────────────────────────────────────────
-function header(doc, intakeId, timestamp, clinic) {
+function header(doc, intakeId, timestamp, clinic, title = 'PATIENT INTAKE FORM') {
   const top = M
   // Left: logo + clinic info block
   const logoH = drawLogo(doc, M, top, 36, 220, clinic.logoDataUrl)
@@ -280,7 +280,7 @@ function header(doc, intakeId, timestamp, clinic) {
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(9.5)
   doc.setTextColor(...INK)
-  doc.text('PATIENT INTAKE FORM', PAGE_W - M, my, { align: 'right' })
+  doc.text(title, PAGE_W - M, my, { align: 'right' })
   my += 12
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8)
@@ -519,12 +519,90 @@ function consentPage(doc, tEn, signatureDataUrl, timestamp) {
   field(doc, M + w + gap, ctx.y, w, 'Date', fmtDate(timestamp))
 }
 
+// ── Upgrade / annual check-in body (returning-patient flow) ──
+// A short layout for the established-patient kiosk check-in: identity,
+// any contact/insurance changes, and the upgrade-readiness answers.
+// Reads the same answer keys the kiosk writes (upg_*); option keys are
+// localized through the upgrade lookup tables.
+function upgradeBody(ctx, answers, t, lk) {
+  const { doc } = ctx
+
+  ctx.y = heading(doc, M, CW, ctx.y, 'Patient')
+  fieldRow(ctx, [
+    { label: 'First Name', value: val(answers, t, 'firstName') },
+    { label: 'M.I.', value: val(answers, t, 'mi') },
+    { label: 'Last Name', value: val(answers, t, 'lastName') },
+  ])
+  fieldRow(ctx, [{ label: 'Date of Birth', value: fmtDob(answers.dob) }])
+
+  ctx.y += 6
+  ctx.y = heading(doc, M, CW, ctx.y, 'Contact / Insurance Updates')
+  fieldRow(ctx, [
+    { label: 'Mobile Phone', value: val(answers, t, 'mobilePhone') },
+    { label: 'Email', value: val(answers, t, 'email') },
+  ])
+  fieldRow(ctx, [{ label: 'Other updates', value: val(answers, t, 'upg_contact_other') }])
+  fieldRow(ctx, [
+    { label: 'Insurance changed?', value: yn(answers, 'upg_insurance_changed') },
+    { label: 'New carrier', value: val(answers, t, 'upg_insurance_new') },
+  ])
+
+  ctx.y += 6
+  ctx.y = heading(doc, M, CW, ctx.y, 'Annual Check-In')
+  fieldRow(ctx, [{ label: 'Satisfaction with current aids (1-10)', value: val(answers, t, 'upg_satisfaction') }])
+  fieldRow(ctx, [{ label: 'New struggle environments', value: multiDisplay(answers, t, 'upg_environments', lk.upgEnvironments, null, null) }])
+  fieldRow(ctx, [{ label: 'Current-aid problems reported', value: multiDisplay(answers, t, 'upg_issues', lk.upgIssues, null, null) }])
+  fieldRow(ctx, [{ label: 'Desired features in new aids', value: multiDisplay(answers, t, 'upg_featureGaps', lk.upgFeatures, null, null) }])
+  fieldRow(ctx, [{ label: 'Other notes', value: val(answers, t, 'upg_notes') }])
+}
+
+// Lighter consent block for returning patients — HIPAA is already on file, so
+// this records only the accuracy attestation + signature (no privacy/insurance
+// re-walk). Continues from the shared cursor so it follows the check-in body
+// (ensureSpace breaks to a new page only if it won't fit).
+function upgradeConsentBlock(ctx, tEn, signatureDataUrl, timestamp) {
+  const { doc } = ctx
+  ctx.y += 14
+  ensureSpace(ctx, 180)
+  doc.setDrawColor(...TEAL)
+  doc.setLineWidth(1.4)
+  doc.line(M, ctx.y, PAGE_W - M, ctx.y)
+  ctx.y += 15
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9)
+  doc.setTextColor(...TEAL)
+  doc.text('CERTIFICATION & SIGNATURE', M, ctx.y, { charSpace: 0.4 })
+  ctx.y += 13
+  ctx.y = paragraph(doc, ctx.y, tEn.upgSigCert || tEn.sigCert || '', 8, CERT)
+  ctx.y += 8
+
+  if (signatureDataUrl) {
+    try {
+      const boxW = 232
+      const boxH = 66
+      doc.setDrawColor(...RULE)
+      doc.setLineWidth(0.5)
+      doc.roundedRect(M, ctx.y, boxW, boxH, 2, 2, 'S')
+      doc.addImage(signatureDataUrl, 'PNG', M + 8, ctx.y + 6, boxW - 16, boxH - 12)
+      ctx.y += boxH + 6
+    } catch {
+      /* signature image unavailable — the field row below still records the date */
+    }
+  }
+  const gap = 16
+  const w = (CW - gap) / 2
+  field(doc, M, ctx.y, w, 'Authorized Signature', ' ')
+  field(doc, M + w + gap, ctx.y, w, 'Date', fmtDate(timestamp))
+}
+
 // ============================================================
 // MAIN EXPORT
 // Returns a jsPDF doc — caller does doc.save() / doc.output('blob').
 // `lookups` carries the kiosk's option tables (referral / family /
-// noise / resistance / states) so this module stays a pure layout
-// module with no import back into IntakeKiosk.jsx.
+// noise / resistance / states / upg*) so this module stays a pure
+// layout module with no import back into IntakeKiosk.jsx.
+// `intakeType` selects the new-patient layout ('new', default) or the
+// shorter returning-patient annual/upgrade check-in ('upgrade').
 // ============================================================
 export function generateIntakePdf({
   answers = {},
@@ -536,6 +614,7 @@ export function generateIntakePdf({
   logoDataUrl = null,
   clinic = {},
   lookups = {},
+  intakeType = 'new',
 }) {
   const t = T[lang] || T.en || {}
   const tEn = T.en || t
@@ -546,10 +625,20 @@ export function generateIntakePdf({
     noiseRecreational: lookups.noiseRecreational || [],
     resistance: lookups.resistance || [],
     states: lookups.states || [],
+    upgEnvironments: lookups.upgEnvironments || [],
+    upgFeatures: lookups.upgFeatures || [],
+    upgIssues: lookups.upgIssues || [],
   }
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' })
   const ctx = { doc, y: M }
+
+  if (intakeType === 'upgrade') {
+    ctx.y = header(doc, intakeId, timestamp, { ...clinic, logoDataUrl }, 'ANNUAL / UPGRADE CHECK-IN')
+    upgradeBody(ctx, answers, t, lk)
+    upgradeConsentBlock(ctx, tEn, signatureDataUrl, timestamp)
+    return doc
+  }
 
   ctx.y = header(doc, intakeId, timestamp, { ...clinic, logoDataUrl })
   patientInfo(ctx, answers, t, lk)
