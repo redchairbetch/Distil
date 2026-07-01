@@ -6,6 +6,8 @@ import IntakeKiosk from './IntakeKiosk.jsx'
 import PatientApp from './Aided.jsx'
 import Login from './Login.jsx'
 import DeviceSelection from './views/DeviceSelection.jsx'
+import DeviceComparison from './views/DeviceComparison.jsx'
+import { COLOR, FONT } from './theme.js'
 import { getSession, getCurrentStaff, onAuthStateChange } from './db.js'
 
 // Route based on URL path:
@@ -18,6 +20,8 @@ const isKiosk = path === '/intake'
 const isAided = path === '/aided'
 const selectMatch = path.match(/^\/distil\/select\/([0-9a-fA-F-]{36})$/)
 const selectPatientId = selectMatch ? selectMatch[1] : null
+// Standalone old-vs-new device comparator — usable cold, outside a visit.
+const isCompare = path === '/distil/compare'
 
 // Aided runs as a PWA — installable, standalone-capable, scoped to /aided.
 // Distil and IntakeKiosk are deliberately excluded; they share the index.html
@@ -90,6 +94,15 @@ function App() {
         staffId={staff?.id}
         clinicId={staff?.clinic_id}
       />
+    )
+  }
+
+  // Standalone comparator page — a cold tool with its own paper canvas.
+  if (isCompare) {
+    return (
+      <div style={{ minHeight: '100vh', background: COLOR.paper, fontFamily: FONT.ui }}>
+        <DeviceComparison variant="standalone" />
+      </div>
     )
   }
 

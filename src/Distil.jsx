@@ -2,6 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useR
 import { unwrapIntakeAnswers } from "./recommendationEngine.js";
 import { ENVIRONMENTS, SITUATION_LABEL, flaggedEnvironments } from "./listeningSituations.js";
 import Icon from "./components/Icon.jsx";
+import DeviceComparison from "./views/DeviceComparison.jsx";
 
 // ── Body style images ──
 import imgRIC from "./assets/body-styles/RIC.png";
@@ -8173,7 +8174,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
             </div>
           )}
           <div className="sidebar-nav">
-            {[["dashboard","Dashboard","dashboard"],["users","Patients","patients"],["bell","Follow-up","followup"],["calendar","Schedule","schedule"],["chart","Reports","reports"],["campaign","Campaigns","campaigns"],["book","Content Library","content"],["medal","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
+            {[["dashboard","Dashboard","dashboard"],["users","Patients","patients"],["bell","Follow-up","followup"],["calendar","Schedule","schedule"],["chart","Reports","reports"],["compare","Compare Devices","compare"],["campaign","Campaigns","campaigns"],["book","Content Library","content"],["medal","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
               const badge = id === "followup" ? countFollowUpPatients(patients) : 0;
               return (
               <div key={id} className={`nav-item ${view===id||(id==="dashboard"&&view==="new")||(id==="patients"&&(view==="dashboard"||view==="patient"))?"active":""}`}
@@ -8268,6 +8269,20 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
               </>
             );
           })()}
+          {view === "compare" && (
+            <>
+              <div className="topbar">
+                <div>
+                  <div className="topbar-title">Compare Devices</div>
+                  <div className="topbar-sub">Old vs. new performance — a standalone tool, no visit required</div>
+                </div>
+                <button className="btn-ghost" onClick={()=>setView("dashboard")}>{"←"} Back</button>
+              </div>
+              <div className="content">
+                <DeviceComparison variant="standalone" />
+              </div>
+            </>
+          )}
           {view === "settings" && renderSettings()}
           {view === "catalog" && (checkRole(staffRole, ["admin"]) ? renderCatalog() : renderAdminDenied())}
           {view === "providers" && (checkRole(staffRole, ["admin"]) ? <ProvidersAdmin /> : renderAdminDenied())}
