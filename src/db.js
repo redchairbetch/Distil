@@ -1769,6 +1769,42 @@ export async function loadProductCatalogTiers() {
 }
 
 
+// Active rebates for the device-selection screen (spec §5 "Available Rebates").
+// Returns promos that are flagged active AND inside their [active_from,active_to]
+// window AND either corporate-wide (clinic_id null) or scoped to this clinic.
+// Scope-to-device filtering (manufacturer / family / tier / patient attribute)
+// happens client-side against the selected tier — see AvailableRebates in
+// views/DeviceSelection.jsx. Empty today (Kurt seeds promos); the panel is
+// conditional, so it stays hidden until a matching active promo exists.
+export async function loadActiveRebates(clinicId) {
+  const nowIso = new Date().toISOString()
+  let q = supabase
+    .from('rebate_promo')
+    .select('*')
+    .eq('active', true)
+    .lte('active_from', nowIso)
+    .gte('active_to', nowIso)
+  // Corporate-default rows (clinic_id null) OR this clinic's own rows.
+  q = clinicId ? q.or(`clinic_id.is.null,clinic_id.eq.${clinicId}`) : q.is('clinic_id', null)
+  const { data, error } = await q
+  if (error) { console.error('loadActiveRebates:', error); return [] }
+  return (data || []).map(r => ({
+    id:                    r.id,
+    clinicId:              r.clinic_id,
+    name:                  r.name,
+    type:                  r.type,
+    scopeManufacturer:     r.scope_manufacturer,
+    scopeDeviceFamily:     r.scope_device_family,
+    scopeTierRank:         r.scope_tier_rank,
+    scopePatientAttribute: r.scope_patient_attribute,
+    discountType:          r.discount_type,
+    discountValue:         r.discount_value != null ? Number(r.discount_value) : null,
+    activeFrom:            r.active_from,
+    activeTo:              r.active_to,
+  }))
+}
+
+
 // ============================================================
 // INTAKE QUEUE
 // Replaces window.storage polling with Supabase realtime.

@@ -11,6 +11,7 @@ import {
   loadClinicSettings,
   loadCarePlanCatalog,
   loadPurchaseConfiguration,
+  loadActiveRebates,
   savePurchaseConfiguration,
   saveProviderEditedRationale,
 } from '../db.js'
@@ -166,6 +167,7 @@ export default function DeviceSelection({ patientId, staffId, clinicId }) {
   const [tiers, setTiers] = useState([])
   const [tnsFlag, setTnsFlag] = useState(null)
   const [carePlans, setCarePlans] = useState([])
+  const [rebates, setRebates] = useState([])
   const [existingPurchase, setExistingPurchase] = useState(null)
   const [selectedRank, setSelectedRank] = useState(null)
   // Bundled vs unbundled lives here (not in Zone5) so the "What's included"
@@ -178,7 +180,7 @@ export default function DeviceSelection({ patientId, staffId, clinicId }) {
     let cancelled = false
     ;(async () => {
       try {
-        const [patientRow, existingRec, inputs, pricingRow, anchorRows, tierRows, tnsRow, clinicRow, carePlanRows, purchaseRow] =
+        const [patientRow, existingRec, inputs, pricingRow, anchorRows, tierRows, tnsRow, clinicRow, carePlanRows, purchaseRow, rebateRows] =
           await Promise.all([
             loadPatientHeader(patientId),
             loadCurrentRecommendation(patientId),
@@ -190,6 +192,7 @@ export default function DeviceSelection({ patientId, staffId, clinicId }) {
             loadClinicSettings(clinicId),
             loadCarePlanCatalog(clinicId),
             loadPurchaseConfiguration(patientId),
+            loadActiveRebates(clinicId),
           ])
         if (cancelled) return
 
@@ -214,6 +217,7 @@ export default function DeviceSelection({ patientId, staffId, clinicId }) {
         setTiers(tierRows || [])
         setTnsFlag(tnsRow)
         setCarePlans(carePlanRows || [])
+        setRebates(rebateRows || [])
         setExistingPurchase(purchaseRow)
         const savedTierId = purchaseRow?.lineItems?.find(li => li.productType === 'device_left' || li.productType === 'device_right')?.productCatalogTierId
         const savedRank = savedTierId ? (tierRows || []).find(t => t.id === savedTierId)?.tierRank : null
@@ -319,6 +323,12 @@ export default function DeviceSelection({ patientId, staffId, clinicId }) {
       />
 
       <RationaleEditor rec={rec} onSaved={updated => setRec(r => ({ ...r, ...updated }))} />
+
+      <AvailableRebates
+        rebates={rebates}
+        selectedTier={selectedTier}
+        selectedRank={selectedRank}
+      />
 
       <Zone5
         selectedRank={selectedRank}
@@ -685,6 +695,99 @@ function EnvironmentFit({ selectedRank, anchorsByKey, flagged }) {
       </div>
     </div>
   )
+}
+
+// ============================================================
+// §5 — AVAILABLE REBATES
+// ============================================================
+
+// Spec §5: a conditional panel that surfaces rebates the patient may qualify
+// for. Data lives in rebate_promo (loaded by loadActiveRebates, already date-
+// and clinic-scoped); this filters to the *selected device* by scope columns.
+// Renders nothing when no active promo matches — no empty "no rebates" box.
+//
+// Vocabularies below mirror the rebate_promo CHECK constraints exactly.
+// discount_type: 'percentage' (→ "X% off"), 'flat_amount' (→ "$X off"), or
+// 'override_price' (→ promotional set price, "$X"). scope_patient_attribute is
+// NOT hard-filtered — we can't verify eligibility (veteran, hardship, loyalty)
+// from here, so a scoped promo shows with an "if you qualify" qualifier for the
+// provider to confirm. scope_manufacturer values are lowercase.
+const REBATE_TYPE_LABEL = {
+  seasonal_promo:     'Seasonal promotion',
+  manufacturer_rebate:'Manufacturer rebate',
+  qualifying_program: 'Qualifying program',
+}
+const REBATE_ATTRIBUTE_LABEL = {
+  veteran:  'Veteran',
+  hardship: 'Financial hardship',
+  loyalty:  'Loyalty / returning patient',
+  other:    'Special program',
+}
+
+function rebateMatchesDevice(r, selectedTier, selectedRank) {
+  if (r.scopeManufacturer &&
+      (selectedTier?.manufacturer || '').toLowerCase() !== r.scopeManufacturer.toLowerCase()) return false
+  if (r.scopeDeviceFamily &&
+      r.scopeDeviceFamily !== selectedTier?.productCatalogId &&
+      r.scopeDeviceFamily !== selectedTier?.family) return false
+  if (r.scopeTierRank != null && r.scopeTierRank !== selectedRank) return false
+  return true
+}
+
+function formatRebate(r) {
+  if (r.discountValue == null) return ''
+  const v = Number(r.discountValue)
+  if (r.discountType === 'percentage')     return `${v}% off`
+  if (r.discountType === 'override_price')  return `$${v.toLocaleString()}`
+  return `$${v.toLocaleString()} off` // flat_amount
+}
+
+function AvailableRebates({ rebates, selectedTier, selectedRank }) {
+  if (selectedRank == null || !rebates?.length) return null
+  const applicable = rebates.filter(r => rebateMatchesDevice(r, selectedTier, selectedRank))
+  if (!applicable.length) return null
+
+  return (
+    <div style={styles.rebatePanel}>
+      <div style={styles.zoneLabel}>Available Rebates</div>
+      <div style={styles.envTitle}>Savings you may qualify for</div>
+      <div style={styles.envSub}>
+        Applied against your investment below. The provider will confirm eligibility.
+      </div>
+      <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {applicable.map(r => (
+          <div key={r.id} style={styles.rebateRow}>
+            <div style={{ flex: 1 }}>
+              <div style={styles.rebateName}>{r.name}</div>
+              <div style={styles.rebateMeta}>
+                <span style={styles.rebateTypeBadge}>{REBATE_TYPE_LABEL[r.type] || r.type}</span>
+                {r.discountType === 'override_price' && (
+                  <span style={styles.rebateQualifier}>promotional set price</span>
+                )}
+                {r.scopePatientAttribute && (
+                  <span style={styles.rebateQualifier}>
+                    if you qualify: {REBATE_ATTRIBUTE_LABEL[r.scopePatientAttribute] || r.scopePatientAttribute}
+                  </span>
+                )}
+                {r.activeTo && (
+                  <span style={styles.rebateThrough}>through {fmtRebateDate(r.activeTo)}</span>
+                )}
+              </div>
+            </div>
+            <div style={styles.rebateAmount}>{formatRebate(r)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// Date-only render for the rebate validity window (timestamptz → "Jun 30, 2026").
+function fmtRebateDate(ts) {
+  if (!ts) return ''
+  const d = new Date(ts)
+  if (isNaN(d)) return ''
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 // ============================================================
@@ -1222,6 +1325,60 @@ const styles = {
     paddingTop: 12,
     borderTop: `1px solid ${COLOR.line}`,
     lineHeight: 1.5,
+  },
+  rebatePanel: {
+    background: 'white',
+    border: `1px solid ${COLOR.line}`,
+    borderLeft: '3px solid #16a34a',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+  },
+  rebateRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    background: '#f0faf4',
+    border: '1px solid #d6efdf',
+    borderRadius: 10,
+    padding: '10px 14px',
+  },
+  rebateName: {
+    fontSize: 14,
+    fontWeight: 600,
+    color: COLOR.ink,
+  },
+  rebateMeta: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  rebateTypeBadge: {
+    fontSize: 10,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    color: '#15803d',
+    background: '#dcfce7',
+    padding: '2px 8px',
+    borderRadius: 10,
+  },
+  rebateQualifier: {
+    fontSize: 11,
+    color: COLOR.muted,
+    fontStyle: 'italic',
+  },
+  rebateThrough: {
+    fontSize: 11,
+    color: COLOR.faint,
+  },
+  rebateAmount: {
+    fontSize: 18,
+    fontWeight: 800,
+    color: '#16a34a',
+    whiteSpace: 'nowrap',
   },
   zone4: {
     background: 'white',
