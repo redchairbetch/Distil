@@ -308,6 +308,11 @@ const T = {
     upgContactOtherLabel: "Other updates (address, emergency contact, physician…)",
     upgInsuranceQ: "Has your insurance changed since your last visit?",
     upgInsuranceNewLabel: "Your new insurance carrier",
+    upgInsCarrierLabel: "Your insurance carrier",
+    upgInsOther: "Other",
+    upgInsOtherPlaceholder: "Type your carrier's name",
+    upgInsPlanLabel: "Your plan (type or pick)",
+    upgInsPlanPlaceholder: "Plan name from your card, or pick a type",
     upgSatisfactionQ: "Overall, how satisfied are you with your current hearing aids?",
     upgSatisfPoor: "1 — Not satisfied", upgSatisfGood: "10 — Very satisfied",
     upgEnvironmentsQ: "Where are you struggling now that wasn't a problem before?",
@@ -536,6 +541,11 @@ const T = {
     upgContactOtherLabel: "Otras actualizaciones (dirección, contacto de emergencia, médico…)",
     upgInsuranceQ: "¿Ha cambiado su seguro desde su última visita?",
     upgInsuranceNewLabel: "Su nueva compañía de seguros",
+    upgInsCarrierLabel: "Su compañía de seguros",
+    upgInsOther: "Otra",
+    upgInsOtherPlaceholder: "Escriba el nombre de su seguro",
+    upgInsPlanLabel: "Su plan (escriba o elija)",
+    upgInsPlanPlaceholder: "Nombre del plan de su tarjeta, o elija un tipo",
     upgSatisfactionQ: "En general, ¿qué tan satisfecho está con sus audífonos actuales?",
     upgSatisfPoor: "1 — Nada satisfecho", upgSatisfGood: "10 — Muy satisfecho",
     upgEnvironmentsQ: "¿Dónde tiene dificultades ahora que antes no eran un problema?",
@@ -733,6 +743,26 @@ const STEPS = [
   { id: "thanks", type: "thanks" },
 ];
 
+// Carrier brands shown as pick buttons on the returning-patient "insurance
+// changed?" step. This is a CHANGE FLAG for the provider (who re-verifies live
+// in the appointment — insurance verification deliberately stays out of the
+// kiosk), not a coverage lookup, so it lists the umbrella brands a patient
+// recognizes off their card rather than the internal plan-group rows. "Other"
+// reveals a free-text field for anything off-list.
+const INSURANCE_CARRIERS = [
+  "UnitedHealthcare", "Humana", "Anthem", "Blue Cross Blue Shield", "Aetna",
+  "Cigna", "Kaiser Permanente", "Regence", "Providence", "Select Health",
+  "Devoted Health", "Highmark", "Medical Mutual", "SCAN",
+];
+
+// Patient-recognizable plan categories offered as a type-or-pick datalist for
+// the plan field. Not the internal plan-group codes (jargon to a patient) — the
+// patient types their plan name from the card or picks the closest category.
+const INSURANCE_PLAN_TYPES = [
+  "Medicare Advantage", "Medicare Supplement", "Medicaid",
+  "PPO", "HMO", "Employer / Commercial", "VA / TriWest", "Not sure",
+];
+
 // ── Upgrade / annual returning-patient flow ───────────────────────────────────
 // A short check-in for established patients (backlog #23, kiosk side). Reuses the
 // same step renderers as the new-patient flow. Captures identity (to match the
@@ -757,7 +787,8 @@ const UPGRADE_STEPS = [
     { key: "upg_contact_other", label: "upgContactOtherLabel", req: false, type: "textarea", width: "100%" },
   ]},
   { id: "upg_insurance", type: "yesno", sec: "secUpgReturning", qKey: "upgInsuranceQ", ansKey: "upg_insurance_changed",
-    followUp: { key: "upg_insurance_new", label: "upgInsuranceNewLabel", showIf: true } },
+    followUp: { key: "upg_insurance_new", type: "insurance", showIf: true,
+      carrierKey: "upg_insurance_carrier", carrierOtherKey: "upg_insurance_carrier_other", planKey: "upg_insurance_plan" } },
   { id: "upg_satisfaction", type: "scale", sec: "secUpgCheckin", qKey: "upgSatisfactionQ", ansKey: "upg_satisfaction",
     lowKey: "upgSatisfPoor", highKey: "upgSatisfGood" },
   { id: "upg_environments", type: "multiSelect", sec: "secUpgCheckin", qKey: "upgEnvironmentsQ", note: "upgEnvNote",
@@ -1489,6 +1520,47 @@ export default function IntakeKiosk() {
                   style={{ width: "100%", boxSizing: "border-box", fontSize: 17, padding: "12px 14px", border: `2px solid ${C.border}`, borderRadius: 10, color: C.text, fontFamily: font, outline: "none" }} />
               </div>
             ))}
+            {followUpVisible && followUps.filter(fu => fu.type === "insurance").map(fu => {
+              const carrier = answers[fu.carrierKey] || "";
+              const isOther = carrier === "__other__";
+              const carrierOther = answers[fu.carrierOtherKey] || "";
+              const plan = answers[fu.planKey] || "";
+              const labelStyle = { display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 };
+              const inputStyle = { width: "100%", boxSizing: "border-box", fontSize: 17, padding: "12px 14px", border: `2px solid ${C.border}`, borderRadius: 10, color: C.text, fontFamily: font, outline: "none", background: "#fff" };
+              const pill = (sel) => ({ padding: "12px 20px", borderRadius: 10, border: `2px solid ${sel ? C.teal : C.border}`, background: sel ? C.tealL : "#fff", color: sel ? C.tealD : C.text, fontWeight: 700, fontSize: 16, cursor: "pointer", fontFamily: font });
+              // Keep the combined back-compat string (upg_insurance_new) in sync
+              // so the submit payload, PDF, and provider view read one
+              // human-readable "Carrier — Plan" without any downstream changes.
+              const update = (patch) => setAnswers(prev => {
+                const c = patch.carrier !== undefined ? patch.carrier : (prev[fu.carrierKey] || "");
+                const co = patch.carrierOther !== undefined ? patch.carrierOther : (prev[fu.carrierOtherKey] || "");
+                const pl = patch.plan !== undefined ? patch.plan : (prev[fu.planKey] || "");
+                const carrierName = c === "__other__" ? co : c;
+                const combined = [carrierName, pl].map(s => (s || "").trim()).filter(Boolean).join(" — ");
+                return { ...prev, [fu.carrierKey]: c, [fu.carrierOtherKey]: co, [fu.planKey]: pl, [fu.key]: combined };
+              });
+              return (
+                <div key={fu.key} style={{ marginBottom: 8 }}>
+                  <label style={labelStyle}>{t.upgInsCarrierLabel}</label>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: isOther ? 12 : 22 }}>
+                    {INSURANCE_CARRIERS.map(name => (
+                      <button key={name} onClick={() => update({ carrier: name })} style={pill(carrier === name)}>{name}</button>
+                    ))}
+                    <button onClick={() => update({ carrier: "__other__" })} style={pill(isOther)}>{t.upgInsOther}</button>
+                  </div>
+                  {isOther && (
+                    <input type="text" value={carrierOther} onChange={e => update({ carrierOther: e.target.value })}
+                      placeholder={t.upgInsOtherPlaceholder} style={{ ...inputStyle, marginBottom: 22 }} />
+                  )}
+                  <label style={labelStyle}>{t.upgInsPlanLabel}</label>
+                  <input type="text" list="upg-ins-plan-options" value={plan} onChange={e => update({ plan: e.target.value })}
+                    placeholder={t.upgInsPlanPlaceholder} style={inputStyle} />
+                  <datalist id="upg-ins-plan-options">
+                    {INSURANCE_PLAN_TYPES.map(p => <option key={p} value={p} />)}
+                  </datalist>
+                </div>
+              );
+            })}
             {followUpVisible && followUps.filter(fu => fu.type === "radio").map(fu => (
               <div key={fu.key} style={{ marginBottom: 16 }}>
                 <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>{t[fu.label]}</label>
