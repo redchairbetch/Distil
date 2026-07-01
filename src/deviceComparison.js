@@ -75,7 +75,8 @@ export function rankFromTierLabel(label) {
 // Accept a legacy_device row (snake_case), a catalog-derived new device, or a
 // manual quick-entry, and produce the minimal shape the model needs. Forgiving
 // about casing and about which tier signal is present (rank or label).
-export function toDescriptor(raw = {}) {
+export function toDescriptor(raw) {
+  raw = raw || {}; // tolerate null/undefined — specUpgrades() runs before a device is picked
   const rank =
     raw.tierRank ?? raw.tier_rank ?? raw.originalTierRank ?? raw.original_tier_rank ??
     rankFromTierLabel(
