@@ -1735,7 +1735,7 @@ export async function loadProductCatalogTiers() {
       bundled_cc_plus_compatible,
       active,
       notes,
-      product_catalog ( manufacturer, family, generation )
+      product_catalog ( manufacturer, family, generation, display_generation )
     `)
     .eq('active', true)
     .order('tier_rank', { ascending: false })
@@ -1761,6 +1761,10 @@ export async function loadProductCatalogTiers() {
     manufacturer:             row.product_catalog?.manufacturer,
     family:                   row.product_catalog?.family,
     generation:               row.product_catalog?.generation,
+    // Patient-facing platform label. Falls back to `generation` for brands
+    // where it isn't set. Rexton uses this to show "Reach"/"BiCore" instead of
+    // the Signia IX/AX codes `generation` carries as a dome-resolution key (#28).
+    displayGeneration:        row.product_catalog?.display_generation || row.product_catalog?.generation,
   }))
 }
 

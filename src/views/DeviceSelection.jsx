@@ -589,7 +589,7 @@ function TierCard({ rank, tier, pricing, isRecommended, isSelected, onSelect }) 
       </div>
       {tier && (
         <div style={{ fontSize: 12, color: COLOR.muted, marginTop: 2, marginBottom: 14 }}>
-          {tier.family} · {tier.generation}
+          {tier.family} · {tier.displayGeneration || tier.generation}
         </div>
       )}
 
@@ -750,7 +750,7 @@ function batteryLabel(tier) {
 function DeviceSpecsPanel({ tier }) {
   if (!tier) return <div style={styles.stripEmpty}>Select a device tier to see its specifications.</div>
   const rows = []
-  const device = [tier.family, tier.generation].filter(Boolean).join(' · ')
+  const device = [tier.family, tier.displayGeneration || tier.generation].filter(Boolean).join(' · ')
   if (device)                    rows.push(['Device', device])
   if (tier.platformChip)         rows.push(['Platform', tier.platformChip])
   if (tier.rechargeable != null || tier.batteryType) rows.push(['Battery', batteryLabel(tier)])

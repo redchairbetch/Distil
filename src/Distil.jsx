@@ -671,20 +671,76 @@ const CATALOG_DEFAULT = [
 
 
   // ── REXTON (WSAudiology sister brand to Signia) ───────────────────────────
+  // Rexton (WSAudiology's value brand; Rexton-only per CLAUDE.md — no Beltone
+  // proprietary auth). `generation` (IX / AX) is kept purely as the dome key —
+  // getDomeOptions routes Rexton through the Signia Gen-3 sleeve set. The
+  // patient-facing platform name (Reach / BiCore) lives in the DB's
+  // display_generation column and is rendered on the #16 device screen, not
+  // from this fallback. MHC dispenses tech levels 80/60/40/20 only (no 30).
+  // Mirrors migration 023 — keep in sync (this is a fallback; the live screen
+  // reads the DB via loadProductCatalog).
   { id:"rex-reach-plus", manufacturer:"Rexton", generation:"IX",
-    family:"Reach Plus", styles:["ric"],
+    family:"Reach R Plus", styles:["ric"],
     variants:["Standard","T (Telecoil)","BC (Bluetooth Classic)","CROS"],
+    techLevels:["80","60","40","20"],
+    colors:["Black","Graphite","Dark Champagne","Silver","Pearl White","Fine Gold","Deep Brown","Sandy Brown","Rose Gold","Beige"],
+    battery:["Rechargeable"], active:true, notes:"Reach platform (current). Sister product to Signia Pure BCT IX." },
+  { id:"rex-reach-r", manufacturer:"Rexton", generation:"IX",
+    family:"Reach R", styles:["ric"],
+    variants:["Standard","T (Telecoil)","CROS"],
+    techLevels:["80","60","40","20"],
+    colors:["Black","Graphite","Dark Champagne","Silver","Pearl White","Fine Gold","Deep Brown","Sandy Brown","Rose Gold","Beige"],
+    battery:["Rechargeable"], active:true, notes:"Reach platform (current). Standard RIC." },
+  { id:"rex-reach-styleline", manufacturer:"Rexton", generation:"IX",
+    family:"Reach Style Line", styles:["ric"],
+    variants:["Standard"],
     techLevels:["80","60","40"],
     colors:["Black","Graphite","Dark Champagne","Silver","Pearl White","Fine Gold","Deep Brown","Sandy Brown","Rose Gold","Beige"],
-    battery:["Rechargeable"], active:true, notes:"Sister product to Signia Pure BCT IX. Launched Oct 2025." },
+    battery:["Rechargeable"], active:true, notes:"Reach platform (current). Slim-RIC form factor. Premium tiers only." },
+  { id:"rex-reach-inox-cic", manufacturer:"Rexton", generation:"IX",
+    family:"Reach inoX CIC", styles:["if"],
+    variants:["Standard"],
+    techLevels:["80","60","40"],
+    colors:["Beige","Brown","Black"],
+    battery:["Rechargeable"], active:true, notes:"Reach platform (current). Instant-fit CIC. No direct wireless audio streaming. Premium tiers only." },
 
 
   { id:"rex-bicore", manufacturer:"Rexton", generation:"AX",
-    family:"BiCore", styles:["ric"],
+    family:"BiCore R-Li", styles:["ric"],
+    variants:["Standard","T (Telecoil)","CROS"],
+    techLevels:["80","60","40","20"],
+    colors:["Black","Graphite","Silver","Pearl White","Deep Brown","Sandy Brown","Rose Gold","Beige"],
+    battery:["Rechargeable"], active:true, notes:"BiCore platform (predecessor). Lithium-ion RIC; R-Li T adds telecoil." },
+  { id:"rex-bicore-r312", manufacturer:"Rexton", generation:"AX",
+    family:"BiCore R 312", styles:["ric"],
     variants:["Standard","CROS"],
     techLevels:["80","60","40","20"],
     colors:["Black","Graphite","Silver","Pearl White","Deep Brown","Sandy Brown","Rose Gold","Beige"],
-    battery:["Rechargeable","Size 312"], active:true, notes:"Previous generation AX-equivalent platform." },
+    battery:["Size 312"], active:true, notes:"BiCore platform (predecessor). Size 312 zinc-air RIC." },
+  { id:"rex-bicore-slim-ric", manufacturer:"Rexton", generation:"AX",
+    family:"BiCore Slim-RIC", styles:["ric"],
+    variants:["Standard"],
+    techLevels:["80","60","40"],
+    colors:["Black","Graphite","Silver","Pearl White","Deep Brown","Sandy Brown","Rose Gold","Beige"],
+    battery:["Rechargeable"], active:true, notes:"BiCore platform (predecessor). Slim-RIC form factor. Premium tiers only." },
+  { id:"rex-bicore-bte", manufacturer:"Rexton", generation:"AX",
+    family:"BiCore BTE", styles:["bte"],
+    variants:["M","P","HP"],
+    techLevels:["80","60","40","20"],
+    colors:["Black","Graphite","Silver","Pearl White","Deep Brown","Sandy Brown","Rose Gold","Beige"],
+    battery:["Rechargeable"], active:true, notes:"BiCore platform (predecessor). Standard/Power BTE (M/P/HP)." },
+  { id:"rex-bicore-custom", manufacturer:"Rexton", generation:"AX",
+    family:"BiCore Custom", styles:["ite","itc"],
+    variants:["ITE","ITC"],
+    techLevels:["80","60","40","20"],
+    colors:[],
+    battery:["Rechargeable"], active:true, notes:"BiCore platform (predecessor). Custom ITE/ITC, rechargeable." },
+  { id:"rex-bicore-inox-cic", manufacturer:"Rexton", generation:"AX",
+    family:"BiCore inoX Click CIC", styles:["if"],
+    variants:["Standard"],
+    techLevels:["80","60","40"],
+    colors:["Beige","Brown","Black"],
+    battery:["Size 10"], active:true, notes:"BiCore platform (predecessor). Instant-fit Click CIC, size 10 zinc-air. No direct wireless streaming. Premium tiers only." },
 
 
   // ── TRUHEARING (Private-label Signia IX platform) ─────────────────────────
