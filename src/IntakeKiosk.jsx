@@ -278,7 +278,6 @@ const T = {
     tyTitle: "Thank You!", tyBrand: "My Hearing Centers",
     tyBody: "Your intake form has been received and saved. Please return this iPad to the front desk — we'll be right with you.",
     tyId: "Intake Reference ID:",
-    tyDownload: "Download Your Copy (PDF)",
 
     // ── Mode picker (new patient vs. returning) ──
     modePromptTitle: "Welcome back — or welcome in.",
@@ -511,7 +510,6 @@ const T = {
     tyTitle: "¡Gracias!", tyBrand: "My Hearing Centers",
     tyBody: "Su formulario de admisión ha sido recibido y guardado. Por favor devuelva este iPad a la recepción — en un momento estaremos con usted.",
     tyId: "ID de Referencia:",
-    tyDownload: "Descargar Su Copia (PDF)",
 
     // ── Selección de modo (paciente nuevo vs. paciente que regresa) ──
     modePromptTitle: "Bienvenido de nuevo — o bienvenido.",
@@ -1087,19 +1085,24 @@ function NavButtons({ onBack, onNext, nextLabel, backLabel, stepIdx }) {
 }
 
 // ── Consent Screen (proper component to avoid hooks-in-conditional violation) ──
-function ConsentScreen({ t, isPrivacy, scrolled, agreed, onScroll, onToggleAgree, onBack, onNext, stepIdx }) {
+// requireScroll: the insurance acknowledgment is long enough to genuinely
+// overflow its box, so it keeps the scroll-to-bottom gate. The privacy policy
+// (intro + five bullets) fits on screen — it renders in full with no scroll
+// container and the agree checkbox unlocked immediately.
+function ConsentScreen({ t, isPrivacy, scrolled, agreed, onScroll, onToggleAgree, onBack, onNext, stepIdx, requireScroll = true }) {
   const scrollRef = useRef(null);
   const handleScroll = () => {
     const el = scrollRef.current;
     if (el && el.scrollTop + el.clientHeight >= el.scrollHeight - 10) onScroll();
   };
+  const gateOpen = !requireScroll || scrolled;
   return (
     <>
       <SectionBadge label={t.secConsent} />
-      <h2 style={{ fontFamily: serif, fontSize: 26, color: C.text, margin: "0 0 6px" }}>{isPrivacy ? t.privacyTitle : t.insTitle}</h2>
-      <p style={{ fontSize: 13, color: C.gold, fontWeight: 700, marginBottom: 14 }}>⬇ {isPrivacy ? t.privacyScrollNote : t.insScrollNote}</p>
-      <div ref={scrollRef} onScroll={handleScroll}
-        style={{ maxHeight: 280, overflowY: "scroll", padding: "20px", background: "#FAFAFA", border: `2px solid ${C.border}`, borderRadius: 12, marginBottom: 20, fontSize: 15, lineHeight: 1.7, color: C.text }}>
+      <h2 style={{ fontFamily: serif, fontSize: 26, color: C.text, margin: requireScroll ? "0 0 6px" : "0 0 14px" }}>{isPrivacy ? t.privacyTitle : t.insTitle}</h2>
+      {requireScroll && <p style={{ fontSize: 13, color: C.gold, fontWeight: 700, marginBottom: 14 }}>⬇ {isPrivacy ? t.privacyScrollNote : t.insScrollNote}</p>}
+      <div ref={scrollRef} onScroll={requireScroll ? handleScroll : undefined}
+        style={{ ...(requireScroll ? { maxHeight: 280, overflowY: "scroll" } : {}), padding: "20px", background: "#FAFAFA", border: `2px solid ${C.border}`, borderRadius: 12, marginBottom: 20, fontSize: 15, lineHeight: 1.7, color: C.text }}>
         {isPrivacy ? (
           <>
             <p style={{ marginTop: 0 }}>{t.privacyIntro}</p>
@@ -1109,14 +1112,14 @@ function ConsentScreen({ t, isPrivacy, scrolled, agreed, onScroll, onToggleAgree
           t.insText.split("\n\n").map((para, i) => <p key={i}>{para}</p>)
         )}
       </div>
-      <button onClick={onToggleAgree} disabled={!scrolled}
-        style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "14px 18px", background: agreed ? C.tealL : scrolled ? "#fff" : "#f5f5f5", border: `2px solid ${agreed ? C.teal : C.border}`, borderRadius: 12, cursor: scrolled ? "pointer" : "not-allowed", marginBottom: 16, textAlign: "left", fontFamily: font, transition: "all 0.2s" }}>
+      <button onClick={onToggleAgree} disabled={!gateOpen}
+        style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "14px 18px", background: agreed ? C.tealL : gateOpen ? "#fff" : "#f5f5f5", border: `2px solid ${agreed ? C.teal : C.border}`, borderRadius: 12, cursor: gateOpen ? "pointer" : "not-allowed", marginBottom: 16, textAlign: "left", fontFamily: font, transition: "all 0.2s" }}>
         <div style={{ width: 24, height: 24, borderRadius: 6, border: `2px solid ${agreed ? C.teal : C.border}`, background: agreed ? C.teal : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           {agreed && <span style={{ color: "#fff", fontSize: 14, fontWeight: 900 }}>✓</span>}
         </div>
-        <span style={{ fontSize: 15, fontWeight: 700, color: agreed ? C.tealD : scrolled ? C.text : C.muted }}>{isPrivacy ? t.privacyAgreeLabel : t.insAgreeLabel}</span>
+        <span style={{ fontSize: 15, fontWeight: 700, color: agreed ? C.tealD : gateOpen ? C.text : C.muted }}>{isPrivacy ? t.privacyAgreeLabel : t.insAgreeLabel}</span>
       </button>
-      {!scrolled && <p style={{ fontSize: 13, color: C.gold, textAlign: "center", marginBottom: 12 }}>⬇ {t.scrollFirst}</p>}
+      {!gateOpen && <p style={{ fontSize: 13, color: C.gold, textAlign: "center", marginBottom: 12 }}>⬇ {t.scrollFirst}</p>}
       <NavButtons onBack={onBack} onNext={onNext} nextLabel={t.continue_} backLabel={t.back} stepIdx={stepIdx} />
     </>
   );
@@ -1296,8 +1299,11 @@ export default function IntakeKiosk() {
     // Render the signed intake as a text-selectable PDF: generateIntakePdf
     // lays the fields out directly with jsPDF so the archived copy is
     // searchable and copy-pasteable. Logo + signature embed as images;
-    // every field value is real text. The same PDF is downloaded for the
-    // patient and uploaded to the patient_documents archive.
+    // every field value is real text. The PDF is archived straight to
+    // patient_documents (it lands on the patient's chart when the intake is
+    // matched — linkIntakeToPatient backfills patient_id) rather than popping
+    // a download on the kiosk: the chart copy is the compliance record, and
+    // an iPad download the patient can't retrieve was just noise.
     const logoDataUrl = await imageUrlToDataUrl(MHC_LOGO_URL);
     const doc = generateIntakePdf({
       answers, intakeId, signatureDataUrl: sigDataUrl, timestamp, lang, T,
@@ -1317,32 +1323,38 @@ export default function IntakeKiosk() {
     });
     const fileName = `Intake_${answers.lastName || "Patient"}_${answers.firstName || ""}_${new Date().toLocaleDateString("en-US").replace(/\//g,"-")}.pdf`;
     const pdfBlob = doc.output("blob");
-    doc.save(fileName); // patient's downloaded copy
-    // Archive (best-effort). returnRow:false skips the .select() chain so
+    // Archive to the chart. returnRow:false skips the .select() chain so
     // PostgREST issues a plain INSERT instead of INSERT...RETURNING — anon
     // has no SELECT policy on patient_documents, and RETURNING would fail
     // the SELECT RLS check on the new row (same workaround as submitIntake).
+    // One retry on failure (each attempt gets a fresh timestamped storage
+    // path, so a retry never collides); if both fail we still show the
+    // thank-you — the intake row itself (answers + signature data URL) is
+    // already saved, so the PDF can be regenerated provider-side.
     if (intakeRowId) {
+      const archivePdf = () => uploadPatientDocument({
+        clinicId: KIOSK_CLINIC_ID,
+        intakeId: intakeRowId,
+        kind: "kiosk_intake",
+        blob: pdfBlob, fileName,
+        returnRow: false,
+        metadata: {
+          intakeRefId: intakeId,
+          submittedAt: timestamp,
+          lang,
+          firstName: answers.firstName || null,
+          lastName: answers.lastName || null,
+          dob: answers.dob || null,
+          privacyAgreed: !!answers.privacyAgreed,
+          insuranceAgreed: !!answers.insuranceAgreed,
+        },
+      });
       try {
-        await uploadPatientDocument({
-          clinicId: KIOSK_CLINIC_ID,
-          intakeId: intakeRowId,
-          kind: "kiosk_intake",
-          blob: pdfBlob, fileName,
-          returnRow: false,
-          metadata: {
-            intakeRefId: intakeId,
-            submittedAt: timestamp,
-            lang,
-            firstName: answers.firstName || null,
-            lastName: answers.lastName || null,
-            dob: answers.dob || null,
-            privacyAgreed: !!answers.privacyAgreed,
-            insuranceAgreed: !!answers.insuranceAgreed,
-          },
-        });
+        await archivePdf();
       } catch (e) {
-        console.error("Archive kiosk intake PDF:", e);
+        console.error("Archive kiosk intake PDF (attempt 1):", e);
+        try { await archivePdf(); }
+        catch (e2) { console.error("Archive kiosk intake PDF (attempt 2):", e2); }
       }
     }
     setSubmitted(true);
@@ -1743,11 +1755,15 @@ export default function IntakeKiosk() {
     const agreedKey = isPrivacy ? "privacyAgreed" : "insuranceAgreed";
     const scrolled = !!answers[scrolledKey];
     const agreed = !!answers[agreedKey];
+    // The privacy policy fits on screen — no scroll gate. The longer
+    // insurance acknowledgment keeps the scroll-to-bottom requirement.
+    const requireScroll = !isPrivacy;
     return card(
       <ConsentScreen
         t={t} isPrivacy={isPrivacy} scrolled={scrolled} agreed={agreed}
+        requireScroll={requireScroll}
         onScroll={() => setAnswer(scrolledKey, true)}
-        onToggleAgree={() => { if (scrolled) setAnswer(agreedKey, !agreed); }}
+        onToggleAgree={() => { if (!requireScroll || scrolled) setAnswer(agreedKey, !agreed); }}
         onBack={goBack}
         onNext={() => { if (agreed) goNext(); }}
         stepIdx={stepIdx}

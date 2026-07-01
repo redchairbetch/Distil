@@ -6,8 +6,9 @@ import CareJourney from "./CareJourney.jsx";
 // records the outcome. Self-contained on purpose — it does NOT embed the
 // new-patient TierSelection (which is empty for regular-insurance patients and
 // runs the new-patient recommendation engine on mount); the actual device order
-// + purchase agreement still route through the existing device flow if the
-// patient proceeds. Controlled via a single `value`/`onChange` close object.
+// + purchase agreement route through the existing device flow via the wizard's
+// "Save & Select Devices" action (UpgradeWizard → Distil startUpgradePurchase).
+// Controlled via a single `value`/`onChange` close object.
 
 // TH tier value props — clinic-stable copy, kept in sync with TH_TIER_BLURBS in
 // Distil.jsx (replicated to keep the close free of new-patient-flow imports).
