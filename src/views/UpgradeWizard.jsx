@@ -15,6 +15,7 @@ import { computeAudiometricDelta, decideReprogramVsUpgrade } from "../reprogramV
 import AudiogramEntry from "../components/AudiogramEntry.jsx";
 import CareJourney from "./CareJourney.jsx";
 import UpgradeClose from "./UpgradeClose.jsx";
+import DeviceComparison from "./DeviceComparison.jsx";
 
 // Established-patient visit flow (backlog #23). Parallel to the new-patient
 // 8-step wizard — opens from "Start a New Visit" on a patient who already has a
@@ -687,6 +688,12 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
                   })()}
                 </div>
               )}
+
+              {/* Explore + compare devices — pre-filled from the chart. The same
+                  picture the provider can send home with the quote. */}
+              <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 20, marginTop: 20 }}>
+                <DeviceComparison patient={patient} variant="embedded" />
+              </div>
             </div>
           )}
 

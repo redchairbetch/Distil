@@ -8,6 +8,7 @@
 import { supabase } from './supabase.js'
 import { CONTENT_LIBRARY, CAMPAIGN_TIMELINE } from './nurture_seed_data.js'
 import { runRecommendationEngine } from './recommendationEngine.js'
+import { LEGACY_DEVICES_DEFAULT } from './legacyDevices.js'
 
 
 // ============================================================
@@ -1851,6 +1852,38 @@ export async function saveRebatePromo(promo) {
 export async function deleteRebatePromo(id) {
   const { error } = await supabase.from('rebate_promo').delete().eq('id', id)
   if (error) throw new Error(error.message)
+// Load the curated legacy/competitor/trade-in device reference used by the
+// old-vs-new comparator (views/DeviceComparison.jsx). Reads are open to every
+// authenticated provider (RLS); falls back to the bundled default on error so
+// the tool still works offline. Newest first — most trade-ins are recent.
+export async function loadLegacyDevices() {
+  const { data, error } = await supabase
+    .from('legacy_device')
+    .select('*')
+    .eq('active', true)
+    .order('release_year', { ascending: false })
+  if (error || !data) { console.error('loadLegacyDevices:', error); return LEGACY_DEVICES_DEFAULT }
+  return data.map(row => ({
+    id:                row.id,
+    manufacturer:      row.manufacturer,
+    brand:             row.brand,
+    model:             row.model,
+    aliases:           row.aliases || [],
+    releaseYear:       row.release_year,
+    platform:          row.platform,
+    originalTierLabel: row.original_tier_label,
+    originalTierRank:  row.original_tier_rank,
+    formFactors:       row.form_factors || [],
+    channels:          row.channels,
+    directionalMic:    row.directional_mic,
+    rechargeable:      row.rechargeable,
+    bluetoothStreaming:row.bluetooth_streaming,
+    telecoil:          row.telecoil,
+    ipRating:          row.ip_rating,
+    notableFeatures:   row.notable_features || [],
+    sourceUrl:         row.source_url,
+    confidence:        row.confidence,
+  }))
 }
 
 
