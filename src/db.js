@@ -1852,6 +1852,8 @@ export async function saveRebatePromo(promo) {
 export async function deleteRebatePromo(id) {
   const { error } = await supabase.from('rebate_promo').delete().eq('id', id)
   if (error) throw new Error(error.message)
+}
+
 // Load the curated legacy/competitor/trade-in device reference used by the
 // old-vs-new comparator (views/DeviceComparison.jsx). Reads are open to every
 // authenticated provider (RLS); falls back to the bundled default on error so
