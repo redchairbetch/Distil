@@ -544,7 +544,7 @@ function upgradeBody(ctx, answers, t, lk) {
   fieldRow(ctx, [{ label: 'Other updates', value: val(answers, t, 'upg_contact_other') }])
   fieldRow(ctx, [
     { label: 'Insurance changed?', value: yn(answers, 'upg_insurance_changed') },
-    { label: 'New carrier', value: val(answers, t, 'upg_insurance_new') },
+    { label: 'New carrier / plan', value: val(answers, t, 'upg_insurance_new') },
   ])
 
   ctx.y += 6
