@@ -124,7 +124,16 @@ function manualToDevice(m) {
   };
 }
 
-// A modern flagship stand-in when nothing is picked on the new side yet.
+// Prefer the Signia Pure Charge&Go IX flagship (7IX) as the default "new" side,
+// so the comparison opens against a real current premium, not a placeholder.
+function pickDefaultNewTier(tiers) {
+  const signia = tiers.filter(t => (t.manufacturer || "").toLowerCase() === "signia" && t.tierRank === 5);
+  return signia.find(t => t.family === "Pure Charge&Go IX")
+    || signia.find(t => /IX/.test(t.tierName || ""))
+    || signia[0] || null;
+}
+
+// A modern flagship stand-in used until the catalog loads (then replaced by 7IX).
 const DEFAULT_NEW = {
   kind: "default", display: "New premium technology", sub: "Current generation",
   tierRank: 5, releaseYear: null,
@@ -352,7 +361,14 @@ export default function DeviceComparison({
   useEffect(() => {
     let alive = true;
     loadLegacyDevices().then(d => alive && setLegacyList(d || [])).catch(() => {});
-    loadProductCatalogTiers().then(d => alive && setCatalogTiers(d || [])).catch(() => {});
+    loadProductCatalogTiers().then(d => {
+      if (!alive) return;
+      const tiers = d || [];
+      setCatalogTiers(tiers);
+      const pick = pickDefaultNewTier(tiers);
+      // Only override the placeholder — never clobber a provider's or caller's pick.
+      if (pick) setNewDevice(prev => (prev && prev.kind === "default") ? catalogTierToDevice(pick) : prev);
+    }).catch(() => {});
     return () => { alive = false; };
   }, []);
 

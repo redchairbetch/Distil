@@ -25,9 +25,11 @@ import { ENVIRONMENTS, COVERAGE_BY_RANK } from "./listeningSituations.js";
 // penalty at 4 generations (~8+ yrs) so a very old aid floors out rather than
 // scoring negative.
 const YEARS_PER_GENERATION = 2;
-const MAX_GENERATIONS = 4;
+// Cap at 6 generations (~12 yrs) so a decade-old premium aid registers the full
+// distance modern DSP has travelled, rather than flattening after a few years.
+const MAX_GENERATIONS = 6;
 // Coverage points lost per generation, before per-environment weighting.
-const POINTS_PER_GENERATION = 6;
+const POINTS_PER_GENERATION = 9;
 // A working aid still does something — never drop a bar below this.
 const COVERAGE_FLOOR = 12;
 
@@ -50,10 +52,13 @@ function specPenalties(device) {
   const add = (env, n) => { p[env] = (p[env] || 0) + n; };
   // No direct-to-phone streaming: TV and phone clarity suffer most.
   if (device.bluetoothStreaming === false) { add("tv", 10); add("phone", 10); }
-  // Weak directionality: the noisy/social environments take the hit.
+  // Weak directionality: the noisy/social environments take the hit. Even
+  // "adaptive" (e.g. Oticon OpenSound) trails today's narrow beamforming in
+  // heavy noise, so it carries a modest penalty; beamforming carries none.
   const mic = MIC_RANK[device.directionalMic] ?? null;
   if (mic === 0) { add("restaurant", 12); add("groups", 12); add("crowds", 10); add("outdoors", 6); add("car", 4); }
   else if (mic === 1) { add("restaurant", 6); add("groups", 6); add("crowds", 5); add("outdoors", 3); }
+  else if (mic === 2) { add("restaurant", 5); add("groups", 5); add("crowds", 5); add("outdoors", 3); }
   return p;
 }
 
