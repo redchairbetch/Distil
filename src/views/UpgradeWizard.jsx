@@ -33,13 +33,6 @@ import DeviceComparison from "./DeviceComparison.jsx";
 // but only as the silent tie-breaker for the Y4–5 decision — never shown as a
 // "band" to the patient.
 
-const VISIT_TYPES = [
-  { key: "annual_check",    label: "Annual Check",         icon: "🗓", blurb: "Routine yearly hearing review and device check." },
-  { key: "upgrade_consult", label: "Upgrade Conversation", icon: "⬆",  blurb: "Reprogram vs. upgrade to newer technology." },
-  { key: "device_eval",     label: "Device Evaluation",    icon: "🔬", blurb: "Assess current device performance and fit." },
-  { key: "fit_follow_up",   label: "Fit Follow-up",        icon: "🔧", blurb: "Post-fitting adjustment and acclimatization." },
-];
-
 // Step indices. Years 1–3 end at REVIEW (save there); years 4–5 add CLOSE.
 const STEP = { VISIT: 0, CONFIRM: 1, CURRENT: 2, EXAM: 3, REVIEW: 4, CLOSE: 5 };
 
@@ -125,7 +118,6 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
   const suggestedYear = years != null ? Math.min(5, Math.max(1, Math.round(years))) : 1;
 
   const [step, setStep] = useState(0);
-  const [visitType, setVisitType] = useState("");
   const [journeyYear, setJourneyYear] = useState(suggestedYear);
   const [visitId, setVisitId] = useState(null);
   const [changeNotes, setChangeNotes] = useState("");
@@ -184,8 +176,8 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
   const isUpgradeYear = journeyYear >= 4;
 
   const STEPS = isUpgradeYear
-    ? ["Visit Type", "Confirm Details", "Current Aids", "Exam Results", "Journey Review", "Close"]
-    : ["Visit Type", "Confirm Details", "Current Aids", "Exam Results", "Journey Review"];
+    ? ["Journey Year", "Confirm Details", "Current Aids", "Exam Results", "Journey Review", "Close"]
+    : ["Journey Year", "Confirm Details", "Current Aids", "Exam Results", "Journey Review"];
   const topTitle = isUpgradeYear ? "Upgrade Evaluation" : "Annual Care Visit";
 
   const computedTier = useMemo(() => computePerformanceTier({ tags: perfTags }), [perfTags]);
@@ -333,8 +325,11 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
     setArr(arr.includes(key) ? arr.filter((k) => k !== key) : [...arr, key]);
 
   const startVisit = async () => {
-    if (!visitType) return;
     setBusy(true); setError(null);
+    // The journey year IS the visit selection now — derive the stored
+    // visits.visit_type (CHECK-constrained vocabulary) from it: years 1–3
+    // are annual care, years 4–5 the upgrade evaluation.
+    const visitType = journeyYear >= 4 ? "upgrade_consult" : "annual_check";
     const vid = await createVisit(patient.id, { clinicId, staffId, visitType });
     setBusy(false);
     if (!vid) { setError("Couldn't open the visit. Please try again."); return; }
@@ -480,57 +475,34 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
 
           {step === STEP.VISIT && (
             <div className="card" style={{ padding: 24 }}>
-              <h2 style={{ margin: "0 0 4px", fontFamily: "'Sora',sans-serif", fontSize: 20 }}>What kind of visit?</h2>
+              <h2 style={{ margin: "0 0 4px", fontFamily: "'Sora',sans-serif", fontSize: 20 }}>Where are they on the five-year journey?</h2>
               <p style={{ margin: "0 0 20px", color: "#6b7280", fontSize: 14 }}>
                 {patient?.name} was last fit {years != null ? `${years.toFixed(1)} years ago` : "—"}
                 {fittingDate ? ` (${fmtDate(fittingDate)})` : ""}.
               </p>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                {VISIT_TYPES.map((v) => {
-                  const active = v.key === visitType;
+              {/* Journey year — the spine that gates the rest of the flow */}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {[1, 2, 3, 4, 5].map((y) => {
+                  const active = journeyYear === y;
+                  const upg = y >= 4;
+                  const accent = upg ? "#b45309" : "#0f766e";
                   return (
-                    <button key={v.key} onClick={() => setVisitType(v.key)} style={{
-                      textAlign: "left", padding: 16, borderRadius: 12, cursor: "pointer",
-                      border: active ? "2px solid #0f766e" : "1px solid #e5e7eb",
-                      background: active ? "#f0fdfa" : "white",
+                    <button key={y} onClick={() => setJourneyYear(y)} style={{
+                      textAlign: "center", padding: "14px 18px", borderRadius: 10, cursor: "pointer", minWidth: 110,
+                      border: active ? `2px solid ${accent}` : "1px solid #e5e7eb",
+                      background: active ? (upg ? "#fffbeb" : "#f0fdfa") : "white",
                     }}>
-                      <div style={{ fontSize: 22, marginBottom: 6 }}>{v.icon}</div>
-                      <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 15, color: "#111827" }}>{v.label}</div>
-                      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>{v.blurb}</div>
+                      <div style={{ fontSize: 15, fontWeight: active ? 700 : 600, fontFamily: "'Sora',sans-serif", color: active ? accent : "#111827" }}>Year {y}</div>
+                      <div style={{ fontSize: 11, color: active ? accent : "#9ca3af", marginTop: 2 }}>{YEAR_LABELS[y]}</div>
                     </button>
                   );
                 })}
               </div>
-
-              {/* Journey year — the spine that gates the rest of the flow */}
-              <div style={{ marginTop: 24, borderTop: "1px solid #f1f5f9", paddingTop: 20 }}>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>
-                  Where are they on the five-year journey?
-                </label>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {[1, 2, 3, 4, 5].map((y) => {
-                    const active = journeyYear === y;
-                    const upg = y >= 4;
-                    const accent = upg ? "#b45309" : "#0f766e";
-                    return (
-                      <button key={y} onClick={() => setJourneyYear(y)} style={{
-                        textAlign: "center", padding: "10px 16px", borderRadius: 10, cursor: "pointer", minWidth: 96,
-                        border: active ? `2px solid ${accent}` : "1px solid #e5e7eb",
-                        background: active ? (upg ? "#fffbeb" : "#f0fdfa") : "white",
-                      }}>
-                        <div style={{ fontSize: 14, fontWeight: active ? 700 : 600, fontFamily: "'Sora',sans-serif", color: active ? accent : "#111827" }}>Year {y}</div>
-                        <div style={{ fontSize: 11, color: active ? accent : "#9ca3af", marginTop: 2 }}>{YEAR_LABELS[y]}</div>
-                      </button>
-                    );
-                  })}
-                </div>
+              {years != null && (
                 <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 10 }}>
-                  {years != null ? `Suggested from last fit: Year ${suggestedYear}. ` : ""}
-                  {isUpgradeYear
-                    ? "Upgrade evaluation — adds the reprogram-vs-upgrade decision and a consultation close."
-                    : "Annual care — hearing test, device check, and the year-by-year journey review."}
+                  Suggested from last fit: Year {suggestedYear}.
                 </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -793,7 +765,7 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
             </button>
 
             {step === STEP.VISIT && (
-              <button className="btn-primary" disabled={!visitType || busy} style={{ opacity: (!visitType || busy) ? 0.4 : 1 }} onClick={startVisit}>
+              <button className="btn-primary" disabled={busy} style={{ opacity: busy ? 0.4 : 1 }} onClick={startVisit}>
                 {busy ? "Opening…" : "Continue →"}
               </button>
             )}

@@ -189,6 +189,10 @@ function DeviceCard({ side, device, onChange }) {
 }
 
 // One environment row: label, stacked current/new bars, and the gain.
+// Both bars read on the SAME green-to-red coverage scale so the eye compares
+// like with like; the current device's bar is muted (desaturated + faded) so
+// the vivid bar is always the proposed device.
+const MUTED_BAR = { opacity: 0.5, filter: "saturate(0.45)" };
 function PairedRow({ label, oldPct, newPct, delta, prominent }) {
   const track = { position: "relative", height: 6, background: COLOR.line, borderRadius: 3, overflow: "hidden" };
   return (
@@ -200,7 +204,8 @@ function PairedRow({ label, oldPct, newPct, delta, prominent }) {
       </div>
       <div style={{ flex: "1 1 45%", display: "flex", flexDirection: "column", gap: 3 }}>
         <div style={track} title="Current device">
-          <div style={{ width: `${oldPct ?? 0}%`, height: "100%", background: COLOR.ink3, opacity: 0.55 }} />
+          <div style={{ width: `${oldPct ?? 0}%`, height: "100%", background: coverageColor(oldPct ?? 0),
+            ...MUTED_BAR }} />
         </div>
         <div style={track} title="New device">
           <div style={{ width: `${newPct ?? 0}%`, height: "100%", background: coverageColor(newPct ?? 0),
@@ -458,9 +463,9 @@ export default function DeviceComparison({
               Listening environment
             </div>
             <div style={{ display: "flex", gap: 14, fontSize: 10, color: COLOR.ink2 }}>
-              <span><span style={{ display: "inline-block", width: 10, height: 6, background: COLOR.ink3,
-                opacity: 0.55, borderRadius: 2, marginRight: 4 }} />Current</span>
-              <span><span style={{ display: "inline-block", width: 10, height: 6, background: COLOR.teal,
+              <span><span style={{ display: "inline-block", width: 10, height: 6, background: coverageColor(80),
+                opacity: 0.5, filter: "saturate(0.45)", borderRadius: 2, marginRight: 4 }} />Current (faded)</span>
+              <span><span style={{ display: "inline-block", width: 10, height: 6, background: coverageColor(80),
                 borderRadius: 2, marginRight: 4 }} />New</span>
               <span style={{ fontWeight: 700 }}>Gain</span>
             </div>

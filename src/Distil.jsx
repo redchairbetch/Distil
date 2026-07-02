@@ -3067,8 +3067,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
 
   // Established-patient flow (backlog #23): route to the dedicated UpgradeWizard
   // instead of the new-patient 8-step form. The wizard opens its own visit once
-  // the provider picks a visit type, so an established patient's baseline (their
-  // original fit) is never overwritten.
+  // the provider picks the journey year, so an established patient's baseline
+  // (their original fit) is never overwritten.
   const startNewVisitForPatient = (p) => {
     if (!p) return;
     setSelectedPatient(p);
