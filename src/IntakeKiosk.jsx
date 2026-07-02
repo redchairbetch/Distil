@@ -2,6 +2,17 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { submitIntake, uploadPatientDocument, redeemUpgradeCheckinCode } from "./db.js";
 import { generateIntakePdf } from "./generateIntakePdf.js";
 
+// Manufacturer logos for the current-hearing-aids brand picker. Only the
+// lines MHC sees most often carry a logo; everything else routes through the
+// "Other" text reveal.
+import logoOticon from "./assets/logos/Oticon.png";
+import logoPhonak from "./assets/logos/Phonak.png";
+import logoResound from "./assets/logos/Resound.png";
+import logoRexton from "./assets/logos/Rexton.png";
+import logoSignia from "./assets/logos/Signia.png";
+import logoStarkey from "./assets/logos/Starkey.png";
+import logoWidex from "./assets/logos/Widex.png";
+
 // MHC logo for the intake-PDF header. Resolved via import.meta.glob so the
 // build picks up whichever extension lives in src/assets/logos/MHC.* —
 // drop a PNG/SVG/JPG with that base name and it's used automatically.
@@ -253,6 +264,18 @@ const T = {
     aidsSatisfied: "Are you hearing as well as you should with your current aids?",
     aidsWhyNot: "If not, why not? (optional)",
     aidsSatisfRating: "Satisfaction rating (1–10):",
+    aidsFreq_never: "Never",
+    aidsFreq_1_3: "1–3 days a week",
+    aidsFreq_3_5: "3–5 days a week",
+    aidsFreq_fulltime: "Full-time",
+    aidsAge_1_2: "1–2 years",
+    aidsAge_3_4: "3–4 years",
+    aidsAge_5_plus: "5+ years",
+    aidsBrandTitle: "What brand are your current hearing aids?",
+    aidsBrandNotSure: "Not sure",
+    aidsBrandOther: "Other brand",
+    aidsBrandOtherPrompt: "Type the brand name",
+    aidsSatisfTitle: "How satisfied are you with your current hearing aids?",
 
     privacyTitle: "Privacy Policy",
     privacyScrollNote: "Please scroll through the entire policy before continuing.",
@@ -485,6 +508,18 @@ const T = {
     aidsSatisfied: "¿Está escuchando tan bien como debería con sus audífonos?",
     aidsWhyNot: "Si no, ¿por qué no? (opcional)",
     aidsSatisfRating: "Calificación de satisfacción (1–10):",
+    aidsFreq_never: "Nunca",
+    aidsFreq_1_3: "1–3 días por semana",
+    aidsFreq_3_5: "3–5 días por semana",
+    aidsFreq_fulltime: "Todo el tiempo",
+    aidsAge_1_2: "1–2 años",
+    aidsAge_3_4: "3–4 años",
+    aidsAge_5_plus: "5+ años",
+    aidsBrandTitle: "¿De qué marca son sus audífonos actuales?",
+    aidsBrandNotSure: "No estoy seguro/a",
+    aidsBrandOther: "Otra marca",
+    aidsBrandOtherPrompt: "Escriba el nombre de la marca",
+    aidsSatisfTitle: "¿Qué tan satisfecho está con sus audífonos actuales?",
 
     privacyTitle: "Política de Privacidad",
     privacyScrollNote: "Por favor desplace hacia abajo para leer la política completa antes de continuar.",
@@ -627,6 +662,20 @@ const RESISTANCE_OPTIONS = [
   ["other","resist_other"],
 ];
 
+// ── Current-hearing-aids detail options ───────────────────────────────────────
+// [storageKey, translationKey] pairs — kiosk stores the stable key, the PDF and
+// provider Health History map it back to a label. Frequency and age are fixed
+// ranges (no free text). Brand stores the manufacturer name directly (a proper
+// noun) with the logo shown on the button; "Other" reveals a text field.
+const AIDS_EAR_OPTIONS  = [["both","aidsBoth"],["right","aidsRight"],["left","aidsLeft"]];
+const AIDS_FREQ_OPTIONS = [["never","aidsFreq_never"],["1_3","aidsFreq_1_3"],["3_5","aidsFreq_3_5"],["fulltime","aidsFreq_fulltime"]];
+const AIDS_AGE_OPTIONS  = [["1_2","aidsAge_1_2"],["3_4","aidsAge_3_4"],["5_plus","aidsAge_5_plus"]];
+const AIDS_BRAND_OPTIONS = [
+  ["Phonak", logoPhonak], ["Oticon", logoOticon], ["Signia", logoSignia],
+  ["ReSound", logoResound], ["Starkey", logoStarkey], ["Widex", logoWidex],
+  ["Rexton", logoRexton],
+];
+
 // ── Upgrade / annual check-in option tables ───────────────────────────────────
 // Storage keys deliberately MATCH the provider-side scoring model
 // (upgradeReadiness.js: STRUGGLE_ENVIRONMENTS / FEATURE_GAPS / PERFORMANCE_TAGS)
@@ -734,7 +783,17 @@ const STEPS = [
   { id: "hear_prevented", type: "multiSelect", sec: "secHearing", qKey: "hearQ_prevented", ansKey: "resistancePoints",
     options: RESISTANCE_OPTIONS, otherKey: "other", otherValueKey: "resistancePointsOther", req: false },
   { id: "aids_q", type: "yesno", sec: "secHearing", qKey: "aidsTitle", ansKey: "aids_q" },
-  { id: "aids_detail", type: "aids", sec: "secHearing", conditional: "aids_q" },
+  // Current-aid detail — one question per screen, gated on aids_q === true.
+  { id: "aids_ear", type: "multiChoice", sec: "secHearing", qKey: "aidsWhichEar", ansKey: "aids_ear",
+    options: AIDS_EAR_OPTIONS, conditional: "aids_q" },
+  { id: "aids_howOften", type: "multiChoice", sec: "secHearing", qKey: "aidsHowOften", ansKey: "aids_howOften",
+    options: AIDS_FREQ_OPTIONS, conditional: "aids_q" },
+  { id: "aids_howOld", type: "multiChoice", sec: "secHearing", qKey: "aidsHowOld", ansKey: "aids_howOld",
+    options: AIDS_AGE_OPTIONS, conditional: "aids_q" },
+  { id: "aids_brand", type: "brandSelect", sec: "secHearing", qKey: "aidsBrandTitle", ansKey: "aids_brand",
+    options: AIDS_BRAND_OPTIONS, conditional: "aids_q" },
+  { id: "aids_satisfRating", type: "scale", sec: "secHearing", qKey: "aidsSatisfTitle", ansKey: "aids_satisfRating",
+    lowKey: "upgSatisfPoor", highKey: "upgSatisfGood", conditional: "aids_q" },
   { id: "privacy", type: "scrollConsent", sec: "secConsent", contentKey: "privacy" },
   { id: "insurance", type: "scrollConsent", sec: "secConsent", contentKey: "insurance" },
   { id: "signature", type: "signature", sec: "secConsent" },
@@ -1316,6 +1375,9 @@ export default function IntakeKiosk() {
         noiseRecreational: NOISE_OPTIONS_RECREATIONAL,
         resistance: RESISTANCE_OPTIONS,
         states: US_STATES,
+        aidsEar: AIDS_EAR_OPTIONS,
+        aidsFreq: AIDS_FREQ_OPTIONS,
+        aidsAge: AIDS_AGE_OPTIONS,
         upgEnvironments: UPG_ENVIRONMENT_OPTIONS,
         upgFeatures: UPG_FEATURE_OPTIONS,
         upgIssues: UPG_ISSUE_OPTIONS,
@@ -1631,18 +1693,61 @@ export default function IntakeKiosk() {
       {step.sec && <SectionBadge label={t[step.sec]} />}
       <h2 style={{ fontFamily: serif, fontSize: 26, color: C.text, margin: "0 0 32px", lineHeight: 1.35 }}>{t[step.qKey]}</h2>
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-        {step.options.map(opt => (
-          <button key={opt} onClick={() => { setAnswer(step.ansKey, opt); setTimeout(() => setStepIdx(i => i+1), 300); }}
-            style={{ flex: 1, minWidth: 120, padding: "24px 16px", fontSize: 20, fontWeight: 800, borderRadius: 16, border: `3px solid ${answers[step.ansKey] === opt ? C.teal : C.border}`, background: answers[step.ansKey] === opt ? C.tealL : "#fff", color: answers[step.ansKey] === opt ? C.tealD : C.text, cursor: "pointer", fontFamily: font, transition: "all 0.15s" }}>
-            {t[opt] || opt}
-          </button>
-        ))}
+        {/* Options are either plain strings (opt === storage key === translation
+            key) or [storageKey, translationKey] pairs. */}
+        {step.options.map(o => {
+          const [oKey, oTKey] = Array.isArray(o) ? o : [o, o];
+          const selected = answers[step.ansKey] === oKey;
+          return (
+            <button key={oKey} onClick={() => { setAnswer(step.ansKey, oKey); setTimeout(() => setStepIdx(i => i+1), 300); }}
+              style={{ flex: 1, minWidth: 120, padding: "24px 16px", fontSize: 20, fontWeight: 800, borderRadius: 16, border: `3px solid ${selected ? C.teal : C.border}`, background: selected ? C.tealL : "#fff", color: selected ? C.tealD : C.text, cursor: "pointer", fontFamily: font, transition: "all 0.15s" }}>
+              {t[oTKey] || oTKey}
+            </button>
+          );
+        })}
       </div>
       <div style={{ marginTop: 20 }}>
         <button onClick={goBack} style={{ padding: "10px 20px", fontSize: 14, fontWeight: 700, color: C.muted, background: "transparent", border: `2px solid ${C.border}`, borderRadius: 10, cursor: "pointer", fontFamily: font }}>{t.back}</button>
       </div>
     </>
   );
+
+  if (step.type === "brandSelect") {
+    const current = answers[step.ansKey] || "";
+    const isOther = !!answers.aids_brand_isOther;
+    const pill = (selected) => ({ padding: "14px 22px", borderRadius: 12, border: `2px solid ${selected ? C.teal : C.border}`, background: selected ? C.tealL : "#fff", color: selected ? C.tealD : C.text, fontWeight: 700, fontSize: 16, cursor: "pointer", fontFamily: font });
+    return card(
+      <>
+        {step.sec && <SectionBadge label={t[step.sec]} />}
+        <h2 style={{ fontFamily: serif, fontSize: 26, color: C.text, margin: "0 0 24px", lineHeight: 1.35 }}>{t[step.qKey]}</h2>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+          {step.options.map(([name, logo]) => {
+            const selected = !isOther && current === name;
+            return (
+              <button key={name} type="button"
+                onClick={() => { setAnswer("aids_brand_isOther", false); setAnswer(step.ansKey, name); }}
+                title={name}
+                style={{ width: 140, height: 76, display: "flex", alignItems: "center", justifyContent: "center", padding: 14, borderRadius: 12, border: `2px solid ${selected ? C.teal : C.border}`, background: selected ? C.tealL : "#fff", cursor: "pointer" }}>
+                <img src={logo} alt={name} style={{ maxWidth: "100%", maxHeight: 40, objectFit: "contain" }} />
+              </button>
+            );
+          })}
+          <button type="button" onClick={() => { setAnswer("aids_brand_isOther", false); setAnswer(step.ansKey, "Not sure"); }}
+            style={pill(!isOther && current === "Not sure")}>{t.aidsBrandNotSure}</button>
+          <button type="button" onClick={() => { setAnswer("aids_brand_isOther", true); setAnswer(step.ansKey, ""); }}
+            style={pill(isOther)}>{t.aidsBrandOther}</button>
+        </div>
+        {isOther && (
+          <div style={{ marginTop: 14 }}>
+            <input type="text" value={current} onChange={e => setAnswer(step.ansKey, e.target.value)}
+              placeholder={t.aidsBrandOtherPrompt} autoFocus
+              style={{ width: "100%", boxSizing: "border-box", fontSize: 17, padding: "12px 14px", border: `2px solid ${C.border}`, borderRadius: 10, color: C.text, fontFamily: font, outline: "none" }} />
+          </div>
+        )}
+        <NavButtons onBack={goBack} onNext={goNext} nextLabel={t.next} backLabel={t.back} stepIdx={stepIdx} />
+      </>
+    );
+  }
 
   if (step.type === "multiSelect") return card(
     <>
@@ -1694,70 +1799,15 @@ export default function IntakeKiosk() {
     </>
   );
 
-  if (step.type === "aids") return card(
-    <>
-      {step.sec && <SectionBadge label={t[step.sec]} />}
-      <h2 style={{ fontFamily: serif, fontSize: 24, color: C.text, margin: "0 0 24px", lineHeight: 1.3 }}>Tell us about your current hearing aids.</h2>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "0 16px" }}>
-        <div style={{ width: "100%", marginBottom: 16 }}>
-          <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>{t.aidsWhichEar}</label>
-          <div style={{ display: "flex", gap: 10 }}>
-            {["aidsBoth","aidsRight","aidsLeft"].map(opt => (
-              <button key={opt} onClick={() => setAnswer("aids_ear", t[opt])}
-                style={{ padding: "10px 18px", borderRadius: 10, border: `2px solid ${answers.aids_ear === t[opt] ? C.teal : C.border}`, background: answers.aids_ear === t[opt] ? C.tealL : "#fff", color: answers.aids_ear === t[opt] ? C.tealD : C.text, fontWeight: 700, fontSize: 15, cursor: "pointer", fontFamily: font }}>
-                {t[opt]}
-              </button>
-            ))}
-          </div>
-        </div>
-        {[["aids_howOften","aidsHowOften","50%"],["aids_howOld","aidsHowOld","45%"],["aids_brand","aidsBrand","50%"],["aids_style","aidsStyle","45%"],["aids_cost","aidsCost","30%"]].map(([k,lk,w]) => (
-          <div key={k} style={{ width: w, marginBottom: 16 }}>
-            <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>{t[lk]}</label>
-            <input type="text" value={answers[k] || ""} onChange={e => setAnswer(k, e.target.value)}
-              style={{ width: "100%", boxSizing: "border-box", fontSize: 17, padding: "12px 14px", border: `2px solid ${C.border}`, borderRadius: 10, color: C.text, fontFamily: font, outline: "none" }} />
-          </div>
-        ))}
-        <div style={{ width: "100%", marginBottom: 16 }}>
-          <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>{t.aidsSatisfied}</label>
-          <div style={{ display: "flex", gap: 12 }}>
-            {["yes","no"].map(opt => (
-              <button key={opt} onClick={() => setAnswer("aids_satisfied", opt === "yes")}
-                style={{ padding: "12px 28px", borderRadius: 10, border: `2px solid ${answers.aids_satisfied === (opt==="yes") ? C.teal : C.border}`, background: answers.aids_satisfied === (opt==="yes") ? C.tealL : "#fff", color: answers.aids_satisfied === (opt==="yes") ? C.tealD : C.text, fontWeight: 700, fontSize: 17, cursor: "pointer", fontFamily: font }}>
-                {t[opt]}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div style={{ width: "100%", marginBottom: 16 }}>
-          <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>{t.aidsWhyNot}</label>
-          <input type="text" value={answers.aids_whyNot || ""} onChange={e => setAnswer("aids_whyNot", e.target.value)}
-            style={{ width: "100%", boxSizing: "border-box", fontSize: 17, padding: "12px 14px", border: `2px solid ${C.border}`, borderRadius: 10, color: C.text, fontFamily: font, outline: "none" }} />
-        </div>
-        <div style={{ width: "100%", marginBottom: 4 }}>
-          <label style={{ display: "block", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>{t.aidsSatisfRating}</label>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {[1,2,3,4,5,6,7,8,9,10].map(n => (
-              <button key={n} onClick={() => setAnswer("aids_satisfRating", n)}
-                style={{ width: 48, height: 48, borderRadius: 10, border: `3px solid ${answers.aids_satisfRating === n ? C.teal : C.border}`, background: answers.aids_satisfRating === n ? C.teal : "#fff", color: answers.aids_satisfRating === n ? "#fff" : C.text, fontSize: 18, fontWeight: 800, cursor: "pointer", fontFamily: font }}>
-                {n}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-      <NavButtons onBack={goBack} onNext={goNext} nextLabel={t.next} backLabel={t.back} stepIdx={stepIdx} />
-    </>
-  );
-
   if (step.type === "scrollConsent") {
     const isPrivacy = step.contentKey === "privacy";
     const scrolledKey = isPrivacy ? "privacyScrolled" : "insScrolled";
     const agreedKey = isPrivacy ? "privacyAgreed" : "insuranceAgreed";
     const scrolled = !!answers[scrolledKey];
     const agreed = !!answers[agreedKey];
-    // The privacy policy fits on screen — no scroll gate. The longer
-    // insurance acknowledgment keeps the scroll-to-bottom requirement.
-    const requireScroll = !isPrivacy;
+    // Both consents fit on screen on the kiosk iPad — render them in full
+    // and let the patient agree without a scroll-to-bottom gate.
+    const requireScroll = false;
     return card(
       <ConsentScreen
         t={t} isPrivacy={isPrivacy} scrolled={scrolled} agreed={agreed}

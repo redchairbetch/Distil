@@ -62,6 +62,15 @@ function yn(answers, key) {
   return answers[key] === true ? 'Yes' : answers[key] === false ? 'No' : '—'
 }
 
+// Single-select stored as a [storageKey, translationKey] option key → label.
+// Falls back to the older free-text behavior (t[raw]||raw) for legacy rows.
+function pairLabel(answers, t, key, options) {
+  const raw = answers[key]
+  if (raw == null || raw === '') return '—'
+  const found = (options || []).find(([k]) => k === raw)
+  return found ? (t[found[1]] || found[1]) : (t[raw] || raw)
+}
+
 // Multi-select array → comma-joined localized names, "other" freeform
 // text appended in parentheses when present.
 function multiDisplay(answers, t, arrKey, options, otherKey, otherValueKey) {
@@ -440,24 +449,18 @@ function historySection(ctx, answers, t, lk) {
 }
 
 // ── Current Hearing Aids (conditional) ───────────────────────
-function currentAids(ctx, answers, t) {
+function currentAids(ctx, answers, t, lk) {
   if (!answers.aids_q) return
   const { doc } = ctx
-  ensureSpace(ctx, 72)
+  ensureSpace(ctx, 60)
   ctx.y = heading(doc, M, CW, ctx.y, 'Current Hearing Aids')
   fieldRow(ctx, [
-    { label: 'Which ear(s)', value: val(answers, t, 'aids_ear') },
-    { label: 'How often worn', value: val(answers, t, 'aids_howOften') },
-    { label: 'Age of aids', value: val(answers, t, 'aids_howOld') },
+    { label: 'Which ear(s)', value: pairLabel(answers, t, 'aids_ear', lk.aidsEar) },
+    { label: 'How often worn', value: pairLabel(answers, t, 'aids_howOften', lk.aidsFreq) },
+    { label: 'Age of aids', value: pairLabel(answers, t, 'aids_howOld', lk.aidsAge) },
   ])
   fieldRow(ctx, [
     { label: 'Brand', value: val(answers, t, 'aids_brand') },
-    { label: 'Style', value: val(answers, t, 'aids_style') },
-    { label: 'Cost', value: val(answers, t, 'aids_cost') },
-  ])
-  fieldRow(ctx, [
-    { label: 'Hearing well with current aids?', value: yn(answers, 'aids_satisfied') },
-    { label: 'If not, why?', value: val(answers, t, 'aids_whyNot') },
     { label: 'Satisfaction (1-10)', value: val(answers, t, 'aids_satisfRating') },
   ])
 }
@@ -625,6 +628,9 @@ export function generateIntakePdf({
     noiseRecreational: lookups.noiseRecreational || [],
     resistance: lookups.resistance || [],
     states: lookups.states || [],
+    aidsEar: lookups.aidsEar || [],
+    aidsFreq: lookups.aidsFreq || [],
+    aidsAge: lookups.aidsAge || [],
     upgEnvironments: lookups.upgEnvironments || [],
     upgFeatures: lookups.upgFeatures || [],
     upgIssues: lookups.upgIssues || [],
@@ -643,7 +649,7 @@ export function generateIntakePdf({
   ctx.y = header(doc, intakeId, timestamp, { ...clinic, logoDataUrl })
   patientInfo(ctx, answers, t, lk)
   historySection(ctx, answers, t, lk)
-  currentAids(ctx, answers, t)
+  currentAids(ctx, answers, t, lk)
   consentPage(doc, tEn, signatureDataUrl, timestamp)
 
   return doc

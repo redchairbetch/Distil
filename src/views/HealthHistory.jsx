@@ -152,14 +152,16 @@ export const SECTIONS = [
   {
     id: "aids", label: "Current Hearing Aids", showWhen:(a) => a.aids_q === true,
     fields: [
-      { key:"aids_ear", label:"Which ear(s)", type:"text" },
-      { key:"aids_howOften", label:"How often worn", type:"text" },
-      { key:"aids_howOld", label:"How old", type:"text" },
+      // Kiosk now stores stable keys for ear/frequency/age (radio options map
+      // them to labels; legacy free-text values fall through unchanged).
+      { key:"aids_ear", label:"Which ear(s)", type:"radio",
+        options:[["both","Both"],["right","Right"],["left","Left"]] },
+      { key:"aids_howOften", label:"How often worn", type:"radio",
+        options:[["never","Never"],["1_3","1–3 days a week"],["3_5","3–5 days a week"],["fulltime","Full-time"]] },
+      { key:"aids_howOld", label:"How old", type:"radio",
+        options:[["1_2","1–2 years"],["3_4","3–4 years"],["5_plus","5+ years"]] },
       { key:"aids_brand", label:"Brand", type:"text" },
-      { key:"aids_style", label:"Style", type:"text" },
-      { key:"aids_cost", label:"Cost", type:"text" },
-      { key:"aids_satisfied", label:"Satisfied with current aids", type:"yesno" },
-      { key:"aids_whyNot", label:"What's not working", type:"text" },
+      { key:"aids_satisfRating", label:"Satisfaction (1–10)", type:"scale" },
     ],
   },
 ];
