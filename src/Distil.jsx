@@ -3,7 +3,8 @@ import { unwrapIntakeAnswers } from "./recommendationEngine.js";
 import { ENVIRONMENTS, SITUATION_LABEL, flaggedEnvironments } from "./listeningSituations.js";
 import Icon from "./components/Icon.jsx";
 import FinancingCalculator from "./components/FinancingCalculator.jsx";
-import DeviceComparison from "./views/DeviceComparison.jsx";
+import DeviceComparison, { techLevelToRank } from "./views/DeviceComparison.jsx";
+import { rankFromTierLabel } from "./deviceComparison.js";
 
 // ── Body style images ──
 import imgRIC from "./assets/body-styles/RIC.png";
@@ -1927,6 +1928,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   const [showWizardPaModal, setShowWizardPaModal] = useState(false);
   const [wizardPaSigned, setWizardPaSigned] = useState(false);
   const [wizardPaSignatureDate, setWizardPaSignatureDate] = useState(null);
+  // 'new' (default 8-step flow) | 'upgrade' (established patient routed in
+  // from the UpgradeWizard close to pick devices + sign a PA). Upgrade mode
+  // lands mid-wizard and must never demote an active patient to TNS.
+  const [wizardMode, setWizardMode] = useState("new");
+  // Step-5 "Then vs. Now" comparison (collapsed by default) — shown when the
+  // intake says the patient already wears hearing aids.
+  const [showWizardCompare, setShowWizardCompare] = useState(false);
 
   // Product catalog state
   const [catalog, setCatalog] = useState(CATALOG_DEFAULT);
@@ -2627,21 +2635,27 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   // — consent contains the signature data URL (legal record). We unwrap to
   // the flat shape for rendering but stash the wrapper context so writes
   // re-wrap and preserve _meta + consent on the row.
+  // Unwrap a loaded intake row into the wizardIntake shape: flat answers for
+  // rendering plus the stashed wrapper so writes re-wrap and preserve
+  // _meta + consent. Shared by the step-1 loader and startUpgradePurchase.
+  const normalizeWizardIntake = (latest) => {
+    if (!latest) return null;
+    const raw = latest.answers;
+    const isWrapped = raw && typeof raw === "object" && raw.answers
+      && typeof raw.answers === "object" && (raw._meta || raw.consent);
+    return {
+      ...latest,
+      answers: isWrapped ? raw.answers : (raw || {}),
+      _wrapper: isWrapped ? { _meta: raw._meta, consent: raw.consent } : null,
+    };
+  };
+
   useEffect(() => {
     if (step !== 1 || !wizardPatientId) return;
     let cancelled = false;
     loadIntakesForPatient(wizardPatientId).then(intakes => {
       if (cancelled) return;
-      const latest = intakes[0];
-      if (!latest) { setWizardIntake(null); return; }
-      const raw = latest.answers;
-      const isWrapped = raw && typeof raw === "object" && raw.answers
-        && typeof raw.answers === "object" && (raw._meta || raw.consent);
-      setWizardIntake({
-        ...latest,
-        answers: isWrapped ? raw.answers : (raw || {}),
-        _wrapper: isWrapped ? { _meta: raw._meta, consent: raw.consent } : null,
-      });
+      setWizardIntake(normalizeWizardIntake(intakes[0]));
     }).catch(e => {
       console.error("loadIntakesForPatient:", e);
       if (!cancelled) setWizardIntake(null);
@@ -2873,6 +2887,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
       ? new Date(new Date(wizardPaSignatureDate).getTime() + 14 * 86400000).toISOString().split("T")[0]
       : new Date().toISOString().split("T")[0];
 
+    // Upgrade mode operates on an already-active patient — finalizing without
+    // a signed PA (e.g. they took a quote home) must not demote them to TNS.
+    // The retention outcome is already recorded by the UpgradeWizard close.
+    const finalizeStatus = wizardPaSigned
+      ? "active"
+      : (wizardMode === "upgrade" ? "active" : "tns");
+
     // Incremental save path — patient already exists in DB as draft
     if (wizardPatientId) {
       try {
@@ -2888,7 +2909,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
         const finalizeAppointments = [...(form.appointments || []), ...careArc];
         await finalizePatient(
           wizardPatientId,
-          wizardPaSigned ? "active" : "tns",
+          finalizeStatus,
           { fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null },
           carePlan,
           form.notes,
@@ -2914,7 +2935,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
           carePlan: carePlan,
           appointments: finalizeAppointments,
           notes: form.notes,
-          patientStatus: wizardPaSigned ? "active" : "tns",
+          patientStatus: finalizeStatus,
         };
         setSelectedPatient(patient);
         setPunchData({ cleanings: 0, appointments: 0, log: [] });
@@ -2985,13 +3006,69 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     setActiveSide("left");
     setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
     setWizardPatientId(null); setWizardVisitId(null); setSaveToast(false);
+    setWizardMode("new"); setShowWizardCompare(false);
     setStep(0); setSaved(false); setView("new");
+  };
+
+  // Upgrade purchase (backlog #23, close → devices): seed the wizard from an
+  // established patient and land mid-flow so the upgrade reuses the same
+  // tier/device/quote/PA machinery as a new fitting. wizardVisitId carries the
+  // upgrade visit so the step-5 incremental save writes a NEW visit-scoped
+  // device_fittings row (the original fit survives — updatePatientDevices is
+  // visit-scoped) and finalize targets only this visit's fitting dates.
+  const startUpgradePurchase = (p, { visitId = null, tierOffered = null, tierPrice = null, audiology = null } = {}) => {
+    if (!p) return;
+    const nameParts = String(p.name || "").trim().split(/\s+/);
+    const firstName = nameParts.shift() || "";
+    const lastName = nameParts.join(" ");
+    // Prefer the audiogram captured during the upgrade visit; fall back to
+    // the chart's audiology so Results/Recommendation still have data.
+    const hasFreshAudio = audiology
+      && (Object.keys(audiology.rightT || {}).length > 0 || Object.keys(audiology.leftT || {}).length > 0);
+    const plan = p.payType === "insurance"
+      ? activePlans.find(pl => pl.carrier === p.insurance?.carrier && pl.planGroup === p.insurance?.planGroup)
+      : null;
+    const privLabel = p.payType === "insurance" && isPrivateLabelPlan(plan);
+    // Tier price: the UpgradeClose hands us its reference price (plan copay or
+    // retail anchor); for private-label plans re-resolve from the plan row so
+    // the seeded price matches what TierSelection would write.
+    const seededTierPrice = tierPrice != null
+      ? tierPrice
+      : (privLabel && tierOffered ? (plan?.tiers?.find(t => t.label === tierOffered)?.price ?? null) : null);
+    setForm({
+      intakeId: null,
+      firstName, lastName,
+      dob: p.dob || "", phone: p.phone || "", email: p.email || "", address: p.address || "",
+      payType: p.payType || "insurance",
+      carrier: p.insurance?.carrier || "", planGroup: p.insurance?.planGroup || "", tpa: p.insurance?.tpa || "",
+      tier: tierOffered || "", tierPrice: seededTierPrice,
+      left: EMPTY_SIDE(), right: EMPTY_SIDE(),
+      audiology: hasFreshAudio ? audiology : (p.audiology || {rightT:{},leftT:{},rightBC:{},leftBC:{},rightMask:{},leftMask:{},rightBCMask:{},leftBCMask:{},tinnitusRight:false,tinnitusLeft:false,unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,wrMclR:null,wrMclL:null,sinBin:null}),
+      carePlan: "", appointments: [], notes: p.notes || "",
+    });
+    setWizardPatientId(p.id);
+    setWizardVisitId(visitId);
+    setWizardMode("upgrade");
+    setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
+    setActiveSide("left"); setSaved(false); setSaveError(null); setSaveToast(false);
+    setShowWizardCompare(false);
+    // Load the patient's latest linked intake so step 5's reflection flags and
+    // the Then-vs-Now comparison have real data (the step-1 loader won't run —
+    // we land past it).
+    setWizardIntake(null);
+    loadIntakesForPatient(p.id)
+      .then(intakes => setWizardIntake(normalizeWizardIntake(intakes[0])))
+      .catch(() => {});
+    // Technology Tier only applies to private-label + private-pay flows;
+    // regular insurance renders that step empty, so land on Device Selection.
+    setStep((privLabel || p.payType === "private") ? 4 : 5);
+    setView("new");
   };
 
   // Established-patient flow (backlog #23): route to the dedicated UpgradeWizard
   // instead of the new-patient 8-step form. The wizard opens its own visit once
-  // the provider picks a visit type, so an established patient's baseline (their
-  // original fit) is never overwritten.
+  // the provider picks the journey year, so an established patient's baseline
+  // (their original fit) is never overwritten.
   const startNewVisitForPatient = (p) => {
     if (!p) return;
     setSelectedPatient(p);
@@ -3100,6 +3177,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     setPendingIntakes(prev => prev.filter(i => i._meta?.intakeId !== intakeId));
     setShowIntakeQueue(false);
     setIntakeToast(null);
+    setWizardMode("new"); setShowWizardCompare(false);
     setStep(0); setSaved(false); setView("new");
     refreshPatients();
   };
@@ -5197,6 +5275,68 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
               );
             })()}
           </div>
+          {/* Then vs. Now — when the intake says the patient already wears
+              hearing aids, offer the old-vs-new comparator right on Device
+              Selection. Old side seeds from the intake's current-aids answers
+              (provider refines via the picker); new side tracks the device
+              being configured above. */}
+          {(() => {
+            const ia = unwrapIntakeAnswers(wizardIntake?.answers) || {};
+            const hasCurrentAids = ia.aids_q === true || !!ia.aids_brand;
+            if (!hasCurrentAids) return null;
+            // Age free-text ("5 years", "2019") → release-year estimate. Tier
+            // unknown from intake → Advanced-class assumption; the honesty
+            // footnote + picker cover the confirm-at-point-of-use rule.
+            const ageNum = parseInt(String(ia.aids_howOld || "").match(/\d+/)?.[0] ?? "", 10);
+            const nowYear = new Date().getFullYear();
+            const estYear = !Number.isFinite(ageNum) ? null : (ageNum > 1900 ? ageNum : nowYear - ageNum);
+            const intakeOld = {
+              kind: "intake",
+              display: [ia.aids_brand, ia.aids_style].filter(Boolean).join(" ") || "Current hearing aids",
+              sub: [ia.aids_howOld ? `~${ia.aids_howOld}` : null, "from intake — confirm"].filter(Boolean).join(" · "),
+              tierRank: 3,
+              releaseYear: estYear,
+              directionalMic: null, bluetoothStreaming: null, rechargeable: null, telecoil: null,
+            };
+            const src = isSideConfigured("left") ? form.left : isSideConfigured("right") ? form.right : null;
+            let proposedNew = null;
+            if (src) {
+              const fam = catalog.find(e => e.id === src.familyId);
+              const rank = techLevelToRank(src.techLevel) ?? rankFromTierLabel(src.techLevel) ?? rankFromTierLabel(form.tier);
+              proposedNew = {
+                kind: "wizard",
+                display: src.manufacturer === "TruHearing"
+                  ? `TruHearing Select ${src.techLevel}`
+                  : [src.manufacturer, fam?.family, src.techLevel].filter(Boolean).join(" "),
+                sub: "Selected in this fitting",
+                tierRank: rank,
+                releaseYear: null, // current generation — no era penalty
+                directionalMic: rank != null && rank >= 3 ? "beamforming" : "adaptive",
+                bluetoothStreaming: true, rechargeable: true, telecoil: null,
+              };
+            }
+            const compFlags = flaggedEnvironments(ia);
+            return (
+              <div className="card" style={{ marginTop: 24 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                  <div>
+                    <div className="card-title" style={{ marginBottom: 2 }}>Then vs. Now</div>
+                    <div style={{ fontSize: 12.5, color: "#6b7280" }}>
+                      {[ia.aids_brand, ia.aids_howOld ? `about ${ia.aids_howOld} old` : null].filter(Boolean).join(" · ") || "Wears hearing aids today"} — show what the new technology changes.
+                    </div>
+                  </div>
+                  <button className="btn-ghost" onClick={() => setShowWizardCompare(v => !v)}>
+                    {showWizardCompare ? "Hide comparison" : "Compare with current aids"}
+                  </button>
+                </div>
+                {showWizardCompare && (
+                  <div style={{ marginTop: 16 }}>
+                    <DeviceComparison variant="embedded" initialOld={intakeOld} proposedNew={proposedNew} flaggedEnvs={compFlags} />
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           {/* Private-pay skips the step-6 Care Plan fork — surface PA + Quote here instead. */}
           {form.payType === "private" && (isSideConfigured("left") || isSideConfigured("right")) && (
             <div style={{marginTop:24,display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
@@ -8663,6 +8803,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
               staffId={staffId}
               onExit={() => setView("patient")}
               onCompleted={async () => { await refreshPatients(); setView("patient"); }}
+              onProceedToPurchase={(ctx) => {
+                // Visit is already saved by the wizard — route straight into
+                // the device/PA flow seeded from this chart + visit.
+                refreshPatients();
+                startUpgradePurchase(selectedPatient, ctx);
+              }}
             />
           )}
           {view === "new" && (() => {
@@ -8679,8 +8825,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
             <>
               <div className="topbar">
                 <div>
-                  <div className="topbar-title">New Patient</div>
-                  <div className="topbar-sub">Step {visiblePos + 1} of {visibleSteps.length} · {STEPS[step]}</div>
+                  <div className="topbar-title">{wizardMode === "upgrade" ? "Upgrade Purchase" : "New Patient"}</div>
+                  <div className="topbar-sub">{wizardMode === "upgrade" ? `${[form.firstName, form.lastName].filter(Boolean).join(" ")} · ` : ""}Step {visiblePos + 1} of {visibleSteps.length} · {STEPS[step]}</div>
                 </div>
                 <button className="btn-ghost" onClick={()=>setView("dashboard")}>Cancel</button>
               </div>

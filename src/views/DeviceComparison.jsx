@@ -39,7 +39,9 @@ function normalizeMic(x) {
 // Best-effort tech-level string ("7IX", "80", "90") → coverage rank. Single
 // digits use the plan-tier map (7→Premium); two-digit ladders use the tens
 // digit (80/90→Premium, 60/70→Advanced, else Standard). Provider can override.
-function techLevelToRank(tl) {
+// Exported for the new-patient wizard, which builds a "proposed new" descriptor
+// from its configured device selection.
+export function techLevelToRank(tl) {
   const n = parseInt(String(tl ?? "").match(/\d+/)?.[0] ?? "", 10);
   if (!Number.isFinite(n)) return null;
   if (n < 10) return rankFromTierLabel(String(n));
@@ -187,6 +189,10 @@ function DeviceCard({ side, device, onChange }) {
 }
 
 // One environment row: label, stacked current/new bars, and the gain.
+// Both bars read on the SAME green-to-red coverage scale so the eye compares
+// like with like; the current device's bar is muted (desaturated + faded) so
+// the vivid bar is always the proposed device.
+const MUTED_BAR = { opacity: 0.5, filter: "saturate(0.45)" };
 function PairedRow({ label, oldPct, newPct, delta, prominent }) {
   const track = { position: "relative", height: 6, background: COLOR.line, borderRadius: 3, overflow: "hidden" };
   return (
@@ -198,7 +204,8 @@ function PairedRow({ label, oldPct, newPct, delta, prominent }) {
       </div>
       <div style={{ flex: "1 1 45%", display: "flex", flexDirection: "column", gap: 3 }}>
         <div style={track} title="Current device">
-          <div style={{ width: `${oldPct ?? 0}%`, height: "100%", background: COLOR.ink3, opacity: 0.55 }} />
+          <div style={{ width: `${oldPct ?? 0}%`, height: "100%", background: coverageColor(oldPct ?? 0),
+            ...MUTED_BAR }} />
         </div>
         <div style={track} title="New device">
           <div style={{ width: `${newPct ?? 0}%`, height: "100%", background: coverageColor(newPct ?? 0),
@@ -349,14 +356,25 @@ function NewPicker({ catalogTiers, onPick, onClose }) {
 
 // ── Main comparator ──────────────────────────────────────────────────────────
 export default function DeviceComparison({
-  patient = null, initialOld = null, initialNew = null,
+  patient = null, initialOld = null, initialNew = null, proposedNew = null,
   flaggedEnvs = null, variant = "standalone", onClose = null,
 }) {
   const [legacyList, setLegacyList] = useState([]);
   const [catalogTiers, setCatalogTiers] = useState([]);
   const [oldDevice, setOldDevice] = useState(initialOld || fittingToDevice(patient?.devices) || null);
-  const [newDevice, setNewDevice] = useState(initialNew || DEFAULT_NEW);
+  const [newDevice, setNewDevice] = useState(initialNew || proposedNew || DEFAULT_NEW);
   const [picker, setPicker] = useState(null); // 'old' | 'new' | null
+  // When the patient flagged environments, the chart opens showing ONLY those
+  // rows (the ones the conversation is actually about) with an expander for
+  // the full nine. No flags → all nine, no expander.
+  const [showAllEnvs, setShowAllEnvs] = useState(false);
+
+  // Follow the caller's live pick (the wizard passes its configured device as
+  // proposedNew) so the bars track the device actually being selected. Only
+  // fires when a real device is proposed — deconfiguring keeps the last pick.
+  useEffect(() => {
+    if (proposedNew) setNewDevice(proposedNew);
+  }, [proposedNew?.display, proposedNew?.tierRank]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let alive = true;
@@ -388,6 +406,13 @@ export default function DeviceComparison({
     for (const r of rows) (flagged.has(r.id) ? yes : no).push({ ...r, prominent: flagged.has(r.id) });
     return [...yes, ...no];
   }, [rows, flagged]);
+
+  // Collapsed view = just the flagged rows (matches the headline-gain scope).
+  const collapsible = flagged.size > 0 && flagged.size < orderedRows.length;
+  const visibleRows = collapsible && !showAllEnvs
+    ? orderedRows.filter(r => r.prominent)
+    : orderedRows;
+  const hiddenCount = orderedRows.length - visibleRows.length;
 
   const wrap = variant === "standalone"
     ? { maxWidth: 860, margin: "0 auto", padding: "24px 20px" }
@@ -449,16 +474,26 @@ export default function DeviceComparison({
               Listening environment
             </div>
             <div style={{ display: "flex", gap: 14, fontSize: 10, color: COLOR.ink2 }}>
-              <span><span style={{ display: "inline-block", width: 10, height: 6, background: COLOR.ink3,
-                opacity: 0.55, borderRadius: 2, marginRight: 4 }} />Current</span>
-              <span><span style={{ display: "inline-block", width: 10, height: 6, background: COLOR.teal,
+              <span><span style={{ display: "inline-block", width: 10, height: 6, background: coverageColor(80),
+                opacity: 0.5, filter: "saturate(0.45)", borderRadius: 2, marginRight: 4 }} />Current (faded)</span>
+              <span><span style={{ display: "inline-block", width: 10, height: 6, background: coverageColor(80),
                 borderRadius: 2, marginRight: 4 }} />New</span>
               <span style={{ fontWeight: 700 }}>Gain</span>
             </div>
           </div>
-          {orderedRows.map(r => (
+          {visibleRows.map(r => (
             <PairedRow key={r.id} label={r.label} oldPct={r.old} newPct={r.new} delta={r.delta} prominent={r.prominent} />
           ))}
+          {collapsible && (
+            <button onClick={() => setShowAllEnvs(v => !v)}
+              style={{ marginTop: 10, width: "100%", background: "transparent",
+                border: `1px dashed ${COLOR.line}`, borderRadius: 8, padding: "7px 12px",
+                cursor: "pointer", fontSize: 12, fontWeight: 600, color: COLOR.ink2 }}>
+              {showAllEnvs
+                ? "Show fewer — just the flagged environments"
+                : `Show all ${orderedRows.length} environments (${hiddenCount} more)`}
+            </button>
+          )}
         </div>
       ) : (
         <div style={{ background: COLOR.paper, border: `1px dashed ${COLOR.line}`, borderRadius: 12,

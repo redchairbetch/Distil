@@ -33,13 +33,6 @@ import DeviceComparison from "./DeviceComparison.jsx";
 // but only as the silent tie-breaker for the Y4–5 decision — never shown as a
 // "band" to the patient.
 
-const VISIT_TYPES = [
-  { key: "annual_check",    label: "Annual Check",         icon: "🗓", blurb: "Routine yearly hearing review and device check." },
-  { key: "upgrade_consult", label: "Upgrade Conversation", icon: "⬆",  blurb: "Reprogram vs. upgrade to newer technology." },
-  { key: "device_eval",     label: "Device Evaluation",    icon: "🔬", blurb: "Assess current device performance and fit." },
-  { key: "fit_follow_up",   label: "Fit Follow-up",        icon: "🔧", blurb: "Post-fitting adjustment and acclimatization." },
-];
-
 // Step indices. Years 1–3 end at REVIEW (save there); years 4–5 add CLOSE.
 const STEP = { VISIT: 0, CONFIRM: 1, CURRENT: 2, EXAM: 3, REVIEW: 4, CLOSE: 5 };
 
@@ -62,6 +55,15 @@ const JOURNEY_PROTOCOL = [
 
 const TIERS = ["Excellent", "Adequate", "Marginal", "Failing"];
 const TIER_COLORS = { Excellent: "#059669", Adequate: "#0f766e", Marginal: "#b45309", Failing: "#dc2626" };
+
+// Check-in struggle-environment keys (upgradeReadiness.js) → the comparator's
+// listening-environment ids (listeningSituations.js). Lets the Then-vs-Now
+// chart open scoped to exactly what the patient said they're struggling with.
+const STRUGGLE_TO_COMPARISON_ENV = {
+  restaurants: "restaurant", groups: "groups", phone: "phone", tv: "tv",
+  one_on_one: "home", car: "car", outdoors: "outdoors", worship: "religious",
+  music: "crowds",
+};
 
 // Normalize a plan-tier or retail-anchor label to the three marketing tiers the
 // Close screen shows. Insurance plans already use Standard/Advanced/Premium;
@@ -119,13 +121,12 @@ function fmtDate(s) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCompleted }) {
+export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCompleted, onProceedToPurchase }) {
   const fittingDate = patient?.devices?.fittingDate || patient?.carePlanStartDate || null;
   const years = yearsSince(fittingDate);
   const suggestedYear = years != null ? Math.min(5, Math.max(1, Math.round(years))) : 1;
 
   const [step, setStep] = useState(0);
-  const [visitType, setVisitType] = useState("");
   const [journeyYear, setJourneyYear] = useState(suggestedYear);
   const [visitId, setVisitId] = useState(null);
   const [changeNotes, setChangeNotes] = useState("");
@@ -184,12 +185,19 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
   const isUpgradeYear = journeyYear >= 4;
 
   const STEPS = isUpgradeYear
-    ? ["Visit Type", "Confirm Details", "Current Aids", "Exam Results", "Journey Review", "Close"]
-    : ["Visit Type", "Confirm Details", "Current Aids", "Exam Results", "Journey Review"];
+    ? ["Journey Year", "Confirm Details", "Current Aids", "Exam Results", "Journey Review", "Close"]
+    : ["Journey Year", "Confirm Details", "Current Aids", "Exam Results", "Journey Review"];
   const topTitle = isUpgradeYear ? "Upgrade Evaluation" : "Annual Care Visit";
 
   const computedTier = useMemo(() => computePerformanceTier({ tags: perfTags }), [perfTags]);
   const effectiveTier = tierOverride || computedTier;
+
+  // Stable Set identity so the comparator's memos don't recompute on every
+  // unrelated re-render of this (large) wizard.
+  const comparisonFlags = useMemo(
+    () => new Set(environments.map((k) => STRUGGLE_TO_COMPARISON_ENV[k]).filter(Boolean)),
+    [environments]
+  );
 
   const readiness = useMemo(
     () => scoreReadiness({ satisfaction, environments, featureGaps, benefitRefreshed, performanceTier: effectiveTier, yearsSinceFit: years }),
@@ -333,8 +341,11 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
     setArr(arr.includes(key) ? arr.filter((k) => k !== key) : [...arr, key]);
 
   const startVisit = async () => {
-    if (!visitType) return;
     setBusy(true); setError(null);
+    // The journey year IS the visit selection now — derive the stored
+    // visits.visit_type (CHECK-constrained vocabulary) from it: years 1–3
+    // are annual care, years 4–5 the upgrade evaluation.
+    const visitType = journeyYear >= 4 ? "upgrade_consult" : "annual_check";
     const vid = await createVisit(patient.id, { clinicId, staffId, visitType });
     setBusy(false);
     if (!vid) { setError("Couldn't open the visit. Please try again."); return; }
@@ -357,7 +368,11 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
     }
   };
 
-  const finishVisit = async () => {
+  // proceed: save the visit exactly as before, then hand off to the device
+  // selection + purchase agreement flow (Distil's wizard) instead of exiting.
+  // Proceeding implies the patient is upgrading now, so an unset outcome
+  // defaults to "upgraded".
+  const finishVisit = async ({ proceed = false } = {}) => {
     setBusy(true); setError(null);
     try {
       const isUpg = isUpgradeYear;
@@ -368,7 +383,8 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
       } : {};
       const effPath = isUpg ? (closeState.path || defaultClosePath) : null;
       // Reprogram is its own retention outcome; the upgrade path uses the picked one.
-      const outcome = !isUpg ? null : (effPath === "reprogram" ? "reprogrammed" : (closeState.outcome || null));
+      const outcome = !isUpg ? null
+        : (effPath === "reprogram" ? "reprogrammed" : (closeState.outcome || (proceed ? "upgraded" : null)));
 
       const responses = {
         journeyYear,
@@ -422,7 +438,19 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
 
       const mergedNotes = [changeNotes, isUpg ? closeState.notes : null].map((s) => (s || "").trim()).filter(Boolean).join("\n\n");
       await updateVisit(visitId, { notes: mergedNotes || null, status: "completed" });
-      onCompleted?.();
+      if (proceed && effPath === "upgrade" && onProceedToPurchase) {
+        // Hand the purchase flow everything it can't cheaply re-derive: the
+        // visit (keeps the new fitting visit-scoped), the tier discussed at
+        // close with its reference price, and today's audiogram.
+        onProceedToPurchase({
+          visitId,
+          tierOffered: closeState.tierOffered || null,
+          tierPrice: closeState.tierOffered ? (tierPrices?.[closeState.tierOffered] ?? null) : null,
+          audiology,
+        });
+      } else {
+        onCompleted?.();
+      }
     } catch (e) {
       console.error("finish upgrade visit:", e);
       setError(e?.message || "Couldn't save the visit.");
@@ -463,57 +491,34 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
 
           {step === STEP.VISIT && (
             <div className="card" style={{ padding: 24 }}>
-              <h2 style={{ margin: "0 0 4px", fontFamily: "'Sora',sans-serif", fontSize: 20 }}>What kind of visit?</h2>
+              <h2 style={{ margin: "0 0 4px", fontFamily: "'Sora',sans-serif", fontSize: 20 }}>Where are they on the five-year journey?</h2>
               <p style={{ margin: "0 0 20px", color: "#6b7280", fontSize: 14 }}>
                 {patient?.name} was last fit {years != null ? `${years.toFixed(1)} years ago` : "—"}
                 {fittingDate ? ` (${fmtDate(fittingDate)})` : ""}.
               </p>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                {VISIT_TYPES.map((v) => {
-                  const active = v.key === visitType;
+              {/* Journey year — the spine that gates the rest of the flow */}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {[1, 2, 3, 4, 5].map((y) => {
+                  const active = journeyYear === y;
+                  const upg = y >= 4;
+                  const accent = upg ? "#b45309" : "#0f766e";
                   return (
-                    <button key={v.key} onClick={() => setVisitType(v.key)} style={{
-                      textAlign: "left", padding: 16, borderRadius: 12, cursor: "pointer",
-                      border: active ? "2px solid #0f766e" : "1px solid #e5e7eb",
-                      background: active ? "#f0fdfa" : "white",
+                    <button key={y} onClick={() => setJourneyYear(y)} style={{
+                      textAlign: "center", padding: "14px 18px", borderRadius: 10, cursor: "pointer", minWidth: 110,
+                      border: active ? `2px solid ${accent}` : "1px solid #e5e7eb",
+                      background: active ? (upg ? "#fffbeb" : "#f0fdfa") : "white",
                     }}>
-                      <div style={{ fontSize: 22, marginBottom: 6 }}>{v.icon}</div>
-                      <div style={{ fontFamily: "'Sora',sans-serif", fontWeight: 600, fontSize: 15, color: "#111827" }}>{v.label}</div>
-                      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>{v.blurb}</div>
+                      <div style={{ fontSize: 15, fontWeight: active ? 700 : 600, fontFamily: "'Sora',sans-serif", color: active ? accent : "#111827" }}>Year {y}</div>
+                      <div style={{ fontSize: 11, color: active ? accent : "#9ca3af", marginTop: 2 }}>{YEAR_LABELS[y]}</div>
                     </button>
                   );
                 })}
               </div>
-
-              {/* Journey year — the spine that gates the rest of the flow */}
-              <div style={{ marginTop: 24, borderTop: "1px solid #f1f5f9", paddingTop: 20 }}>
-                <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>
-                  Where are they on the five-year journey?
-                </label>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {[1, 2, 3, 4, 5].map((y) => {
-                    const active = journeyYear === y;
-                    const upg = y >= 4;
-                    const accent = upg ? "#b45309" : "#0f766e";
-                    return (
-                      <button key={y} onClick={() => setJourneyYear(y)} style={{
-                        textAlign: "center", padding: "10px 16px", borderRadius: 10, cursor: "pointer", minWidth: 96,
-                        border: active ? `2px solid ${accent}` : "1px solid #e5e7eb",
-                        background: active ? (upg ? "#fffbeb" : "#f0fdfa") : "white",
-                      }}>
-                        <div style={{ fontSize: 14, fontWeight: active ? 700 : 600, fontFamily: "'Sora',sans-serif", color: active ? accent : "#111827" }}>Year {y}</div>
-                        <div style={{ fontSize: 11, color: active ? accent : "#9ca3af", marginTop: 2 }}>{YEAR_LABELS[y]}</div>
-                      </button>
-                    );
-                  })}
-                </div>
+              {years != null && (
                 <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 10 }}>
-                  {years != null ? `Suggested from last fit: Year ${suggestedYear}. ` : ""}
-                  {isUpgradeYear
-                    ? "Upgrade evaluation — adds the reprogram-vs-upgrade decision and a consultation close."
-                    : "Annual care — hearing test, device check, and the year-by-year journey review."}
+                  Suggested from last fit: Year {suggestedYear}.
                 </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -748,10 +753,15 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
                 </div>
               )}
 
-              {/* Explore + compare devices — pre-filled from the chart. The same
-                  picture the provider can send home with the quote. */}
+              {/* Explore + compare devices — pre-filled from the chart, scoped
+                  to the environments flagged in this visit's check-in (the
+                  comparator opens on just those, with a show-all expander). */}
               <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 20, marginTop: 20 }}>
-                <DeviceComparison patient={patient} variant="embedded" />
+                <DeviceComparison
+                  patient={patient}
+                  variant="embedded"
+                  flaggedEnvs={comparisonFlags}
+                />
               </div>
             </div>
           )}
@@ -776,7 +786,7 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
             </button>
 
             {step === STEP.VISIT && (
-              <button className="btn-primary" disabled={!visitType || busy} style={{ opacity: (!visitType || busy) ? 0.4 : 1 }} onClick={startVisit}>
+              <button className="btn-primary" disabled={busy} style={{ opacity: busy ? 0.4 : 1 }} onClick={startVisit}>
                 {busy ? "Opening…" : "Continue →"}
               </button>
             )}
@@ -794,15 +804,24 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
                   {deltaLoading ? "Computing…" : "Continue →"}
                 </button>
               ) : (
-                <button className="btn-primary green" disabled={busy} onClick={finishVisit}>
+                <button className="btn-primary green" disabled={busy} onClick={() => finishVisit()}>
                   {busy ? "Saving…" : "✓ Save Visit"}
                 </button>
               )
             )}
             {step === STEP.CLOSE && (
-              <button className="btn-primary green" disabled={busy} onClick={finishVisit}>
-                {busy ? "Saving…" : "✓ Save Visit"}
-              </button>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button className="btn-primary green" disabled={busy} onClick={() => finishVisit()}>
+                  {busy ? "Saving…" : "✓ Save Visit"}
+                </button>
+                {/* Upgrade path continues into device selection + purchase
+                    agreement instead of ending the visit here. */}
+                {(closeState.path || defaultClosePath) === "upgrade" && onProceedToPurchase && (
+                  <button className="btn-primary" disabled={busy} onClick={() => finishVisit({ proceed: true })}>
+                    {busy ? "Saving…" : "Save & Select Devices →"}
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
