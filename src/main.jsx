@@ -76,6 +76,13 @@ function App() {
     return () => subscription.unsubscribe()
   }, [])
 
+  // Re-pull the staff record after a clinic switch (active_clinic_id lives
+  // on staff); the key={activeClinicId} below remounts the app on change.
+  const refreshStaff = async () => {
+    const staffRecord = await getCurrentStaff()
+    setStaff(staffRecord)
+  }
+
   // Patient app and kiosk never need auth
   if (isAided) return <PatientApp />
   if (isKiosk) return <IntakeKiosk />
@@ -86,13 +93,21 @@ function App() {
   // Not logged in — show login screen
   if (!session) return <Login />
 
+  // The clinic the app operates on: active clinic if set (and valid per
+  // RLS), else the home clinic. Mirrors my_clinic_id() server-side.
+  const activeClinicId = staff?.active_clinic_id || staff?.clinic_id
+  const myClinics = (staff?.staff_clinics || [])
+    .map(sc => sc.clinics)
+    .filter(Boolean)
+    .sort((a, b) => a.name.localeCompare(b.name))
+
   // Logged in — Device Selection screen if that route, otherwise main CRM
   if (selectPatientId) {
     return (
       <DeviceSelection
         patientId={selectPatientId}
         staffId={staff?.id}
-        clinicId={staff?.clinic_id}
+        clinicId={activeClinicId}
       />
     )
   }
@@ -108,9 +123,12 @@ function App() {
 
   return (
     <Distil
+      key={activeClinicId}
       staffId={staff?.id}
-      clinicId={staff?.clinic_id}
+      clinicId={activeClinicId}
       staffRole={staff?.role}
+      myClinics={myClinics}
+      onClinicSwitched={refreshStaff}
     />
   )
 }

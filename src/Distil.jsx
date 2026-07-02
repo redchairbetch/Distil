@@ -33,8 +33,11 @@ import CommitmentChecklist from "./components/CommitmentChecklist.jsx";
 import { AudigramSVG, getDegreeName, PHONEMES, interpolateThreshold } from "./components/AudiogramSVG.jsx";
 import AudiogramEntry from "./components/AudiogramEntry.jsx";
 
+import TeamAdmin from "./views/TeamAdmin.jsx";
 import {
   loadAllPatients,
+  searchPatientsGlobal,
+  setActiveClinic,
   savePatient,
   loadPunch,
   savePunch,
@@ -1718,7 +1721,7 @@ function AppointmentSchedule({ appointments }) {
   );
 }
 
-export default function ProviderCRM({ staffId, clinicId, staffRole }) {
+export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = [], onClinicSwitched }) {
   const [clinic, setClinic] = useState(DEFAULT_CLINIC);
   const [clinicDraft, setClinicDraft] = useState(DEFAULT_CLINIC);
   const [clinicSaved, setClinicSaved] = useState(false);
@@ -2209,7 +2212,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
 
 
   useEffect(() => {
-    loadAllPatients().then(p => { setPatients(p); setLoading(false); });
+    loadAllPatients(clinicId).then(p => { setPatients(p); setLoading(false); });
     (async () => {
       try {
         if (clinicId) {
@@ -2269,8 +2272,23 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
 
 
   const refreshPatients = async () => {
-    const p = await loadAllPatients();
+    const p = await loadAllPatients(clinicId);
     setPatients(p);
+  };
+
+  // ── Clinic switching (Sycle-style: app operates on one clinic at a time) ──
+  const [clinicSwitching, setClinicSwitching] = useState(false);
+  const handleClinicSwitch = async (newClinicId) => {
+    if (!newClinicId || newClinicId === clinicId) return;
+    setClinicSwitching(true);
+    try {
+      await setActiveClinic(newClinicId);
+      // main.jsx re-pulls the staff record; key={activeClinicId} remounts us.
+      await onClinicSwitched?.();
+    } catch (e) {
+      console.error("Clinic switch failed:", e);
+      setClinicSwitching(false);
+    }
   };
 
   // ── TNS queue: derive from patients + tns_outcomes ────────────────────────
@@ -3529,10 +3547,33 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
   // ── DASHBOARD ─────────────────────────────────────────────────────────────
   const [tableSearch, setTableSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all"); // "all" | "active" | "tns"
-  const filteredPatients = patients.filter(p => {
-    const matchesSearch = p.name?.toLowerCase().includes(tableSearch.toLowerCase()) ||
-      p.devices?.manufacturer?.toLowerCase().includes(tableSearch.toLowerCase());
-    if (!matchesSearch) return false;
+  // Sycle-style search scope: "local" filters this clinic's loaded list
+  // client-side; "global" queries the whole patient database server-side.
+  const [searchScope, setSearchScope] = useState("local"); // "local" | "global"
+  const [globalResults, setGlobalResults] = useState([]);
+  const [globalSearching, setGlobalSearching] = useState(false);
+
+  useEffect(() => {
+    if (searchScope !== "global") return;
+    const term = tableSearch.trim();
+    if (term.length < 2) { setGlobalResults([]); setGlobalSearching(false); return; }
+    setGlobalSearching(true);
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      const rows = await searchPatientsGlobal(term);
+      if (cancelled) return;
+      setGlobalResults(rows);
+      setGlobalSearching(false);
+    }, 300);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [tableSearch, searchScope]);
+
+  const filteredPatients = (searchScope === "global"
+    ? globalResults // server already matched name/phone across all locations
+    : patients.filter(p =>
+        p.name?.toLowerCase().includes(tableSearch.toLowerCase()) ||
+        p.devices?.manufacturer?.toLowerCase().includes(tableSearch.toLowerCase()))
+  ).filter(p => {
     if (statusFilter === "active") return p.patientStatus !== "tns";
     if (statusFilter === "tns") return p.patientStatus === "tns";
     return true;
@@ -3711,13 +3752,34 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 ))}
               </div>
             </div>
-            <input className="search-input" placeholder="Search patients\u2026" value={tableSearch} onChange={e => setTableSearch(e.target.value)} />
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              {/* Sycle-style scope: search this clinic or the whole database */}
+              <div style={{display:"flex",gap:4}}>
+                {[["local","This Clinic"],["global","All Locations"]].map(([val,label])=>(
+                  <button key={val} onClick={()=>setSearchScope(val)} style={{
+                    padding:"3px 10px",fontSize:11,fontWeight:600,borderRadius:99,border:"none",cursor:"pointer",
+                    background: searchScope===val ? "#0a1628" : "#F0EDE3",
+                    color: searchScope===val ? "#fff" : "#6b7280",
+                  }}>{label}</button>
+                ))}
+              </div>
+              <input className="search-input" placeholder={searchScope==="global" ? "Search all locations\u2026" : "Search patients\u2026"} value={tableSearch} onChange={e => setTableSearch(e.target.value)} />
+            </div>
           </div>
           {filteredPatients.length === 0 ? (
             <div className="empty-state">
               <div className="empty-icon">🎧</div>
-              <div className="empty-title">No patients yet</div>
-              <div className="empty-sub">Click "New Patient" to add your first patient record.</div>
+              {searchScope === "global" ? (
+                <>
+                  <div className="empty-title">{globalSearching ? "Searching all locations…" : tableSearch.trim().length < 2 ? "Search the complete patient database" : "No matches across any location"}</div>
+                  <div className="empty-sub">{tableSearch.trim().length < 2 ? "Type at least 2 characters of a name or phone number." : "Check spelling, or try a phone number."}</div>
+                </>
+              ) : (
+                <>
+                  <div className="empty-title">No patients yet</div>
+                  <div className="empty-sub">Click "New Patient" to add your first patient record.</div>
+                </>
+              )}
             </div>
           ) : (
             <table>
@@ -3739,6 +3801,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                         <div style={{display:"flex",alignItems:"center",gap:6}}>
                           <div className="patient-name">{p.name}</div>
                           {isTns && <span style={{background:"#fef3c7",color:"#92400e",borderRadius:99,padding:"1px 7px",fontSize:10,fontWeight:700}}>TNS</span>}
+                          {searchScope === "global" && p.location && (
+                            <span style={{background:p.clinicId===clinicId?"#dcfce7":"#e0e7ff",color:p.clinicId===clinicId?"#15803d":"#3730a3",borderRadius:99,padding:"1px 7px",fontSize:10,fontWeight:700}}>
+                              {p.location.replace(/^My Hearing Centers\s*[–-]\s*/,"")}
+                            </span>
+                          )}
                         </div>
                         <div style={{fontSize:11,color:"#9ca3af"}}>{p.phone}</div>
                       </td>
@@ -6025,8 +6092,23 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
     const days = daysUntil(p.devices?.warrantyExpiry||"");
     const aidedUrl = `${window.location.origin}/aided?pid=${encodeURIComponent(p.id)}`;
     const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(aidedUrl)}`;
+    // Opened from an all-locations search: chart belongs to another clinic.
+    const otherClinic = p.clinicId && clinicId && p.clinicId !== clinicId;
+    const assignedElsewhere = otherClinic && myClinics.some(c => c.id === p.clinicId);
     return (
       <>
+        {otherClinic && (
+          <div style={{background:"#eef2ff",borderBottom:"1px solid #c7d2fe",padding:"8px 28px",fontSize:12,fontWeight:600,color:"#3730a3",display:"flex",alignItems:"center",gap:10}}>
+            <Icon name="pin" size={14}/>
+            This patient belongs to {p.location || "another clinic"}. Changes save to that clinic's records{assignedElsewhere ? "" : " — you are not assigned there, so edits will be blocked"}.
+            {assignedElsewhere && (
+              <button className="btn-ghost" style={{fontSize:11,marginLeft:"auto"}} disabled={clinicSwitching}
+                onClick={() => handleClinicSwitch(p.clinicId)}>
+                {clinicSwitching ? "Switching…" : `Switch to ${(p.location||"").replace(/^My Hearing Centers\s*[–-]\s*/,"") || "that clinic"}`}
+              </button>
+            )}
+          </div>
+        )}
         <div className="topbar">
           <div>
             <div className="topbar-title">{p.name}</div>
@@ -8554,7 +8636,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 were separately added and produced two Admin sections on merge. */}
             {checkRole(staffRole, ["admin"]) && <>
               <div className="nav-section-label">Admin</div>
-              {[["badge","Providers","providers"],["shield","Insurance Plans","insurance-plans"],["percent","Rebates","rebates"],["clipboard","Product Catalog","catalog"],["settings","Settings","settings"]].map(([icon,label,id])=>(
+              {[["users","Team","team"],["badge","Providers","providers"],["shield","Insurance Plans","insurance-plans"],["percent","Rebates","rebates"],["clipboard","Product Catalog","catalog"],["settings","Settings","settings"]].map(([icon,label,id])=>(
                 <div key={id} className={`nav-item ${view===id?"active":""}`} onClick={()=>setView(id)}>
                   <span className="nav-icon"><Icon name={icon} size={17}/></span>{label}
                 </div>
@@ -8576,6 +8658,31 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
                 </span>
               )}
             </button>
+          </div>
+          {/* Location — active clinic; dropdown when assigned to more than one */}
+          <div style={{padding:"0 14px 8px"}}>
+            <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"rgba(255,255,255,0.35)",marginBottom:5,display:"flex",alignItems:"center",gap:6}}>
+              <Icon name="pin" size={12}/> Location
+            </div>
+            {myClinics.length > 1 ? (
+              <select
+                value={clinicId || ""}
+                disabled={clinicSwitching}
+                onChange={e => handleClinicSwitch(e.target.value)}
+                style={{width:"100%",background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",
+                  borderRadius:8,padding:"8px 10px",cursor:clinicSwitching?"wait":"pointer",
+                  fontFamily:"'Sora',sans-serif",fontSize:12,fontWeight:600,color:"rgba(255,255,255,0.85)"}}>
+                {myClinics.map(c => (
+                  <option key={c.id} value={c.id} style={{color:"#0a1628"}}>
+                    {c.name.replace(/^My Hearing Centers\s*[–-]\s*/,"")}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div style={{fontSize:12,fontWeight:600,color:"rgba(255,255,255,0.6)",padding:"2px 0"}}>
+                {clinic.name?.replace(/^My Hearing Centers\s*[–-]\s*/,"") || "—"}
+              </div>
+            )}
           </div>
           <div style={{padding:"0 14px 8px"}}>
             <button onClick={async()=>{try{await signOut();}catch(e){console.error("Sign out failed",e);}}}
@@ -8641,10 +8748,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole }) {
           {view === "catalog" && (checkRole(staffRole, ["admin"]) ? renderCatalog() : renderAdminDenied())}
           {view === "providers" && (checkRole(staffRole, ["admin"]) ? <ProvidersAdmin /> : renderAdminDenied())}
           {view === "insurance-plans" && (checkRole(staffRole, ["admin"]) ? renderInsurancePlans() : renderAdminDenied())}
-          {view === "catalog" && renderCatalog()}
-          {view === "providers" && <ProvidersAdmin />}
+          {view === "team" && (checkRole(staffRole, ["admin"]) ? <TeamAdmin activeClinicId={clinicId} /> : renderAdminDenied())}
           {view === "adjustments" && <AdjustmentHistory staffId={staffId} patients={patients} />}
-          {view === "insurance-plans" && renderInsurancePlans()}
           {view === "rebates" && renderRebates()}
           {view === "campaigns" && <CampaignManager clinicId={clinicId} staffId={staffId} patients={patients} />}
           {view === "content" && <ContentLibrary clinicId={clinicId} staffId={staffId} />}

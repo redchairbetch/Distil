@@ -19,6 +19,7 @@ const PATHS = {
   tag: <><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 2.8 12V4.8a2 2 0 0 1 2-2H12a2 2 0 0 1 1.4.6l7.2 7.2a2 2 0 0 1 0 2.8Z"/><circle cx="8" cy="8" r="1.4"/></>,
   percent: <><path d="M18.5 5.5 5.5 18.5"/><circle cx="7.8" cy="7.8" r="2.3"/><circle cx="16.2" cy="16.2" r="2.3"/></>,
   compare: <><rect x="3" y="4.5" width="8" height="15" rx="1.8"/><rect x="13" y="4.5" width="8" height="15" rx="1.8"/><path d="M5.5 15h3M15.5 10.5h3"/></>,
+  pin: <><path d="M12 21.5S5.5 15.8 5.5 10.8a6.5 6.5 0 0 1 13 0c0 5-6.5 10.7-6.5 10.7Z"/><circle cx="12" cy="10.6" r="2.3"/></>,
 };
 
 export default function Icon({ name, size = 18, strokeWidth = 1.75, style }) {
