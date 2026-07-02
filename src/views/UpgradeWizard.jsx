@@ -56,6 +56,15 @@ const JOURNEY_PROTOCOL = [
 const TIERS = ["Excellent", "Adequate", "Marginal", "Failing"];
 const TIER_COLORS = { Excellent: "#059669", Adequate: "#0f766e", Marginal: "#b45309", Failing: "#dc2626" };
 
+// Check-in struggle-environment keys (upgradeReadiness.js) → the comparator's
+// listening-environment ids (listeningSituations.js). Lets the Then-vs-Now
+// chart open scoped to exactly what the patient said they're struggling with.
+const STRUGGLE_TO_COMPARISON_ENV = {
+  restaurants: "restaurant", groups: "groups", phone: "phone", tv: "tv",
+  one_on_one: "home", car: "car", outdoors: "outdoors", worship: "religious",
+  music: "crowds",
+};
+
 // Normalize a plan-tier or retail-anchor label to the three marketing tiers the
 // Close screen shows. Insurance plans already use Standard/Advanced/Premium;
 // the private-pay "standard" manufacturer-class anchors use numeric level labels
@@ -182,6 +191,13 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
 
   const computedTier = useMemo(() => computePerformanceTier({ tags: perfTags }), [perfTags]);
   const effectiveTier = tierOverride || computedTier;
+
+  // Stable Set identity so the comparator's memos don't recompute on every
+  // unrelated re-render of this (large) wizard.
+  const comparisonFlags = useMemo(
+    () => new Set(environments.map((k) => STRUGGLE_TO_COMPARISON_ENV[k]).filter(Boolean)),
+    [environments]
+  );
 
   const readiness = useMemo(
     () => scoreReadiness({ satisfaction, environments, featureGaps, benefitRefreshed, performanceTier: effectiveTier, yearsSinceFit: years }),
@@ -737,10 +753,15 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
                 </div>
               )}
 
-              {/* Explore + compare devices — pre-filled from the chart. The same
-                  picture the provider can send home with the quote. */}
+              {/* Explore + compare devices — pre-filled from the chart, scoped
+                  to the environments flagged in this visit's check-in (the
+                  comparator opens on just those, with a show-all expander). */}
               <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 20, marginTop: 20 }}>
-                <DeviceComparison patient={patient} variant="embedded" />
+                <DeviceComparison
+                  patient={patient}
+                  variant="embedded"
+                  flaggedEnvs={comparisonFlags}
+                />
               </div>
             </div>
           )}

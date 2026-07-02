@@ -364,6 +364,10 @@ export default function DeviceComparison({
   const [oldDevice, setOldDevice] = useState(initialOld || fittingToDevice(patient?.devices) || null);
   const [newDevice, setNewDevice] = useState(initialNew || proposedNew || DEFAULT_NEW);
   const [picker, setPicker] = useState(null); // 'old' | 'new' | null
+  // When the patient flagged environments, the chart opens showing ONLY those
+  // rows (the ones the conversation is actually about) with an expander for
+  // the full nine. No flags → all nine, no expander.
+  const [showAllEnvs, setShowAllEnvs] = useState(false);
 
   // Follow the caller's live pick (the wizard passes its configured device as
   // proposedNew) so the bars track the device actually being selected. Only
@@ -402,6 +406,13 @@ export default function DeviceComparison({
     for (const r of rows) (flagged.has(r.id) ? yes : no).push({ ...r, prominent: flagged.has(r.id) });
     return [...yes, ...no];
   }, [rows, flagged]);
+
+  // Collapsed view = just the flagged rows (matches the headline-gain scope).
+  const collapsible = flagged.size > 0 && flagged.size < orderedRows.length;
+  const visibleRows = collapsible && !showAllEnvs
+    ? orderedRows.filter(r => r.prominent)
+    : orderedRows;
+  const hiddenCount = orderedRows.length - visibleRows.length;
 
   const wrap = variant === "standalone"
     ? { maxWidth: 860, margin: "0 auto", padding: "24px 20px" }
@@ -470,9 +481,19 @@ export default function DeviceComparison({
               <span style={{ fontWeight: 700 }}>Gain</span>
             </div>
           </div>
-          {orderedRows.map(r => (
+          {visibleRows.map(r => (
             <PairedRow key={r.id} label={r.label} oldPct={r.old} newPct={r.new} delta={r.delta} prominent={r.prominent} />
           ))}
+          {collapsible && (
+            <button onClick={() => setShowAllEnvs(v => !v)}
+              style={{ marginTop: 10, width: "100%", background: "transparent",
+                border: `1px dashed ${COLOR.line}`, borderRadius: 8, padding: "7px 12px",
+                cursor: "pointer", fontSize: 12, fontWeight: 600, color: COLOR.ink2 }}>
+              {showAllEnvs
+                ? "Show fewer — just the flagged environments"
+                : `Show all ${orderedRows.length} environments (${hiddenCount} more)`}
+            </button>
+          )}
         </div>
       ) : (
         <div style={{ background: COLOR.paper, border: `1px dashed ${COLOR.line}`, borderRadius: 12,
