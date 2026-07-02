@@ -94,6 +94,8 @@ import {
   updatePatientDevices,
   updatePatientCarePlan,
   finalizePatient,
+  saveAppointmentOutcome,
+  updateVisit,
   uploadPatientDocument,
   listPatientDocuments,
   getDocumentSignedUrl,
@@ -120,6 +122,11 @@ import ProvidersAdmin from "./views/ProvidersAdmin.jsx";
 import AdjustmentHistory from "./views/AdjustmentHistory.jsx";
 import CloserLocationPicker from "./views/CloserLocationPicker.jsx";
 import AdjustPriceModal from "./views/AdjustPriceModal.jsx";
+import CloseAppointmentModal, {
+  stashPendingOutcome,
+  readPendingOutcome,
+  clearPendingOutcome,
+} from "./views/CloseAppointmentModal.jsx";
 
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
@@ -1737,6 +1744,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // The visit (clinical encounter) the wizard is currently saving into. Audiogram
   // and device saves are scoped to it so prior visits' records survive (visits model).
   const [wizardVisitId, setWizardVisitId] = useState(null);
+  // Close Appointment disposition modal. null | { source: 'wizard' | 'profile' | 'pending' }.
+  // 'pending' re-logs a stashed outcome whose insert previously failed.
+  const [closeAppointment, setCloseAppointment] = useState(null);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [wizardIntake, setWizardIntake] = useState(null);
   // Provider prompter drawer — open by default, toggleable via the handle
@@ -2889,7 +2899,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   };
 
 
-  const handleSave = async () => {
+  // Commit/finalize the wizard patient — everything the old step-7 save did
+  // except navigation, which now belongs to the Close Appointment orchestrator
+  // (finalize → outcome → navigate). Throws on failure so the disposition
+  // modal can surface the error while the wizard stays alive; returns the
+  // locally-built patient object for setSelectedPatient.
+  const finalizeWizardPatient = async (deviceDisposition = null) => {
     setSaveError(null);
     const leftRec = buildSideRecord(form.left);
     const rightRec = buildSideRecord(form.right);
@@ -2908,7 +2923,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     // Upgrade mode operates on an already-active patient — finalizing without
     // a signed PA (e.g. they took a quote home) must not demote them to TNS.
     // The retention outcome is already recorded by the UpgradeWizard close.
-    const finalizeStatus = wizardPaSigned
+    // A 'committed' device disposition counts like a signed PA: the provider
+    // is attesting the patient signed today (e.g. on paper).
+    const finalizeStatus = (wizardPaSigned || deviceDisposition === "committed")
       ? "active"
       : (wizardMode === "upgrade" ? "active" : "tns");
 
@@ -2939,7 +2956,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         setSaved(true);
         await refreshPatients();
         // Build local patient object for selectedPatient
-        const patient = {
+        return {
           id: wizardPatientId,
           location: clinic.name,
           createdAt: new Date().toISOString(),
@@ -2955,14 +2972,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           notes: form.notes,
           patientStatus: finalizeStatus,
         };
-        setSelectedPatient(patient);
-        setPunchData({ cleanings: 0, appointments: 0, log: [] });
-        setView("patient");
       } catch (err) {
         console.error("finalizePatient error:", err);
         setSaveError(err?.message || err?.toString() || "Unknown error — check console");
+        throw err;
       }
-      return;
     }
 
     // Legacy full-save path (no incremental saves happened)
@@ -2999,7 +3013,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       carePlan: form.payType === "insurance" ? form.carePlan : null,
       appointments: form.appointments,
       notes: form.notes,
-      patientStatus: wizardPaSigned ? "active" : "tns",
+      patientStatus: finalizeStatus,
     };
     try {
       await savePatient(patient, staffId, clinicId);
@@ -3009,13 +3023,97 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       }
       setSaved(true);
       await refreshPatients();
-      setSelectedPatient(patient);
-      setPunchData({ cleanings: 0, appointments: 0, log: [] });
-      setView("patient");
+      return patient;
     } catch (err) {
       console.error("savePatient error:", err);
       setSaveError(err?.message || err?.toString() || "Unknown error — check console");
+      throw err;
     }
+  };
+
+  // Payer snapshot at the moment of decision. The outcome row stores this
+  // verbatim — never derived from the patient record at query time — so a
+  // later insurance change can't rewrite historical attach-rate numbers.
+  // Accepts anything shaped like the local patient object ({ payType,
+  // insurance, privatePay }).
+  const buildPayerSnapshot = (p) => {
+    if (p?.payType === "private") {
+      return {
+        payerType: "private_pay",
+        payerName: null,
+        payerPlanSnapshot: p.privatePay
+          ? { private_pay_tier: p.privatePay.tier || null, private_pay_price_per_aid: p.privatePay.tierPrice ?? null }
+          : null,
+      };
+    }
+    const ins = p?.insurance || null;
+    return {
+      // Non-TPA carriers stay out of the TPA attach-rate denominator.
+      payerType: ins?.tpa ? "tpa" : "other_insurance",
+      payerName: ins?.tpa || ins?.carrier || null,
+      payerPlanSnapshot: ins
+        ? { carrier: ins.carrier || null, plan_group: ins.planGroup || null, tpa: ins.tpa || null, tier: ins.tier || null, tier_price_per_aid: ins.tierPrice ?? null }
+        : null,
+    };
+  };
+
+  // Close Appointment from the wizard. The ordering is load-bearing:
+  //   1. finalize the patient — must succeed first, the disposition needs a
+  //      patient_id (a failure throws back into the modal; wizard stays put)
+  //   2. insert the appointment_outcomes row — on failure the patient still
+  //      exists, and the payload is stashed so the profile nags until logged
+  //   3. navigate to the new profile
+  // Never an orphaned disposition; never a lost patient.
+  const handleWizardCloseAppointment = async (fields) => {
+    const patient = await finalizeWizardPatient(fields.deviceDisposition);
+    const outcome = {
+      patientId: patient.id,
+      clinicId,
+      providerId: staffId,
+      visitId: wizardVisitId || null,
+      ...buildPayerSnapshot(patient),
+      ...fields,
+    };
+    try {
+      await saveAppointmentOutcome(outcome);
+      clearPendingOutcome(patient.id);
+    } catch (e) {
+      console.error("saveAppointmentOutcome (wizard):", e);
+      stashPendingOutcome(patient.id, outcome);
+    }
+    // The wizard opened this visit at draft time; the close ends it.
+    if (wizardVisitId) {
+      try { await updateVisit(wizardVisitId, { status: "completed" }); }
+      catch (e) { console.error("close visit:", e); }
+    }
+    setCloseAppointment(null);
+    setSelectedPatient(patient);
+    setPunchData({ cleanings: 0, appointments: 0, log: [] });
+    setView("patient");
+  };
+
+  // Close Appointment from the patient profile — same modal, no finalization
+  // step. Every close appends a new outcomes row (the table doubles as visit
+  // history). When a stashed pending outcome exists, its payer snapshot and
+  // visit id are reused so the record reflects the original decision moment.
+  const handleProfileCloseAppointment = async (fields) => {
+    const p = selectedPatient;
+    if (!p) return;
+    const pending = readPendingOutcome(p.id);
+    const payer = pending
+      ? { payerType: pending.payerType, payerName: pending.payerName, payerPlanSnapshot: pending.payerPlanSnapshot }
+      : buildPayerSnapshot(p);
+    const outcome = {
+      patientId: p.id,
+      clinicId,
+      providerId: staffId,
+      visitId: pending?.visitId || null,
+      ...payer,
+      ...fields,
+    };
+    await saveAppointmentOutcome(outcome); // throws → modal surfaces the error
+    clearPendingOutcome(p.id);
+    setCloseAppointment(null);
   };
 
 
@@ -4504,7 +4602,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   // Private-pay bundles Complete Care+ (4-yr warranty / 5-yr unlimited
                   // visits) into the device price, so we preset the carePlan here
                   // and skip the dedicated Care Plan wizard step. carePlan is
-                  // saved as null in the DB for private-pay (handleSave nulls it),
+                  // saved as null in the DB for private-pay (finalizeWizardPatient nulls it),
                   // but the form state needs "complete" so the wizard PA modal,
                   // Review step, and downstream displays render correctly.
                   setForm(f => ({
@@ -6283,6 +6381,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               </button>
             )}
             <button
+              style={{background:"#0B4A42",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
+              onClick={() => setCloseAppointment({ source: readPendingOutcome(p.id) ? "pending" : "profile" })}
+              title="Close this appointment — log how today's visit ended"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              Close Appointment
+            </button>
+            <button
               style={{background:"#0f766e",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
               onClick={() => startNewVisitForPatient(p)}
               title="Start a new visit — opens the upgrade flow for this established patient"
@@ -6338,6 +6444,26 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             <button className="btn-ghost" onClick={()=>setView("dashboard")}>{"\u2190"} Back</button>
           </div>
         </div>
+
+        {/* Disposition-missing nag — the patient was finalized but the outcome
+            insert failed (see handleWizardCloseAppointment). Stays until the
+            stashed disposition is logged. */}
+        {readPendingOutcome(p.id) && (
+          <div style={{ margin: "12px 24px 0" }}>
+            <div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:8,padding:"12px 18px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+              <span style={{fontSize:12,fontWeight:700,color:"#92400e",textTransform:"uppercase",letterSpacing:"0.06em"}}>Disposition missing</span>
+              <span style={{fontSize:12,color:"#92400e",flex:1,minWidth:200}}>
+                The last appointment was closed but its outcome didn't save. Log it now so the visit counts.
+              </span>
+              <button
+                style={{background:"#B5832E",color:"white",border:"none",borderRadius:8,padding:"7px 14px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer"}}
+                onClick={() => setCloseAppointment({ source: "pending" })}
+              >
+                Log Disposition
+              </button>
+            </div>
+          </div>
+        )}
 
         {p.patientStatus === "tns" && patientTnsOutcome && !profileTnsActive && (
           <div style={{ margin: "12px 24px 0" }}>
@@ -8848,6 +8974,71 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               Saved
             </div>
           )}
+          {/* ── CLOSE APPOINTMENT — required disposition capture ─────────
+              Rendered above the view dispatch so it serves both launch
+              points: the wizard's terminal action and the profile button. */}
+          {closeAppointment && (() => {
+            const isWizard = closeAppointment.source === "wizard";
+            const p = isWizard ? null : selectedPatient;
+            if (!isWizard && !p) return null;
+            const pending = !isWizard ? readPendingOutcome(p.id) : null;
+            const payer = isWizard
+              ? buildPayerSnapshot({
+                  payType: form.payType,
+                  insurance: form.payType === "insurance"
+                    ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice }
+                    : null,
+                  privatePay: form.payType === "private" && form.tierPrice != null
+                    ? { tier: form.tier, tierPrice: form.tierPrice }
+                    : null,
+                })
+              : (pending
+                  ? { payerType: pending.payerType, payerName: pending.payerName, payerPlanSnapshot: pending.payerPlanSnapshot }
+                  : buildPayerSnapshot(p));
+            const tierLabel = isWizard ? form.tier : (p?.insurance?.tier || pending?.payerPlanSnapshot?.tier);
+            const payerLabel = payer.payerType === "private_pay"
+              ? "Private pay"
+              : [payer.payerName || "Insurance", tierLabel].filter(Boolean).join(" · ");
+            // Prefills: everything the flow already knows arrives selected so
+            // the common path is confirm-and-save.
+            let defaults;
+            if (pending) {
+              defaults = {
+                defaultContext: pending.context || "new_fit",
+                defaultDevice: pending.deviceDisposition || null,
+                defaultDeviceReason: pending.deviceReason || null,
+                defaultCarePlan: pending.carePlanDisposition || null,
+                defaultCarePlanReason: pending.carePlanReason || null,
+                defaultCarePlanSelected: pending.carePlanSelected || null,
+              };
+            } else if (isWizard) {
+              // Private pay bundles Complete Care+ with a signed purchase.
+              const cpSel = form.payType === "private"
+                ? (wizardPaSigned ? "complete" : null)
+                : (form.carePlan || null);
+              defaults = {
+                defaultContext: wizardMode === "upgrade" ? "upgrade" : "new_fit",
+                defaultDevice: wizardPaSigned ? "committed" : null,
+                defaultCarePlan: cpSel ? "committed" : null,
+                defaultCarePlanSelected: cpSel,
+              };
+            } else {
+              const ctx = p.patientStatus === "active" && p.devices ? "care_plan_only" : "new_fit";
+              defaults = {
+                defaultContext: ctx,
+                defaultDevice: ctx === "care_plan_only" ? "not_applicable" : null,
+              };
+            }
+            return (
+              <CloseAppointmentModal
+                patientName={isWizard ? [form.firstName, form.lastName].filter(Boolean).join(" ") : p.name}
+                payerLabel={payerLabel}
+                {...defaults}
+                onSubmit={isWizard ? handleWizardCloseAppointment : handleProfileCloseAppointment}
+                onCancel={() => setCloseAppointment(null)}
+              />
+            );
+          })()}
           {(view === "dashboard" || view === "patients") && renderDashboard()}
           {view === "patient" && renderPatientDetail()}
           {view === "consultation" && (() => {
@@ -9024,8 +9215,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                         </button>
                       )
                     ) : (
-                      <button className="btn-primary green" onClick={handleSave}>
-                        ✓ {wizardPatientId ? "Finalize Patient" : "Create Patient Profile"}
+                      <button className="btn-primary green" onClick={()=>setCloseAppointment({ source: "wizard" })}>
+                        ✓ Close Appointment
                       </button>
                     )}
                   </div>

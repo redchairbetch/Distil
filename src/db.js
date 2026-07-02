@@ -1357,6 +1357,94 @@ export async function finalizePatient(patientId, status, devices, carePlan, note
 
 
 // ============================================================
+// APPOINTMENT OUTCOMES (Close Appointment disposition capture)
+// ============================================================
+
+// Vocabulary mirrors the appointment_outcomes enums. Two-layer design:
+// device and care plan dispositions are captured separately so the TPA
+// care-plan attach rate stays computable when a patient accepts devices
+// but declines a care plan.
+export const OUTCOME_CONTEXTS = ['new_fit', 'upgrade', 'care_plan_only']
+export const OUTCOME_DISPOSITIONS = ['committed', 'deferred', 'declined', 'not_a_candidate', 'no_decision', 'not_applicable']
+export const OUTCOME_REASON_REQUIRED = ['deferred', 'declined']
+export const OUTCOME_REASONS = [
+  'price_budget',
+  'spouse_family_consult',
+  'wants_to_think',
+  'no_perceived_need',
+  'shopping_second_opinion',
+  'insurance_benefit_issue',
+  'health_life_circumstances',
+  'satisfied_with_current_devices',
+]
+
+// Mirrors the table's CHECK constraints so the modal gets a readable message
+// instead of a Postgres constraint error. Returns null when valid.
+export function validateAppointmentOutcome(o) {
+  if (!o?.patientId || !o?.clinicId || !o?.providerId) return 'Missing patient, clinic, or provider.'
+  if (!OUTCOME_CONTEXTS.includes(o.context)) return 'Select the appointment context.'
+  if (!OUTCOME_DISPOSITIONS.includes(o.deviceDisposition)) return 'Select a device outcome.'
+  if (!OUTCOME_DISPOSITIONS.includes(o.carePlanDisposition)) return 'Select a care plan outcome.'
+  if (OUTCOME_REASON_REQUIRED.includes(o.deviceDisposition) && !OUTCOME_REASONS.includes(o.deviceReason)) {
+    return 'Select a reason for the device outcome.'
+  }
+  if (OUTCOME_REASON_REQUIRED.includes(o.carePlanDisposition) && !OUTCOME_REASONS.includes(o.carePlanReason)) {
+    return 'Select a reason for the care plan outcome.'
+  }
+  if (o.carePlanDisposition === 'committed' && !o.carePlanSelected) {
+    return 'Select which care plan the patient committed to.'
+  }
+  if (o.deviceDisposition === 'not_applicable' && o.carePlanDisposition === 'not_applicable') {
+    return 'Device and care plan outcomes cannot both be "not applicable".'
+  }
+  if (!['tpa', 'other_insurance', 'private_pay'].includes(o.payerType)) return 'Missing payer type.'
+  return null
+}
+
+// Insert one appointment_outcomes row — the de facto visit-history record.
+// Payer fields are snapshotted at the moment of decision, never derived from
+// the patient record at query time, so a later insurance change cannot
+// corrupt historical attach-rate numbers. Throws on validation or insert
+// failure so callers can route the payload into the disposition-missing
+// retry state instead of losing it.
+export async function saveAppointmentOutcome(o) {
+  const problem = validateAppointmentOutcome(o)
+  if (problem) throw new Error(problem)
+  const row = {
+    patient_id:            o.patientId,
+    clinic_id:             o.clinicId,
+    provider_id:           o.providerId,
+    visit_id:              o.visitId || null,
+    context:               o.context,
+    device_disposition:    o.deviceDisposition,
+    // Reasons only persist on the layers that require one; care_plan_selected
+    // only when committed — matches the table's iff CHECK constraints.
+    device_reason:         OUTCOME_REASON_REQUIRED.includes(o.deviceDisposition) ? o.deviceReason : null,
+    care_plan_disposition: o.carePlanDisposition,
+    care_plan_reason:      OUTCOME_REASON_REQUIRED.includes(o.carePlanDisposition) ? o.carePlanReason : null,
+    care_plan_selected:    o.carePlanDisposition === 'committed' ? o.carePlanSelected : null,
+    payer_type:            o.payerType,
+    payer_name:            o.payerName || null,
+    payer_plan_snapshot:   o.payerPlanSnapshot || null,
+  }
+  const { data, error } = await supabase
+    .from('appointment_outcomes')
+    .insert(row)
+    .select()
+    .single()
+  if (error) throw error
+  runPostCloseHooks(data)
+  return data
+}
+
+// Post-close seam: everything that should eventually fire after a disposition
+// is logged (take-home patient summary email, nurture segment refresh, staff
+// task for insurance_benefit_issue) hangs off this single hook. Deliberately
+// a no-op today — do not put UI-blocking work here.
+function runPostCloseHooks(outcomeRow) { // eslint-disable-line no-unused-vars
+}
+
+// ============================================================
 // PUNCH CARDS
 // ============================================================
 
