@@ -36,11 +36,41 @@ export async function getCurrentStaff() {
   if (!user) return null
   const { data, error } = await supabase
     .from('staff')
-    .select('*, clinics(*)')
+    // clinics!staff_clinic_id_fkey: staff_clinics is a join table between
+    // staff and clinics, so a bare clinics(*) embed is ambiguous (PGRST201).
+    .select('*, clinics!staff_clinic_id_fkey(*), staff_clinics(clinic_id, clinics(id, name, clinic_code))')
     .eq('id', user.id)
     .single()
   if (error) return null
   return data
+}
+
+// Clinics the logged-in user is assigned to (drives the clinic switcher).
+// Returns [{ id, name, clinic_code }] sorted by name.
+export async function loadMyClinics() {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+  const { data, error } = await supabase
+    .from('staff_clinics')
+    .select('clinic_id, clinics(id, name, clinic_code)')
+    .eq('staff_id', user.id)
+  if (error) { console.error('loadMyClinics:', error); return [] }
+  return (data || [])
+    .map(r => r.clinics)
+    .filter(Boolean)
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+// Switch the active clinic. RLS (via my_clinic_id) only honors clinics
+// present in staff_clinics, so a bad id silently falls back to home clinic.
+export async function setActiveClinic(clinicId) {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not signed in')
+  const { error } = await supabase
+    .from('staff')
+    .update({ active_clinic_id: clinicId })
+    .eq('id', user.id)
+  if (error) throw error
 }
 
 // Subscribe to auth state changes (call in App useEffect)
@@ -63,7 +93,7 @@ export function onAuthStateChange(callback) {
 export async function loadStaffProfile(staffId) {
   const { data, error } = await supabase
     .from('staff')
-    .select('id, full_name, role, licenses, signature_url, clinics(id, name, address, phone)')
+    .select('id, full_name, role, licenses, signature_url, clinics!staff_clinic_id_fkey(id, name, address, phone)')
     .eq('id', staffId)
     .single()
   if (error || !data) return null
@@ -497,6 +527,7 @@ function assemblePatient(row) {
 
   return {
     id:        row.id,
+    clinicId:  row.clinic_id,
     location:  row.clinics?.name || '',
     createdAt: row.created_at,
     name:      [row.first_name, row.last_name].filter(Boolean).join(' '),
@@ -619,28 +650,50 @@ function assembleSide(s) {
 // PATIENTS
 // ============================================================
 
-// Load all patients for the current clinic, assembled into UI shape
-export async function loadAllPatients() {
-  const { data, error } = await supabase
-    .from('patients')
-    .select(`
-      *,
-      clinics(name),
-      insurance_coverage(*),
-      device_fittings(
-        *,
-        device_sides(*)
-      ),
-      audiograms(
-        *,
-        audiogram_thresholds(*)
-      ),
-      appointments(*)
-    `)
-    .order('created_at', { ascending: false })
+const PATIENT_SELECT = `
+  *,
+  clinics(name),
+  insurance_coverage(*),
+  device_fittings(
+    *,
+    device_sides(*)
+  ),
+  audiograms(
+    *,
+    audiogram_thresholds(*)
+  ),
+  appointments(*)
+`
 
+// Load all patients for one clinic, assembled into UI shape. The explicit
+// clinic filter is required: authenticated reads are org-wide (for the
+// all-locations search), so RLS no longer scopes this list.
+export async function loadAllPatients(clinicId) {
+  let query = supabase
+    .from('patients')
+    .select(PATIENT_SELECT)
+    .order('created_at', { ascending: false })
+  if (clinicId) query = query.eq('clinic_id', clinicId)
+
+  const { data, error } = await query
   if (error) { console.error('loadAllPatients:', error); return [] }
   return data.map(assemblePatient)
+}
+
+// Sycle-style "all locations" search: server-side, org-wide, same UI shape
+// as loadAllPatients plus clinicId/clinicName for the clinic badge.
+export async function searchPatientsGlobal(term) {
+  const t = (term || '').trim()
+  if (t.length < 2) return []
+  const pattern = `%${t.replace(/[%_]/g, '')}%`
+  const { data, error } = await supabase
+    .from('patients')
+    .select(PATIENT_SELECT)
+    .or(`first_name.ilike.${pattern},last_name.ilike.${pattern},phone.ilike.${pattern}`)
+    .order('last_name')
+    .limit(25)
+  if (error) { console.error('searchPatientsGlobal:', error); return [] }
+  return (data || []).map(assemblePatient)
 }
 
 // Save a new patient — decomposes the flat UI object into multiple tables
@@ -1641,6 +1694,76 @@ export async function saveClinicAdmin(c) {
   return data.id
 }
 
+// ============================================================
+// TEAM ADMIN (admin-only via RLS: staff_admin_* / staff_clinics_admin_all)
+// ============================================================
+
+// Every staff member with their clinic assignments, for the Team view.
+export async function loadTeam() {
+  const { data, error } = await supabase
+    .from('staff')
+    .select('id, full_name, role, is_manager, active, clinic_id, active_clinic_id, staff_clinics(clinic_id, clinics(id, name))')
+    .order('full_name')
+  if (error) { console.error('loadTeam:', error); return [] }
+  return data || []
+}
+
+// Update a staff member's profile fields (admin RLS enforced server-side).
+export async function saveStaffMember(staffId, fields) {
+  const { error } = await supabase
+    .from('staff')
+    .update(fields)
+    .eq('id', staffId)
+  if (error) throw error
+}
+
+// Replace a staff member's clinic assignments with the given set.
+export async function setStaffClinics(staffId, clinicIds) {
+  let del = supabase.from('staff_clinics').delete().eq('staff_id', staffId)
+  if (clinicIds.length) del = del.not('clinic_id', 'in', `(${clinicIds.join(',')})`)
+  const { error: delErr } = await del
+  if (delErr) throw delErr
+  if (clinicIds.length) {
+    const { error: insErr } = await supabase
+      .from('staff_clinics')
+      .upsert(clinicIds.map(clinic_id => ({ staff_id: staffId, clinic_id })))
+    if (insErr) throw insErr
+  }
+}
+
+// Create a login + staff record via the admin-users edge function
+// (service role on the server; caller must be an admin).
+// payload: { email, password, fullName, role, homeClinicId, clinicIds }
+export async function adminCreateUser(payload) {
+  const { data, error } = await supabase.functions.invoke('admin-users', {
+    body: { action: 'create-user', ...payload },
+  })
+  if (error) throw error
+  if (data?.error) throw new Error(data.error)
+  return data
+}
+
+// Auth users (email + last sign-in), merged with staff rows server-side —
+// surfaces logins that don't have a staff record yet.
+export async function adminListUsers() {
+  const { data, error } = await supabase.functions.invoke('admin-users', {
+    body: { action: 'list-users' },
+  })
+  if (error) throw error
+  if (data?.error) throw new Error(data.error)
+  return data?.users || []
+}
+
+// Set a new temporary password for an existing login.
+export async function adminResetPassword(userId, password) {
+  const { data, error } = await supabase.functions.invoke('admin-users', {
+    body: { action: 'reset-password', userId, password },
+  })
+  if (error) throw error
+  if (data?.error) throw new Error(data.error)
+  return data
+}
+
 // All active clinics for the closer's dispensing-location picker.
 export async function loadActiveClinics() {
   const { data, error } = await supabase
@@ -2430,7 +2553,6 @@ export async function loadPatientCampaigns(patientId) {
       campaign_templates(id, name, trigger_type),
       campaign_deliveries(
         *,
-        campaign_steps(step_order, delay_days, delivery_channel)
         campaign_steps(
           step_order, delay_days, delivery_channel,
           campaign_content(id, title, content_type, category)
@@ -3148,13 +3270,27 @@ export async function loadPricingReveal(clinicId, patientId) {
   const anchorKey = data.insurance_plans?.retail_anchor_key
   if (!anchorKey) return null
 
-  const { data: anchor } = await supabase
+  // retail_anchor_key on insurance_plans points at one clinic's anchor row
+  // (historically St. George). Other clinics carry copies of the same
+  // anchors under new ids, so if the keyed row belongs to a different
+  // clinic, re-resolve by label against the current clinic's set.
+  let { data: anchor } = await supabase
     .from('clinic_retail_anchors')
-    .select('label, price_per_aid')
+    .select('clinic_id, label, price_per_aid')
     .eq('id', anchorKey)
-    .eq('clinic_id', clinicId)
     .eq('manufacturer_class', 'signia')
     .single()
+
+  if (anchor && anchor.clinic_id !== clinicId) {
+    const { data: localAnchor } = await supabase
+      .from('clinic_retail_anchors')
+      .select('clinic_id, label, price_per_aid')
+      .eq('clinic_id', clinicId)
+      .eq('manufacturer_class', 'signia')
+      .eq('label', anchor.label)
+      .maybeSingle()
+    anchor = localAnchor || anchor
+  }
 
   if (!anchor) return null
 
