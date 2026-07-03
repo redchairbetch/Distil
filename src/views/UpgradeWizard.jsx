@@ -1,9 +1,8 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useLayoutEffect } from "react";
 import {
   createVisit, updateVisit, saveUpgradeAssessment,
   updatePatientAudiology, loadBaselineAudiology, loadVisitAudiology,
   recordUpgradeOutcome, loadLatestUpgradeIntake,
-  loadInsurancePlansGrouped, loadRetailAnchors,
 } from "../db.js";
 import {
   scoreReadiness,
@@ -49,7 +48,7 @@ const JOURNEY_PROTOCOL = [
   { year: 1, title: "First annual",       items: ["Hearing test", "Device performance check", "Care cadence explained"] },
   { year: 2, title: "Annual review",      items: ["Hearing test", "Device performance check"] },
   { year: 3, title: "Warranty review",    items: ["Hearing test", "Device performance check", "Warranty-end review", "Lima Charlie donation option"] },
-  { year: 4, title: "Upgrade evaluation", items: ["Hearing test", "Device performance check", "Reprogram vs. upgrade assessment"] },
+  { year: 4, title: "Upgrade evaluation", items: ["Hearing test", "Device performance check", "Reprogram vs. upgrade assessment", "Lima Charlie donation option"] },
   { year: 5, title: "Definitive upgrade", items: ["Hearing test", "Device performance check", "Final upgrade recommendation"] },
 ];
 
@@ -64,20 +63,6 @@ const STRUGGLE_TO_COMPARISON_ENV = {
   one_on_one: "home", car: "car", outdoors: "outdoors", worship: "religious",
   music: "crowds",
 };
-
-// Normalize a plan-tier or retail-anchor label to the three marketing tiers the
-// Close screen shows. Insurance plans already use Standard/Advanced/Premium;
-// the private-pay "standard" manufacturer-class anchors use numeric level labels
-// (7≈Premium, 5≈Advanced, 3≈Standard). Mirrors tierLabelToRank in
-// views/TierSelection.jsx — replicated to keep this flow import-light. Value
-// tiers (levels 1/2) return null since the Close only offers the three primaries.
-function canonicalTierLabel(label) {
-  const l = String(label ?? "").toLowerCase().trim();
-  if (l === "premium" || l === "select" || l === "7") return "Premium";
-  if (l === "advanced" || l === "5") return "Advanced";
-  if (l === "standard" || l === "3") return "Standard";
-  return null;
-}
 
 // Current-aid performance tier → an ability point (0–1) for the CareJourney
 // "you are here" overlay. Worse tiers sit further below the ideal care curve.
@@ -159,19 +144,12 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
   const [rationaleEdited, setRationaleEdited] = useState(false);
 
   // Consultation close (PR4) — path defaults to the decision but is provider-overridable.
+  // Tier selection was removed from the Close (tech-level choice belongs to
+  // device selection, where pricing resolves reliably even when the patient's
+  // coverage record is stale or missing).
   const [closeState, setCloseState] = useState({
-    path: "", tierOffered: "", outcome: "", disposition: "", donationRecipient: "", followUpDate: "", notes: "",
+    path: "", outcome: "", disposition: "", donationRecipient: "", followUpDate: "", notes: "",
   });
-
-  // Per-tier reference pricing for the Close screen, so the price shown tracks
-  // the tier the provider selects (Standard/Advanced/Premium) instead of a fixed
-  // number. Insurance: the patient's plan copays (by carrier + plan group).
-  // Private pay: the clinic's "standard" retail anchors — the same baseline the
-  // new-patient tier step uses. Keyed by canonical tier label, values in dollars;
-  // a tier absent from the plan is simply omitted. Final pricing is still
-  // confirmed in device selection. null until loaded (Close falls back to the
-  // patient's stored tier price).
-  const [tierPrices, setTierPrices] = useState(null);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -218,39 +196,12 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
     return { ...result, ...deltaState };
   }, [deltaState, effectiveTier, readiness.band]);
 
-  // Load per-tier reference pricing once we're in an upgrade year (only years
-  // 4–5 render the Close). Insurance patients resolve to their plan's copays;
-  // private-pay patients to the clinic's standard retail anchors.
-  useEffect(() => {
-    if (!isUpgradeYear) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const map = {};
-        if (patient?.payType === "insurance") {
-          const plans = await loadInsurancePlansGrouped();
-          const plan = (plans || []).find(
-            p => p.carrier === patient?.insurance?.carrier && p.planGroup === patient?.insurance?.planGroup
-          );
-          for (const t of (plan?.tiers || [])) {
-            const key = canonicalTierLabel(t.label);
-            if (key && t.price != null) map[key] = t.price;
-          }
-        } else if (patient?.payType === "private" && clinicId) {
-          const anchors = await loadRetailAnchors(clinicId, "standard");
-          for (const a of (anchors || [])) {
-            const key = canonicalTierLabel(a.label);
-            const price = Number(a.price_per_aid);
-            if (key && !Number.isNaN(price)) map[key] = price;
-          }
-        }
-        if (!cancelled) setTierPrices(map);
-      } catch {
-        if (!cancelled) setTierPrices(null);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [isUpgradeYear, patient?.payType, patient?.insurance?.carrier, patient?.insurance?.planGroup, clinicId]);
+  // Each step opens at the top — the shared .main scroll container keeps its
+  // offset across step swaps (same fix as the new-patient wizard's Care Plan
+  // step), which left long steps like Journey Review opening mid-page.
+  useLayoutEffect(() => {
+    document.querySelector(".main")?.scrollTo({ top: 0 });
+  }, [step]);
 
   // Default close path = the recommendation (provider_judgment falls to the lean).
   const defaultClosePath = decisionState
@@ -396,7 +347,6 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
       if (isUpg) {
         responses.close = {
           path: effPath,
-          tierOffered: closeState.tierOffered || null,
           outcome,
           disposition: closeState.disposition || null,
           donationRecipient: closeState.donationRecipient || null,
@@ -419,11 +369,13 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
       // upgrade evaluation records an outcome; annual visits leave it untouched.
       // Reprogram only sets the outcome, leaving any prior tier/donation values be.
       if (isUpg) {
+        // tierOffered is no longer captured at close (the tier picker moved out
+        // with the Technology offered section) — omitting the key leaves any
+        // previously recorded tier untouched.
         await recordUpgradeOutcome(
           patient.id,
           effPath === "upgrade"
             ? {
-                tierOffered: closeState.tierOffered || null,
                 outcome,
                 // Only write the recipient when actually donating — omitting the key
                 // leaves any prior recipient untouched (recordUpgradeOutcome skips
@@ -440,14 +392,9 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
       await updateVisit(visitId, { notes: mergedNotes || null, status: "completed" });
       if (proceed && effPath === "upgrade" && onProceedToPurchase) {
         // Hand the purchase flow everything it can't cheaply re-derive: the
-        // visit (keeps the new fitting visit-scoped), the tier discussed at
-        // close with its reference price, and today's audiogram.
-        onProceedToPurchase({
-          visitId,
-          tierOffered: closeState.tierOffered || null,
-          tierPrice: closeState.tierOffered ? (tierPrices?.[closeState.tierOffered] ?? null) : null,
-          audiology,
-        });
+        // visit (keeps the new fitting visit-scoped) and today's audiogram.
+        // Tier + pricing are picked in device selection.
+        onProceedToPurchase({ visitId, audiology });
       } else {
         onCompleted?.();
       }
@@ -638,6 +585,12 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
                 </div>
               )}
 
+              {isUpgradeYear && (
+                <div style={{ background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 10, padding: 16, marginBottom: 24, fontSize: 13, color: "#92400e", lineHeight: 1.6 }}>
+                  <strong>Lima Charlie donation option.</strong> If {firstName} upgrades, the current aids can be donated through Lima Charlie to a veteran in need — part of the upgrade conversation alongside the reprogram-vs-upgrade assessment below. The donation choice is recorded at the close.
+                </div>
+              )}
+
               {/* Annual check-in — the reframed questionnaire, no score shown */}
               <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 20 }}>
                 <h3 style={{ margin: "0 0 2px", fontFamily: "'Sora',sans-serif", fontSize: 16 }}>Annual check-in</h3>
@@ -719,7 +672,6 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
                             {decisionState.hasCurrent
                               ? <>Δ {decisionState.severity}{deltaBits.length ? ` · ${deltaBits.join(", ")}` : ""}{d?.anchorEar ? ` (poorer ${d.anchorEar} ear)` : ""}</>
                               : "no audiogram captured this visit"}
-                            {decisionState.lean ? ` · readiness leans ${decisionState.lean}` : ""}
                           </span>
                         </div>
                         {!decisionState.hasBaseline && (
@@ -772,7 +724,6 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
               onChange={setCloseState}
               defaultPath={defaultClosePath}
               patient={patient}
-              tierPrices={tierPrices}
               decision={decisionState}
               journeyPosition={journeyPosition}
               warrantyYears={warrantyYears}

@@ -17,6 +17,10 @@ export default function NurturePreview({ patientId, clinicId, campaign }) {
   const [profile, setProfile] = useState(null);
   const [plan, setPlan] = useState([]);
   const [expanded, setExpanded] = useState(false);
+  // The whole card body (profile + step plan) is collapsed by default — with a
+  // ~20-step campaign it was a wall of text on the patient profile. The header
+  // still summarizes steps + swaps at a glance.
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     if (!patientId || !clinicId || !campaign?.id) return;
@@ -53,38 +57,51 @@ export default function NurturePreview({ patientId, clinicId, campaign }) {
 
   return (
     <div className="detail-card full">
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: open ? 12 : 0 }}>
         <div className="detail-card-title" style={{ marginBottom: 0 }}>
           Personalization Preview
           <span style={{ fontSize: 11, fontWeight: 400, color: '#9ca3af', marginLeft: 8 }}>
             {plan.length} step{plan.length !== 1 ? 's' : ''} · {swapCount} would swap
           </span>
         </div>
+        {open && (
+          <button
+            className="btn-ghost"
+            style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 10px' }}
+            onClick={() => setExpanded(e => !e)}
+          >
+            {expanded ? 'Collapse steps' : 'Expand all steps'}
+          </button>
+        )}
         <button
           className="btn-ghost"
-          style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 10px' }}
-          onClick={() => setExpanded(e => !e)}
+          style={{ marginLeft: open ? 6 : 'auto', fontSize: 11, padding: '4px 10px' }}
+          onClick={() => setOpen(o => !o)}
         >
-          {expanded ? 'Collapse' : 'Expand all'}
+          {open ? 'Hide details' : 'Show details'}
         </button>
       </div>
 
-      <ProfileSummary profile={profile} />
+      {open && (
+        <>
+          <ProfileSummary profile={profile} />
 
-      <div style={{ marginTop: 16, fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
-                    color: '#9ca3af', letterSpacing: 1, marginBottom: 8 }}>
-        Step-by-step plan
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {plan.length === 0 && (
-          <div style={{ fontSize: 13, color: '#6b7280', fontStyle: 'italic' }}>
-            No deliveries scheduled for this campaign.
+          <div style={{ marginTop: 16, fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
+                        color: '#9ca3af', letterSpacing: 1, marginBottom: 8 }}>
+            Step-by-step plan
           </div>
-        )}
-        {plan.map(step => (
-          <PlanRow key={step.deliveryId} step={step} forceOpen={expanded} />
-        ))}
-      </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {plan.length === 0 && (
+              <div style={{ fontSize: 13, color: '#6b7280', fontStyle: 'italic' }}>
+                No deliveries scheduled for this campaign.
+              </div>
+            )}
+            {plan.map(step => (
+              <PlanRow key={step.deliveryId} step={step} forceOpen={expanded} />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

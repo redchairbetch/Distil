@@ -1769,6 +1769,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   const [editError,      setEditError]      = useState(null);
   const [editSuccess,    setEditSuccess]    = useState(null);
   const [patientCampaigns, setPatientCampaigns] = useState([]);
+  // Per-campaign "show full timeline" toggle (keyed by campaign id) — the
+  // delivery list collapses to the next pending step by default (same
+  // pattern as AppointmentSchedule) so the profile isn't a wall of rows.
+  const [campaignTimelineOpen, setCampaignTimelineOpen] = useState({});
   const [editPlanSearch, setEditPlanSearch] = useState("");
   const [patientDocuments, setPatientDocuments] = useState([]);
   const [patientMessages, setPatientMessages] = useState([]);
@@ -7540,21 +7544,40 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                           <div style={{height:"100%",background:"#16a34a",borderRadius:20,width:`${progressPct}%`,transition:"width 0.3s"}} />
                         </div>
                       )}
-                      {/* Delivery timeline */}
-                      {deliveries.length > 0 && (
-                        <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                          {deliveries.map(d => (
-                            <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"#FAF8F2",borderRadius:8,border:"1px solid #E4E0D5"}}>
-                              <div style={{width:20,height:20,borderRadius:"50%",background:d.status==="sent"||d.status==="delivered"?"#16a34a":d.status==="pending"?"#E4E0D5":"#ef4444",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                                {(d.status==="sent"||d.status==="delivered") && <span style={{color:"white",fontSize:10,fontWeight:700}}>✓</span>}
+                      {/* Delivery timeline — collapsed to the next pending step by
+                          default (AppointmentSchedule pattern); expands to the full arc. */}
+                      {deliveries.length > 0 && (() => {
+                        const nextPending = deliveries.find(d => d.status === "pending") || null;
+                        const open = !!campaignTimelineOpen[campaign.id];
+                        const shown = open ? deliveries : (nextPending ? [nextPending] : []);
+                        const hiddenCount = deliveries.length - shown.length;
+                        return (
+                          <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                            {shown.map(d => (
+                              <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:"#FAF8F2",borderRadius:8,border:"1px solid #E4E0D5"}}>
+                                <div style={{width:20,height:20,borderRadius:"50%",background:d.status==="sent"||d.status==="delivered"?"#16a34a":d.status==="pending"?"#E4E0D5":"#ef4444",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                                  {(d.status==="sent"||d.status==="delivered") && <span style={{color:"white",fontSize:10,fontWeight:700}}>✓</span>}
+                                </div>
+                                <span style={{fontSize:12,color:"#374151",flex:1}}>
+                                  {d.campaign_steps?.delivery_channel || "Message"} · Day {d.campaign_steps?.delay_days ?? "?"}
+                                  {!open && nextPending && d.id === nextPending.id && (
+                                    <span style={{marginLeft:6,fontSize:9,fontWeight:700,color:"#854d0e",background:"#fef9c3",borderRadius:4,padding:"1px 5px",letterSpacing:0.5}}>NEXT</span>
+                                  )}
+                                </span>
+                                <span style={{fontSize:11,color:"#9ca3af"}}>{d.scheduled_date ? fmtDate(d.scheduled_date) : "—"}</span>
+                                <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:600,background:d.status==="sent"||d.status==="delivered"?"#dcfce7":d.status==="pending"?"#fef9c3":"#fee2e2",color:d.status==="sent"||d.status==="delivered"?"#16a34a":d.status==="pending"?"#854d0e":"#dc2626"}}>{d.status}</span>
                               </div>
-                              <span style={{fontSize:12,color:"#374151",flex:1}}>{d.campaign_steps?.delivery_channel || "Message"} · Day {d.campaign_steps?.delay_days ?? "?"}</span>
-                              <span style={{fontSize:11,color:"#9ca3af"}}>{d.scheduled_date ? fmtDate(d.scheduled_date) : "—"}</span>
-                              <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:600,background:d.status==="sent"||d.status==="delivered"?"#dcfce7":d.status==="pending"?"#fef9c3":"#fee2e2",color:d.status==="sent"||d.status==="delivered"?"#16a34a":d.status==="pending"?"#854d0e":"#dc2626"}}>{d.status}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                            ))}
+                            {(hiddenCount > 0 || open) && (
+                              <button
+                                onClick={() => setCampaignTimelineOpen(prev => ({ ...prev, [campaign.id]: !open }))}
+                                style={{background:"none",border:"none",color:"#1d4ed8",fontFamily:"'Sora',sans-serif",fontSize:11,fontWeight:600,cursor:"pointer",padding:"2px 0 0",textAlign:"left"}}>
+                                {open ? "Show less" : `Show full timeline (${hiddenCount} more)`}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
@@ -9160,12 +9183,19 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   <div className="wizard-nav">
                     <button className="btn-ghost" onClick={()=>{
                       if (step === 0) { setView("dashboard"); return; }
+                      // Upgrade purchases land mid-flow (step 4/5) on an
+                      // established patient — the earlier new-patient steps
+                      // don't apply, and edits made there (e.g. insurance)
+                      // would NOT persist to the saved coverage. Back exits
+                      // to the profile instead of walking into that trap;
+                      // coverage edits belong in the profile's Coverage card.
+                      if (wizardMode === "upgrade" && step <= 4) { setView("patient"); return; }
                       // Private-pay skips Care Plan (step 6) — going Back from
                       // Review (step 7) lands on Device Selection (step 5).
                       if (skipCarePlan && step === 7) { setStep(5); return; }
                       setStep(s=>s-1);
                     }}>
-                      {step===0?"Cancel":"← Back"}
+                      {step===0?"Cancel":(wizardMode==="upgrade" && step<=4 ? "← Back to Profile" : "← Back")}
                     </button>
                     {step < STEPS.length-1 ? (
                       step === 6 ? null : (
