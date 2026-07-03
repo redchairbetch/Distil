@@ -10,14 +10,6 @@ import CareJourney from "./CareJourney.jsx";
 // "Save & Select Devices" action (UpgradeWizard → Distil startUpgradePurchase).
 // Controlled via a single `value`/`onChange` close object.
 
-// TH tier value props — clinic-stable copy, kept in sync with TH_TIER_BLURBS in
-// Distil.jsx (replicated to keep the close free of new-patient-flow imports).
-const UPGRADE_TIERS = [
-  { label: "Standard", blurb: "Clear, automatic hearing for quieter, one-on-one settings — home, small groups, TV." },
-  { label: "Advanced", blurb: "Adds active noise management and directional focus — restaurants, gatherings, and conversations over background noise become easier to follow." },
-  { label: "Premium",  blurb: "The most sophisticated processing offered — effortless clarity in the hardest environments, with richer spatial awareness, steadier streaming, and the lowest listening effort across a full day." },
-];
-
 const UPGRADE_OUTCOMES = [
   { key: "upgraded", label: "Upgrading now",    color: "#059669" },
   { key: "pending",  label: "Thinking it over", color: "#b45309" },
@@ -39,29 +31,11 @@ function decisionWord(decision) {
 
 export default function UpgradeClose({
   value, onChange, defaultPath,
-  patient, tierPrices = null, decision,
+  patient, decision,
   journeyPosition = 0, warrantyYears = 4, currentAbility = null,
 }) {
   const path = value.path || defaultPath || "upgrade";
   const set = (patch) => onChange({ ...value, ...patch });
-
-  // Per-tier reference pricing (resolved by the wizard from the plan copays or
-  // clinic retail anchors), so the header tracks the selected tier. Falls back
-  // to the patient's stored tier price when the map hasn't loaded. Final
-  // per-tier upgrade pricing is confirmed in device selection.
-  const payLabel = patient?.payType === "private" ? "Private pay" : "Plan copay";
-  const storedPrice = patient?.payType === "private"
-    ? patient?.privatePay?.tierPrice
-    : patient?.insurance?.tierPrice;
-  const priceForTier = (label) => {
-    const p = tierPrices?.[label];
-    return p != null ? p : null;
-  };
-  const fmtPrice = (n) => `$${Math.round(n).toLocaleString()}/aid`;
-  const selectedPrice = value.tierOffered ? priceForTier(value.tierOffered) : null;
-  const headerPrice = selectedPrice != null ? selectedPrice
-    : (storedPrice != null ? storedPrice : null);
-  const costRef = headerPrice != null ? `${payLabel}: ${fmtPrice(headerPrice)}` : null;
 
   const firstName = patient?.name?.split(" ")[0] || "the patient";
   const decWord = decisionWord(decision);
@@ -87,36 +61,9 @@ export default function UpgradeClose({
 
       {path === "upgrade" ? (
         <>
-          {/* Tiers offered */}
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#374151", marginBottom: 8 }}>
-            Technology offered {costRef && <span style={{ fontWeight: 400, color: "#9ca3af" }}>· {costRef}</span>}
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 6 }}>
-            {UPGRADE_TIERS.map((t) => {
-              const active = value.tierOffered === t.label;
-              const tierPrice = priceForTier(t.label);
-              return (
-                <button key={t.label} onClick={() => set({ tierOffered: active ? "" : t.label })} style={{
-                  textAlign: "left", padding: 14, borderRadius: 12, cursor: "pointer",
-                  border: active ? "2px solid #0f766e" : "1px solid #e5e7eb",
-                  background: active ? "#f0fdfa" : "white",
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 15, color: "#111827" }}>{t.label}</span>
-                    {tierPrice != null ? (
-                      <span style={{ fontFamily: "'Sora',sans-serif", fontWeight: 700, fontSize: 14, color: active ? "#0f766e" : "#374151", whiteSpace: "nowrap" }}>{fmtPrice(tierPrice)}</span>
-                    ) : (tierPrices && patient?.payType !== "private") ? (
-                      <span style={{ fontSize: 11, color: "#9ca3af", whiteSpace: "nowrap" }}>Not on plan</span>
-                    ) : null}
-                  </div>
-                  <div style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.5 }}>{t.blurb}</div>
-                </button>
-              );
-            })}
-          </div>
-          <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 20 }}>
-            Final upgrade pricing is confirmed in device selection.
-          </div>
+          {/* Technology tier + pricing are picked in device selection ("Save &
+              Select Devices"), where they resolve from the live catalog — not
+              re-asked here. */}
 
           {/* Old-aid disposition */}
           <div style={{ marginBottom: 20 }}>

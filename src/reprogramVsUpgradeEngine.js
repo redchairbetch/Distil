@@ -70,9 +70,12 @@ export function decideReprogramVsUpgrade(delta, performanceTier, readinessBand) 
   else if (severity === "stable") decision = perfGood ? "reprogram" : "provider_judgment";
   else decision = "provider_judgment";
 
+  // lean still breaks the provider-judgment tie for the default close path,
+  // but is deliberately absent from the patient-facing rationale (Kurt,
+  // 2026-07-03: no "readiness leans …" framing in the recommendation).
   const lean = decision === "provider_judgment" ? (readinessBand >= 4 ? "upgrade" : "reprogram") : null;
 
-  return { decision, severity, lean, rationale: generateDecisionRationale({ delta, performanceTier, decision, lean }) };
+  return { decision, severity, lean, rationale: generateDecisionRationale({ delta, performanceTier, decision }) };
 }
 
 function describeDelta(delta) {
@@ -84,12 +87,12 @@ function describeDelta(delta) {
   return (parts.length ? parts.join(", ") : "stable hearing") + ear;
 }
 
-export function generateDecisionRationale({ delta, performanceTier, decision, lean }) {
+export function generateDecisionRationale({ delta, performanceTier, decision }) {
   const d = describeDelta(delta);
   const perf = performanceTier ? `${performanceTier.toLowerCase()} current-aid performance` : "current-aid performance not assessed";
   if (decision === "reprogram")
     return `Stable hearing (${d}) with ${perf} — reprogram the current devices before considering new technology.`;
   if (decision === "upgrade")
     return `${d} with ${perf} — an upgrade is the recommended path.`;
-  return `${d} with ${perf} — borderline. Present both paths; readiness ${lean === "upgrade" ? "leans toward upgrading" : "leans toward reprogramming / monitoring"}.`;
+  return `${d} with ${perf} — borderline. Present both paths.`;
 }
