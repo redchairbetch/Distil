@@ -4,6 +4,8 @@ import { ENVIRONMENTS, SITUATION_LABEL, flaggedEnvironments } from "./listeningS
 import Icon from "./components/Icon.jsx";
 import FinancingCalculator from "./components/FinancingCalculator.jsx";
 import DeviceComparison, { techLevelToRank } from "./views/DeviceComparison.jsx";
+import ComparisonHub from "./views/ComparisonHub.jsx";
+import { LegacyDevicePanel } from "./views/LegacyFastPath.jsx";
 import { rankFromTierLabel } from "./deviceComparison.js";
 
 // ── Body style images ──
@@ -7159,6 +7161,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 </>
               )}
             </div>
+            {/* ── PRIOR / OUTSIDE DEVICES — legacy fast-path + What's-Changed ── */}
+            <LegacyDevicePanel patientId={p.id} staffId={staffId} />
             {/* ── AUDIOGRAM & EDUCATION PANEL ── */}
             {p.audiology && (getPTA(p.audiology.rightT)!=null || getPTA(p.audiology.leftT)!=null || p.audiology.unaidedR!=null || p.audiology.cctR!=null || p.audiology.cctL!=null || p.audiology.sinBin!=null) && (() => {
               const aud = p.audiology;
@@ -9094,7 +9098,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 <button className="btn-ghost" onClick={()=>setView("dashboard")}>{"←"} Back</button>
               </div>
               <div className="content">
-                <DeviceComparison variant="standalone" />
+                <ComparisonHub patientId={selectedPatient?.id || null} />
               </div>
             </>
           )}
