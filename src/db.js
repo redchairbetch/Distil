@@ -696,9 +696,24 @@ export async function searchPatientsGlobal(term) {
   return (data || []).map(assemblePatient)
 }
 
-// Save a new patient — decomposes the flat UI object into multiple tables
+// Save a new patient — decomposes the flat UI object into multiple tables.
+//
+// Failure contract: the core patient row either saves or this throws a plain
+// error. Every dependent section (visit, insurance, fitting, sides, audiogram,
+// thresholds, appointments, campaign enrollment) is still ATTEMPTED after an
+// earlier one fails, but failures are collected and thrown at the end as an
+// error with `.partial = true` and `.failures = [...]` — the patient row
+// exists at that point, so callers must surface the error rather than
+// re-saving (which would duplicate the patient). Previously these sections
+// logged to console and continued, which let a patient record silently save
+// without its insurance row — and pricing is derived from insurance data.
 export async function savePatient(patient, staffId, clinicId) {
   const { first_name, last_name } = splitName(patient.name)
+  const failures = []
+  const recordFailure = (section, error) => {
+    console.error(`savePatient — ${section}:`, error)
+    failures.push(`${section} (${error?.message || error})`)
+  }
 
   // 1. Insert core patient row
   const { data: patientRow, error: patientError } = await supabase
@@ -735,6 +750,9 @@ export async function savePatient(patient, staffId, clinicId) {
     visitDate: patient.devices?.fittingDate || null,
     status: patient.patientStatus === 'active' ? 'completed' : 'in_progress',
   })
+  // createVisit returns null on error — without a visit, the fitting and
+  // audiogram below still save but lose their encounter linkage.
+  if (!visitId) failures.push('visit record (fitting/audiogram saved without an encounter link)')
 
   // 2. Insert insurance coverage (if applicable)
   if (patient.insurance && patient.payType === 'insurance') {
@@ -756,7 +774,7 @@ export async function savePatient(patient, staffId, clinicId) {
       care_plan_type:     patient.carePlan          || null,
       warranty_expiry:    patient.devices?.warrantyExpiry || null,
     })
-    if (error) console.error('insurance_coverage insert:', error)
+    if (error) recordFailure('insurance coverage', error)
   }
 
   // 3. Insert device fitting + sides
@@ -780,7 +798,7 @@ export async function savePatient(patient, staffId, clinicId) {
       .single()
 
     if (fittingError) {
-      console.error('device_fittings insert:', fittingError)
+      recordFailure('device fitting', fittingError)
     } else {
       // Insert left and right sides
       const sidesToInsert = []
@@ -792,7 +810,7 @@ export async function savePatient(patient, staffId, clinicId) {
       }
       if (sidesToInsert.length) {
         const { error } = await supabase.from('device_sides').insert(sidesToInsert)
-        if (error) console.error('device_sides insert:', error)
+        if (error) recordFailure('device details (left/right configuration)', error)
       }
     }
   }
@@ -835,7 +853,7 @@ export async function savePatient(patient, staffId, clinicId) {
         .single()
 
       if (audioError) {
-        console.error('audiograms insert:', audioError)
+        recordFailure('audiogram', audioError)
       } else {
         // Build threshold rows from frequency maps (AC + BC, with masking)
         const thresholdRows = []
@@ -857,7 +875,7 @@ export async function savePatient(patient, staffId, clinicId) {
         addRows(a.leftBC,  'left',  'BC', a.leftBCMask)
         if (thresholdRows.length) {
           const { error } = await supabase.from('audiogram_thresholds').insert(thresholdRows)
-          if (error) console.error('audiogram_thresholds insert:', error)
+          if (error) recordFailure('audiogram thresholds', error)
         }
       }
     }
@@ -874,7 +892,7 @@ export async function savePatient(patient, staffId, clinicId) {
       status:           'scheduled',
     }))
     const { error } = await supabase.from('appointments').insert(apptRows)
-    if (error) console.error('appointments insert:', error)
+    if (error) recordFailure('appointments', error)
   }
 
   // 6. Auto-enroll in default campaign (if patient has a fitting date)
@@ -891,8 +909,20 @@ export async function savePatient(patient, staffId, clinicId) {
         await enrollPatientInCampaign(patientRow.id, defaultTemplate.id, patient.devices.fittingDate, staffId)
       }
     } catch (e) {
-      console.error('auto-enroll campaign:', e)
+      recordFailure('care-journey campaign enrollment', e)
     }
+  }
+
+  if (failures.length) {
+    const err = new Error(
+      `The patient record was created, but these sections failed to save: ${failures.join('; ')}. ` +
+      `Do NOT re-save from the wizard (that would create a duplicate patient) — ` +
+      `open the patient's chart and re-enter the missing pieces.`
+    )
+    err.partial = true
+    err.failures = failures
+    err.patientId = patientRow.id
+    throw err
   }
 
   return patientRow

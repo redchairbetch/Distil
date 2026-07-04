@@ -207,16 +207,6 @@ function DobGate({ patient, onVerified }) {
     if (locked || !input) return;
 
     const expected = patient.dob;
-    if (!expected) {
-      // No DOB on the record. Soft-failing the gate would lock a real patient
-      // out indefinitely — better to let them through and surface this as a
-      // data issue for the clinic.
-      console.warn('Patient has no DOB on file; bypassing gate');
-      localStorage.setItem('aided_dob_verified', 'true');
-      onVerified();
-      return;
-    }
-
     if (input === expected) {
       localStorage.setItem('aided_dob_verified', 'true');
       localStorage.removeItem('aided_dob_attempts');
@@ -238,6 +228,29 @@ function DobGate({ patient, onVerified }) {
     }
     setInput('');
   };
+
+  // No DOB on the record means the gate has nothing to verify against. This
+  // used to wave the patient through, which made any patient record with a
+  // null DOB an open door to its PHI — the gate now fails closed and sends
+  // the patient to the clinic, where adding the DOB takes under a minute.
+  if (!patient.dob) {
+    console.error('Aided: patient record has no DOB on file; gate fails closed');
+    return (
+      <div style={{
+        minHeight: '100vh', background: '#0a1628', display: 'flex',
+        flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        padding: 24, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: 'white',
+      }}>
+        <div style={{ fontSize: 56, marginBottom: 16 }}>🔒</div>
+        <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 8 }}>One quick step first</h1>
+        <p style={{ fontSize: 14, opacity: 0.6, textAlign: 'center', maxWidth: 320, lineHeight: 1.5 }}>
+          We can't verify this profile yet because it's missing a date of birth.
+          Please call your clinic — they can add it in under a minute, and this
+          screen will unlock.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div style={{
