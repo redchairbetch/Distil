@@ -6,7 +6,7 @@ import IntakeKiosk from './IntakeKiosk.jsx'
 import PatientApp from './Aided.jsx'
 import Login from './Login.jsx'
 import DeviceSelection from './views/DeviceSelection.jsx'
-import DeviceComparison from './views/DeviceComparison.jsx'
+import ComparisonHub from './views/ComparisonHub.jsx'
 import { COLOR, FONT } from './theme.js'
 import { getSession, getCurrentStaff, onAuthStateChange } from './db.js'
 
@@ -113,10 +113,11 @@ function App() {
   }
 
   // Standalone comparator page — a cold tool with its own paper canvas.
+  // Hosts both tools: the catalog two-delta story and the coverage bars.
   if (isCompare) {
     return (
       <div style={{ minHeight: '100vh', background: COLOR.paper, fontFamily: FONT.ui }}>
-        <DeviceComparison variant="standalone" />
+        <ComparisonHub />
       </div>
     )
   }
