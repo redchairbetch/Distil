@@ -39,6 +39,7 @@ import IntakeResponsesAccordion from "./views/IntakeResponsesAccordion.jsx";
 import TierSelection from "./views/TierSelection.jsx";
 import PrompterSidebar from "./components/PrompterSidebar.jsx";
 import CommitmentChecklist from "./components/CommitmentChecklist.jsx";
+import Reports from "./views/Reports.jsx";
 import { AudigramSVG, getDegreeName, PHONEMES, interpolateThreshold } from "./components/AudiogramSVG.jsx";
 import AudiogramEntry from "./components/AudiogramEntry.jsx";
 
@@ -8684,7 +8685,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             </div>
           )}
           <div className="sidebar-nav">
-            {[["dashboard","Dashboard","dashboard"],["users","Patients","patients"],["bell","Follow-up","followup"],["calendar","Schedule","schedule"],["chart","Reports","reports"],["compare","Compare Devices","compare"],["campaign","Campaigns","campaigns"],["book","Content Library","content"],["medal","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
+            {/* "Schedule" deliberately absent: calendaring was dropped as a product
+                decision — clinics have scheduling tools; Distil tracks
+                next_appointment_date only. */}
+            {[["dashboard","Dashboard","dashboard"],["users","Patients","patients"],["bell","Follow-up","followup"],["chart","Reports","reports"],["compare","Compare Devices","compare"],["campaign","Campaigns","campaigns"],["book","Content Library","content"],["medal","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
               const badge = id === "followup" ? countFollowUpPatients(patients) : 0;
               return (
               <div key={id} className={`nav-item ${view===id||(id==="dashboard"&&view==="new")||(id==="patients"&&(view==="dashboard"||view==="patient"))?"active":""}`}
@@ -8893,6 +8897,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           {view === "campaigns" && <CampaignManager clinicId={clinicId} staffId={staffId} patients={patients} />}
           {view === "content" && <ContentLibrary clinicId={clinicId} staffId={staffId} />}
           {view === "lima-charlie" && <LimaCharlie clinicId={clinicId} staffId={staffId} />}
+          {view === "reports" && <Reports clinicId={clinicId} clinicName={clinic?.name} staffId={staffId} />}
           {view === "followup" && (
             <FollowUpQueue
               patients={patients}
