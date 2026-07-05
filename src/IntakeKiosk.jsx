@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { submitIntake, uploadPatientDocument, redeemUpgradeCheckinCode } from "./db.js";
+import { submitIntake, uploadPatientDocument, redeemUpgradeCheckinCode, genIntakeId } from "./db.js";
 import { generateIntakePdf } from "./generateIntakePdf.js";
 
 // Manufacturer logos for the current-hearing-aids brand picker. Only the
@@ -302,6 +302,14 @@ const T = {
     tyBody: "Your intake form has been received and saved. Please return this iPad to the front desk — we'll be right with you.",
     tyId: "Intake Reference ID:",
 
+    // ── Draft restore & submit states ──
+    draftTitle: "Pick up where you left off?",
+    draftBody: "A form was started on this device but wasn't finished. Would you like to continue it, or start a new one?",
+    draftContinue: "Continue my form",
+    draftStartOver: "Start a new form",
+    submitting: "Submitting…",
+    submitFailed: "We couldn't submit your form. Your answers are saved on this device — please hand the iPad to the front desk.",
+
     // ── Mode picker (new patient vs. returning) ──
     modePromptTitle: "Welcome back — or welcome in.",
     modePromptBody: "Are you a new patient, or returning for an annual or upgrade visit?",
@@ -545,6 +553,14 @@ const T = {
     tyTitle: "¡Gracias!", tyBrand: "My Hearing Centers",
     tyBody: "Su formulario de admisión ha sido recibido y guardado. Por favor devuelva este iPad a la recepción — en un momento estaremos con usted.",
     tyId: "ID de Referencia:",
+
+    // ── Restauración de borrador y estados de envío ──
+    draftTitle: "¿Continuar donde lo dejó?",
+    draftBody: "Se comenzó un formulario en este dispositivo pero no se terminó. ¿Desea continuarlo o comenzar uno nuevo?",
+    draftContinue: "Continuar mi formulario",
+    draftStartOver: "Comenzar un formulario nuevo",
+    submitting: "Enviando…",
+    submitFailed: "No pudimos enviar su formulario. Sus respuestas están guardadas en este dispositivo — por favor entregue el iPad a la recepción.",
 
     // ── Selección de modo (paciente nuevo vs. paciente que regresa) ──
     modePromptTitle: "Bienvenido de nuevo — o bienvenido.",
@@ -859,12 +875,34 @@ const UPGRADE_STEPS = [
   { id: "thanks", type: "thanks" },
 ];
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
-function genIntakeId() {
-  const d = new Date();
-  const datePart = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
-  const rand = Math.random().toString(36).substring(2,7).toUpperCase();
-  return `MHC-${datePart}-${rand}`;
+// ── Draft persistence ──────────────────────────────────────────────────────────
+// In-progress answers survive a refresh, a tablet sleep, or a network drop:
+// the form state is mirrored to localStorage (debounced) and offered back via
+// a "continue where you left off?" prompt on reload. This is PHI on a shared
+// kiosk device, so the draft is aggressively short-lived — wiped on successful
+// submit, on explicit "start a new form", and by a 30-minute idle reset (which
+// also clears an abandoned half-finished form off the screen before the next
+// patient picks up the iPad).
+const DRAFT_KEY = "distil.kioskDraft.v1";
+const DRAFT_TTL_MS = 30 * 60 * 1000;   // draft older than this is stale — discard
+const IDLE_RESET_MS = 30 * 60 * 1000;  // no activity this long → reset kiosk
+const THANKS_RESET_MS = 90 * 1000;     // thank-you screen → fresh kiosk for the next patient
+
+function readDraft() {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    if (!d || d.v !== 1 || !d.lang || !d.mode || !d.answers || typeof d.savedAt !== "number") return null;
+    if (Date.now() - d.savedAt > DRAFT_TTL_MS) { localStorage.removeItem(DRAFT_KEY); return null; }
+    return d;
+  } catch { return null; }
+}
+function writeDraft(draft) {
+  try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch { /* storage full/blocked — draft is best-effort */ }
+}
+function clearDraft() {
+  try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
 }
 
 // Clinic info for the intake-PDF header. Pulled from build-time env vars so
@@ -1134,11 +1172,11 @@ function FieldInput({ field, t, value, onChange, error, answers, setAnswer }) {
   );
 }
 
-function NavButtons({ onBack, onNext, nextLabel, backLabel, stepIdx }) {
+function NavButtons({ onBack, onNext, nextLabel, backLabel, stepIdx, nextDisabled = false }) {
   return (
     <div style={{ display: "flex", justifyContent: stepIdx > 1 ? "space-between" : "flex-end", marginTop: 28, gap: 12 }}>
       {stepIdx > 1 && <button onClick={onBack} style={{ padding: "13px 24px", fontSize: 15, fontWeight: 700, color: C.muted, background: "transparent", border: `2px solid ${C.border}`, borderRadius: 12, cursor: "pointer", fontFamily: font }}>{backLabel}</button>}
-      <button onClick={onNext} style={{ padding: "14px 36px", fontSize: 17, fontWeight: 800, color: "#fff", background: C.teal, border: "none", borderRadius: 12, cursor: "pointer", fontFamily: font, letterSpacing: "0.02em" }}>{nextLabel}</button>
+      <button onClick={onNext} disabled={nextDisabled} style={{ padding: "14px 36px", fontSize: 17, fontWeight: 800, color: "#fff", background: C.teal, border: "none", borderRadius: 12, cursor: nextDisabled ? "default" : "pointer", opacity: nextDisabled ? 0.6 : 1, fontFamily: font, letterSpacing: "0.02em" }}>{nextLabel}</button>
     </div>
   );
 }
@@ -1193,14 +1231,21 @@ export default function IntakeKiosk() {
   const [answers, setAnswers] = useState({});
   const [errors, setErrors] = useState({});
   const [hasSignature, setHasSignature] = useState(false);
-  const [intakeId] = useState(genIntakeId);
+  // Settable so the idle/thanks resets can mint a fresh ID for the next
+  // patient, and so a display-ID collision retry can swap in the final ID.
+  const [intakeId, setIntakeId] = useState(genIntakeId);
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  // An unfinished form found in localStorage on load — held here until the
+  // patient chooses "continue" or "start a new form" on the restore prompt.
+  const [pendingDraft, setPendingDraft] = useState(readDraft);
   // Returning-patient check-in code (Phase 2 prefill): the code the patient
   // types on the upgrade welcome screen, and the redeem status.
   const [codeInput, setCodeInput] = useState("");
   const [prefill, setPrefill] = useState({ status: "idle", message: "" }); // idle|loading|loaded|error
   const signatureRef = useRef(null);
   const isDrawing = useRef(false);
+  const lastActivityRef = useRef(Date.now());
   const t = lang ? T[lang] : T.en;
   const isUpgrade = mode === "upgrade";
   const activeSteps = isUpgrade ? UPGRADE_STEPS : STEPS;
@@ -1215,6 +1260,76 @@ export default function IntakeKiosk() {
   const progressPct = stepIdx <= 1 ? 0 : Math.min(100, Math.round(((stepIdx - 1) / (totalSteps - 1)) * 100));
 
   const setAnswer = (key, val) => setAnswers(prev => ({ ...prev, [key]: val }));
+
+  // Full reset — back to the language screen with clean state and a fresh
+  // intake ID. Used by the idle sweep and the post-thank-you timer so the
+  // kiosk is always ready for the next patient without a manual refresh.
+  const resetKiosk = () => {
+    clearDraft();
+    setPendingDraft(null);
+    setLang(null);
+    setMode(KIOSK_FORCED_MODE);
+    setStepIdx(0);
+    setAnswers({});
+    setErrors({});
+    setHasSignature(false);
+    setSubmitted(false);
+    setSubmitting(false);
+    setCodeInput("");
+    setPrefill({ status: "idle", message: "" });
+    setIntakeId(genIntakeId());
+    lastActivityRef.current = Date.now();
+  };
+
+  // Resume the saved draft: restore language/mode/answers, clamp the step
+  // index against the steps its answers make visible (never past the
+  // signature step), and keep the original intake reference ID.
+  const restoreDraft = () => {
+    const d = pendingDraft;
+    setPendingDraft(null);
+    if (!d) return;
+    const steps = (d.mode === "upgrade" ? UPGRADE_STEPS : STEPS)
+      .filter(s => !s.conditional || d.answers?.[s.conditional] === true);
+    const maxIdx = Math.max(1, steps.length - 2);
+    setLang(d.lang);
+    setMode(d.mode);
+    setAnswers(d.answers || {});
+    setStepIdx(Math.min(Math.max(1, d.stepIdx || 1), maxIdx));
+    if (d.intakeId) setIntakeId(d.intakeId);
+    lastActivityRef.current = Date.now();
+  };
+
+  // Mirror in-progress state to localStorage (debounced) once the patient is
+  // past the welcome screen. Every write also stamps the activity clock for
+  // the idle sweep. The signature canvas is deliberately NOT drafted — on
+  // restore the patient re-signs, which is the correct legal posture anyway.
+  useEffect(() => {
+    lastActivityRef.current = Date.now();
+    if (!lang || !mode || submitted || stepIdx < 1 || pendingDraft) return;
+    const timer = setTimeout(() => {
+      writeDraft({ v: 1, savedAt: Date.now(), lang, mode, stepIdx, answers, intakeId });
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [answers, stepIdx, lang, mode, intakeId, submitted, pendingDraft]);
+
+  // Idle sweep: an untouched in-progress form (or an unanswered restore
+  // prompt) resets after 30 minutes so the next patient never sees the
+  // previous patient's answers.
+  useEffect(() => {
+    const iv = setInterval(() => {
+      if (!lang && !pendingDraft) return; // language screen is already "reset"
+      if (Date.now() - lastActivityRef.current > IDLE_RESET_MS) resetKiosk();
+    }, 60 * 1000);
+    return () => clearInterval(iv);
+  }, [lang, pendingDraft]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // After a successful submit, roll back to the language screen on a timer —
+  // the front desk no longer needs to refresh the iPad between patients.
+  useEffect(() => {
+    if (!submitted) return;
+    const timer = setTimeout(resetKiosk, THANKS_RESET_MS);
+    return () => clearTimeout(timer);
+  }, [submitted]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Redeem a front-desk check-in code → seed identity, contact, and last year's
   // readiness so the patient reviews (not retypes). On failure, show a specific,
@@ -1305,6 +1420,7 @@ export default function IntakeKiosk() {
   };
 
   const handleSubmit = async () => {
+    if (submitting) return; // double-tap guard — a second tap mid-flight would insert a duplicate row
     if (!hasSignature) { setErrors({ sig: t.sigRequired }); return; }
     // Guard: if the kiosk was built without VITE_CLINIC_ID, refuse to
     // proceed rather than letting the user sign and think they're done.
@@ -1315,6 +1431,8 @@ export default function IntakeKiosk() {
       setErrors({ sig: "Kiosk configuration error: clinic ID is not set. Please notify the front desk." });
       return;
     }
+    setSubmitting(true);
+    setErrors({});
     const canvas = signatureRef.current;
     const sigDataUrl = canvas ? canvas.toDataURL("image/png") : null;
     const timestamp = new Date().toISOString();
@@ -1324,37 +1442,61 @@ export default function IntakeKiosk() {
     const intakeRowId = (typeof crypto !== "undefined" && crypto.randomUUID)
       ? crypto.randomUUID()
       : null;
-    // Submit intake to Supabase. If this throws, surface the error so the
-    // user doesn't see the Thank-You screen with a record that doesn't exist.
-    try {
-      // Returning-visit flow attaches a structured upgradeReadiness object whose
-      // keys mirror the provider-side scoring model (upgradeReadiness.js), so the
-      // UpgradeWizard REVIEW step can pre-fill from it without remapping.
-      const wrappedAnswers = isUpgrade
-        ? {
-            ...answers,
-            upgradeReadiness: {
-              satisfaction:    answers.upg_satisfaction ?? null,
-              environments:    answers.upg_environments || [],
-              featureGaps:     answers.upg_featureGaps || [],
-              issues:          answers.upg_issues || [],
-              notes:           answers.upg_notes || "",
-              insuranceChanged: answers.upg_insurance_changed ?? null,
-              insuranceNew:    answers.upg_insurance_new || "",
-            },
-          }
-        : answers;
-      const payload = {
-        _meta: { intakeId, submittedAt: timestamp, lang, status: "pending", intakeType: isUpgrade ? "upgrade" : "new" },
-        answers: wrappedAnswers,
-        consent: { privacyAgreed: answers.privacyAgreed, insuranceAgreed: answers.insuranceAgreed, signedAt: timestamp, signatureDataUrl: sigDataUrl }
-      };
-      await submitIntake(payload, KIOSK_CLINIC_ID, intakeRowId);
-    } catch (e) {
-      console.error("Intake submit error:", e);
-      setErrors({ sig: `Submission failed: ${e?.message || "unknown error"}. Please notify the front desk.` });
-      return;
+    // Returning-visit flow attaches a structured upgradeReadiness object whose
+    // keys mirror the provider-side scoring model (upgradeReadiness.js), so the
+    // UpgradeWizard REVIEW step can pre-fill from it without remapping.
+    const wrappedAnswers = isUpgrade
+      ? {
+          ...answers,
+          upgradeReadiness: {
+            satisfaction:    answers.upg_satisfaction ?? null,
+            environments:    answers.upg_environments || [],
+            featureGaps:     answers.upg_featureGaps || [],
+            issues:          answers.upg_issues || [],
+            notes:           answers.upg_notes || "",
+            insuranceChanged: answers.upg_insurance_changed ?? null,
+            insuranceNew:    answers.upg_insurance_new || "",
+          },
+        }
+      : answers;
+    // The display ID is rebuilt into the payload each attempt so a unique-
+    // index collision can swap in a regenerated one without re-signing.
+    const makePayload = (displayId) => ({
+      _meta: { intakeId: displayId, submittedAt: timestamp, lang, status: "pending", intakeType: isUpgrade ? "upgrade" : "new" },
+      answers: wrappedAnswers,
+      consent: { privacyAgreed: answers.privacyAgreed, insuranceAgreed: answers.insuranceAgreed, signedAt: timestamp, signatureDataUrl: sigDataUrl }
+    });
+    // Submit with retry — a patient standing at the kiosk should never lose
+    // their form to one network blip. Two unique-violation cases are handled
+    // specially: a PK conflict on a retry means the FIRST attempt actually
+    // landed and only its response was lost (treat as success — same row
+    // UUID every attempt makes the insert idempotent); a display-ID conflict
+    // means a same-day MHC-ref collision (regenerate and go again).
+    let displayId = intakeId;
+    let lastErr = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await submitIntake(makePayload(displayId), KIOSK_CLINIC_ID, intakeRowId);
+        lastErr = null;
+        break;
+      } catch (e) {
+        lastErr = e;
+        const msg = String(e?.message || "");
+        const isUnique = e?.code === "23505" || /duplicate key/i.test(msg);
+        if (isUnique && attempt > 0 && /intakes_pkey/i.test(msg)) { lastErr = null; break; }
+        if (isUnique && /intake_ref/i.test(msg)) displayId = genIntakeId();
+        console.error(`Intake submit error (attempt ${attempt + 1}):`, e);
+        if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      }
     }
+    if (lastErr) {
+      setErrors({ sig: `${t.submitFailed} (${lastErr?.message || "network error"})` });
+      setSubmitting(false);
+      return; // draft stays in localStorage — nothing is lost
+    }
+    // The intake row is safely in the queue — the draft has served its purpose.
+    clearDraft();
+    if (displayId !== intakeId) setIntakeId(displayId);
     // Render the signed intake as a text-selectable PDF: generateIntakePdf
     // lays the fields out directly with jsPDF so the archived copy is
     // searchable and copy-pasteable. Logo + signature embed as images;
@@ -1365,7 +1507,7 @@ export default function IntakeKiosk() {
     // an iPad download the patient can't retrieve was just noise.
     const logoDataUrl = await imageUrlToDataUrl(MHC_LOGO_URL);
     const doc = generateIntakePdf({
-      answers, intakeId, signatureDataUrl: sigDataUrl, timestamp, lang, T,
+      answers, intakeId: displayId, signatureDataUrl: sigDataUrl, timestamp, lang, T,
       logoDataUrl, clinic: CLINIC_INFO,
       intakeType: isUpgrade ? "upgrade" : "new",
       lookups: {
@@ -1401,7 +1543,7 @@ export default function IntakeKiosk() {
         blob: pdfBlob, fileName,
         returnRow: false,
         metadata: {
-          intakeRefId: intakeId,
+          intakeRefId: displayId,
           submittedAt: timestamp,
           lang,
           firstName: answers.firstName || null,
@@ -1419,9 +1561,38 @@ export default function IntakeKiosk() {
         catch (e2) { console.error("Archive kiosk intake PDF (attempt 2):", e2); }
       }
     }
+    setSubmitting(false);
     setSubmitted(true);
     setStepIdx(visibleSteps.findIndex(s => s.type === "thanks"));
   };
+
+  // ── Draft Restore Prompt ─────────────────────────────────────────────────────
+  // An unfinished form was found on this device (refresh, tablet sleep, or a
+  // network drop mid-intake). Offer to continue it — rendered in the draft's
+  // own language since the language screen hasn't been reached yet.
+  if (pendingDraft) {
+    const dt = T[pendingDraft.lang] || T.en;
+    return (
+      <div style={{ fontFamily: font, backgroundColor: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div style={{ background: C.card, borderRadius: 20, padding: "48px 40px", maxWidth: 520, width: "100%", boxShadow: "0 4px 30px rgba(10,123,140,0.10)", textAlign: "center" }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: C.teal, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>)) MY HEARING CENTERS</div>
+          <h1 style={{ fontFamily: serif, fontSize: 28, color: C.text, margin: "0 0 12px" }}>{dt.draftTitle}</h1>
+          <p style={{ fontSize: 16, color: C.muted, lineHeight: 1.6, marginBottom: 32 }}>{dt.draftBody}</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <button onClick={restoreDraft}
+              style={{ padding: "20px 16px", fontSize: 19, fontWeight: 800, color: "#fff", background: C.teal, border: "none", borderRadius: 14, cursor: "pointer", fontFamily: font, letterSpacing: "0.02em" }}
+              onMouseOver={e => e.target.style.background = C.tealD} onMouseOut={e => e.target.style.background = C.teal}>
+              {dt.draftContinue}
+            </button>
+            <button onClick={() => { clearDraft(); setPendingDraft(null); }}
+              style={{ padding: "16px 16px", fontSize: 16, fontWeight: 700, color: C.muted, background: "transparent", border: `2px solid ${C.border}`, borderRadius: 14, cursor: "pointer", fontFamily: font }}>
+              {dt.draftStartOver}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // ── Language Select ──────────────────────────────────────────────────────────
   if (!lang) {
@@ -1836,7 +2007,7 @@ export default function IntakeKiosk() {
         {errors.sig && <p style={{ color: C.red, fontSize: 13, margin: 0 }}>{errors.sig}</p>}
         <button onClick={clearSig} style={{ marginLeft: "auto", padding: "8px 18px", fontSize: 13, fontWeight: 700, color: C.muted, background: "transparent", border: `2px solid ${C.border}`, borderRadius: 8, cursor: "pointer", fontFamily: font }}>{t.sigClear}</button>
       </div>
-      <NavButtons onBack={goBack} onNext={handleSubmit} nextLabel={t.submit} backLabel={t.back} stepIdx={stepIdx} />
+      <NavButtons onBack={goBack} onNext={handleSubmit} nextLabel={submitting ? t.submitting : t.submit} backLabel={t.back} stepIdx={stepIdx} nextDisabled={submitting} />
     </>
   );
 

@@ -2145,6 +2145,25 @@ export async function acceptIntake(intakeId) {
   if (error) console.error('acceptIntake:', error)
 }
 
+// Mint a patient-facing intake reference ID: MHC-YYYYMMDD-XXXXX (format is a
+// fixed domain rule — do not change it). Random part uses crypto when
+// available; a unique expression index on intakes backs this up, and the
+// kiosk regenerates + retries on the (rare) same-day collision.
+export function genIntakeId() {
+  const d = new Date()
+  const datePart = `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  let rand = ''
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const buf = new Uint32Array(5)
+    crypto.getRandomValues(buf)
+    for (const n of buf) rand += alphabet[n % alphabet.length]
+  } else {
+    rand = Math.random().toString(36).substring(2,7).toUpperCase()
+  }
+  return `MHC-${datePart}-${rand}`
+}
+
 // Create a fresh intake row tagged source='provider' for a patient who
 // did not submit through the kiosk. Used by the Health History wizard
 // step's "Start a guided conversation" affordance — the provider then
@@ -2157,9 +2176,7 @@ export async function acceptIntake(intakeId) {
 export async function createProviderIntake(patientId, clinicId) {
   if (!patientId || !clinicId) throw new Error('createProviderIntake: patientId and clinicId required')
   const now = new Date()
-  const datePart = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`
-  const rand = Math.random().toString(36).substring(2,7).toUpperCase()
-  const intakeId = `MHC-${datePart}-${rand}`
+  const intakeId = genIntakeId()
   const timestamp = now.toISOString()
   const wrapped = {
     _meta: { intakeId, submittedAt: timestamp, lang: 'en', status: 'accepted', source: 'provider' },
