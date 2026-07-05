@@ -7,6 +7,12 @@ import DeviceComparison, { techLevelToRank } from "./views/DeviceComparison.jsx"
 import ComparisonHub from "./views/ComparisonHub.jsx";
 import { LegacyDevicePanel } from "./views/LegacyFastPath.jsx";
 import { rankFromTierLabel } from "./deviceComparison.js";
+import { parseDateOnly, fmtDate, warrantyDate, daysUntil } from "./lib/dates.js";
+import { CARE_ARC, buildCareArc } from "./lib/careArc.js";
+import {
+  CROS_PRICE_PER_UNIT, isSideCros, manufacturerToClass, uhchCoverageTier,
+  findTierRank, findAnchorForRank, deriveEarPrice, pickBaselinePerAid,
+} from "./lib/pricing.js";
 
 // ── Body style images ──
 import imgRIC from "./assets/body-styles/RIC.png";
@@ -1114,51 +1120,7 @@ const CARE_PLANS = [
   { id:"punch", label:"MHC Punch Card", price:"$575" },
 ];
 const VISIT_TYPES = ["New Fitting","2-Week Follow-Up","4-Week Follow-Up","Quarterly Clean & Check","Annual Exam","Triage / Adjustment","Repair Appointment","Other"];
-// Regimented care arc auto-generated at fitting (backlog #5) — offsets are from the fitting date.
-const CARE_ARC = [
-  { offset: 0,  unit: "days",   type: "Fitting & Orientation",
-    note: "Orient the patient on device use and care; program to a comfortable starting level with acclimatization management enabled to ramp amplification toward prescriptive targets over four weeks." },
-  { offset: 2,  unit: "days",   type: "Day-2 Follow-Up Call",
-    note: "Phone check-in on first impressions, comfort, and any immediate concerns." },
-  { offset: 2,  unit: "weeks",  type: "2-Week Follow-Up",
-    note: "First in-office fine-tune; review device maintenance and daily care." },
-  { offset: 4,  unit: "weeks",  type: "4-Week Follow-Up",
-    note: "Perform real-ear measurement; set the acclimatization manager to reach prescriptive targets over the next two weeks." },
-  { offset: 6,  unit: "weeks",  type: "6-Week Follow-Up",
-    note: "Confirm the patient is comfortable and understanding well before transitioning to the quarterly clean-and-check cadence." },
-  { offset: 3,  unit: "months", type: "Quarterly Clean & Check",
-    note: "Routine cleaning and performance check." },
-  { offset: 6,  unit: "months", type: "Quarterly Clean & Check",
-    note: "Routine cleaning and performance check." },
-  { offset: 9,  unit: "months", type: "Quarterly Clean & Check",
-    note: "Routine cleaning and performance check." },
-  { offset: 12, unit: "months", type: "Annual Exam — Year 1",
-    note: "Annual audiometric re-evaluation and device performance review (covers this quarter's clean & check)." },
-  { offset: 15, unit: "months", type: "Quarterly Clean & Check",
-    note: "Routine cleaning and performance check." },
-  { offset: 18, unit: "months", type: "Quarterly Clean & Check",
-    note: "Routine cleaning and performance check." },
-  { offset: 21, unit: "months", type: "Quarterly Clean & Check",
-    note: "Routine cleaning and performance check." },
-  { offset: 24, unit: "months", type: "Annual Exam — Year 2",
-    note: "Annual audiometric re-evaluation and device performance review (covers this quarter's clean & check)." },
-  { offset: 27, unit: "months", type: "Quarterly Clean & Check",
-    note: "Routine cleaning and performance check." },
-  { offset: 30, unit: "months", type: "Quarterly Clean & Check",
-    note: "Routine cleaning and performance check." },
-  { offset: 33, unit: "months", type: "Quarterly Clean & Check",
-    note: "Routine cleaning and performance check." },
-  { offset: 36, unit: "months", type: "Annual Exam — Year 3",
-    note: "Annual audiometric re-evaluation and device performance review (covers this quarter's clean & check)." },
-  { offset: 39, unit: "months", type: "Quarterly Clean & Check",
-    note: "Routine cleaning and performance check." },
-  { offset: 42, unit: "months", type: "Quarterly Clean & Check",
-    note: "Routine cleaning and performance check." },
-  { offset: 45, unit: "months", type: "Quarterly Clean & Check",
-    note: "Routine cleaning and performance check." },
-  { offset: 48, unit: "months", type: "Year-4 Upgrade Consultation",
-    note: "Review device performance and warranty status; discuss upgrade options." },
-];
+// CARE_ARC + buildCareArc now live in lib/careArc.js (imported above).
 
 const summarizeAudiogram = (p) => {
   if (!p.audiology) return null;
@@ -1189,45 +1151,8 @@ const summarizeAudiogram = (p) => {
 };
 
 function genId() { return crypto.randomUUID(); }
-// Parse a bare 'YYYY-MM-DD' as a local-time Date. `new Date('YYYY-MM-DD')` is
-// UTC midnight, which renders a day earlier in negative-offset US timezones —
-// so DOB, fitting/warranty dates, etc. were showing one day off. Returns null
-// for anything that isn't a bare date so timestamptz values fall through.
-function parseDateOnly(s) {
-  if (typeof s !== "string") return null;
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  return m ? new Date(+m[1], +m[2]-1, +m[3]) : null;
-}
-function fmtDate(d) { return (parseDateOnly(d) || new Date(d)).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); }
-function warrantyDate(fittingDate, years=3) {
-  const d = new Date(fittingDate);
-  d.setFullYear(d.getFullYear() + years);
-  return d.toISOString().split("T")[0];
-}
-// Expand CARE_ARC into concrete dated appointments (backlog #5). Dates are built
-// in local time from the 'YYYY-MM-DD' fitting date to avoid a UTC-parse day skew.
-function buildCareArc(fittingDate) {
-  if (!fittingDate) return [];
-  const [y, m, day] = String(fittingDate).slice(0, 10).split("-").map(Number);
-  if (!y || !m || !day) return [];
-  const pad = n => String(n).padStart(2, "0");
-  return CARE_ARC.map(({ offset, unit, type, note }) => {
-    const d = new Date(y, m - 1, day);
-    if (unit === "days") d.setDate(d.getDate() + offset);
-    else if (unit === "weeks") d.setDate(d.getDate() + offset * 7);
-    else if (unit === "months") d.setMonth(d.getMonth() + offset);
-    return { date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, type, note };
-  });
-}
-function daysUntil(dateStr) {
-  const dateOnly = parseDateOnly(dateStr);
-  if (dateOnly) {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    return Math.round((dateOnly - today) / 86400000);
-  }
-  return Math.ceil((new Date(dateStr) - new Date()) / 86400000);
-}
+// parseDateOnly / fmtDate / warrantyDate / daysUntil now live in lib/dates.js
+// (imported above) so the date math is unit-testable.
 
 
 // ── AUDIOGRAM CONSTANTS ───────────────────────────────────────────────────────
@@ -1505,168 +1430,10 @@ function pickLicenseForClinic(licenses, address) {
 }
 
 
-// ── PER-EAR PRICING ────────────────────────────────────────────────────────────
-// Backlog item #18: manufacturer- and tech-level-aware pricing. The wizard's
-// step 5 used to lock `form.tierPrice` to whatever step 4 wrote — meaning a
-// private-pay Signia 7IX patient saw the manufacturer-agnostic $4,997.50
-// Premium price instead of Signia's $3,997.50. Now each ear resolves its own
-// price from (manufacturer × techLevel × clinic_retail_anchors), with CROS/
-// BICROS pricing flat at $1,250/unit per Kurt.
-
-const CROS_PRICE_PER_UNIT = 1250;
-
-function isSideCros(side) {
-  if (!side) return false;
-  if (side.isCROS) return true;
-  return /^(CROS|BICROS)/i.test(side.variant || '');
-}
-
-// Map a catalog manufacturer name to a clinic_retail_anchors.manufacturer_class
-// key. Returns 'standard' for unrecognized labels (TruHearing private-label,
-// custom brands) so the pricing math gracefully falls back to the
-// manufacturer-agnostic baseline rather than producing a null.
-function manufacturerToClass(name) {
-  const m = (name || '').toLowerCase();
-  if (m === 'signia')  return 'signia';
-  if (m === 'phonak')  return 'phonak';
-  if (m === 'oticon')  return 'oticon';
-  if (m === 'starkey') return 'starkey';
-  if (m === 'widex')   return 'widex';
-  if (m === 'rexton')  return 'rexton';
-  if (m === 'resound') return 'resound';
-  return 'standard';
-}
-
-// ── UHCH (United Healthcare Hearing) coverage map ───────────────────────────
-// UHCH's plan "tech levels" do NOT map cleanly to the manufacturers' real tech
-// ladders — UHCH covers only the flagship + one specific mid tier per brand,
-// and Relate (their private-label Unitron) carries its own Gold/Platinum value
-// tiers. This table is the hardcoded translation: (manufacturer × catalog
-// tech_level) → UHCH tier label. Anything not listed is OFF-PLAN — Rexton
-// entirely, Signia 5IX/2IX/1IX, Phonak 70/30, ReSound 7/3, etc. — billed at
-// standard retail and flagged, because off-plan devices can't be ordered
-// through the UHCH portal without a signed insurance acknowledgement form.
-// Seeded from the UHCH Medicare Supplement price list; validated with Kurt
-// 2026-06-08. (Mid tier is deliberately "skip one": Signia=3 not 5, Phonak=50
-// not 70 — that asymmetry is UHCH's, and the whole reason this is a lookup.)
-const UHCH_COVERAGE = {
-  Oticon:  { '1':'Premium', '3':'Standard' },
-  Phonak:  { '90':'Premium', '50':'Standard' },
-  Resound: { '9':'Premium', '5':'Standard' },
-  Signia:  { '7AX':'Premium', '7IX':'Premium', '3AX':'Standard', '3IX':'Standard' },
-  Starkey: { '24':'Premium', '16':'Standard' },
-  Widex:   { '440':'Premium', '220':'Standard' },
-  Relate:  { 'Gold':'Gold', 'Platinum':'Platinum' },
-};
-
-// UHCH tier label a (manufacturer, techLevel) maps to, or null when off-plan.
-function uhchCoverageTier(manufacturer, techLevel) {
-  return UHCH_COVERAGE[manufacturer]?.[techLevel] ?? null;
-}
-
-// (familyId, techLevel) → tier_rank lookup via the product_catalog_tier table.
-// Returns null when the family isn't in the catalog tier table yet (the row
-// would need to be seeded — see migration 008 for the Signia IX 2IX/1IX pass).
-function findTierRank(productCatalogTiers, familyId, techLevel) {
-  if (!familyId || !techLevel || !productCatalogTiers?.length) return null;
-  const row = productCatalogTiers.find(
-    t => t.productCatalogId === familyId && t.tierName === techLevel
-  );
-  return row?.tierRank ?? null;
-}
-
-// Anchor rows for a class are stored sorted by sort_order with sort 1 = top
-// tier (rank 5 / Premium). Universal mapping: rank = 6 - sort_order. Works
-// for both 4-tier (rank 5/4/3/2) and 5-tier (signia / standard) classes.
-function findAnchorForRank(anchors, rank) {
-  if (!anchors?.length || rank == null) return null;
-  return anchors.find(a => a.sort_order === (6 - rank)) || null;
-}
-
-// Resolve the per-aid price for one ear. Returns null when the configuration
-// isn't sufficient to derive a price (manufacturer/techLevel unset, anchor
-// row missing). Caller falls back to the tier baseline in that case.
-//
-// Shape: { price, source, class?, rank?, anchorLabel? }
-//   source:
-//     'cros'              — CROS/BICROS unit, $1,250 flat
-//     'insurance-copay'   — carrier copay (form.tierPrice), manufacturer
-//                            doesn't change patient out-of-pocket
-//     'uhch-onplan'       — UHCH covers this device → tier copay (sets tier)
-//     'uhch-offplan'      — UHCH does NOT cover it → standard retail, flagged
-//                            (offPlan:true); not orderable via the UHCH portal
-//     'class'             — resolved from manufacturer-class anchor
-//     'fallback'          — manufacturer class wasn't seeded; used standard
-function deriveEarPrice(side, opts) {
-  if (!side) return null;
-  if (isSideCros(side)) {
-    return { price: CROS_PRICE_PER_UNIT, source: 'cros' };
-  }
-  const { form, catalog, productCatalogTiers, anchorsByClass, plans } = opts;
-  // UHCH is device-driven: the chosen device decides the patient's price via
-  // the coverage map, not a flat plan copay. Must run before the generic
-  // insurance branch (UHCH patients are payType 'insurance').
-  if (form?.tpa === 'UHCH') {
-    const family = (catalog || []).find(e => e.id === side.familyId);
-    if (!family || !side.techLevel) return null;
-    const covTier = uhchCoverageTier(family.manufacturer, side.techLevel);
-    if (covTier) {
-      const plan = (plans || INSURANCE_PLANS).find(p => p.tpa === 'UHCH' && p.carrier === form.carrier && p.planGroup === form.planGroup);
-      const price = plan?.tiers?.find(t => t.label === covTier)?.price ?? null;
-      if (price == null) return null;
-      return { price, source: 'uhch-onplan', tier: covTier };
-    }
-    // Off-plan: not covered by UHCH → standard retail (manufacturer-class
-    // anchor, same resolution as private pay), flagged for the provider.
-    const cls = manufacturerToClass(family.manufacturer);
-    const rank = findTierRank(productCatalogTiers, family.id, side.techLevel);
-    let anchor = rank != null ? findAnchorForRank(anchorsByClass?.[cls], rank) : null;
-    if (!anchor && rank != null) anchor = findAnchorForRank(anchorsByClass?.standard, rank);
-    return {
-      price: anchor ? parseFloat(anchor.price_per_aid) : null,
-      source: 'uhch-offplan', offPlan: true, class: cls, rank, anchorLabel: anchor?.label,
-    };
-  }
-  if (form?.payType === 'insurance') {
-    if (form.tierPrice == null) return null;
-    return { price: form.tierPrice, source: 'insurance-copay' };
-  }
-  // Private-pay branch — manufacturer + techLevel required.
-  const family = (catalog || []).find(e => e.id === side.familyId);
-  if (!family || !side.techLevel) return null;
-  const cls = manufacturerToClass(family.manufacturer);
-  const rank = findTierRank(productCatalogTiers, family.id, side.techLevel);
-  if (rank == null) return null;
-  let anchor = findAnchorForRank(anchorsByClass?.[cls], rank);
-  let source = 'class';
-  if (!anchor) {
-    anchor = findAnchorForRank(anchorsByClass?.standard, rank);
-    source = 'fallback';
-  }
-  if (!anchor) return null;
-  return {
-    price: parseFloat(anchor.price_per_aid),
-    source,
-    class: cls,
-    rank,
-    anchorLabel: anchor.label,
-  };
-}
-
-// Effective per-aid baseline for the back-compat `form.tierPrice` scalar
-// downstream. For CROS fittings, the "real aid" ear drives the baseline
-// (the CROS unit is a $1,250 add-on, not the per-aid price). For matched
-// bilateral fittings, both ears agree so either works. For mismatched
-// manufacturers the higher of the two wins — the UI shows a caution.
-function pickBaselinePerAid(leftEar, rightEar) {
-  const lp = leftEar && leftEar.source !== 'cros' ? leftEar.price : null;
-  const rp = rightEar && rightEar.source !== 'cros' ? rightEar.price : null;
-  if (lp == null && rp == null) return null;
-  if (lp == null) return rp;
-  if (rp == null) return lp;
-  return Math.max(lp, rp);
-}
-
+// Per-ear pricing (CROS_PRICE_PER_UNIT, isSideCros, manufacturerToClass,
+// uhchCoverageTier, findTierRank, findAnchorForRank, deriveEarPrice,
+// pickBaselinePerAid) now lives in lib/pricing.js (imported above) so the
+// money math is unit-testable.
 
 // Patient-detail appointment list — collapsed to the next visit by default; expands to the full arc (backlog #5).
 function AppointmentSchedule({ appointments }) {

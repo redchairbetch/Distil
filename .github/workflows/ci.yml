@@ -1,0 +1,23 @@
+# Every push and PR must build and pass the unit tests. The build step is the
+# backstop for the whole-monolith class of error (unbalanced JSX, bad imports);
+# vitest covers the extracted pure logic (pricing, care arc, dates, upgrade
+# engine, intake IDs).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
