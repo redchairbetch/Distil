@@ -1845,6 +1845,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // ── Purchase Agreement state ──────────────────────────────────────────
   const [staffProfile, setStaffProfile] = useState(null);
   const [providerSignatureB64, setProviderSignatureB64] = useState(null);
+  // True when a stored signature exists but failed to load — PAs generated in
+  // that state print the typed provider name, and the provider should know.
+  const [sigLoadError, setSigLoadError] = useState(false);
   const [sigBusy, setSigBusy] = useState(false);
   const [sigErr, setSigErr] = useState("");
 
@@ -1853,11 +1856,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // in which case the PA prints the typed provider name instead of an image.
   useEffect(() => {
     const url = staffProfile?.signatureUrl;
-    if (!url) { setProviderSignatureB64(null); return; }
+    if (!url) { setProviderSignatureB64(null); setSigLoadError(false); return; }
     let cancelled = false;
     (async () => {
       try {
         const resp = await fetch(url, { cache: "no-store" });
+        if (!resp.ok) throw new Error(`signature fetch ${resp.status}`);
         const blob = await resp.blob();
         const dataUrl = await new Promise((res, rej) => {
           const fr = new FileReader();
@@ -1865,8 +1869,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           fr.onerror = rej;
           fr.readAsDataURL(blob);
         });
-        if (!cancelled) setProviderSignatureB64(dataUrl);
-      } catch { if (!cancelled) setProviderSignatureB64(null); }
+        if (!cancelled) { setProviderSignatureB64(dataUrl); setSigLoadError(false); }
+      } catch (e) {
+        // A signature exists on file but couldn't be loaded — the provider
+        // needs to know their PAs will fall back to a typed name.
+        console.error("Provider signature load failed:", e);
+        if (!cancelled) { setProviderSignatureB64(null); setSigLoadError(true); }
+      }
     })();
     return () => { cancelled = true; };
   }, [staffProfile?.signatureUrl]);
@@ -1884,6 +1893,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       const bustedUrl = `${url}?v=${Date.now()}`;
       await updateStaffSignature(staffId, bustedUrl);
       setProviderSignatureB64(dataUrl);
+      setSigLoadError(false);
       setStaffProfile(p => (p ? { ...p, signatureUrl: bustedUrl } : p));
     } catch (e) {
       console.error("Signature upload failed", e);
@@ -3032,6 +3042,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       return patient;
     } catch (err) {
       console.error("savePatient error:", err);
+      // Partial failure: the patient row exists but some sections didn't
+      // save. Pull the list so the provider sees the (incomplete) patient
+      // and fixes it from the chart — re-saving would create a duplicate.
+      if (err?.partial) await refreshPatients();
       setSaveError(err?.message || err?.toString() || "Unknown error — check console");
       throw err;
     }
@@ -9182,6 +9196,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       <div style={{fontSize:11,color:"#9ca3af",marginTop:4}}>
                         staffId: {staffId||"(none)"} · clinicId: {clinicId||"(none)"}
                       </div>
+                    </div>
+                  )}
+                  {sigLoadError && (
+                    <div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:8,padding:"12px 16px",marginBottom:8,fontSize:13,color:"#b45309"}}>
+                      <strong>Signature unavailable:</strong> your stored signature couldn't be loaded, so agreements generated right now will print your typed name instead of your signature image. Re-upload it in Settings if this keeps happening.
                     </div>
                   )}
                   <div className="wizard-nav">
