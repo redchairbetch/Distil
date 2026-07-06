@@ -155,6 +155,7 @@ Deno.serve(async (req) => {
       ok: true,
       live,
       dryRun: true,
+      from: fromAddress,
       due: rows.length,
       sample: rows.slice(0, 10).map(r => ({
         deliveryId: r.id,
@@ -243,5 +244,5 @@ Deno.serve(async (req) => {
     // Resend free tier allows ~2 req/s — pace the loop.
     await new Promise(res => setTimeout(res, 600));
   }
-  return json({ ok: true, live, due: rows.length, sent, failed, skipped, errors: errors.slice(0, 10) });
+  return json({ ok: true, live, from: fromAddress, due: rows.length, sent, failed, skipped, errors: errors.slice(0, 10) });
 });
