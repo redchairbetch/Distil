@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from './supabase.js'
-import { listInboxMessages, markMessageRead, countUnreadMessages } from './db.js'
+import { listInboxMessages, markMessageRead, countUnreadMessages, sendPatientReply } from './db.js'
 
 // ── DEMO PATIENT (shown when no real data exists yet) ─────────────────────────
 const DEMO = {
@@ -385,6 +385,10 @@ export default function PatientApp() {
     const m = new URLSearchParams(window.location.search).get('msg');
     return m || null;
   });
+  // Compose state — patient writing back to the clinic (two-way messaging).
+  const [replyDraft, setReplyDraft] = useState('');
+  const [replySending, setReplySending] = useState(false);
+  const [replyError, setReplyError] = useState(null);
   const [checkedSteps, setCheckedSteps] = useState({});
   const [expandedTip, setExpandedTip] = useState(null);
   const [punchUsed, setPunchUsed] = useState({ cleanings: 0, appointments: 0 });
@@ -459,12 +463,34 @@ export default function PatientApp() {
     if (tab === 'inbox') refreshInbox(patient?.id);
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Patient → clinic message. Lands in the clinic's dashboard inbox in Distil;
+  // the reply comes back here (and as a push if notifications are on).
+  const handleSendReply = async () => {
+    const body = replyDraft.trim();
+    if (!body || replySending || !patient?.id || patient.id === 'DEMO01') return;
+    setReplySending(true);
+    setReplyError(null);
+    try {
+      await sendPatientReply(patient.id, body);
+      setReplyDraft('');
+      await refreshInbox(patient.id);
+    } catch (err) {
+      console.warn('sendPatientReply failed:', err);
+      setReplyError("Your message didn't send. Check your connection and try again, or call the clinic.");
+    } finally {
+      setReplySending(false);
+    }
+  };
+
   // When a message is expanded (either via tap or via the ?msg=<id> deep link),
   // flip read_at server-side and update local state so the unread badge clears.
+  // Clinic-sent rows only: on the patient's own messages read_at means "the
+  // clinic handled it" — expanding your own message must not touch it (the
+  // RPC refuses patient rows anyway; see migration 20260705120000).
   useEffect(() => {
     if (!expandedInboxId) return;
     const msg = inboxMessages.find(m => m.id === expandedInboxId);
-    if (!msg || msg.read_at) return;
+    if (!msg || msg.read_at || msg.sender_role === 'patient') return;
     (async () => {
       try {
         await markMessageRead(expandedInboxId);
@@ -1216,24 +1242,62 @@ export default function PatientApp() {
           <div className="header-greeting">Inbox</div>
           <div className="header-sub">
             {inboxMessages.length === 0
-              ? "Messages from your clinic will show up here"
+              ? "Messages between you and your clinic"
               : `${inboxMessages.length} message${inboxMessages.length === 1 ? "" : "s"}${unreadCount > 0 ? ` · ${unreadCount} unread` : ""}`}
           </div>
         </div>
         <div className="section">
+          {/* Compose — patient writes back to the clinic. Plain expectations:
+              messages are read during clinic hours, urgent = call. */}
+          <div className="card" style={{marginBottom:12}}><div className="card-pad">
+            <div className="card-label">Message your clinic</div>
+            <textarea
+              value={replyDraft}
+              onChange={e => { setReplyDraft(e.target.value); setReplyError(null); }}
+              placeholder="Type your message…"
+              rows={3}
+              maxLength={4000}
+              style={{
+                width:"100%", boxSizing:"border-box", padding:"10px 12px",
+                border:"1px solid #e5e7eb", borderRadius:10, fontSize:14,
+                fontFamily:"inherit", lineHeight:1.5, resize:"vertical", color:"#0a1628",
+              }}
+            />
+            <div style={{display:"flex",alignItems:"center",gap:10,marginTop:8}}>
+              <div style={{flex:1,fontSize:11,color:"#9ca3af",lineHeight:1.45}}>
+                Your clinic reads messages during business hours and will reply here. If it's urgent, call the clinic.
+              </div>
+              <button
+                onClick={handleSendReply}
+                disabled={!replyDraft.trim() || replySending}
+                style={{
+                  flexShrink:0, border:"none", borderRadius:10, padding:"9px 18px",
+                  fontSize:13, fontWeight:700, fontFamily:"inherit",
+                  background: replyDraft.trim() && !replySending ? "#1d4ed8" : "#d1d5db",
+                  color:"white", cursor: replyDraft.trim() && !replySending ? "pointer" : "default",
+                }}
+              >{replySending ? "Sending…" : "Send"}</button>
+            </div>
+            {replyError && (
+              <div style={{marginTop:8,fontSize:12,color:"#991b1b",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"8px 12px"}}>
+                {replyError}
+              </div>
+            )}
+          </div></div>
           {inboxMessages.length === 0 ? (
             <div className="card"><div className="card-pad">
               <div style={{fontSize:32,textAlign:"center",marginBottom:8}}>📭</div>
               <div style={{fontSize:14,fontWeight:600,color:"#0a1628",textAlign:"center",marginBottom:6}}>No messages yet</div>
               <div style={{fontSize:12,color:"#6b7280",textAlign:"center",lineHeight:1.55}}>
-                When your clinic sends you a reminder, follow-up, or note, it will land here.
+                When your clinic sends you a reminder, follow-up, or note, it will land here. You can also start the conversation above.
               </div>
             </div></div>
           ) : (
             <div className="card">
               {inboxMessages.map((m, i) => {
                 const expanded = expandedInboxId === m.id;
-                const unread = !m.read_at;
+                const fromMe = m.sender_role === 'patient';
+                const unread = !fromMe && !m.read_at;
                 return (
                   <div
                     key={m.id}
@@ -1242,7 +1306,7 @@ export default function PatientApp() {
                       padding: "14px 16px",
                       borderBottom: i === inboxMessages.length - 1 ? "none" : "1px solid #f5f5f7",
                       cursor: "pointer",
-                      background: expanded ? "#f9fafb" : "transparent",
+                      background: expanded ? "#f9fafb" : fromMe ? "#f0f7ff" : "transparent",
                       transition: "background 0.15s",
                     }}
                   >
@@ -1256,11 +1320,11 @@ export default function PatientApp() {
                         <div style={{
                           fontSize: 14,
                           fontWeight: unread ? 700 : 500,
-                          color: "#0a1628",
+                          color: fromMe ? "#1e40af" : "#0a1628",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: expanded ? "normal" : "nowrap",
-                        }}>{m.title}</div>
+                        }}>{fromMe ? "You" : m.title}</div>
                         {!expanded && (
                           <div style={{
                             fontSize: 12, color: "#6b7280", marginTop: 3,

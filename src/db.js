@@ -9,6 +9,7 @@ import { supabase } from './supabase.js'
 import { CONTENT_LIBRARY, CAMPAIGN_TIMELINE } from './nurture_seed_data.js'
 import { runRecommendationEngine } from './recommendationEngine.js'
 import { LEGACY_DEVICES_DEFAULT } from './legacyDevices.js'
+import { messagePreview } from './lib/comms.js'
 
 
 // ============================================================
@@ -333,16 +334,10 @@ export async function sendPushNotification(patientId, { title, body, url = '/aid
 // PATIENT MESSAGES (Inbox)
 // ============================================================
 
-// Truncate notification preview to fit the OS notification surface — mobile
-// platforms typically display ~120 chars before truncating anyway, and we
-// want the full body to live in the inbox, not the toast.
-const PUSH_PREVIEW_MAX = 140
-
-function previewForPush(body) {
-  const trimmed = (body || '').trim().replace(/\s+/g, ' ')
-  if (trimmed.length <= PUSH_PREVIEW_MAX) return trimmed
-  return trimmed.slice(0, PUSH_PREVIEW_MAX - 1).trimEnd() + '…'
-}
+// Truncate notification preview to fit the OS notification surface — the
+// full body lives in the inbox, not the toast. Lives in lib/comms.js
+// (tested) and is shared with the dashboard inbox list.
+const previewForPush = messagePreview
 
 /**
  * Send a longer-form message to a patient. Persists to patient_messages so
@@ -427,7 +422,7 @@ export async function sendPatientMessage(patientId, {
 export async function listMessagesForPatient(patientId) {
   const { data, error } = await supabase
     .from('patient_messages')
-    .select('id, title, body, tag, sender_role, sender_staff_id, push_fired_at, push_sent_count, read_at, created_at')
+    .select('id, title, body, tag, sender_role, sender_staff_id, channel, email_from, push_fired_at, push_sent_count, read_at, created_at')
     .eq('patient_id', patientId)
     .order('created_at', { ascending: false })
   if (error) throw error
@@ -460,15 +455,113 @@ export async function markMessageRead(messageId) {
 
 /**
  * Count of unread messages for the inbox nav badge in Aided. Anon-readable.
+ * Clinic-sent rows only — on patient-sent rows read_at means "the clinic
+ * handled it", so counting those would inflate the patient's badge with
+ * their own replies.
  */
 export async function countUnreadMessages(patientId) {
   const { count, error } = await supabase
     .from('patient_messages')
     .select('id', { count: 'exact', head: true })
     .eq('patient_id', patientId)
+    .eq('sender_role', 'clinic')
     .is('read_at', null)
   if (error) throw error
   return count || 0
+}
+
+/**
+ * Patient reply from Aided. Runs through the send_patient_reply RPC
+ * (SECURITY DEFINER) — anon can't insert into patient_messages directly, and
+ * the RPC derives clinic_id from the patient row server-side. Returns the new
+ * message id.
+ */
+export async function sendPatientReply(patientId, body) {
+  if (!patientId) throw new Error('patientId required')
+  if (!body?.trim()) throw new Error('message body required')
+  const { data, error } = await supabase.rpc('send_patient_reply', {
+    p_patient_id: patientId,
+    p_body: body.trim(),
+  })
+  if (error) throw error
+  return data
+}
+
+/**
+ * Provider-side clinic inbox — messages patients sent us (Aided replies now,
+ * ingested email replies later), newest first, with the patient's name
+ * embedded for the dashboard list.
+ */
+export async function listClinicInbox(clinicId, { limit = 25 } = {}) {
+  if (!clinicId) return []
+  const { data, error } = await supabase
+    .from('patient_messages')
+    .select('id, patient_id, body, channel, email_from, read_at, created_at, patient:patients(id, first_name, last_name)')
+    .eq('clinic_id', clinicId)
+    .eq('sender_role', 'patient')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  if (error) throw error
+  return data || []
+}
+
+/**
+ * Unread patient-sent messages for the dashboard badge — "how many patients
+ * are waiting on a response". Served by the partial index from migration
+ * 20260705120000.
+ */
+export async function countClinicUnread(clinicId) {
+  if (!clinicId) return 0
+  const { count, error } = await supabase
+    .from('patient_messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('clinic_id', clinicId)
+    .eq('sender_role', 'patient')
+    .is('read_at', null)
+  if (error) throw error
+  return count || 0
+}
+
+/**
+ * Staff marks a patient-sent message handled (read_at flip). Direct UPDATE
+ * under the staff update policy — the mark_message_read RPC is deliberately
+ * restricted to clinic-sent rows so anon callers can't clear the provider
+ * queue. Idempotent: only flips rows still unread.
+ */
+export async function markMessageHandled(messageId) {
+  if (!messageId) return
+  const { error } = await supabase
+    .from('patient_messages')
+    .update({ read_at: new Date().toISOString() })
+    .eq('id', messageId)
+    .is('read_at', null)
+  if (error) throw error
+}
+
+/**
+ * Realtime: new patient-sent messages for this clinic — same pattern as
+ * subscribeToIntakes. Returns an unsubscribe function for useEffect cleanup.
+ * The INSERT payload has no patient embed, so callers should refetch via
+ * listClinicInbox rather than trusting the raw row for display.
+ */
+export function subscribeToClinicMessages(clinicId, onNewMessage) {
+  const channel = supabase
+    .channel('patient-messages-channel')
+    .on(
+      'postgres_changes',
+      {
+        event:  'INSERT',
+        schema: 'public',
+        table:  'patient_messages',
+        filter: `clinic_id=eq.${clinicId}`,
+      },
+      (payload) => {
+        if (payload.new?.sender_role === 'patient') onNewMessage(payload.new)
+      }
+    )
+    .subscribe()
+
+  return () => supabase.removeChannel(channel)
 }
 
 

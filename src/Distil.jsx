@@ -126,6 +126,7 @@ import NurturePreview from "./views/NurturePreview.jsx";
 import CampaignManager from "./views/CampaignManager.jsx";
 import LimaCharlie from "./views/LimaCharlie.jsx";
 import FollowUpQueue, { countFollowUpPatients } from "./views/FollowUpQueue.jsx";
+import CommsInbox from "./views/CommsInbox.jsx";
 import ProvidersAdmin from "./views/ProvidersAdmin.jsx";
 import AdjustmentHistory from "./views/AdjustmentHistory.jsx";
 import CloserLocationPicker from "./views/CloserLocationPicker.jsx";
@@ -3583,6 +3584,16 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             <div className="stat-label">Warranties Expiring (90d)</div>
           </div>
         </div>
+
+        {/* ── Patient Messages (two-way comms inbox) ───────────────────── */}
+        {/* Aided replies (and, later, ingested email replies) awaiting a   */}
+        {/* response. Front desk or provider replies via SendMessageModal.  */}
+        <CommsInbox
+          clinicId={clinicId}
+          staffId={staffId}
+          patients={patients}
+          onOpenPatient={(p) => { setSelectedPatient(p); setView("patient"); }}
+        />
 
         {/* ── TNS Pending Follow-ups Queue ─────────────────────────────── */}
         {tnsQueue.length > 0 && (
@@ -7135,21 +7146,33 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   {patientMessages.map(m => {
                     const expanded = expandedMessageId === m.id;
                     const pushed = !!m.push_fired_at;
-                    const readBadge = m.read_at
-                      ? { label: `Read ${fmtDate(m.read_at)}`, bg: "#dcfce7", color: "#15803d" }
-                      : pushed
-                        ? { label: "Delivered · unread",       bg: "#fef3c7", color: "#92400e" }
-                        : { label: "Inbox only · unread",      bg: "#e0e7ff", color: "#3730a3" };
+                    const fromPatient = m.sender_role === "patient";
+                    // read_at semantics flip with direction: on clinic-sent
+                    // rows it's "patient read it"; on patient-sent rows it's
+                    // "clinic handled it" (see migration 20260705120000).
+                    const readBadge = fromPatient
+                      ? (m.read_at
+                          ? { label: `Handled ${fmtDate(m.read_at)}`, bg: "#dcfce7", color: "#15803d" }
+                          : { label: "New from patient",              bg: "#dbeafe", color: "#1e40af" })
+                      : m.read_at
+                        ? { label: `Read ${fmtDate(m.read_at)}`, bg: "#dcfce7", color: "#15803d" }
+                        : pushed
+                          ? { label: "Delivered · unread",       bg: "#fef3c7", color: "#92400e" }
+                          : { label: "Inbox only · unread",      bg: "#e0e7ff", color: "#3730a3" };
                     return (
                       <div key={m.id}
                         onClick={() => setExpandedMessageId(expanded ? null : m.id)}
-                        style={{padding:"12px 14px",background:"#FAF8F2",borderRadius:8,border:"1px solid #E4E0D5",cursor:"pointer",transition:"background 0.15s"}}
+                        style={{padding:"12px 14px",background:fromPatient?"#f0f7ff":"#FAF8F2",borderRadius:8,border:`1px solid ${fromPatient?"#bfdbfe":"#E4E0D5"}`,cursor:"pointer",transition:"background 0.15s"}}
                       >
                         <div style={{display:"flex",alignItems:"center",gap:10}}>
                           <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:13,fontWeight:600,color:"#0a1628",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.title}</div>
+                            <div style={{fontSize:13,fontWeight:600,color:"#0a1628",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                              {fromPatient ? "Message from patient" : m.title}
+                            </div>
                             <div style={{fontSize:11,color:"#9ca3af",marginTop:2}}>
-                              Sent {fmtDate(m.created_at)}{pushed && m.push_sent_count > 0 ? ` · pushed to ${m.push_sent_count} device${m.push_sent_count === 1 ? "" : "s"}` : ""}
+                              {fromPatient
+                                ? `Received ${fmtDate(m.created_at)} · ${m.channel === "email" ? "email" : "Aided app"}`
+                                : <>Sent {fmtDate(m.created_at)}{pushed && m.push_sent_count > 0 ? ` · pushed to ${m.push_sent_count} device${m.push_sent_count === 1 ? "" : "s"}` : ""}</>}
                             </div>
                           </div>
                           <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:20,background:readBadge.bg,color:readBadge.color,letterSpacing:0.4,textTransform:"uppercase",whiteSpace:"nowrap"}}>
