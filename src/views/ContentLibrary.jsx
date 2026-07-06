@@ -1,7 +1,11 @@
 import { useState, useEffect } from "react";
 import { loadCampaignContent, saveCampaignContent, deleteCampaignContent } from "../db.js";
 
-const CONTENT_TYPES = ["video", "article", "push", "email", "sms"];
+// "sms" is deliberately absent: no SMS sending backend exists, so offering it
+// would create deliveries that sit pending forever. Re-add when a Twilio (or
+// similar) drain ships. Email became real in sprint PR 5 (campaign-email-drain
+// edge fn); push has worked since the notification-cron work.
+const CONTENT_TYPES = ["video", "article", "push", "email"];
 const CATEGORIES = ["welcome", "education", "maintenance", "lima_charlie", "upgrade", "humor", "lifestyle", "seasonal", "research", "news", "emotional", "tech", "video", "general"];
 const TYPE_ICONS = { video: "🎬", article: "📄", push: "🔔", email: "📧", sms: "💬" };
 const CAT_COLORS = {
