@@ -353,7 +353,7 @@ const T = {
     upgIssuesNote: "Select all that apply.",
     upgNotesQ: "Anything else about how your hearing has changed this year?",
     upgNotesPlaceholder: "Tell us anything else you'd like your provider to know…",
-    upgSigCert: "By signing below, I confirm that the information I provided today is accurate and current to the best of my knowledge.",
+    upgSigCert: "By signing below, I confirm that the information I provided today is accurate and current to the best of my knowledge. I further acknowledge that I have read and understand the Privacy Policy and the Insurance Billing acknowledgment above, and I consent to the use of my information for business purposes. I understand that a copy of these policies will be presented to me upon request.",
     upgTyBody: "Thank you — your check-in has been received. Please return this iPad to the front desk; your provider will review your answers before your visit.",
 
     upgEnv_restaurants: "Restaurants or noisy places",
@@ -605,7 +605,7 @@ const T = {
     upgIssuesNote: "Seleccione todos los que correspondan.",
     upgNotesQ: "¿Algo más sobre cómo ha cambiado su audición este año?",
     upgNotesPlaceholder: "Cuéntenos cualquier otra cosa que quiera que su proveedor sepa…",
-    upgSigCert: "Al firmar a continuación, confirmo que la información que proporcioné hoy es precisa y actual según mi leal saber y entender.",
+    upgSigCert: "Al firmar a continuación, confirmo que la información que proporcioné hoy es precisa y actual según mi leal saber y entender. Además, reconozco que he leído y entiendo la Política de Privacidad y el Reconocimiento de Seguro y Facturación anteriores, y doy mi consentimiento para el uso de mi información para fines comerciales. Entiendo que se me presentará una copia de estas políticas cuando la solicite.",
     upgTyBody: "Gracias — su revisión ha sido recibida. Por favor devuelva este iPad a la recepción; su proveedor revisará sus respuestas antes de su visita.",
 
     upgEnv_restaurants: "Restaurantes o lugares ruidosos",
@@ -841,9 +841,11 @@ const INSURANCE_PLAN_TYPES = [
 // same step renderers as the new-patient flow. Captures identity (to match the
 // existing chart), any contact/insurance changes, and the patient-facing
 // upgrade-readiness questionnaire. The structured readiness lands on the intake
-// (handleSubmit) where the provider's UpgradeWizard reads it. HIPAA is already on
-// file for returning patients, so this flow signs a short accuracy attestation
-// instead of re-walking the full privacy + insurance consent screens.
+// (handleSubmit) where the provider's UpgradeWizard reads it. Returning patients
+// re-sign the Privacy Policy + Insurance Billing acknowledgment every year at
+// their annual/upgrade visit (same scrollConsent screens as the new-patient
+// flow), so the chart carries a fresh dated signature each year — the accuracy
+// attestation on the signature screen is a supplement, not a replacement.
 const UPGRADE_STEPS = [
   { id: "welcome", type: "welcome" },
   { id: "name", type: "form", title: "upgIdentityTitle", sec: "secUpgReturning", fields: [
@@ -871,6 +873,13 @@ const UPGRADE_STEPS = [
   { id: "upg_featureGaps", type: "multiSelect", sec: "secUpgCheckin", qKey: "upgFeatureGapsQ", note: "upgFeatNote",
     ansKey: "upg_featureGaps", options: UPG_FEATURE_OPTIONS, req: false },
   { id: "upg_notes", type: "text", sec: "secUpgCheckin", qKey: "upgNotesQ", ansKey: "upg_notes", phKey: "upgNotesPlaceholder", req: false },
+  // Annual re-sign: returning patients read + agree to the Privacy Policy and
+  // Insurance Billing acknowledgment each visit, then sign. Same scrollConsent
+  // renderer + consent state keys (privacyAgreed / insuranceAgreed) as the
+  // new-patient flow, so handleSubmit's consent payload and the archived PDF
+  // pick them up with no extra wiring.
+  { id: "privacy", type: "scrollConsent", sec: "secConsent", contentKey: "privacy" },
+  { id: "insurance", type: "scrollConsent", sec: "secConsent", contentKey: "insurance" },
   { id: "signature", type: "signature", sec: "secConsent" },
   { id: "thanks", type: "thanks" },
 ];
