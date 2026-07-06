@@ -466,7 +466,9 @@ function currentAids(ctx, answers, t, lk) {
 }
 
 // ── Consent page (always its own sheet) ──────────────────────
-function consentPage(doc, tEn, signatureDataUrl, timestamp) {
+// `certText` lets the returning-patient flow swap in its own attestation
+// wording while sharing the full Privacy Policy + Insurance Billing layout.
+function consentPage(doc, tEn, signatureDataUrl, timestamp, certText) {
   doc.addPage()
   const ctx = { doc, y: M }
 
@@ -497,7 +499,7 @@ function consentPage(doc, tEn, signatureDataUrl, timestamp) {
   doc.setTextColor(...TEAL)
   doc.text('CERTIFICATION & SIGNATURE', M, ctx.y, { charSpace: 0.4 })
   ctx.y += 13
-  ctx.y = paragraph(doc, ctx.y, tEn.sigCert || '', 8, CERT)
+  ctx.y = paragraph(doc, ctx.y, certText || tEn.sigCert || '', 8, CERT)
   ctx.y += 8
 
   if (signatureDataUrl) {
@@ -559,45 +561,6 @@ function upgradeBody(ctx, answers, t, lk) {
   fieldRow(ctx, [{ label: 'Other notes', value: val(answers, t, 'upg_notes') }])
 }
 
-// Lighter consent block for returning patients — HIPAA is already on file, so
-// this records only the accuracy attestation + signature (no privacy/insurance
-// re-walk). Continues from the shared cursor so it follows the check-in body
-// (ensureSpace breaks to a new page only if it won't fit).
-function upgradeConsentBlock(ctx, tEn, signatureDataUrl, timestamp) {
-  const { doc } = ctx
-  ctx.y += 14
-  ensureSpace(ctx, 180)
-  doc.setDrawColor(...TEAL)
-  doc.setLineWidth(1.4)
-  doc.line(M, ctx.y, PAGE_W - M, ctx.y)
-  ctx.y += 15
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(9)
-  doc.setTextColor(...TEAL)
-  doc.text('CERTIFICATION & SIGNATURE', M, ctx.y, { charSpace: 0.4 })
-  ctx.y += 13
-  ctx.y = paragraph(doc, ctx.y, tEn.upgSigCert || tEn.sigCert || '', 8, CERT)
-  ctx.y += 8
-
-  if (signatureDataUrl) {
-    try {
-      const boxW = 232
-      const boxH = 66
-      doc.setDrawColor(...RULE)
-      doc.setLineWidth(0.5)
-      doc.roundedRect(M, ctx.y, boxW, boxH, 2, 2, 'S')
-      doc.addImage(signatureDataUrl, 'PNG', M + 8, ctx.y + 6, boxW - 16, boxH - 12)
-      ctx.y += boxH + 6
-    } catch {
-      /* signature image unavailable — the field row below still records the date */
-    }
-  }
-  const gap = 16
-  const w = (CW - gap) / 2
-  field(doc, M, ctx.y, w, 'Authorized Signature', ' ')
-  field(doc, M + w + gap, ctx.y, w, 'Date', fmtDate(timestamp))
-}
-
 // ============================================================
 // MAIN EXPORT
 // Returns a jsPDF doc — caller does doc.save() / doc.output('blob').
@@ -642,7 +605,10 @@ export function generateIntakePdf({
   if (intakeType === 'upgrade') {
     ctx.y = header(doc, intakeId, timestamp, { ...clinic, logoDataUrl }, 'ANNUAL / UPGRADE CHECK-IN')
     upgradeBody(ctx, answers, t, lk)
-    upgradeConsentBlock(ctx, tEn, signatureDataUrl, timestamp)
+    // Returning patients now re-sign the full Privacy Policy + Insurance Billing
+    // acknowledgment each year, so the archived PDF carries the same consent
+    // page as a new intake — with the returning-visit attestation wording.
+    consentPage(doc, tEn, signatureDataUrl, timestamp, tEn.upgSigCert || tEn.sigCert)
     return doc
   }
 
