@@ -114,6 +114,7 @@ import {
   uploadSignatureImage,
   updateStaffSignature,
   logPriceAdjustment,
+  deletePatientProfile,
 } from "./db.js";
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 import { downloadQuote } from "./generateQuote.js";
@@ -1504,6 +1505,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   const [clinic, setClinic] = useState(DEFAULT_CLINIC);
   const [clinicDraft, setClinicDraft] = useState(DEFAULT_CLINIC);
   const [clinicSaved, setClinicSaved] = useState(false);
+  // Patient profile deletion (Settings → Delete Patient Profile, admin only)
+  const [deleteSearch, setDeleteSearch] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [deleteDone, setDeleteDone] = useState("");
   const [view, setView] = useState("dashboard");
   const [patients, setPatients] = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
@@ -5867,6 +5875,25 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     setTimeout(() => setAnchorsSaved(false), 2500);
   };
 
+  const handleDeletePatient = async () => {
+    if (!deleteTarget || deleteBusy) return;
+    setDeleteBusy(true);
+    setDeleteError("");
+    try {
+      await deletePatientProfile(deleteTarget.id);
+      if (selectedPatient?.id === deleteTarget.id) setSelectedPatient(null);
+      setDeleteDone(`${deleteTarget.name}'s profile and all linked records were permanently deleted.`);
+      setDeleteTarget(null);
+      setDeleteConfirmText("");
+      setDeleteSearch("");
+      await refreshPatients();
+    } catch (e) {
+      setDeleteError(e?.message || "Delete failed — check your connection or admin permissions.");
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
 
   const renderSettings = () => (
     <>
@@ -6042,6 +6069,90 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               </>
             )}
           </div>
+
+
+          {/* Danger zone — admin-only. The delete_patient_profile RPC re-checks
+              the admin role server-side; this gate is just UI. */}
+          {checkRole(staffRole, ["admin"]) && (
+            <div className="settings-section" style={{border:"1px solid #fecaca"}}>
+              <div className="settings-title" style={{color:"#b91c1c"}}>Delete Patient Profile</div>
+              <div style={{fontSize:12,color:"#9ca3af",marginBottom:14,lineHeight:1.5}}>
+                Permanently removes a patient and every linked record — visits, audiograms,
+                device fittings, insurance, purchases, messages, campaign enrollment, and
+                archived documents. This cannot be undone.
+              </div>
+              {deleteDone && (
+                <div style={{fontSize:12,color:"#16a34a",fontWeight:600,marginBottom:12}}>✓ {deleteDone}</div>
+              )}
+              {!deleteTarget ? (
+                <>
+                  <div className="settings-field">
+                    <label>Find patient</label>
+                    <input value={deleteSearch}
+                      onChange={e=>{ setDeleteSearch(e.target.value); setDeleteDone(""); }}
+                      placeholder="Search this clinic by patient name…" />
+                  </div>
+                  {deleteSearch.trim().length >= 2 && (() => {
+                    const term = deleteSearch.trim().toLowerCase();
+                    const matches = patients.filter(p => (p.name || "").toLowerCase().includes(term)).slice(0, 6);
+                    return matches.length === 0 ? (
+                      <div style={{fontSize:12,color:"#9ca3af",padding:"4px 2px"}}>No matching patients in this clinic.</div>
+                    ) : (
+                      <div style={{border:"1px solid #E4E0D5",borderRadius:10,overflow:"hidden"}}>
+                        {matches.map(p => (
+                          <div key={p.id}
+                            onClick={()=>{ setDeleteTarget(p); setDeleteConfirmText(""); setDeleteError(""); setDeleteDone(""); }}
+                            style={{padding:"10px 14px",cursor:"pointer",borderBottom:"1px solid #F0EDE4",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                            <div>
+                              <div style={{fontSize:13,fontWeight:600,color:"#0a1628"}}>{p.name}</div>
+                              <div style={{fontSize:11,color:"#9ca3af"}}>{[p.dob && `DOB ${p.dob}`, p.phone].filter(Boolean).join(" · ") || "no contact info"}</div>
+                            </div>
+                            <span style={{fontSize:11,color:"#b91c1c",fontWeight:700}}>Select</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </>
+              ) : (
+                <>
+                  <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:10,padding:"12px 14px",marginBottom:14}}>
+                    <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>{deleteTarget.name}</div>
+                    <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>
+                      {[deleteTarget.dob && `DOB ${deleteTarget.dob}`, deleteTarget.phone, deleteTarget.patientStatus].filter(Boolean).join(" · ")}
+                    </div>
+                  </div>
+                  <div className="settings-field">
+                    <label>Type the patient's full name to confirm</label>
+                    <input value={deleteConfirmText}
+                      onChange={e=>setDeleteConfirmText(e.target.value)}
+                      placeholder={deleteTarget.name} autoFocus />
+                  </div>
+                  {deleteError && (
+                    <div style={{fontSize:12,color:"#b91c1c",fontWeight:600,marginBottom:10}}>{deleteError}</div>
+                  )}
+                  <div style={{display:"flex",gap:10}}>
+                    <button className="btn-ghost" disabled={deleteBusy}
+                      onClick={()=>{ setDeleteTarget(null); setDeleteConfirmText(""); setDeleteError(""); }}>
+                      Cancel
+                    </button>
+                    <button
+                      disabled={deleteBusy || deleteConfirmText.trim().toLowerCase() !== (deleteTarget.name || "").trim().toLowerCase()}
+                      onClick={handleDeletePatient}
+                      style={{
+                        background: deleteBusy ? "#fca5a5" : "#dc2626", color:"white", border:"none",
+                        borderRadius:8, padding:"10px 18px", fontSize:13, fontWeight:700,
+                        fontFamily:"'Sora',sans-serif",
+                        cursor: deleteBusy ? "wait" : "pointer",
+                        opacity: deleteConfirmText.trim().toLowerCase() !== (deleteTarget.name || "").trim().toLowerCase() ? 0.45 : 1,
+                      }}>
+                      {deleteBusy ? "Deleting…" : "Permanently Delete"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
 
           <div className="settings-section">

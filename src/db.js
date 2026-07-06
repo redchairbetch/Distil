@@ -789,6 +789,32 @@ export async function searchPatientsGlobal(term) {
   return (data || []).map(assemblePatient)
 }
 
+// Permanently delete a patient profile and every dependent record. Admin only
+// — the delete_patient_profile RPC re-checks staff.role server-side, clears
+// the child tables whose FKs don't cascade, and deletes the patient row (all
+// other children cascade; see the 20260706120000 migration). Storage files
+// for the patient's archived documents are removed first, while the
+// patient_documents rows holding their paths still exist. Storage cleanup is
+// best-effort: a failure there logs and continues, since the DB rows are the
+// access path and they're gone either way. Throws on RPC error.
+export async function deletePatientProfile(patientId) {
+  if (!patientId) throw new Error('deletePatientProfile: patientId required')
+
+  try {
+    const { data: docs } = await supabase
+      .from('patient_documents')
+      .select('storage_path')
+      .eq('patient_id', patientId)
+    const paths = (docs || []).map(d => d.storage_path).filter(Boolean)
+    if (paths.length) await supabase.storage.from(DOCUMENTS_BUCKET).remove(paths)
+  } catch (e) {
+    console.warn('deletePatientProfile storage cleanup:', e)
+  }
+
+  const { error } = await supabase.rpc('delete_patient_profile', { p_patient_id: patientId })
+  if (error) { console.error('deletePatientProfile:', error); throw error }
+}
+
 // Save a new patient — decomposes the flat UI object into multiple tables.
 //
 // Failure contract: the core patient row either saves or this throws a plain
