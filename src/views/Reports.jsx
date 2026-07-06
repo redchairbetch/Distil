@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { loadAppointmentOutcomes, loadFittingTypesForVisits, loadPriceAdjustmentHistory } from "../db.js";
-import { computeReportStats, computeAdjustmentStats } from "../lib/reportStats.js";
+import { computeReportStats, computeAdjustmentStats, computeFollowUpStats } from "../lib/reportStats.js";
+import { BUCKETS, classify } from "./FollowUpQueue.jsx";
 
 // Reports v1 (sprint PR 4). Reads what the app already records — every metric
 // here derives from appointment_outcomes payer SNAPSHOTS (never the live
@@ -45,6 +46,9 @@ const REASON_LABELS = {
 const CONTEXT_LABELS = { new_fit: "New fittings", upgrade: "Upgrades", care_plan_only: "Care-plan only" };
 const PAYER_LABELS = { tpa: "TPA", other_insurance: "Other insurance", private_pay: "Private pay" };
 const CARE_PLAN_LABELS = { complete: "Complete Care+", punch: "MHC Punch Card", paygo: "Standard Billing" };
+
+const BUCKET_LABELS = Object.fromEntries(BUCKETS.map(b => [b.key, b.label]));
+const BUCKET_COLORS = Object.fromEntries(BUCKETS.map(b => [b.key, b.color]));
 
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const pct = (r) => (r == null ? "—" : `${Math.round(r * 100)}%`);
@@ -91,7 +95,7 @@ function Section({ title, blurb, children }) {
   );
 }
 
-export default function Reports({ clinicId, clinicName, staffId }) {
+export default function Reports({ clinicId, clinicName, staffId, patients = [] }) {
   const [range, setRange] = useState("month");
   const [scope, setScope] = useState("clinic"); // 'clinic' | 'org'
   const [outcomes, setOutcomes] = useState(null);
@@ -147,6 +151,11 @@ export default function Reports({ clinicId, clinicName, staffId }) {
       : adjustments;
     return computeAdjustmentStats(inRange);
   }, [adjustments, range]);
+
+  const followUp = useMemo(
+    () => computeFollowUpStats(patients, outcomes || [], { from: rangeToFrom(range), classify }),
+    [patients, outcomes, range]
+  );
 
   const tpa = stats?.carePlan.byPayer.tpa;
   const seg = (active) => ({
@@ -244,6 +253,16 @@ export default function Reports({ clinicId, clinicName, staffId }) {
 
             <Section title="Tier mix on commits" blurb="From the payer snapshot at close.">
               <BarList counts={stats.revenue.tierMix} total={Object.values(stats.revenue.tierMix).reduce((a, b) => a + b, 0)} />
+            </Section>
+
+            <Section title="Follow-up queue & conversions"
+              blurb="Queue counts are the current snapshot; conversions count outcomes logged after a contact in this range.">
+              <div style={{ display: "flex", gap: 20, fontSize: 13, color: "#374151", marginBottom: 14, flexWrap: "wrap" }}>
+                <div><strong style={{ fontSize: 18 }}>{followUp.contacted}</strong> contacted</div>
+                <div><strong style={{ fontSize: 18 }}>{followUp.withOutcome}</strong> reached an outcome</div>
+                <div><strong style={{ fontSize: 18, color: "#0d9488" }}>{followUp.committed}</strong> committed</div>
+              </div>
+              <BarList counts={followUp.buckets} labels={BUCKET_LABELS} colors={BUCKET_COLORS} />
             </Section>
 
             <Section title="Your price adjustments"

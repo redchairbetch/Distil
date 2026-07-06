@@ -118,6 +118,41 @@ export function computeReportStats(outcomes = [], fittingTypeByVisit = {}) {
   };
 }
 
+// Follow-up loop: is contacting queue patients actually converting? Buckets
+// are counted with the caller-supplied classify fn (FollowUpQueue's, so the
+// definition of "needs follow-up" lives in exactly one place). Conversion:
+// a patient contacted in range whose chart logged an appointment outcome ON
+// OR AFTER the contact stamp — committed device = the win condition.
+export function computeFollowUpStats(patients = [], outcomes = [], { from = null, classify = null } = {}) {
+  const buckets = {};
+  if (classify) {
+    for (const p of patients) {
+      const primary = classify(p)?.primary;
+      if (primary) tally(buckets, primary);
+    }
+  }
+
+  const outcomesByPatient = {};
+  for (const o of outcomes) {
+    if (o.patient_id) (outcomesByPatient[o.patient_id] ||= []).push(o);
+  }
+
+  let contacted = 0, withOutcome = 0, committed = 0;
+  for (const p of patients) {
+    const at = p.followUpContactedAt ? new Date(p.followUpContactedAt) : null;
+    if (!at || Number.isNaN(at.getTime())) continue;
+    if (from && at < from) continue;
+    contacted++;
+    const after = (outcomesByPatient[p.id] || []).filter(o => new Date(o.closed_at) >= at);
+    if (after.length) {
+      withOutcome++;
+      if (after.some(o => o.device_disposition === "committed")) committed++;
+    }
+  }
+
+  return { buckets, contacted, withOutcome, committed };
+}
+
 // Price-adjustment summary from price_adjustment_log rows. delta_amount /
 // delta_percent are GENERATED columns; fall back to computing from the raw
 // prices in case older rows predate them.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeReportStats, computeAdjustmentStats } from "./reportStats.js";
+import { computeReportStats, computeAdjustmentStats, computeFollowUpStats } from "./reportStats.js";
 
 // Outcome-row factory in the appointment_outcomes DB shape.
 function outcome(over = {}) {
@@ -100,6 +100,41 @@ describe("computeReportStats — revenue & tier mix", () => {
     ]);
     expect(stats.revenue.tierMix).toEqual({ Premium: 1, Advanced: 1, "(no tier)": 1 });
     expect(stats.revenue.payerMix).toEqual({ tpa: 2, private_pay: 1 });
+  });
+});
+
+describe("computeFollowUpStats", () => {
+  // Stub classify: bucket comes straight off the patient fixture.
+  const classify = (p) => ({ primary: p.flag || null });
+
+  it("counts buckets via the supplied classify and conversions after contact", () => {
+    const patients = [
+      { id: "p1", flag: "warranty_expiring", followUpContactedAt: "2026-07-01T10:00:00Z" },
+      { id: "p2", flag: "stale_visit", followUpContactedAt: "2026-07-02T10:00:00Z" },
+      { id: "p3", flag: null, followUpContactedAt: null },              // never contacted
+      { id: "p4", flag: "stale_visit", followUpContactedAt: "2026-05-01T10:00:00Z" }, // contacted before range
+    ];
+    const outcomes = [
+      { patient_id: "p1", closed_at: "2026-07-03T10:00:00Z", device_disposition: "committed" }, // after contact → converted
+      { patient_id: "p2", closed_at: "2026-06-01T10:00:00Z", device_disposition: "committed" }, // BEFORE contact → doesn't count
+      { patient_id: "p4", closed_at: "2026-07-01T10:00:00Z", device_disposition: "declined" },
+    ];
+    const stats = computeFollowUpStats(patients, outcomes, { from: new Date("2026-06-15"), classify });
+    expect(stats.buckets).toEqual({ warranty_expiring: 1, stale_visit: 2 });
+    expect(stats.contacted).toBe(2);       // p1 + p2 (p4 outside range)
+    expect(stats.withOutcome).toBe(1);     // only p1's outcome follows its contact
+    expect(stats.committed).toBe(1);
+  });
+
+  it("counts non-committed outcomes as contact-resolved but not won", () => {
+    const patients = [{ id: "p1", followUpContactedAt: "2026-07-01T00:00:00Z" }];
+    const outcomes = [{ patient_id: "p1", closed_at: "2026-07-02T00:00:00Z", device_disposition: "declined" }];
+    const stats = computeFollowUpStats(patients, outcomes, {});
+    expect(stats).toMatchObject({ contacted: 1, withOutcome: 1, committed: 0 });
+  });
+
+  it("handles empty inputs", () => {
+    expect(computeFollowUpStats([], [], {})).toEqual({ buckets: {}, contacted: 0, withOutcome: 0, committed: 0 });
   });
 });
 
