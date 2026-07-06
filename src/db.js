@@ -1467,6 +1467,44 @@ export async function saveAppointmentOutcome(o) {
   return data
 }
 
+// Outcomes for the Reports view. clinicId null = org-wide (the RLS read
+// policy allows authenticated org-wide SELECT, mirroring All Locations
+// search); from/to filter on closed_at. Throws on error — Reports shows
+// failures loudly rather than rendering a silently-empty dashboard.
+export async function loadAppointmentOutcomes({ clinicId = null, from = null, to = null } = {}) {
+  let q = supabase
+    .from('appointment_outcomes')
+    .select('*')
+    .order('closed_at', { ascending: false })
+    .limit(5000)
+  if (clinicId) q = q.eq('clinic_id', clinicId)
+  if (from) q = q.gte('closed_at', from)
+  if (to) q = q.lte('closed_at', to)
+  const { data, error } = await q
+  if (error) throw error
+  return data || []
+}
+
+// fitting_type per visit for the outcomes' linked visits, so committed
+// revenue can count real fitted ears instead of assuming bilateral.
+// Returns { [visit_id]: fitting_type }. Best-effort: an error here only
+// degrades the revenue figure to the bilateral assumption, so it logs
+// and returns {} rather than failing the whole report.
+export async function loadFittingTypesForVisits(visitIds = []) {
+  const ids = visitIds.filter(Boolean)
+  if (!ids.length) return {}
+  const { data, error } = await supabase
+    .from('device_fittings')
+    .select('visit_id, fitting_type')
+    .in('visit_id', ids)
+  if (error) { console.error('loadFittingTypesForVisits:', error); return {} }
+  const map = {}
+  for (const row of data || []) {
+    if (row.visit_id) map[row.visit_id] = row.fitting_type
+  }
+  return map
+}
+
 // Post-close seam: everything that should eventually fire after a disposition
 // is logged (take-home patient summary email, nurture segment refresh, staff
 // task for insurance_benefit_issue) hangs off this single hook. Deliberately

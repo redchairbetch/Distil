@@ -8,7 +8,9 @@ import { markFollowUpContacted, clearFollowUp } from "../db.js";
 const CONTACTED_COOLDOWN_DAYS = 14;
 
 // Priority order is also display order. Higher-urgency buckets sort first.
-const BUCKETS = [
+// Exported (with classify) so Reports counts the queue with the SAME rules
+// this view renders — one source of truth for what "needs follow-up" means.
+export const BUCKETS = [
   {
     key: "warranty_expiring",
     label: "Warranty expiring (< 90 days)",
@@ -67,7 +69,7 @@ function fmtShort(iso) {
 // Returns the set of bucket keys this patient matches, plus the primary
 // bucket (first match in BUCKETS order). Patients with a recent contacted
 // stamp are silenced and return [].
-function classify(p) {
+export function classify(p) {
   if (p.followUpStatus === "contacted" && p.followUpContactedAt) {
     const since = daysSince(p.followUpContactedAt);
     if (since != null && since < CONTACTED_COOLDOWN_DAYS) return { matched: [], primary: null };
