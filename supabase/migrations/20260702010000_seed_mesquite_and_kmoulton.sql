@@ -1,3 +1,9 @@
+-- Distil — hearing clinic patient management & intake system
+-- Copyright (c) 2026 Kurt Mooney. All rights reserved.
+-- PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, or distribution is
+-- prohibited without the prior written permission of the copyright holder.
+-- See the LICENSE file at the repository root for full terms.
+
 -- Seed: kmoulton staff record (login existed with no staff row → saw zero
 -- patients), St. George + Mesquite assignments for Kurt & kmoulton, Mesquite
 -- clinic-scoped catalog provisioning, and the duplicate St. George directory

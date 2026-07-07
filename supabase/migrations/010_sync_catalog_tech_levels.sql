@@ -1,3 +1,9 @@
+-- Distil — hearing clinic patient management & intake system
+-- Copyright (c) 2026 Kurt Mooney. All rights reserved.
+-- PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, or distribution is
+-- prohibited without the prior written permission of the copyright holder.
+-- See the LICENSE file at the repository root for full terms.
+
 -- 010_sync_catalog_tech_levels.sql
 -- Backlog #19 — catalog tech-level completeness. Migration 008 added the
 -- 2IX/1IX product_catalog_tier (pricing) rows for the Signia IX families but

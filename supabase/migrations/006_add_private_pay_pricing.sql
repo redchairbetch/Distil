@@ -1,3 +1,9 @@
+-- Distil — hearing clinic patient management & intake system
+-- Copyright (c) 2026 Kurt Mooney. All rights reserved.
+-- PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, or distribution is
+-- prohibited without the prior written permission of the copyright holder.
+-- See the LICENSE file at the repository root for full terms.
+
 -- 006_add_private_pay_pricing.sql
 -- Phase 2 of the private-pay quote/PA backlog item: persist the patient's
 -- chosen tier + per-aid price on the patient record so re-generated quotes

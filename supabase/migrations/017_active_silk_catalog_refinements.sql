@@ -1,3 +1,9 @@
+-- Distil — hearing clinic patient management & intake system
+-- Copyright (c) 2026 Kurt Mooney. All rights reserved.
+-- PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, or distribution is
+-- prohibited without the prior written permission of the copyright holder.
+-- See the LICENSE file at the repository root for full terms.
+
 -- 017_active_silk_catalog_refinements.sql
 -- Catalog refinements for the Signia instant-fit (IF) families surfaced during
 -- PR #94 testing. Applied to the live DB via Supabase MCP (migration

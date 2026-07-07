@@ -1,3 +1,9 @@
+-- Distil — hearing clinic patient management & intake system
+-- Copyright (c) 2026 Kurt Mooney. All rights reserved.
+-- PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, or distribution is
+-- prohibited without the prior written permission of the copyright holder.
+-- See the LICENSE file at the repository root for full terms.
+
 -- Multi-clinic staff support: staff_clinics junction, active clinic
 -- switching, admin management policies, org-wide authenticated reads.
 -- (Applied to prod 2026-07-02 via MCP as multi_clinic_staff +

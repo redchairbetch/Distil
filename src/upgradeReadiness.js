@@ -1,3 +1,15 @@
+/*!
+ * Distil — hearing clinic patient management & intake system
+ *
+ * Copyright (c) 2026 Kurt Mooney. All rights reserved.
+ *
+ * PROPRIETARY AND CONFIDENTIAL. This source code is the exclusive property of
+ * the copyright holder. Unauthorized copying, distribution, modification, or
+ * use of this file, in whole or in part, via any medium, is strictly
+ * prohibited without the prior written permission of the copyright holder.
+ * See the LICENSE file at the repository root for full terms.
+ */
+
 // Upgrade-readiness scoring (backlog #23, provider-administered). Pure functions
 // so the model is unit-checkable and reusable by the reprogram-vs-upgrade engine
 // (PR3). The readiness band balances what the patient REPORTS (subjective) against

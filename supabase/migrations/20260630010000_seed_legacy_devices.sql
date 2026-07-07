@@ -1,3 +1,9 @@
+-- Distil — hearing clinic patient management & intake system
+-- Copyright (c) 2026 Kurt Mooney. All rights reserved.
+-- PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, or distribution is
+-- prohibited without the prior written permission of the copyright holder.
+-- See the LICENSE file at the repository root for full terms.
+
 -- Seed the legacy_device reference with 17 common trade-in / competitor
 -- devices (Costco KS7-KS10, Phonak Marvel/Paradise/Lumity, Signia Nx/AX, Oticon
 -- Opn/More, ReSound ONE/Nexia, Starkey Livio/Genesis, Widex Moment/Sheer).

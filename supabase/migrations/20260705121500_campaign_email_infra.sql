@@ -1,3 +1,9 @@
+-- Distil — hearing clinic patient management & intake system
+-- Copyright (c) 2026 Kurt Mooney. All rights reserved.
+-- PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, or distribution is
+-- prohibited without the prior written permission of the copyright holder.
+-- See the LICENSE file at the repository root for full terms.
+
 -- Campaign email delivery infrastructure (sprint PR 5).
 -- campaign_deliveries rows with delivery_channel='email' have sat pending
 -- forever — nothing drained them. The campaign-email-drain edge function

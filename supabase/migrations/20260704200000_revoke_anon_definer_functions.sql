@@ -1,3 +1,9 @@
+-- Distil — hearing clinic patient management & intake system
+-- Copyright (c) 2026 Kurt Mooney. All rights reserved.
+-- PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, or distribution is
+-- prohibited without the prior written permission of the copyright holder.
+-- See the LICENSE file at the repository root for full terms.
+
 -- get_cron_auth_secret() is SECURITY DEFINER and returns the Vault secret
 -- that authenticates the pg_cron → edge-function calls (notification-cron,
 -- intake-orphan-sweep). Migration 013 revoked EXECUTE from PUBLIC, but

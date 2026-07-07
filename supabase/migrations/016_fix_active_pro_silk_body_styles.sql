@@ -1,3 +1,9 @@
+-- Distil — hearing clinic patient management & intake system
+-- Copyright (c) 2026 Kurt Mooney. All rights reserved.
+-- PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, or distribution is
+-- prohibited without the prior written permission of the copyright holder.
+-- See the LICENSE file at the repository root for full terms.
+
 -- 016_fix_active_pro_silk_body_styles.sql
 -- Backlog #29: Active Pro IX is instant-fit, not RIC. Silk Charge&Go IX is
 -- organizationally instant-fit too. Flip product_catalog.styles to ['if'] for

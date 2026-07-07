@@ -1,3 +1,9 @@
+-- Distil — hearing clinic patient management & intake system
+-- Copyright (c) 2026 Kurt Mooney. All rights reserved.
+-- PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, or distribution is
+-- prohibited without the prior written permission of the copyright holder.
+-- See the LICENSE file at the repository root for full terms.
+
 -- READY TO APPLY: Run in the Supabase SQL editor or via CLI migration.
 -- Migration: 20260705120000_two_way_patient_messages
 -- Created: 2026-07-05

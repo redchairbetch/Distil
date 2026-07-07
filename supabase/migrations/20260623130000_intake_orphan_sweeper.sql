@@ -1,3 +1,9 @@
+-- Distil — hearing clinic patient management & intake system
+-- Copyright (c) 2026 Kurt Mooney. All rights reserved.
+-- PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, or distribution is
+-- prohibited without the prior written permission of the copyright holder.
+-- See the LICENSE file at the repository root for full terms.
+
 -- Backlog #15: orphan storage sweeper for failed kiosk-intake archives.
 -- uploadPatientDocument's anon kiosk path can't delete its own storage object
 -- when the patient_documents insert fails (anon has no storage DELETE policy),

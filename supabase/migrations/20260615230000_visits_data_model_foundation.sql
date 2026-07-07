@@ -1,3 +1,9 @@
+-- Distil — hearing clinic patient management & intake system
+-- Copyright (c) 2026 Kurt Mooney. All rights reserved.
+-- PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, or distribution is
+-- prohibited without the prior written permission of the copyright holder.
+-- See the LICENSE file at the repository root for full terms.
+
 -- Visits: one row per clinical encounter. Establishes longitudinal history so
 -- the upgrade pathway can diff a baseline audiogram against a new visit and
 -- anchor the patient on their multi-year hearing journey. Prior to this, every
