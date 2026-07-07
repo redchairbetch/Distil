@@ -5078,7 +5078,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               // the acknowledgement-form flag and bills standard retail.
               const isDeviceDrivenTpa = form.tpa === 'UHCH' || form.tpa === 'Nations';
               const tpaName = form.tpa === 'Nations' ? 'Nations Hearing' : 'UHCH';
-              if (isDeviceDrivenTpa && anyConfigured && form.tierPrice != null && !pricingRevealData) {
+              // Insurance selected but no plan chosen → the device is priced at
+              // standard retail (deriveEarPrice 'insurance-standard'); show that
+              // flat price (no plan copay/savings to anchor) rather than a blank
+              // screen. Gate on a resolved ear price, not form.tierPrice, which
+              // the wizard never sets for a no-plan patient.
+              const isInsuranceNoPlan = form.payType === 'insurance' && !isDeviceDrivenTpa && !selectedInsurancePlan;
+              const anyEarPriced = (leftEarPrice?.price != null) || (rightEarPrice?.price != null);
+              if ((isDeviceDrivenTpa || isInsuranceNoPlan) && anyConfigured && anyEarPriced && !pricingRevealData) {
                 const fmt2 = n => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 const ovr = form.priceOverridePerAid;
                 const lp = (ovr != null && leftEarPrice?.source  !== 'cros') ? ovr : (leftEarPrice?.price  ?? null);
@@ -5094,7 +5101,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       </div>
                     )}
                     <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}}>
-                      {offPlan ? "Standard Retail · Off-Plan" : "Your Investment Today"}
+                      {offPlan ? "Standard Retail · Off-Plan" : isInsuranceNoPlan ? "Standard Retail" : "Your Investment Today"}
                     </div>
                     <div style={{display:"flex",alignItems:"baseline",gap:8}}>
                       <span style={{fontSize:28,fontWeight:800,color:"#0a1628"}}>${fmt2(investment)}</span>
@@ -5102,9 +5109,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     </div>
                     {!offPlan && (
                       <div style={{fontSize:12,color:"#6b7280",marginTop:6}}>
-                        {form.tpa === 'Nations'
-                          ? `${form.tier || 'Nations'} tier · Nations Hearing flat-rate copay.`
-                          : 'Relate value pricing under UHCH — no separate retail comparison applies.'}
+                        {isInsuranceNoPlan
+                          ? 'No insurance plan selected — showing standard retail. Add the plan to apply benefits.'
+                          : form.tpa === 'Nations'
+                            ? `${form.tier || 'Nations'} tier · Nations Hearing flat-rate copay.`
+                            : 'Relate value pricing under UHCH — no separate retail comparison applies.'}
                       </div>
                     )}
                   </div>
@@ -9111,6 +9120,16 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               ? STEPS.map((s, i) => ({ s, i })).filter(({ i }) => i !== 6)
               : STEPS.map((s, i) => ({ s, i }));
             const visiblePos = visibleSteps.findIndex(({ i }) => i === step);
+            // Click a completed step in the header to jump back to it (forward
+            // navigation stays gated by Next / canProceed). Upgrade purchases
+            // start mid-flow on an established patient, so the earlier new-patient
+            // steps (≤4) aren't jump targets — mirror the Back button and bail to
+            // the profile rather than entering them.
+            const jumpToStep = (target) => {
+              if (target >= step) return;
+              if (wizardMode === "upgrade" && target <= 4) { setView("patient"); return; }
+              setStep(target);
+            };
             return (
             <>
               <div className="topbar">
@@ -9123,12 +9142,18 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               <div className="content">
                 <div className="wizard-wrap">
                   <div className="wizard-steps">
-                    {visibleSteps.map(({ s, i }, pos)=>(
-                      <div key={s} className={`wizard-step ${pos<visiblePos?"done":""}`}>
+                    {visibleSteps.map(({ s, i }, pos)=>{
+                      const clickable = pos < visiblePos && !(wizardMode === "upgrade" && i <= 4);
+                      return (
+                      <div key={s} className={`wizard-step ${pos<visiblePos?"done":""}`}
+                        onClick={clickable ? () => jumpToStep(i) : undefined}
+                        style={clickable ? {cursor:"pointer"} : undefined}
+                        title={clickable ? `Go back to ${s}` : undefined}>
                         <div className={`step-dot ${i===step?"active":pos<visiblePos?"done":""}`}>{pos<visiblePos?"✓":pos+1}</div>
                         <div className={`step-name ${i===step?"active":""}`}>{s}</div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                   {renderStep()}
                   <PrompterSidebar
