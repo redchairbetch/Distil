@@ -20,6 +20,7 @@ const PATHS = {
   percent: <><path d="M18.5 5.5 5.5 18.5"/><circle cx="7.8" cy="7.8" r="2.3"/><circle cx="16.2" cy="16.2" r="2.3"/></>,
   compare: <><rect x="3" y="4.5" width="8" height="15" rx="1.8"/><rect x="13" y="4.5" width="8" height="15" rx="1.8"/><path d="M5.5 15h3M15.5 10.5h3"/></>,
   pin: <><path d="M12 21.5S5.5 15.8 5.5 10.8a6.5 6.5 0 0 1 13 0c0 5-6.5 10.7-6.5 10.7Z"/><circle cx="12" cy="10.6" r="2.3"/></>,
+  archive: <><rect x="3.5" y="4" width="17" height="4" rx="1"/><path d="M5 8v10.5a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5V8"/><path d="M9.6 12h4.8"/></>,
 };
 
 export default function Icon({ name, size = 18, strokeWidth = 1.75, style }) {

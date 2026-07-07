@@ -47,6 +47,9 @@ import TeamAdmin from "./views/TeamAdmin.jsx";
 import {
   loadAllPatients,
   searchPatientsGlobal,
+  loadArchivedPatients,
+  archivePatient,
+  unarchivePatient,
   setActiveClinic,
   savePatient,
   loadPunch,
@@ -1521,6 +1524,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [deleteDone, setDeleteDone] = useState("");
+  // Patient archive (Archive nav view + patient-header Archive/Restore).
+  const [archivedPatients, setArchivedPatients] = useState([]);
+  const [archivedLoading, setArchivedLoading] = useState(false);
+  const [archivedSearch, setArchivedSearch] = useState("");
+  const [archiveBusy, setArchiveBusy] = useState(false);
   const [view, setView] = useState("dashboard");
   const [patients, setPatients] = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
@@ -2107,6 +2115,57 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   const refreshPatients = async () => {
     const p = await loadAllPatients(clinicId);
     setPatients(p);
+  };
+
+  // ── Patient archive ───────────────────────────────────────────────────────
+  const refreshArchived = async () => {
+    setArchivedLoading(true);
+    try {
+      setArchivedPatients(await loadArchivedPatients(clinicId));
+    } finally {
+      setArchivedLoading(false);
+    }
+  };
+  // Lazy-load the archived roster the first time the Archive view is opened.
+  useEffect(() => {
+    if (view === "archive" && clinicId) refreshArchived();
+  }, [view, clinicId]);
+
+  // Archive from the patient detail header. Reversible, so a single confirm —
+  // no type-the-name gate like the delete flow. Drops the patient out of the
+  // roster and returns to the dashboard.
+  const handleArchivePatient = async (p) => {
+    if (!p || archiveBusy) return;
+    if (!window.confirm(`Archive ${p.name}? They'll be removed from the patient list and search. You can restore them anytime from the Archive.`)) return;
+    setArchiveBusy(true);
+    try {
+      await archivePatient(p.id, staffId);
+      setSelectedPatient(null);
+      setView("dashboard");
+      await refreshPatients();
+    } catch (e) {
+      console.error("archive patient:", e);
+      alert("Could not archive this patient: " + (e?.message || e));
+    } finally {
+      setArchiveBusy(false);
+    }
+  };
+
+  // Restore an archived patient back into the active roster.
+  const handleRestorePatient = async (p) => {
+    if (!p || archiveBusy) return;
+    setArchiveBusy(true);
+    try {
+      await unarchivePatient(p.id);
+      await Promise.all([refreshPatients(), refreshArchived()]);
+      // If we're viewing the restored chart, reflect the cleared archive stamp.
+      setSelectedPatient(cur => cur?.id === p.id ? { ...cur, archivedAt: null, archivedBy: null } : cur);
+    } catch (e) {
+      console.error("restore patient:", e);
+      alert("Could not restore this patient: " + (e?.message || e));
+    } finally {
+      setArchiveBusy(false);
+    }
   };
 
   // ── Clinic switching (Sycle-style: app operates on one clinic at a time) ──
@@ -3574,6 +3633,109 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     return true;
   });
 
+
+  // ── ARCHIVE VIEW ──────────────────────────────────────────────────────────
+  // Searchable list of archived (inactive) patients for the active clinic, each
+  // restorable back into the roster. Archived patients are excluded from the
+  // dashboard + global search, so this is the only place they surface.
+  const archivedFiltered = (() => {
+    const t = archivedSearch.trim().toLowerCase();
+    if (!t) return archivedPatients;
+    return archivedPatients.filter(p =>
+      p.name?.toLowerCase().includes(t) ||
+      p.phone?.toLowerCase().includes(t) ||
+      p.devices?.manufacturer?.toLowerCase().includes(t)
+    );
+  })();
+
+  const renderArchive = () => (
+    <>
+      <div className="topbar">
+        <div>
+          <div className="topbar-title">Archive</div>
+          <div className="topbar-sub">{clinic.name} · {archivedPatients.length} archived patient{archivedPatients.length === 1 ? "" : "s"}</div>
+        </div>
+      </div>
+      <div className="content">
+        <div className="table-card">
+          <div className="table-header">
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <div className="table-title">Archived Patients</div>
+              <span style={{fontSize:11,color:"#9ca3af"}}>Inactive — hidden from the patient list &amp; search</span>
+            </div>
+            <input className="search-input" placeholder="Search archive…" value={archivedSearch} onChange={e => setArchivedSearch(e.target.value)} />
+          </div>
+          {archivedLoading ? (
+            <div className="empty-state">
+              <div className="empty-icon"><Icon name="archive" size={40}/></div>
+              <div className="empty-title">Loading archive…</div>
+            </div>
+          ) : archivedFiltered.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon"><Icon name="archive" size={40}/></div>
+              {archivedPatients.length === 0 ? (
+                <>
+                  <div className="empty-title">Nothing archived</div>
+                  <div className="empty-sub">Archive a patient from their profile to move them here.</div>
+                </>
+              ) : (
+                <>
+                  <div className="empty-title">No matches</div>
+                  <div className="empty-sub">No archived patient matches “{archivedSearch.trim()}”.</div>
+                </>
+              )}
+            </div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Patient</th><th>Device</th><th>Coverage</th><th>Status</th><th>Archived</th><th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {archivedFiltered.map(p => {
+                  const isTns = p.patientStatus === "tns";
+                  return (
+                    <tr key={p.id} onClick={() => { setSelectedPatient(p); setView("patient"); }} style={{cursor:"pointer"}}>
+                      <td>
+                        <div className="patient-name">{p.name}</div>
+                        <div style={{fontSize:11,color:"#9ca3af"}}>{p.phone}</div>
+                      </td>
+                      <td>
+                        <div style={{fontWeight:500}}>{p.devices?.manufacturer} {p.devices?.family||p.devices?.model}</div>
+                        <div style={{fontSize:11,color:"#9ca3af"}}>{p.devices?.techLevel||"—"}</div>
+                      </td>
+                      <td>
+                        <span className={`badge ${p.payType === "insurance" ? "insurance" : "private"}`}>
+                          {p.payType === "insurance" ? p.insurance?.carrier || "Insurance" : "Private Pay"}
+                        </span>
+                      </td>
+                      <td>
+                        <span style={{background:isTns?"#fef3c7":"#F0EDE3",color:isTns?"#92400e":"#6b7280",borderRadius:99,padding:"1px 9px",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:0.4}}>
+                          {p.patientStatus}
+                        </span>
+                      </td>
+                      <td style={{fontSize:12,color:"#6b7280"}}>{p.archivedAt ? fmtDate(p.archivedAt) : "—"}</td>
+                      <td>
+                        <button
+                          className="btn-ghost"
+                          style={{fontSize:12,padding:"6px 14px",color:"#0f766e",fontWeight:600}}
+                          disabled={archiveBusy}
+                          onClick={(e) => { e.stopPropagation(); handleRestorePatient(p); }}
+                        >
+                          {archiveBusy ? "Restoring…" : "↩ Restore"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </>
+  );
 
   const renderDashboard = () => (
     <>
@@ -6396,9 +6558,42 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
               Send Message
             </button>
-            <button className="btn-ghost" onClick={()=>setView("dashboard")}>{"\u2190"} Back</button>
+            {p.archivedAt ? (
+              <button
+                style={{background:"#0f766e",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:archiveBusy?"wait":"pointer",opacity:archiveBusy?0.6:1,display:"flex",alignItems:"center",gap:6}}
+                disabled={archiveBusy}
+                onClick={() => handleRestorePatient(p)}
+                title="Restore this patient to the active list"
+              >
+                <Icon name="archive" size={15}/> {archiveBusy ? "Restoring\u2026" : "Restore"}
+              </button>
+            ) : (
+              <button
+                className="btn-ghost"
+                style={{fontSize:12,display:"flex",alignItems:"center",gap:6,color:"#6b7280"}}
+                disabled={archiveBusy}
+                onClick={() => handleArchivePatient(p)}
+                title="Archive \u2014 remove from the patient list & search (reversible)"
+              >
+                <Icon name="archive" size={15}/> {archiveBusy ? "Archiving\u2026" : "Archive"}
+              </button>
+            )}
+            <button className="btn-ghost" onClick={()=>setView(p.archivedAt ? "archive" : "dashboard")}>{"\u2190"} Back</button>
           </div>
         </div>
+
+        {/* Archived-chart banner: this patient is inactive; offer a one-tap
+            restore right at the top of the chart. */}
+        {p.archivedAt && (
+          <div style={{background:"#f1f5f9",borderBottom:"1px solid #cbd5e1",padding:"8px 28px",fontSize:12,fontWeight:600,color:"#475569",display:"flex",alignItems:"center",gap:10}}>
+            <Icon name="archive" size={14}/>
+            Archived {fmtDate(p.archivedAt)} {"\u2014"} hidden from the patient list &amp; search.
+            <button className="btn-ghost" style={{fontSize:11,marginLeft:"auto",color:"#0f766e"}} disabled={archiveBusy}
+              onClick={() => handleRestorePatient(p)}>
+              {archiveBusy ? "Restoring\u2026" : "Restore to active list"}
+            </button>
+          </div>
+        )}
 
         {/* Disposition-missing nag — the patient was finalized but the outcome
             insert failed (see handleWizardCloseAppointment). Stays until the
@@ -8868,7 +9063,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             {/* "Schedule" deliberately absent: calendaring was dropped as a product
                 decision — clinics have scheduling tools; Distil tracks
                 next_appointment_date only. */}
-            {[["dashboard","Dashboard","dashboard"],["users","Patients","patients"],["bell","Follow-up","followup"],["chart","Reports","reports"],["compare","Compare Devices","compare"],["campaign","Campaigns","campaigns"],["book","Content Library","content"],["medal","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
+            {[["dashboard","Dashboard","dashboard"],["users","Patients","patients"],["bell","Follow-up","followup"],["archive","Archive","archive"],["chart","Reports","reports"],["compare","Compare Devices","compare"],["campaign","Campaigns","campaigns"],["book","Content Library","content"],["medal","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
               const badge = id === "followup" ? countFollowUpPatients(patients) : 0;
               return (
               <div key={id} className={`nav-item ${view===id||(id==="dashboard"&&view==="new")||(id==="patients"&&(view==="dashboard"||view==="patient"))?"active":""}`}
@@ -9032,6 +9227,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             );
           })()}
           {(view === "dashboard" || view === "patients") && renderDashboard()}
+          {view === "archive" && renderArchive()}
           {view === "patient" && renderPatientDetail()}
           {view === "consultation" && (() => {
             const p = selectedPatient;
