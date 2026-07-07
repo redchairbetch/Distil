@@ -153,6 +153,11 @@ export function generateQuote({
   rightRetail = null,
   selectedCarePlan,
   payType,
+  // Direct Purchase: a TruHearing benefit sold private at the plan price on a
+  // Signia device. payType stays 'insurance' (so the care plan is a separate
+  // charge, not bundled), but it's NOT billed to insurance — so suppress the
+  // coverage/copay note and print a direct-purchase note instead.
+  directPurchase = false,
   tpa,
   carrier,
   audiology,
@@ -391,8 +396,14 @@ export function generateQuote({
 
   y += 44
 
-  // Insurance note
-  if (payType === 'insurance' && carrier) {
+  // Insurance / Direct Purchase note
+  if (directPurchase) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    doc.setTextColor(...GRAY)
+    doc.text(`Direct purchase  ·  Pricing matched to your ${tpa || carrier || 'insurance'} benefit  ·  Not billed to insurance`, MARGIN, y)
+    y += 16
+  } else if (payType === 'insurance' && carrier) {
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(8)
     doc.setTextColor(...GRAY)

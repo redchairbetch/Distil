@@ -3,6 +3,7 @@ import {
   CROS_PRICE_PER_UNIT, isSideCros, manufacturerToClass, uhchCoverageTier,
   nationsCoverageTier, NATIONS_TIER_ORDER,
   findTierRank, findAnchorForRank, deriveEarPrice, pickBaselinePerAid,
+  DIRECT_PURCHASE_TIER_LEVEL, directPurchaseLockedTech,
 } from "./pricing.js";
 
 // Minimal fixtures mirroring the real data shapes.
@@ -273,5 +274,38 @@ describe("pickBaselinePerAid", () => {
     expect(pickBaselinePerAid({ price: 3497.5, source: "class" }, { price: 3997.5, source: "class" })).toBe(3997.5);
     expect(pickBaselinePerAid(null, { price: 3997.5, source: "class" })).toBe(3997.5);
     expect(pickBaselinePerAid(null, null)).toBeNull();
+  });
+});
+
+describe("Direct Purchase — tier locks the Signia tech level", () => {
+  const pureIX = { techLevels: ["7IX", "5IX", "3IX", "2IX", "1IX"] };
+  const pureAX = { techLevels: ["7AX", "5AX", "3AX", "2AX", "1AX"] };
+  const activeIX = { techLevels: ["7IX", "1IX"] };
+
+  it("maps TruHearing tiers to Signia level numbers", () => {
+    expect(DIRECT_PURCHASE_TIER_LEVEL).toEqual({ Premium: 7, Advanced: 5, Standard: 3 });
+  });
+
+  it("locks to the family's matching level, carrying IX vs AX from the family", () => {
+    expect(directPurchaseLockedTech(pureIX, "Premium")).toBe("7IX");
+    expect(directPurchaseLockedTech(pureIX, "Advanced")).toBe("5IX");
+    expect(directPurchaseLockedTech(pureIX, "Standard")).toBe("3IX");
+    expect(directPurchaseLockedTech(pureAX, "Premium")).toBe("7AX");
+    expect(directPurchaseLockedTech(pureAX, "Advanced")).toBe("5AX");
+  });
+
+  it("returns null when the family doesn't offer that tier's level (hidden at that tier)", () => {
+    expect(directPurchaseLockedTech(activeIX, "Advanced")).toBeNull(); // only 7IX / 1IX
+    expect(directPurchaseLockedTech(pureIX, "Level 1")).toBeNull();    // unknown tier
+    expect(directPurchaseLockedTech(null, "Premium")).toBeNull();
+  });
+
+  it("prices a Direct Purchase at the flat TruHearing tier price (source direct-purchase)", () => {
+    const ep = deriveEarPrice(
+      { familyId: "sig-pure-ix", techLevel: "7IX" },
+      { catalog: CATALOG, productCatalogTiers: TIERS, anchorsByClass: ANCHORS, plans: [],
+        form: { payType: "insurance", tpa: "TruHearing", directPurchase: true, tierPrice: 999 } }
+    );
+    expect(ep).toEqual({ price: 999, source: "direct-purchase" }); // Signia device, TruHearing $999
   });
 });

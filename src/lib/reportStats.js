@@ -33,6 +33,7 @@ export function computeReportStats(outcomes = [], fittingTypeByVisit = {}) {
 
   const carePlanByPayer = {
     tpa:             { candidates: 0, attached: 0 },
+    direct_purchase: { candidates: 0, attached: 0 }, // TruHearing benefit sold private at the TPA price
     other_insurance: { candidates: 0, attached: 0 },
     private_pay:     { candidates: 0, attached: 0 },
   };

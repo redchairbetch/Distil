@@ -12,6 +12,7 @@ import { CARE_ARC, buildCareArc } from "./lib/careArc.js";
 import {
   CROS_PRICE_PER_UNIT, isSideCros, manufacturerToClass, uhchCoverageTier,
   nationsCoverageTier, findTierRank, findAnchorForRank, deriveEarPrice, pickBaselinePerAid,
+  directPurchaseLockedTech,
 } from "./lib/pricing.js";
 
 // ── Body style images ──
@@ -1813,6 +1814,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     intakeId: null,
     firstName:"", lastName:"", dob:"", phone:"", email:"", address:"",
     payType:"insurance",
+    // Direct Purchase: TruHearing benefit sold private at the TPA tier price on
+    // a Signia device. Layered on top of payType:"insurance" (so tier pricing +
+    // the care-plan step still run); flips the device cascade to Signia and the
+    // billing/reporting to a private, direct_purchase classification.
+    directPurchase:false,
     carrier:"", planGroup:"", tpa:"", tier:"", tierPrice:null, priceOverridePerAid:null,
     left: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, thModel:"", thBodyStyle:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""},
     right: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, thModel:"", thBodyStyle:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""},
@@ -2036,6 +2042,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   );
   const selectedInsurancePlan = activePlans.find(p => p.carrier === form.carrier && p.planGroup === form.planGroup);
   const isPrivateLabel = form.payType === "insurance" && isPrivateLabelPlan(selectedInsurancePlan);
+  // Direct Purchase: a TruHearing (private-label) benefit sold private at the
+  // plan tier price on the equivalent Signia device. Routes the device cascade
+  // to Signia (rank-locked to the tier) instead of the TruHearing card flow.
+  const directPurchaseActive = isPrivateLabel && form.directPurchase === true;
   const privateLabelTiers = isPrivateLabel ? (selectedInsurancePlan?.tiers || []) : [];
   // Nations obligates us to abide by the plan's covered catalog — off-plan
   // devices are flagged and made NON-selectable in the cascade (an exception
@@ -2601,24 +2611,30 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     if (step === 6) mainRef.current?.scrollTo(0, 0);
   }, [step]);
 
-  // Clear non-TruHearing device selections when a private-label plan is chosen
+  // A private-label plan runs one of two device cascades: the TruHearing card
+  // flow, or — when Direct Purchase is on — the Signia cascade. Clear any side
+  // configured in the WRONG cascade for the current mode (also fires when the
+  // Direct Purchase toggle flips, swapping which cascade is live).
   useEffect(() => {
     if (!isPrivateLabel) return;
-    const emptySide = {style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false};
+    const wrongMfr = directPurchaseActive
+      ? (m) => m === "TruHearing"          // Direct Purchase wants Signia → drop TH sides
+      : (m) => m && m !== "TruHearing";    // TruHearing card flow → drop non-TH sides
     setForm(f => ({
       ...f,
-      left:  (f.left.manufacturer && f.left.manufacturer !== "TruHearing")  ? {...emptySide} : f.left,
-      right: (f.right.manufacturer && f.right.manufacturer !== "TruHearing") ? {...emptySide} : f.right,
+      left:  wrongMfr(f.left.manufacturer)  ? EMPTY_SIDE() : f.left,
+      right: wrongMfr(f.right.manufacturer) ? EMPTY_SIDE() : f.right,
     }));
-  }, [isPrivateLabel]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isPrivateLabel, directPurchaseActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync the chosen tier (form.tier from the Technology Tier wizard step)
-  // into each side's techLevel when entering Device Selection. If a side
-  // already has a different tier configured (e.g. user went back and
-  // changed tier), reset the side so the cascade re-derives availability
-  // for the new tier.
+  // Sync the chosen tier (form.tier) into each side's techLevel for the
+  // TruHearing CARD flow only. Direct Purchase locks techLevel per-family from
+  // the tier instead (directPurchaseLockedTech + the relock effect), so skip it
+  // there — otherwise this would force manufacturer:"TruHearing" onto the
+  // Signia sides. If a side has a different tier configured (user went back and
+  // changed tier), reset it so the cascade re-derives availability.
   useEffect(() => {
-    if (!isPrivateLabel || !form.tier) return;
+    if (!isPrivateLabel || directPurchaseActive || !form.tier) return;
     setForm(f => {
       const next = { ...f };
       ["left","right"].forEach(side => {
@@ -2627,7 +2643,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       });
       return next;
     });
-  }, [isPrivateLabel, form.tier]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isPrivateLabel, form.tier, directPurchaseActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
   const buildSideRecord = (s) => {
@@ -2736,6 +2752,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       rightPrice: rightEarP,
       selectedCarePlan: form.carePlan || "complete",
       payType: form.payType,
+      directPurchase: form.directPurchase,
       tpa: form.tpa,
       carrier: form.carrier,
       audiology: form.audiology,
@@ -2825,7 +2842,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           finalizeAppointments,
           staffId, clinicId,
           privatePay,
-          wizardVisitId
+          wizardVisitId,
+          { directPurchase: !!form.directPurchase }
         );
         setSaved(true);
         await refreshPatients();
@@ -2837,6 +2855,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           name: [form.firstName, form.lastName].filter(Boolean).join(" "),
           dob: form.dob, phone: form.phone, email: form.email, address: form.address,
           payType: form.payType,
+          directPurchase: !!form.directPurchase,
           insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
           privatePay,
           devices: { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null, serialLeft: genId(), serialRight: genId() },
@@ -2864,6 +2883,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       email: form.email,
       address: form.address,
       payType: form.payType,
+      directPurchase: !!form.directPurchase,
       insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
       privatePay: form.payType === "private" && form.tierPrice != null
         ? { tier: form.tier, tierPrice: form.tierPrice }
@@ -2925,6 +2945,19 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       };
     }
     const ins = p?.insurance || null;
+    // Direct Purchase: a TruHearing benefit sold private at the plan price. It's
+    // priced and care-planned like a TruHearing sale (keep the tier snapshot so
+    // revenue/tier mix work), but billed privately — its own payer type so the
+    // reports separate these from real TruHearing referrals.
+    if (p?.directPurchase) {
+      return {
+        payerType: "direct_purchase",
+        payerName: ins?.tpa || ins?.carrier || null,
+        payerPlanSnapshot: ins
+          ? { carrier: ins.carrier || null, plan_group: ins.planGroup || null, tpa: ins.tpa || null, tier: ins.tier || null, tier_price_per_aid: ins.tierPrice ?? null, direct_purchase: true }
+          : null,
+      };
+    }
     return {
       // Non-TPA carriers stay out of the TPA attach-rate denominator.
       payerType: ins?.tpa ? "tpa" : "other_insurance",
@@ -2996,7 +3029,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
 
 
   const startNew = () => {
-    setForm({ intakeId:null,firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},audiology:{rightT:{},leftT:{},rightBC:{},leftBC:{},rightMask:{},leftMask:{},rightBCMask:{},leftBCMask:{},tinnitusRight:false,tinnitusLeft:false,unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,wrMclR:null,wrMclL:null,sinBin:null},carePlan:"",appointments:[],notes:"" });
+    setForm({ intakeId:null,firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",directPurchase:false,carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},audiology:{rightT:{},leftT:{},rightBC:{},leftBC:{},rightMask:{},leftMask:{},rightBCMask:{},leftBCMask:{},tinnitusRight:false,tinnitusLeft:false,unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,wrMclR:null,wrMclL:null,sinBin:null},carePlan:"",appointments:[],notes:"" });
     setActiveSide("left");
     setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
     setWizardPatientId(null); setWizardVisitId(null); setSaveToast(false);
@@ -3034,6 +3067,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       firstName, lastName,
       dob: p.dob || "", phone: p.phone || "", email: p.email || "", address: p.address || "",
       payType: p.payType || "insurance",
+      directPurchase: p.directPurchase || false, // preserve a direct-purchase patient's mode on upgrade
       carrier: p.insurance?.carrier || "", planGroup: p.insurance?.planGroup || "", tpa: p.insurance?.tpa || "",
       tier: tierOffered || "", tierPrice: seededTierPrice,
       left: EMPTY_SIDE(), right: EMPTY_SIDE(),
@@ -4041,9 +4075,15 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // (isPrivateLabel), which reads TH_MODELS/TH_AVAILABILITY, not the catalog.
   const visibleCatalog = activeCatalog.filter(e => !e.tpa || e.tpa === form.tpa);
   const getSideDerived = (sd) => {
-    const availMfrs = [...new Set(visibleCatalog.filter(e => !sd.style || e.styles.includes(sd.style)).map(e => e.manufacturer))].sort();
-    const availGens = [...new Set(visibleCatalog.filter(e => e.styles.includes(sd.style) && e.manufacturer === sd.manufacturer).map(e => e.generation))];
-    const availFamilies = visibleCatalog.filter(e => e.styles.includes(sd.style) && e.manufacturer === sd.manufacturer && e.generation === sd.generation);
+    // Direct Purchase scopes the standard cascade to Signia only, and hides
+    // families that don't offer the tier's locked level (Active IX has no 5/3).
+    const scope = directPurchaseActive
+      ? visibleCatalog.filter(e => e.manufacturer === "Signia")
+      : visibleCatalog;
+    const availMfrs = [...new Set(scope.filter(e => !sd.style || e.styles.includes(sd.style)).map(e => e.manufacturer))].sort();
+    const availGens = [...new Set(scope.filter(e => e.styles.includes(sd.style) && e.manufacturer === sd.manufacturer).map(e => e.generation))];
+    let availFamilies = scope.filter(e => e.styles.includes(sd.style) && e.manufacturer === sd.manufacturer && e.generation === sd.generation);
+    if (directPurchaseActive) availFamilies = availFamilies.filter(fam => directPurchaseLockedTech(fam, form.tier) != null);
     const selectedFamily = catalog.find(e => e.id === sd.familyId);
     const availColors = selectedFamily?.colors || [];
     const availBatteries = selectedFamily?.battery || [];
@@ -4180,6 +4220,27 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   useEffect(() => {
     setForm(f => f.priceOverridePerAid == null ? f : { ...f, priceOverridePerAid: null });
   }, [form.left.familyId, form.left.techLevel, form.left.thModel, form.right.familyId, form.right.techLevel, form.right.thModel, form.tier]);
+
+  // Direct Purchase: the TruHearing tier locks the Signia tech level. If the
+  // tier changes after a device is picked, re-lock each side (or clear a family
+  // that no longer offers that level) so the device and the tier price can't
+  // drift apart. Keyed on form.tier only — never on the sides — so it can't loop.
+  useEffect(() => {
+    if (!directPurchaseActive) return;
+    setForm(f => {
+      let changed = false;
+      const relock = (sd) => {
+        if (!sd.familyId) return sd;
+        const fam = catalog.find(e => e.id === sd.familyId);
+        const locked = directPurchaseLockedTech(fam, f.tier);
+        if (locked == null) { changed = true; return { ...sd, familyId:"", variant:"", techLevel:"", color:"", battery:"" }; }
+        if (sd.techLevel !== locked) { changed = true; return { ...sd, techLevel: locked }; }
+        return sd;
+      };
+      const left = relock(f.left), right = relock(f.right);
+      return changed ? { ...f, left, right } : f;
+    });
+  }, [directPurchaseActive, form.tier, catalog]);
 
   const pricingRevealData = useMemo(() => {
     if (form.tierPrice == null || !form.tier) return null;
@@ -4600,6 +4661,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   setForm(f => ({
                     ...f,
                     payType: t,
+                    directPurchase: t === "private" ? false : f.directPurchase, // insurance-mode concept only
                     carePlan: t === "private" ? "complete" : (f.carePlan === "complete" && f.payType === "private" ? "" : f.carePlan),
                   }));
                 }}>
@@ -4636,6 +4698,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                           upd("tpa",plan.tpa);
                           upd("tier","");
                           upd("tierPrice",null);
+                          upd("directPurchase",false); // re-confirm per plan
                         }}>
                         <div className="plan-row-name">{plan.planGroup}</div>
                         <div className="plan-row-tpa">{plan.carrier} · via {plan.tpa}</div>
@@ -4648,9 +4711,37 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>TPA</span>
                     <span style={{fontSize:13,fontWeight:600,color:"#374151",background:"#F0EDE3",borderRadius:6,padding:"3px 10px"}}>{form.tpa}</span>
                     <button style={{marginLeft:"auto",fontSize:11,color:"#9ca3af",background:"none",border:"none",cursor:"pointer",padding:0}}
-                      onClick={()=>{upd("planGroup","");upd("carrier","");upd("tpa","");upd("tier","");upd("tierPrice",null);}}>
+                      onClick={()=>{upd("planGroup","");upd("carrier","");upd("tpa","");upd("tier","");upd("tierPrice",null);upd("directPurchase",false);}}>
                       ✕ Clear
                     </button>
+                  </div>
+                )}
+                {/* Direct Purchase fork — only on private-label (TruHearing) plans.
+                    Sell privately at the plan's tier price on the equivalent
+                    Signia device (see directPurchaseLockedTech / buildPayerSnapshot). */}
+                {form.planGroup && isPrivateLabel && (
+                  <div style={{marginTop:12,paddingTop:12,borderTop:"1px solid #E4E0D5"}}>
+                    <div
+                      onClick={()=>upd("directPurchase", !form.directPurchase)}
+                      style={{
+                        display:"flex",alignItems:"flex-start",gap:10,cursor:"pointer",
+                        border:`2px solid ${form.directPurchase?"#0B4A42":"#E4E0D5"}`,
+                        background:form.directPurchase?"#FBF9F3":"#fff",
+                        borderRadius:10,padding:"12px 14px",
+                      }}>
+                      <div style={{
+                        width:18,height:18,borderRadius:4,flexShrink:0,marginTop:1,
+                        border:`2px solid ${form.directPurchase?"#0B4A42":"#9ca3af"}`,
+                        background:form.directPurchase?"#0B4A42":"#fff",
+                        color:"#fff",fontSize:12,fontWeight:800,lineHeight:"14px",textAlign:"center",
+                      }}>{form.directPurchase?"✓":""}</div>
+                      <div>
+                        <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>Direct Purchase — sell at plan price on Signia</div>
+                        <div style={{fontSize:12,color:"#6b7280",marginTop:3,lineHeight:1.45}}>
+                          For a patient who has this TruHearing benefit but wasn't referred here. Same tier pricing, but the device list becomes the equivalent Signia portfolio and it's billed as a private purchase (care plan still applies).
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -4746,6 +4837,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         const d = side === "left" ? leftDerived : rightDerived;
         const { availMfrs, availGens, availFamilies, selectedFamily, availColors, availBatteries,
           availPowers, availDomes, requiresEarmold, variantRequired } = d;
+        // Direct Purchase runs the STANDARD (Signia) cascade, not the TruHearing
+        // card flow; the tier locks the Signia tech level (see dpLockedTech).
+        const showStd = !isPrivateLabel || directPurchaseActive;
+        const showTH  = isPrivateLabel && !directPurchaseActive;
+        const dpLockedTech = directPurchaseActive ? directPurchaseLockedTech(selectedFamily, form.tier) : null;
 
         return (
           <div className={`device-col ${activeSide===side?"active":""}`} onClick={()=>setActiveSide(side)}>
@@ -4756,13 +4852,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               </span>
             </div>
 
-            {/* ── 1. Body Style (standard catalog only — TH uses its own style picker) ── */}
-            {!isPrivateLabel && (
+            {/* ── 1. Body Style (standard catalog + Direct Purchase — TH uses its own style picker) ── */}
+            {showStd && (
               <div className="field" style={{marginBottom:16}}><label>Body Style</label>
                 <div className="style-grid">
                   {BODY_STYLES.map(bs=>(
                     <div key={bs.id} className={`style-card ${s.style===bs.id?"active":""}`}
-                      onClick={()=>resetSide(side,{style:bs.id})}>
+                      onClick={()=>resetSide(side, directPurchaseActive ? {style:bs.id, manufacturer:"Signia"} : {style:bs.id})}>
                       {BODY_STYLE_IMG[bs.id] && (
                         <img src={BODY_STYLE_IMG[bs.id]} alt={bs.label}
                           style={{display:"block",margin:"0 auto 6px",width:56,height:56,objectFit:"contain",opacity:s.style===bs.id?1:0.5}} />
@@ -4775,9 +4871,19 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               </div>
             )}
 
-            {/* ── 2–6. Standard catalog cascade ── */}
-            {!isPrivateLabel && (<>
-              {s.style && availMfrs.length > 0 && (
+            {/* ── 2–6. Standard catalog cascade (also Direct Purchase, Signia-locked) ── */}
+            {showStd && (<>
+              {/* Direct Purchase locks the manufacturer to Signia — show it as a
+                  read-only chip instead of a one-option picker. */}
+              {directPurchaseActive && s.style && (
+                <div className="field" style={{marginBottom:16}}><label>Manufacturer</label>
+                  <div style={{display:"inline-flex",alignItems:"center",gap:8,border:"2px solid #0B4A42",background:"#FBF9F3",borderRadius:8,padding:"8px 12px"}}>
+                    {MFR_LOGO["Signia"] ? <img src={MFR_LOGO["Signia"]} alt="Signia" style={{height:20}} /> : <span style={{fontWeight:700}}>Signia</span>}
+                    <span style={{fontSize:12,color:"#6b7280"}}>matched to the TruHearing portfolio</span>
+                  </div>
+                </div>
+              )}
+              {!directPurchaseActive && s.style && availMfrs.length > 0 && (
                 <div className="field" style={{marginBottom:16}}><label>Manufacturer</label>
                   <div className="radio-group mfr-group">
                     {availMfrs.map(m=>(
@@ -4815,7 +4921,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                         onClick={famOff ? undefined : ()=>{
                           const autoVar = fam.variants.length===1 ? fam.variants[0] : "";
                           const autoBat = fam.battery.length===1 ? fam.battery[0] : "";
-                          setForm(f=>({...f,[side]:{...f[side],familyId:fam.id,variant:autoVar,techLevel:"",color:"",battery:autoBat}}));
+                          // Direct Purchase locks the tech level to the tier's rank.
+                          const lockTech = directPurchaseActive ? (directPurchaseLockedTech(fam, form.tier) || "") : "";
+                          setForm(f=>({...f,[side]:{...f[side],familyId:fam.id,variant:autoVar,techLevel:lockTech,color:"",battery:autoBat}}));
                         }}>
                         <div className="plan-row-top">
                           <div>
@@ -4842,7 +4950,17 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   </div>
                 </div>
               )}
-              {selectedFamily && (s.variant || !variantRequired) && (
+              {selectedFamily && (s.variant || !variantRequired) && (directPurchaseActive ? (
+                <div className="field" style={{marginBottom:16}}><label>Technology Level</label>
+                  <div style={{display:"inline-flex",alignItems:"center",gap:8,border:"2px solid #0B4A42",background:"#FBF9F3",borderRadius:8,padding:"8px 12px"}}>
+                    <span style={{fontSize:14,fontWeight:700,color:"#0a1628"}}>{selectedFamily.techLevelLabels?.[dpLockedTech] || dpLockedTech || "—"}</span>
+                    <span style={{fontSize:12,color:"#6b7280"}}>locked to {form.tier}</span>
+                  </div>
+                  <div style={{fontSize:11.5,color:"#6b7280",marginTop:6}}>
+                    Matched to the {form.tier} tier price. Change the tier on the Technology Tier step to unlock a different level.
+                  </div>
+                </div>
+              ) : (
                 <div className="field" style={{marginBottom:16}}><label>Technology Level</label>
                   <div className="radio-group">
                     {[...selectedFamily.techLevels].sort((a,b)=>{
@@ -4866,14 +4984,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     </div>
                   )}
                 </div>
-              )}
+              ))}
             </>)}
 
-            {/* ── Private-label: TruHearing cascade ── */}
+            {/* ── Private-label: TruHearing cascade (skipped for Direct Purchase) ── */}
             {/* Tier was chosen in the Technology Tier wizard step (4); this
                 cascade now starts at Body Style. The chosen tier flows into
                 each side via form.tier → s.techLevel sync (see useEffect). */}
-            {isPrivateLabel && (<>
+            {showTH && (<>
               {/* Body Style (card grid — mirrors private-pay imagery) */}
               {s.techLevel && d.thAvailBodyStyles.length > 0 && (
                 <div className="field" style={{marginBottom:16}}><label>Body Style</label>
@@ -5061,8 +5179,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               )}
             </>)}
 
-            {/* ── 7–8. Color / Battery (standard catalog only) ── */}
-            {!isPrivateLabel && (<>
+            {/* ── 7–8. Color / Battery (standard catalog + Direct Purchase) ── */}
+            {showStd && (<>
               {s.techLevel && availColors.length > 0 && (
                 <div className="field" style={{marginBottom:16}}><label>{selectedFamily?.faceplate ? "Faceplate Color" : "Color"}</label>
                   <div className="color-swatches">
@@ -5096,8 +5214,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               )}
             </>)}
 
-            {/* ── 9. Receiver + Dome (RIC — standard catalog only) ── */}
-            {!isPrivateLabel && s.style === "ric" && s.techLevel && availPowers.length > 0 && (
+            {/* ── 9. Receiver + Dome (RIC — standard catalog + Direct Purchase) ── */}
+            {showStd && s.style === "ric" && s.techLevel && availPowers.length > 0 && (
               <>
                 <div style={{height:1,background:"#F0EDE3",margin:"4px 0 16px"}} />
                 <div className="field-grid" style={{marginBottom:0}}>
@@ -5138,7 +5256,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             )}
 
             {/* ── IF (Instant Fit) — Dome only, no separate receiver ── */}
-            {!isPrivateLabel && s.style === "if" && s.techLevel && availDomes.length > 0 && (
+            {showStd && s.style === "if" && s.techLevel && availDomes.length > 0 && (
               <>
                 <div style={{height:1,background:"#F0EDE3",margin:"4px 0 16px"}} />
                 <div className="field" style={{marginBottom:0}}>
@@ -5164,9 +5282,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           <div className="card">
             <div className="card-title">Treatment Options</div>
 
-            {isPrivateLabel && (
+            {isPrivateLabel && !directPurchaseActive && (
               <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#1e40af",fontWeight:600}}>
                 🏷️ TruHearing Select — choose technology tier, model, and style to configure the device.
+              </div>
+            )}
+            {directPurchaseActive && (
+              <div style={{background:"#FBF9F3",border:"1px solid #E4E0D5",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#0B4A42",fontWeight:600}}>
+                🔁 Direct Purchase — Signia portfolio at the {form.tier || "selected"} tier price ({form.tierPrice != null ? `$${form.tierPrice.toLocaleString()}/aid` : "—"}). Tech level is locked to the tier.
               </div>
             )}
 
@@ -9181,6 +9304,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             const payer = isWizard
               ? buildPayerSnapshot({
                   payType: form.payType,
+                  directPurchase: form.directPurchase,
                   insurance: form.payType === "insurance"
                     ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice }
                     : null,
@@ -9194,7 +9318,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             const tierLabel = isWizard ? form.tier : (p?.insurance?.tier || pending?.payerPlanSnapshot?.tier);
             const payerLabel = payer.payerType === "private_pay"
               ? "Private pay"
-              : [payer.payerName || "Insurance", tierLabel].filter(Boolean).join(" · ");
+              : payer.payerType === "direct_purchase"
+                ? ["Direct Purchase", tierLabel].filter(Boolean).join(" · ")
+                : [payer.payerName || "Insurance", tierLabel].filter(Boolean).join(" · ");
             // Prefills: everything the flow already knows arrives selected so
             // the common path is confirm-and-save.
             let defaults;
@@ -9408,7 +9534,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                             const name = [form.firstName, form.lastName].filter(Boolean).join(" ");
                             const ins = form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null;
                             try {
-                              const pid = await createPatientDraft({ id: genId(), name, dob: form.dob, phone: form.phone, email: form.email, address: form.address, payType: form.payType, notes: form.notes, insurance: ins }, staffId, clinicId);
+                              const pid = await createPatientDraft({ id: genId(), name, dob: form.dob, phone: form.phone, email: form.email, address: form.address, payType: form.payType, directPurchase: form.directPurchase, notes: form.notes, insurance: ins }, staffId, clinicId);
                               setWizardPatientId(pid);
                               const vid = await createVisit(pid, { clinicId, staffId, visitType: 'initial_fit' });
                               setWizardVisitId(vid);
