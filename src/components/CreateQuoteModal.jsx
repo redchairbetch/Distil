@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { downloadQuote } from '../generateQuote.js'
 import { uploadPatientDocument, logPriceAdjustment } from '../db.js'
 import { ADJUST_REASON_CODES } from '../views/AdjustPriceModal.jsx'
+import { nationsCoverageTier } from '../lib/pricing.js'
 
 // Custom-quote modal launched from the patient profile (the sole quote entry
 // point — the saved-config "Generate Quote" button was retired). Lets the
@@ -133,6 +134,13 @@ export default function CreateQuoteModal({
   // the modal's pay-type toggle — eligibility comes from the patient's
   // coverage, and TPA-exclusive products have no street retail to quote.
   const patientTpa = patient?.insurance?.tpa || null
+  // Nations obligates us to the plan's covered catalog — off-plan families and
+  // tech levels are disabled in the pickers (mirrors the wizard cascade).
+  const isNations = patientTpa === 'Nations'
+  const famOffPlan = (fam) =>
+    isNations && Array.isArray(fam?.techLevels) && fam.techLevels.length > 0
+      && fam.techLevels.every(t => nationsCoverageTier(fam, t) === null)
+  const techOffPlan = (fam, t) => isNations && nationsCoverageTier(fam, t) === null
   const activeCatalog = useMemo(
     () => catalog.filter(e => e.active && (!e.tpa || e.tpa === patientTpa)),
     [catalog, patientTpa]
@@ -206,7 +214,7 @@ export default function CreateQuoteModal({
     const techLevels = family?.techLevels || []
     const variants = family?.variants || []
 
-    return { styles, manufacturers, generations, families, techLevels, variants }
+    return { styles, manufacturers, generations, families, techLevels, variants, family }
   }
 
   const setSideField = (which, field, value) => {
@@ -481,7 +489,10 @@ export default function CreateQuoteModal({
             <label style={labelStyle}>Family / Model</label>
             <select style={inputStyle} value={side.familyId} onChange={e => setSideField(which, 'familyId', e.target.value)}>
               <option value="">— Select family —</option>
-              {opts.families.map(f => <option key={f.id} value={f.id}>{f.family || f.name || f.id}</option>)}
+              {opts.families.map(f => {
+                const off = famOffPlan(f)
+                return <option key={f.id} value={f.id} disabled={off}>{(f.family || f.name || f.id)}{off ? ' — not on plan' : ''}</option>
+              })}
             </select>
           </div>
           <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
@@ -490,7 +501,10 @@ export default function CreateQuoteModal({
                 <label style={labelStyle}>Tech Level</label>
                 <select style={inputStyle} value={side.techLevel} onChange={e => setSideField(which, 'techLevel', e.target.value)}>
                   <option value="">—</option>
-                  {opts.techLevels.map(t => <option key={t} value={t}>{t}</option>)}
+                  {opts.techLevels.map(t => {
+                    const off = techOffPlan(opts.family, t)
+                    return <option key={t} value={t} disabled={off}>{t}{off ? ' — not on plan' : ''}</option>
+                  })}
                 </select>
               </div>
             )}

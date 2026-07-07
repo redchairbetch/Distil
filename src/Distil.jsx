@@ -11,7 +11,7 @@ import { parseDateOnly, fmtDate, warrantyDate, daysUntil } from "./lib/dates.js"
 import { CARE_ARC, buildCareArc } from "./lib/careArc.js";
 import {
   CROS_PRICE_PER_UNIT, isSideCros, manufacturerToClass, uhchCoverageTier,
-  findTierRank, findAnchorForRank, deriveEarPrice, pickBaselinePerAid,
+  nationsCoverageTier, findTierRank, findAnchorForRank, deriveEarPrice, pickBaselinePerAid,
 } from "./lib/pricing.js";
 
 // ── Body style images ──
@@ -2029,6 +2029,19 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   const selectedInsurancePlan = activePlans.find(p => p.carrier === form.carrier && p.planGroup === form.planGroup);
   const isPrivateLabel = form.payType === "insurance" && isPrivateLabelPlan(selectedInsurancePlan);
   const privateLabelTiers = isPrivateLabel ? (selectedInsurancePlan?.tiers || []) : [];
+  // Nations obligates us to abide by the plan's covered catalog — off-plan
+  // devices are flagged and made NON-selectable in the cascade (an exception
+  // requires extra written justification, handled out-of-band). A device is
+  // off-plan when nationsCoverageTier() returns null for it; a whole family is
+  // off-plan when every one of its tech levels is (e.g. Oticon Intent, which
+  // Nations doesn't carry). Unlike UHCH (select-then-retail-with-form), Nations
+  // blocks the pick up front. `catalog` entries carry the shape the map keys on.
+  const isNationsPatient = form.payType === "insurance" && form.tpa === "Nations";
+  const nationsFamilyOffPlan = (famEntry) =>
+    isNationsPatient && Array.isArray(famEntry?.techLevels) && famEntry.techLevels.length > 0
+      && famEntry.techLevels.every(t => nationsCoverageTier(famEntry, t) === null);
+  const nationsTechOffPlan = (famEntry, t) =>
+    isNationsPatient && nationsCoverageTier(famEntry, t) === null;
 
 
   useEffect(() => {
@@ -4631,20 +4644,28 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               {s.generation && availFamilies.length > 0 && (
                 <div className="field" style={{marginBottom:16}}><label>Model Family</label>
                   <div className="plan-select-list">
-                    {availFamilies.map(fam=>(
+                    {availFamilies.map(fam=>{
+                      const famOff = nationsFamilyOffPlan(fam);
+                      return (
                       <div key={fam.id} className={`plan-row ${s.familyId===fam.id?"active":""}`}
-                        onClick={()=>{
+                        title={famOff ? "Not available on the Nations Hearing plan" : undefined}
+                        style={famOff ? {opacity:0.6,cursor:"not-allowed",background:"#fef2f2",borderColor:"#fecaca"} : undefined}
+                        onClick={famOff ? undefined : ()=>{
                           const autoVar = fam.variants.length===1 ? fam.variants[0] : "";
                           const autoBat = fam.battery.length===1 ? fam.battery[0] : "";
                           setForm(f=>({...f,[side]:{...f[side],familyId:fam.id,variant:autoVar,techLevel:"",color:"",battery:autoBat}}));
                         }}>
                         <div className="plan-row-top">
                           <div>
-                            <div className="plan-row-name">{fam.family}</div>
+                            <div className="plan-row-name" style={famOff ? {color:"#b91c1c"} : undefined}>
+                              {fam.family}{famOff ? " *" : ""}
+                            </div>
+                            {famOff && <div style={{fontSize:11,color:"#b91c1c",marginTop:2}}>Not available on this plan</div>}
                           </div>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -4665,12 +4686,23 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     {[...selectedFamily.techLevels].sort((a,b)=>{
                       const na=parseFloat(a),nb=parseFloat(b);
                       return(!isNaN(na)&&!isNaN(nb))?na-nb:a.localeCompare(b);
-                    }).map(t=>(
-                      <div key={t} className={`radio-pill ${s.techLevel===t?"active":""}`} onClick={()=>updSide(side,"techLevel",t)}>
-                        <div className="radio-pill-label">{selectedFamily.techLevelLabels?.[t] || t}</div>
+                    }).map(t=>{
+                      const techOff = nationsTechOffPlan(selectedFamily, t);
+                      return (
+                      <div key={t} className={`radio-pill ${s.techLevel===t?"active":""}`}
+                        title={techOff ? "Not available on the Nations Hearing plan" : undefined}
+                        style={techOff ? {opacity:0.6,cursor:"not-allowed",color:"#b91c1c",background:"#fef2f2",borderColor:"#fecaca"} : undefined}
+                        onClick={techOff ? undefined : ()=>updSide(side,"techLevel",t)}>
+                        <div className="radio-pill-label">{(selectedFamily.techLevelLabels?.[t] || t)}{techOff ? " *" : ""}</div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
+                  {isNationsPatient && selectedFamily.techLevels.some(t => nationsCoverageTier(selectedFamily, t) === null) && (
+                    <div style={{fontSize:11.5,color:"#b91c1c",marginTop:8}}>
+                      * Not available on the Nations Hearing plan.
+                    </div>
+                  )}
                 </div>
               )}
             </>)}
