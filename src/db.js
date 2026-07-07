@@ -695,6 +695,12 @@ function assemblePatient(row) {
 
     patientStatus: row.patient_status || 'prospect',
 
+    // Archive state — orthogonal to patient_status. A non-null archivedAt means
+    // the patient is inactive: excluded from the roster + global search, shown
+    // only in the Archive view until restored.
+    archivedAt: row.archived_at || null,
+    archivedBy: row.archived_by || null,
+
     // Follow-up queue inputs (populated by savePunch + provider edits).
     lastVisitDate:        row.last_visit_date         || null,
     followUpStatus:       row.follow_up_status        || 'none',
@@ -760,11 +766,13 @@ const PATIENT_SELECT = `
 
 // Load all patients for one clinic, assembled into UI shape. The explicit
 // clinic filter is required: authenticated reads are org-wide (for the
-// all-locations search), so RLS no longer scopes this list.
+// all-locations search), so RLS no longer scopes this list. Archived patients
+// are excluded — they live only in the Archive view (loadArchivedPatients).
 export async function loadAllPatients(clinicId) {
   let query = supabase
     .from('patients')
     .select(PATIENT_SELECT)
+    .is('archived_at', null)
     .order('created_at', { ascending: false })
   if (clinicId) query = query.eq('clinic_id', clinicId)
 
@@ -774,7 +782,8 @@ export async function loadAllPatients(clinicId) {
 }
 
 // Sycle-style "all locations" search: server-side, org-wide, same UI shape
-// as loadAllPatients plus clinicId/clinicName for the clinic badge.
+// as loadAllPatients plus clinicId/clinicName for the clinic badge. Archived
+// patients are excluded so they never surface in patient search.
 export async function searchPatientsGlobal(term) {
   const t = (term || '').trim()
   if (t.length < 2) return []
@@ -782,11 +791,51 @@ export async function searchPatientsGlobal(term) {
   const { data, error } = await supabase
     .from('patients')
     .select(PATIENT_SELECT)
+    .is('archived_at', null)
     .or(`first_name.ilike.${pattern},last_name.ilike.${pattern},phone.ilike.${pattern}`)
     .order('last_name')
     .limit(25)
   if (error) { console.error('searchPatientsGlobal:', error); return [] }
   return (data || []).map(assemblePatient)
+}
+
+// Archived roster for one clinic — the inverse of loadAllPatients. Newest
+// archive first, so the most recently archived patients surface at the top of
+// the Archive view. Same UI shape; the view searches this list client-side.
+export async function loadArchivedPatients(clinicId) {
+  let query = supabase
+    .from('patients')
+    .select(PATIENT_SELECT)
+    .not('archived_at', 'is', null)
+    .order('archived_at', { ascending: false })
+  if (clinicId) query = query.eq('clinic_id', clinicId)
+
+  const { data, error } = await query
+  if (error) { console.error('loadArchivedPatients:', error); return [] }
+  return data.map(assemblePatient)
+}
+
+// Archive a patient — renders them inactive without touching patient_status,
+// so a restore returns them to exactly the lifecycle stage they left. Reuses
+// the same clinic-scoped UPDATE policy as updatePatientStatus. Throws on error.
+export async function archivePatient(patientId, staffId = null) {
+  if (!patientId) throw new Error('archivePatient: patientId required')
+  const { error } = await supabase
+    .from('patients')
+    .update({ archived_at: new Date().toISOString(), archived_by: staffId })
+    .eq('id', patientId)
+  if (error) { console.error('archivePatient:', error); throw error }
+}
+
+// Restore an archived patient back into the active roster. Clears the archive
+// stamp; patient_status was never changed, so they return unchanged.
+export async function unarchivePatient(patientId) {
+  if (!patientId) throw new Error('unarchivePatient: patientId required')
+  const { error } = await supabase
+    .from('patients')
+    .update({ archived_at: null, archived_by: null })
+    .eq('id', patientId)
+  if (error) { console.error('unarchivePatient:', error); throw error }
 }
 
 // Permanently delete a patient profile and every dependent record. Admin only
