@@ -1591,9 +1591,13 @@ export async function saveAppointmentOutcome(o) {
 // search); from/to filter on closed_at. Throws on error — Reports shows
 // failures loudly rather than rendering a silently-empty dashboard.
 export async function loadAppointmentOutcomes({ clinicId = null, from = null, to = null } = {}) {
+  // Embed the patient's name and the outcome's clinic so the Reports
+  // drill-downs can list who's behind each number even in org-wide scope
+  // (both tables allow org-wide authenticated reads). computeReportStats
+  // ignores the extra keys; only the drill views consume them.
   let q = supabase
     .from('appointment_outcomes')
-    .select('*')
+    .select('*, patient:patients(first_name,last_name), outcome_clinic:clinics(name)')
     .order('closed_at', { ascending: false })
     .limit(5000)
   if (clinicId) q = q.eq('clinic_id', clinicId)

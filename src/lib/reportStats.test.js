@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { computeReportStats, computeAdjustmentStats, computeFollowUpStats } from "./reportStats.js";
+import {
+  computeReportStats, computeAdjustmentStats, computeFollowUpStats,
+  toTransaction, outcomePredicate, selectOutcomeDrill, selectFollowUpDrill, selectAdjustmentDrill,
+} from "./reportStats.js";
 
 // Outcome-row factory in the appointment_outcomes DB shape.
 function outcome(over = {}) {
@@ -152,5 +155,133 @@ describe("computeAdjustmentStats", () => {
 
   it("handles empty input", () => {
     expect(computeAdjustmentStats([])).toEqual({ count: 0, totalDiscount: 0, avgPercent: null, byReason: {} });
+  });
+});
+
+describe("toTransaction", () => {
+  it("normalizes a committed TPA row with an embedded patient + snapshot price", () => {
+    const t = toTransaction(
+      outcome({
+        id: "o1", patient_id: "p1", visit_id: "v1",
+        patient: { first_name: "Jane", last_name: "Doe" },
+        outcome_clinic: { name: "Provo" },
+        closed_at: "2026-07-01T00:00:00Z",
+      }),
+      { v1: "bilateral" }
+    );
+    expect(t).toMatchObject({
+      id: "o1", patientId: "p1", patientName: "Jane Doe", clinicName: "Provo",
+      deviceDisposition: "committed", payerType: "tpa", tier: "Premium",
+      perAid: 999, aids: 2, aidsEstimated: false, revenue: 1998,
+    });
+  });
+
+  it("assumes bilateral (flagged) when no fitting is linked, and null-prices non-commits", () => {
+    const est = toTransaction(outcome({ visit_id: null }));
+    expect(est).toMatchObject({ aids: 2, aidsEstimated: true, revenue: 1998 });
+    const declined = toTransaction(outcome({ device_disposition: "declined", device_reason: "price_budget", care_plan_disposition: "not_applicable", care_plan_selected: null }));
+    expect(declined.revenue).toBeNull();
+    expect(declined.aids).toBeNull();
+  });
+
+  it("falls back to private-pay snapshot fields and a null patient name", () => {
+    const t = toTransaction(outcome({ payer_type: "private_pay", payer_name: null, patient: null, payer_plan_snapshot: { private_pay_tier: "Advanced", private_pay_price_per_aid: 3497.5 } }));
+    expect(t).toMatchObject({ patientName: null, tier: "Advanced", perAid: 3497.5 });
+  });
+});
+
+describe("outcomePredicate + selectOutcomeDrill", () => {
+  const rows = [
+    outcome({ id: "a", closed_at: "2026-07-03T00:00:00Z" }),                                                   // committed, tpa, complete
+    outcome({ id: "b", closed_at: "2026-07-02T00:00:00Z", care_plan_disposition: "declined", care_plan_reason: "price_budget", care_plan_selected: null }), // committed tpa, care plan declined
+    outcome({ id: "c", closed_at: "2026-07-04T00:00:00Z", device_disposition: "declined", device_reason: "price_budget", care_plan_disposition: "not_applicable", care_plan_selected: null }),
+    outcome({ id: "d", closed_at: "2026-07-01T00:00:00Z", device_disposition: "not_a_candidate", care_plan_disposition: "not_applicable", care_plan_selected: null }),
+  ];
+
+  it("close_rate keeps closable dispositions and sorts newest-close first", () => {
+    const sel = selectOutcomeDrill(rows, { kind: "close_rate" });
+    expect(sel.rows.map(r => r.id)).toEqual(["c", "a", "b"]); // d excluded, c newest
+    expect(sel.count).toBe(3);
+    expect(sel.committed).toBe(2);
+    expect(sel.rate).toBeCloseTo(2 / 3);
+  });
+
+  it("tpa_attach keeps device-committed TPA rows with a care plan in play; attach = care plan committed", () => {
+    const sel = selectOutcomeDrill(rows, { kind: "tpa_attach" });
+    expect(sel.rows.map(r => r.id).sort()).toEqual(["a", "b"]);
+    expect(sel.count).toBe(2);
+    expect(sel.attached).toBe(1);
+  });
+
+  it("device_reason filters to a single reason", () => {
+    expect(outcomePredicate({ kind: "device_reason", value: "price_budget" })(rows[2])).toBe(true);
+    const sel = selectOutcomeDrill(rows, { kind: "device_reason", value: "price_budget" });
+    expect(sel.rows.map(r => r.id)).toEqual(["c"]);
+  });
+
+  it("revenue keeps priced commits and sums back to the committed-revenue card", () => {
+    const sel = selectOutcomeDrill(rows, { kind: "revenue" });
+    expect(sel.count).toBe(2);                 // a + b committed & priced
+    expect(sel.revenue).toBe(999 * 2 + 999 * 2); // both bilateral-assumed
+  });
+
+  it("tier drills the snapshot tier of commits", () => {
+    const sel = selectOutcomeDrill(rows, { kind: "tier", value: "Premium" });
+    expect(sel.rows.map(r => r.id).sort()).toEqual(["a", "b"]);
+  });
+
+  it("unknown kind matches nothing", () => {
+    expect(selectOutcomeDrill(rows, { kind: "nope" }).count).toBe(0);
+  });
+});
+
+describe("selectFollowUpDrill", () => {
+  const classify = (p) => ({ primary: p.flag || null });
+  const patients = [
+    { id: "p1", name: "Ann A", flag: "warranty_expiring", followUpContactedAt: "2026-07-01T10:00:00Z", devices: { warrantyExpiry: "2026-08-01" } },
+    { id: "p2", name: "Bob B", flag: "stale_visit", followUpContactedAt: "2026-07-02T10:00:00Z", lastVisitDate: "2025-01-01" },
+    { id: "p3", name: "Cy C",  flag: "warranty_expiring", followUpContactedAt: null },
+  ];
+  const outcomes = [
+    { patient_id: "p1", closed_at: "2026-07-03T10:00:00Z", device_disposition: "committed" },
+    { patient_id: "p2", closed_at: "2026-07-03T10:00:00Z", device_disposition: "declined" },
+  ];
+
+  it("followup_bucket lists patients whose primary bucket matches, alpha-sorted", () => {
+    const sel = selectFollowUpDrill(patients, { kind: "followup_bucket", value: "warranty_expiring" }, { classify, outcomes });
+    expect(sel.rows.map(r => r.name)).toEqual(["Ann A", "Cy C"]);
+    expect(sel.rows[0]).toMatchObject({ bucket: "warranty_expiring", committed: true }); // Ann converted after contact
+  });
+
+  it("followup_contacted counts only in-range contacts and marks conversion", () => {
+    const sel = selectFollowUpDrill(patients, { kind: "followup_contacted" }, { classify, from: new Date("2026-06-15"), outcomes });
+    expect(sel.count).toBe(2); // p1, p2 (p3 never contacted)
+    expect(sel.rows.find(r => r.id === "p1").committed).toBe(true);
+    expect(sel.rows.find(r => r.id === "p2")).toMatchObject({ withOutcome: true, committed: false });
+  });
+
+  it("followup_committed keeps only converted contacts", () => {
+    const sel = selectFollowUpDrill(patients, { kind: "followup_committed" }, { classify, outcomes });
+    expect(sel.rows.map(r => r.id)).toEqual(["p1"]);
+  });
+});
+
+describe("selectAdjustmentDrill", () => {
+  const rows = [
+    { id: "1", reason_code: "price_match", created_at: "2026-07-01T00:00:00Z" },
+    { id: "2", reason_code: "hardship",    created_at: "2026-07-03T00:00:00Z" },
+    { id: "3", reason_code: "price_match", created_at: "2026-05-01T00:00:00Z" },
+  ];
+
+  it("filters by reason and sorts newest first", () => {
+    const sel = selectAdjustmentDrill(rows, { kind: "adjust_reason", value: "price_match" });
+    expect(sel.rows.map(r => r.id)).toEqual(["1", "3"]);
+  });
+
+  it("no reason value returns all, and from drops older rows", () => {
+    const all = selectAdjustmentDrill(rows, { kind: "adjust_all" });
+    expect(all.count).toBe(3);
+    const recent = selectAdjustmentDrill(rows, { kind: "adjust_all" }, { from: new Date("2026-06-01") });
+    expect(recent.rows.map(r => r.id)).toEqual(["2", "1"]);
   });
 });
