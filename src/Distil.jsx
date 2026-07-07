@@ -9273,8 +9273,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           {view === "campaigns" && <CampaignManager clinicId={clinicId} staffId={staffId} patients={patients} />}
           {view === "content" && <ContentLibrary clinicId={clinicId} staffId={staffId} />}
           {view === "lima-charlie" && <LimaCharlie clinicId={clinicId} staffId={staffId} />}
-          {view === "reports" && <Reports clinicId={clinicId} clinicName={clinic?.name} staffId={staffId} patients={patients}
-            onSelectPatient={(p) => { setSelectedPatient(p); setView("patient"); }} />}
+          {view === "reports" && (
+            <div className="content">
+              <Reports clinicId={clinicId} clinicName={clinic?.name} staffId={staffId} patients={patients}
+                onSelectPatient={(p) => { setSelectedPatient(p); setView("patient"); }} />
+            </div>
+          )}
           {view === "followup" && (
             <FollowUpQueue
               patients={patients}

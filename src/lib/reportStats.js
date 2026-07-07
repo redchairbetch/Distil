@@ -39,8 +39,10 @@ export function computeReportStats(outcomes = [], fittingTypeByVisit = {}) {
   const carePlanSelectedMix = {};
   const carePlanReasons = {};
 
-  let committedRevenue = 0;
-  let revenueCount = 0;       // committed outcomes with a priced snapshot
+  let deviceRevenue = 0;
+  let carePlanRevenue = 0;    // committed care plans, priced by CARE_PLAN_REVENUE
+  let carePlanCount = 0;      // how many committed care plans contributed revenue
+  let revenueCount = 0;       // committed outcomes with a priced device snapshot
   let estimatedAidCount = 0;  // of those, how many assumed bilateral (no linked fitting)
   let unpricedCount = 0;      // committed outcomes with no per-aid price in the snapshot
   const tierMix = {};
@@ -70,7 +72,7 @@ export function computeReportStats(outcomes = [], fittingTypeByVisit = {}) {
     if (o.care_plan_disposition === "committed") tally(carePlanSelectedMix, o.care_plan_selected);
     if (o.care_plan_reason) tally(carePlanReasons, o.care_plan_reason);
 
-    // Revenue + tier mix (committed devices only, snapshot prices only)
+    // Device revenue + tier mix (committed devices only, snapshot prices only)
     if (o.device_disposition === "committed") {
       const snap = o.payer_plan_snapshot || {};
       const perAid = snap.tier_price_per_aid ?? snap.private_pay_price_per_aid ?? null;
@@ -80,12 +82,17 @@ export function computeReportStats(outcomes = [], fittingTypeByVisit = {}) {
         let aids;
         if (fittingType) aids = fittingType === "bilateral" ? 2 : 1;
         else { aids = 2; estimatedAidCount++; }
-        committedRevenue += perAid * aids;
+        deviceRevenue += perAid * aids;
         revenueCount++;
       } else {
         unpricedCount++;
       }
     }
+
+    // Care-plan revenue — a committed care plan is its own purchase, counted
+    // regardless of device disposition (care-plan-only visits included).
+    const cpr = carePlanRevenueOf(o);
+    if (cpr > 0) { carePlanRevenue += cpr; carePlanCount++; }
   }
 
   const overallCandidates = Object.values(carePlanByPayer).reduce((a, p) => a + p.candidates, 0);
@@ -108,7 +115,10 @@ export function computeReportStats(outcomes = [], fittingTypeByVisit = {}) {
       reasons: carePlanReasons,
     },
     revenue: {
-      committedRevenue,
+      committedRevenue: deviceRevenue + carePlanRevenue, // headline = devices + care plans
+      deviceRevenue,
+      carePlanRevenue,
+      carePlanCount,
       revenueCount,
       estimatedAidCount,
       unpricedCount,
@@ -169,6 +179,20 @@ function snapPerAid(o) {
   return snap.tier_price_per_aid ?? snap.private_pay_price_per_aid ?? null;
 }
 
+// Care-plan revenue by app care-plan key. Flat per-transaction charges (per
+// patient, not per aid). Complete Care+ on a PRIVATE-PAY sale is already
+// bundled into the per-aid device retail (generateQuote private-pay path:
+// "Complete Care+ is bundled into the per-aid retail price"), so it adds
+// nothing on top there; on insurance/TPA sales it's a separate purchase. The
+// MHC Care Card ('punch') is always a separate purchase.
+export const CARE_PLAN_REVENUE = { complete: 1250, punch: 575, paygo: 0 };
+
+export function carePlanRevenueOf(o = {}) {
+  if (o.care_plan_disposition !== "committed") return 0;
+  if (o.care_plan_selected === "complete" && o.payer_type === "private_pay") return 0;
+  return CARE_PLAN_REVENUE[o.care_plan_selected] || 0;
+}
+
 // One appointment_outcomes row → a flat display transaction. The revenue math
 // mirrors computeReportStats exactly (snapshot per-aid price × fitted ears,
 // bilateral assumed when no fitting is linked) so a drilled row's revenue
@@ -177,13 +201,14 @@ function snapPerAid(o) {
 export function toTransaction(o = {}, fittingTypeByVisit = {}) {
   const perAid = snapPerAid(o);
   const committed = o.device_disposition === "committed";
-  let aids = null, aidsEstimated = false, revenue = null;
+  let aids = null, aidsEstimated = false, deviceRevenue = 0;
   if (committed && perAid != null) {
     const ft = o.visit_id ? fittingTypeByVisit[o.visit_id] : null;
     if (ft) aids = ft === "bilateral" ? 2 : 1;
     else { aids = 2; aidsEstimated = true; }
-    revenue = perAid * aids;
+    deviceRevenue = perAid * aids;
   }
+  const carePlanRevenue = carePlanRevenueOf(o);
   const pt = o.patient || null;
   const patientName = pt ? [pt.first_name, pt.last_name].filter(Boolean).join(" ") : null;
   return {
@@ -204,7 +229,9 @@ export function toTransaction(o = {}, fittingTypeByVisit = {}) {
     perAid,
     aids,
     aidsEstimated,
-    revenue,
+    deviceRevenue,
+    carePlanRevenue,
+    revenue: deviceRevenue + carePlanRevenue,
   };
 }
 
@@ -222,7 +249,7 @@ export function outcomePredicate({ kind, value } = {}) {
     case "tpa_attach":         return (o) => o.device_disposition === "committed" && o.care_plan_disposition !== "not_applicable" && o.payer_type === "tpa";
     case "careplan_selected":  return (o) => o.care_plan_disposition === "committed" && o.care_plan_selected === value;
     case "tier":               return (o) => o.device_disposition === "committed" && snapTier(o) === value;
-    case "revenue":            return (o) => o.device_disposition === "committed" && snapPerAid(o) != null;
+    case "revenue":            return (o) => (o.device_disposition === "committed" && snapPerAid(o) != null) || carePlanRevenueOf(o) > 0;
     default:                   return () => false;
   }
 }
@@ -306,6 +333,18 @@ export function selectAdjustmentDrill(rows = [], drill = {}, { from = null } = {
   });
   out.sort((a, b) => new Date(tsOf(b) || 0) - new Date(tsOf(a) || 0));
   return { rows: out, count: out.length };
+}
+
+// ── CSV helpers (shared by the detail-page export) ──────────────────────
+// RFC-4180-ish: quote any field containing a comma, quote, or newline, and
+// double embedded quotes. Rows joined with CRLF for Excel.
+export function csvEscape(v) {
+  if (v == null) return "";
+  const s = String(v);
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+export function toCsv(headers, records) {
+  return [headers, ...records].map(row => row.map(csvEscape).join(",")).join("\r\n");
 }
 
 // Price-adjustment summary from price_adjustment_log rows. delta_amount /
