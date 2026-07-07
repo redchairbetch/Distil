@@ -244,6 +244,15 @@ const INSURANCE_PLANS = [
   // actual copay is device-driven via UHCH_COVERAGE: a mainstream device resolves
   // to Premium/Standard, a Relate device to Platinum/Gold, off-plan → retail.
   { carrier:"United Healthcare Hearing", planGroup:"Medicare Supplement", tpa:"UHCH", tiers:[{label:"Premium",price:1649}, {label:"Standard",price:1299}, {label:"Platinum",price:1249}, {label:"Gold",price:949}] },
+  // NationsBenefits (Nations Hearing) — single generic plan nested under Aetna
+  // (~90% of MHC's Nations patients). Device-driven flat copay, same shape as
+  // UHCH: the chosen device resolves to a Nations tier via NATIONS_COVERAGE
+  // (lib/pricing.js), and that tier's flat per-aid price IS the patient cost.
+  // Nations keeps its own 6-rung ladder; prices in DOLLARS per aid. Devices
+  // outside Nations' catalog → standard retail + acknowledgement form (see
+  // deriveEarPrice 'nations-offplan'). Seed/offline fallback — the live values
+  // come from the insurance_plans table (Aetna · Nations Hearing · tpa=Nations).
+  { carrier:"Aetna", planGroup:"Nations Hearing", tpa:"Nations", tiers:[{label:"Standard",price:600}, {label:"Select",price:800}, {label:"Superior Plus",price:1150}, {label:"Advanced",price:1450}, {label:"Advanced Plus",price:1625}, {label:"Specialty",price:2000}] },
 ];
 
 
@@ -3969,12 +3978,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // banner cautions the user). Skips when neither ear has resolved enough
   // to derive a price — preserves the step-4 baseline.
   useEffect(() => {
-    const isUHCH = form.payType === 'insurance' && form.tpa === 'UHCH';
-    if (form.payType !== 'private' && !isUHCH) return;
-    if (isUHCH) {
-      // Device-driven UHCH: the chosen device sets both the per-aid price and
-      // the tier label (Premium/Standard/Gold/Platinum, or "Off-Plan"). The
-      // higher-priced ear drives a mismatched fitting (mirrors pickBaselinePerAid).
+    const isDeviceDriven = form.payType === 'insurance' && (form.tpa === 'UHCH' || form.tpa === 'Nations');
+    if (form.payType !== 'private' && !isDeviceDriven) return;
+    if (isDeviceDriven) {
+      // Device-driven TPA (UHCH / Nations): the chosen device sets both the
+      // per-aid price and the tier label (UHCH: Premium/Standard/Gold/Platinum;
+      // Nations: Standard…Specialty; either → "Off-Plan"). The higher-priced ear
+      // drives a mismatched fitting (mirrors pickBaselinePerAid).
       const ears = [leftEarPrice, rightEarPrice].filter(e => e && e.source !== 'cros');
       const driver = ears.reduce((a, b) => (b.price != null && b.price > (a?.price ?? -Infinity) ? b : a), null);
       if (!driver) return;
@@ -5034,8 +5044,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               // Render the investment without a savings badge (Kurt: Relate has
               // no street retail to anchor against); off-plan additionally shows
               // the acknowledgement-form flag and bills standard retail.
-              const isUHCH = form.tpa === 'UHCH';
-              if (isUHCH && anyConfigured && form.tierPrice != null && !pricingRevealData) {
+              const isDeviceDrivenTpa = form.tpa === 'UHCH' || form.tpa === 'Nations';
+              const tpaName = form.tpa === 'Nations' ? 'Nations Hearing' : 'UHCH';
+              if (isDeviceDrivenTpa && anyConfigured && form.tierPrice != null && !pricingRevealData) {
                 const fmt2 = n => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 const ovr = form.priceOverridePerAid;
                 const lp = (ovr != null && leftEarPrice?.source  !== 'cros') ? ovr : (leftEarPrice?.price  ?? null);
@@ -5047,7 +5058,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   <div style={{background: offPlan ? "#fff7ed" : "#f0fdf4", border:`1px solid ${offPlan ? "#fed7aa" : "#bbf7d0"}`, borderRadius:12, padding:"20px 24px", marginTop:12}}>
                     {offPlan && (
                       <div style={{background:"#fffbeb",border:"1px solid #fde047",borderRadius:8,padding:"10px 14px",marginBottom:14,fontSize:12.5,color:"#854d0e",lineHeight:1.5}}>
-                        <strong>⚠ Not on the UHCH plan.</strong> This device can't be ordered through the UHCH portal. The patient may purchase it at standard retail only after signing an insurance acknowledgement form.
+                        <strong>⚠ Not on the {tpaName} plan.</strong> This device can't be ordered through the {tpaName} portal. The patient may purchase it at standard retail only after signing an insurance acknowledgement form.
                       </div>
                     )}
                     <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}}>
@@ -5059,7 +5070,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     </div>
                     {!offPlan && (
                       <div style={{fontSize:12,color:"#6b7280",marginTop:6}}>
-                        Relate value pricing under UHCH — no separate retail comparison applies.
+                        {form.tpa === 'Nations'
+                          ? `${form.tier || 'Nations'} tier · Nations Hearing flat-rate copay.`
+                          : 'Relate value pricing under UHCH — no separate retail comparison applies.'}
                       </div>
                     )}
                   </div>
@@ -8200,6 +8213,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           <select value={insDraft.tpa} onChange={e=>setInsDraft(d=>({...d,tpa:e.target.value}))} style={insSelectStyle}>
             <option value="TruHearing">TruHearing</option>
             <option value="UHCH">UHCH</option>
+            <option value="Nations">Nations</option>
             <option value="">— None / direct —</option>
           </select>
         </div>

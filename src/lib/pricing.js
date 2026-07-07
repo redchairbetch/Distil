@@ -60,6 +60,72 @@ export function uhchCoverageTier(manufacturer, techLevel) {
   return UHCH_COVERAGE[manufacturer]?.[techLevel] ?? null;
 }
 
+// ── NationsBenefits (Nations Hearing) coverage map ──────────────────────────
+// Nations, like UHCH, is device-driven: the chosen device decides the tier, and
+// each Nations tier carries a FLAT copay — every device in a tier costs the
+// patient the same. But Nations keeps its OWN 6-rung ladder (Standard < Select
+// < Superior Plus < Advanced < Advanced Plus < Specialty) and the device→tier
+// assignment is per product family, not a clean tech-level rule: Phonak Lumity
+// 30 = Select but Infinio 30 = Superior Plus; Oticon's numbering inverts
+// (Real1 = Specialty, Real3 = Advanced). This map encodes only what Nations'
+// catalog actually covers for the brands MHC dispenses. Anything not covered —
+// Oticon Intent/Own (Nations' catalog predates Intent), Signia level 1, Phonak
+// Sphere below 70, ReSound level 3 — returns null → OFF-PLAN: billed at
+// standard retail and flagged, because off-plan devices can't be ordered
+// through the Nations portal without a signed insurance acknowledgement form
+// (same mechanism as UHCH off-plan). Built from the NationsBenefits Hearing
+// Aids Pricing Catalog (638 SKUs), cross-referenced against product_catalog;
+// validated with Kurt 2026-07-07. Nations prices apply Nation-wide (single
+// generic plan nested under Aetna — ~90% of MHC's Nations patients); the tier
+// copays live on the insurance_plans row, not here.
+export const NATIONS_TIER_ORDER = [
+  'Standard', 'Select', 'Superior Plus', 'Advanced', 'Advanced Plus', 'Specialty',
+];
+
+// (catalog family, techLevel) → Nations tier label, or null when off-plan.
+// `family` is a product_catalog entry (manufacturer, id, generation); techLevel
+// is the cascade's per-ear level string ('7IX', '90', '440', '24', …).
+export function nationsCoverageTier(family, techLevel) {
+  if (!family || techLevel == null || techLevel === '') return null;
+  const lvl = String(techLevel);
+  const num = parseInt(lvl, 10); // '7IX'→7, '90'→90, '440'→440, '24'→24
+  switch (family.manufacturer) {
+    case 'Signia':
+      // Numeric ladder, generation-agnostic (IX and AX price identically).
+      // Level 1 isn't in Nations' catalog except the base Active IX (rank 1IX).
+      if (family.id === 'sig-active-ix' && /^1/.test(lvl)) return 'Superior Plus';
+      return { 7: 'Specialty', 5: 'Advanced Plus', 3: 'Advanced', 2: 'Superior Plus' }[num] || null;
+    case 'Phonak':
+      // Sphere is premium-only (90/70 → Specialty); its 50/30 rungs don't exist.
+      if (family.id === 'pho-sphere-infinio') return num >= 70 ? 'Specialty' : null;
+      if (family.generation === 'Lumity')
+        return { 90: 'Specialty', 70: 'Advanced Plus', 50: 'Advanced', 30: 'Select' }[num] || null;
+      // Infinio (Audéo / Naída / Virto): 30 sits a rung above Lumity 30.
+      return { 90: 'Specialty', 70: 'Advanced Plus', 50: 'Advanced', 30: 'Superior Plus' }[num] || null;
+    case 'Oticon':
+      // Only Real and Xceed are in Nations' catalog; Intent-generation is not.
+      if (family.id === 'oti-real')  return { 1: 'Specialty', 2: 'Advanced Plus', 3: 'Advanced' }[num] || null;
+      if (family.id === 'oti-xceed') return { 1: 'Specialty', 2: 'Specialty', 3: 'Advanced Plus' }[num] || null;
+      return null;
+    case 'Resound': {
+      // Nexia customs sit one tier above the RIC/BTE forms at the same level.
+      const custom = family.id === 'res-nexia-custom';
+      return custom
+        ? { 9: 'Specialty', 7: 'Specialty', 5: 'Advanced Plus' }[num] || null
+        : { 9: 'Specialty', 7: 'Advanced Plus', 5: 'Advanced' }[num] || null; // level 3 off-plan
+    }
+    case 'Starkey':
+      return { 24: 'Specialty', 20: 'Advanced Plus', 16: 'Advanced', 12: 'Superior Plus' }[num] || null;
+    case 'Widex':
+      return { 440: 'Specialty', 330: 'Advanced Plus', 220: 'Advanced', 110: 'Superior Plus' }[num] || null;
+    case 'Rexton':
+      // Nations prices its entire Rexton line at Select, regardless of tech level.
+      return 'Select';
+    default:
+      return null;
+  }
+}
+
 // (familyId, techLevel) → tier_rank lookup via the product_catalog_tier table.
 // Returns null when the family isn't in the catalog tier table yet (the row
 // would need to be seeded — see migration 008 for the Signia IX 2IX/1IX pass).
@@ -91,6 +157,10 @@ export function findAnchorForRank(anchors, rank) {
 //     'uhch-onplan'       — UHCH covers this device → tier copay (sets tier)
 //     'uhch-offplan'      — UHCH does NOT cover it → standard retail, flagged
 //                            (offPlan:true); not orderable via the UHCH portal
+//     'nations-onplan'    — Nations covers this device → flat tier copay (sets
+//                            tier); device-driven like UHCH
+//     'nations-offplan'   — Nations does NOT cover it → standard retail, flagged
+//                            (offPlan:true); needs an acknowledgement form
 //     'class'             — resolved from manufacturer-class anchor
 //     'fallback'          — manufacturer class wasn't seeded; used standard
 export function deriveEarPrice(side, opts) {
@@ -121,6 +191,31 @@ export function deriveEarPrice(side, opts) {
     return {
       price: anchor ? parseFloat(anchor.price_per_aid) : null,
       source: 'uhch-offplan', offPlan: true, class: cls, rank, anchorLabel: anchor?.label,
+    };
+  }
+  // Nations is device-driven like UHCH: the chosen device → Nations tier → a
+  // flat copay pulled from the Nations plan row. Must run before the generic
+  // insurance branch (Nations patients are payType 'insurance').
+  if (form?.tpa === 'Nations') {
+    const family = (catalog || []).find(e => e.id === side.familyId);
+    if (!family || !side.techLevel) return null;
+    const covTier = nationsCoverageTier(family, side.techLevel);
+    if (covTier) {
+      const plan = (plans || []).find(p => p.tpa === 'Nations'
+        && p.carrier === form.carrier && p.planGroup === form.planGroup);
+      const price = plan?.tiers?.find(t => t.label === covTier)?.price ?? null;
+      if (price == null) return null;
+      return { price, source: 'nations-onplan', tier: covTier };
+    }
+    // Off-plan: not in Nations' catalog → standard retail (manufacturer-class
+    // anchor, same resolution as private pay), flagged for the provider.
+    const cls = manufacturerToClass(family.manufacturer);
+    const rank = findTierRank(productCatalogTiers, family.id, side.techLevel);
+    let anchor = rank != null ? findAnchorForRank(anchorsByClass?.[cls], rank) : null;
+    if (!anchor && rank != null) anchor = findAnchorForRank(anchorsByClass?.standard, rank);
+    return {
+      price: anchor ? parseFloat(anchor.price_per_aid) : null,
+      source: 'nations-offplan', offPlan: true, class: cls, rank, anchorLabel: anchor?.label,
     };
   }
   if (form?.payType === 'insurance') {

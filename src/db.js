@@ -3338,10 +3338,15 @@ export async function resolveInsurancePlanId(carrier, planGroup, tierLabel) {
 }
 
 // Canonical tier-label vocabulary + ordering for insurance plans. The wizard's
-// private-label detection (isPrivateLabelPlan) and UHCH's device-driven pricing
-// both key on these exact strings, so the plan editor constrains tier labels
-// to this list instead of free text.
-export const PLAN_TIER_LABELS = ['Standard', 'Advanced', 'Premium', 'Gold', 'Platinum']
+// private-label detection (isPrivateLabelPlan) and the device-driven TPAs' pricing
+// (UHCH, Nations) key on these exact strings, so the plan editor constrains tier
+// labels to this list instead of free text. TruHearing/UHCH labels come first
+// (their historical order); Nations' own 4 unique rungs are appended so they're
+// selectable and sortable. Nations shares 'Standard'/'Advanced' with the leading
+// set, so within a Nations plan those two sort by their leading-set index — a
+// cosmetic quirk only (Nations is device-driven, so no provider tier-pick UI
+// depends on this order; deriveEarPrice matches tiers by label, not position).
+export const PLAN_TIER_LABELS = ['Standard', 'Advanced', 'Premium', 'Gold', 'Platinum', 'Select', 'Superior Plus', 'Advanced Plus', 'Specialty']
 const tierOrder = (label) => {
   const i = PLAN_TIER_LABELS.indexOf(label)
   return i === -1 ? PLAN_TIER_LABELS.length : i
