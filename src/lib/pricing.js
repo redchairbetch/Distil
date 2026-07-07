@@ -154,6 +154,8 @@ export function findAnchorForRank(anchors, rank) {
 //     'cros'              — CROS/BICROS unit, $1,250 flat
 //     'insurance-copay'   — carrier copay (form.tierPrice), manufacturer
 //                            doesn't change patient out-of-pocket
+//     'insurance-standard' — insurance selected but NO plan chosen → standard-
+//                            class retail backfill so the screen still prices
 //     'uhch-onplan'       — UHCH covers this device → tier copay (sets tier)
 //     'uhch-offplan'      — UHCH does NOT cover it → standard retail, flagged
 //                            (offPlan:true); not orderable via the UHCH portal
@@ -219,8 +221,24 @@ export function deriveEarPrice(side, opts) {
     };
   }
   if (form?.payType === 'insurance') {
-    if (form.tierPrice == null) return null;
-    return { price: form.tierPrice, source: 'insurance-copay' };
+    if (form.tierPrice != null) {
+      return { price: form.tierPrice, source: 'insurance-copay' };
+    }
+    // Insurance selected but no plan/tier chosen yet → backfill with the
+    // manufacturer-agnostic 'standard'-class retail so the device screen still
+    // prices instead of going blank (Kurt). Recomputed from the device each
+    // render (keyed on the null tierPrice, which the wizard never sets for a
+    // no-plan patient), so switching devices updates the price.
+    const family = (catalog || []).find(e => e.id === side.familyId);
+    if (!family || !side.techLevel) return null;
+    const rank = findTierRank(productCatalogTiers, family.id, side.techLevel);
+    if (rank == null) return null;
+    const anchor = findAnchorForRank(anchorsByClass?.standard, rank);
+    if (!anchor) return null;
+    return {
+      price: parseFloat(anchor.price_per_aid),
+      source: 'insurance-standard', class: 'standard', rank, anchorLabel: anchor.label,
+    };
   }
   // Private-pay branch — manufacturer + techLevel required.
   const family = (catalog || []).find(e => e.id === side.familyId);

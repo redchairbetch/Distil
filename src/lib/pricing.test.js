@@ -173,9 +173,25 @@ describe("deriveEarPrice", () => {
     expect(ep).toEqual({ price: 699, source: "insurance-copay" });
   });
 
-  it("returns null when the insurance tier price isn't set yet", () => {
-    expect(deriveEarPrice(
+  it("backfills insurance-with-no-plan at standard-class retail (Kurt), not null", () => {
+    // No plan/tier chosen (tierPrice null) → the screen should still price the
+    // device at the manufacturer-agnostic 'standard' anchor, NOT go blank.
+    const ep = deriveEarPrice(
       { familyId: "fam-signia-pure", techLevel: "7IX" },
+      { ...baseOpts, form: { payType: "insurance", tierPrice: null } }
+    );
+    expect(ep).toEqual({ price: 4997.5, source: "insurance-standard", class: "standard", rank: 5, anchorLabel: "Premium" });
+  });
+
+  it("recomputes the no-plan backfill per device — not sticky to a prior price", () => {
+    const opts = { ...baseOpts, form: { payType: "insurance", tierPrice: null } };
+    expect(deriveEarPrice({ familyId: "fam-signia-pure", techLevel: "7IX" }, opts).price).toBe(4997.5); // standard rank 5
+    expect(deriveEarPrice({ familyId: "fam-signia-pure", techLevel: "5IX" }, opts).price).toBe(4497.5); // standard rank 4
+  });
+
+  it("still returns null for no-plan insurance when the device isn't configured", () => {
+    expect(deriveEarPrice(
+      { familyId: "fam-signia-pure" }, // no techLevel
       { ...baseOpts, form: { payType: "insurance", tierPrice: null } }
     )).toBeNull();
   });
