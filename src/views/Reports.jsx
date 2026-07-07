@@ -3,6 +3,7 @@ import { loadAppointmentOutcomes, loadFittingTypesForVisits, loadPriceAdjustment
 import {
   computeReportStats, computeAdjustmentStats, computeFollowUpStats,
   selectOutcomeDrill, selectFollowUpDrill, selectAdjustmentDrill,
+  toCsv,
 } from "../lib/reportStats.js";
 import { BUCKETS, classify } from "./FollowUpQueue.jsx";
 import { ADJUST_REASON_CODES } from "./AdjustPriceModal.jsx";
@@ -71,6 +72,74 @@ function fmtDate(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+function displayName(name, id) {
+  return name || (id ? `Patient ${String(id).slice(0, 8).toUpperCase()}` : "");
+}
+
+// ── CSV export ──────────────────────────────────────────────────────────
+function downloadText(filename, text) {
+  const blob = new Blob(["﻿" + text], { type: "text/csv;charset=utf-8;" }); // BOM so Excel reads UTF-8
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+function slug(s) {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "report";
+}
+
+// Build the CSV text for a detail selection. Dollars are raw numbers (not
+// formatted) so they're spreadsheet-ready; labels match the on-screen tables.
+function buildCsv(shape, rows, { patientName } = {}) {
+  if (shape === "transactions") {
+    const headers = ["Patient", "Closed", "Context", "Device outcome", "Device reason", "Care plan", "Payer", "Payer name", "Tier", "Device revenue", "Care plan revenue", "Total revenue", "Bilateral assumed"];
+    const records = rows.map(r => [
+      displayName(r.patientName, r.patientId),
+      fmtDate(r.closedAt),
+      CONTEXT_LABELS_SHORT[r.context] || r.context || "",
+      DISPOSITION_LABELS[r.deviceDisposition] || r.deviceDisposition || "",
+      r.deviceReason ? (REASON_LABELS[r.deviceReason] || r.deviceReason) : "",
+      r.carePlanDisposition === "committed"
+        ? (CARE_PLAN_LABELS[r.carePlanSelected] || r.carePlanSelected || "Committed")
+        : (DISPOSITION_LABELS[r.carePlanDisposition] || r.carePlanDisposition || ""),
+      PAYER_LABELS[r.payerType] || r.payerType || "",
+      r.payerName || "",
+      r.tier || "",
+      r.deviceRevenue || 0,
+      r.carePlanRevenue || 0,
+      r.revenue || 0,
+      r.aidsEstimated ? "yes" : "",
+    ]);
+    return toCsv(headers, records);
+  }
+  if (shape === "patients") {
+    const headers = ["Patient", "Bucket", "Warranty expiry", "Fitting date", "Last visit", "Contacted", "Outcome logged", "Committed"];
+    const records = rows.map(r => [
+      displayName(r.name, r.id),
+      r.bucket ? (BUCKET_LABELS[r.bucket] || r.bucket) : "",
+      fmtDate(r.warrantyExpiry), fmtDate(r.fittingDate), fmtDate(r.lastVisitDate), fmtDate(r.contactedAt),
+      r.withOutcome ? "yes" : "", r.committed ? "yes" : "",
+    ]);
+    return toCsv(headers, records);
+  }
+  // adjustments
+  const headers = ["When", "Patient", "Reason", "Note", "Original", "Adjusted", "Change"];
+  const records = rows.map(r => {
+    const orig = r.original_price != null ? Number(r.original_price) : null;
+    const adj = r.adjusted_price != null ? Number(r.adjusted_price) : null;
+    const amount = r.delta_amount != null ? Number(r.delta_amount) : (orig != null && adj != null ? adj - orig : null);
+    const ts = r.created_at || r.timestamp || r.logged_at || r.inserted_at || null;
+    return [
+      fmtDate(ts),
+      (patientName && patientName(r.patient_id)) || displayName(null, r.patient_id),
+      ADJ_REASON_LABELS[r.reason_code] || r.reason_code || "",
+      r.reason_text || "",
+      orig == null ? "" : orig, adj == null ? "" : adj, amount == null ? "" : amount,
+    ];
+  });
+  return toCsv(headers, records);
 }
 
 // ── Clickable primitives ────────────────────────────────────────────────
@@ -283,8 +352,11 @@ function TransactionsTable({ rows, scope, onOpenPatient, patientOpenable }) {
                 </td>
                 <td style={td}>{r.tier || "—"}</td>
                 <td style={{ ...td, textAlign: "right", fontWeight: 700, color: "#111827" }}>
-                  {r.revenue == null ? "—" : usd.format(r.revenue)}
+                  {r.revenue > 0 ? usd.format(r.revenue) : "—"}
                   {r.aidsEstimated && <span title="Bilateral assumed — no fitting linked" style={{ color: "#b45309", fontWeight: 500 }}> *</span>}
+                  {r.carePlanRevenue > 0 && (
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#7c3aed" }}>incl. {usd.format(r.carePlanRevenue)} care plan</div>
+                  )}
                 </td>
                 <td style={{ ...td, whiteSpace: "normal", minWidth: 150 }}>{reason}</td>
               </tr>
@@ -389,7 +461,11 @@ function metricChips(drill, sel) {
     if (kind === "close_rate")  return [["Committed", sel.committed], ["Decidable", sel.count], ["Close rate", pct(sel.rate)]];
     if (kind === "tpa_attach" || kind === "careplan_payer")
       return [["Attached", sel.attached], ["Candidates", sel.count], ["Attach rate", pct(sel.count ? sel.attached / sel.count : null)]];
-    if (kind === "revenue")     return [["Revenue", usd.format(sel.revenue)], ["Priced commits", sel.count]];
+    if (kind === "revenue") {
+      const device = sel.rows.reduce((s, r) => s + (r.deviceRevenue || 0), 0);
+      const care = sel.rows.reduce((s, r) => s + (r.carePlanRevenue || 0), 0);
+      return [["Total revenue", usd.format(sel.revenue)], ["Devices", usd.format(device)], ["Care plans", usd.format(care)], ["Revenue lines", sel.count]];
+    }
     const chips = [["Outcomes", sel.count]];
     if (sel.committed) chips.push(["Committed", sel.committed]);
     if (sel.revenue)   chips.push(["Revenue", usd.format(sel.revenue)]);
@@ -414,17 +490,38 @@ function metricChips(drill, sel) {
 function ReportDetail({ drill, selection, rangeLabel, scopeLabel, scope, onBack, onOpenPatient, patientOpenable, patientName }) {
   const { title, blurb, shape } = describe(drill);
   const chips = metricChips(drill, selection);
+  const [exportHover, setExportHover] = useState(false);
+
+  const exportCsv = () => {
+    const text = buildCsv(shape, selection.rows, { patientName });
+    downloadText(`${slug(title)}_${slug(rangeLabel)}_${slug(scopeLabel)}.csv`, text);
+  };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 1060 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 1060, margin: "0 auto", width: "100%" }}>
       <div>
-        <button onClick={onBack}
-          style={{ background: "none", border: "none", color: "#0f766e", fontSize: 13, fontWeight: 700, cursor: "pointer", padding: 0, marginBottom: 10 }}>
-          ← Back to Reports
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+          <button onClick={onBack}
+            style={{ background: "none", border: "none", color: "#0f766e", fontSize: 13, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+            ← Back to Reports
+          </button>
+          <button onClick={exportCsv} disabled={selection.count === 0}
+            onMouseEnter={() => setExportHover(true)} onMouseLeave={() => setExportHover(false)}
+            title={selection.count === 0 ? "Nothing to export" : "Download these rows as a CSV"}
+            style={{
+              marginLeft: "auto", padding: "7px 14px", fontSize: 13, fontWeight: 700, borderRadius: 8,
+              border: `1px solid ${selection.count === 0 ? "#e5e7eb" : "#0d9488"}`,
+              background: selection.count === 0 ? "#f9fafb" : (exportHover ? "#0d9488" : "#f0fdfa"),
+              color: selection.count === 0 ? "#9ca3af" : (exportHover ? "#fff" : "#0f766e"),
+              cursor: selection.count === 0 ? "not-allowed" : "pointer",
+              transition: "background 120ms ease, color 120ms ease",
+            }}>
+            ↓ Export CSV
+          </button>
+        </div>
         <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#111827" }}>{title}</h2>
         <div style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>{blurb}</div>
-        <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 6 }}>{rangeLabel} · {scopeLabel}</div>
+        <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 6 }}>{rangeLabel} · {scopeLabel} · {selection.count} {selection.count === 1 ? "record" : "records"}</div>
       </div>
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -578,7 +675,7 @@ export default function Reports({ clinicId, clinicName, staffId, patients = [], 
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 1060 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 1060, margin: "0 auto", width: "100%" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#111827" }}>Reports</h2>
@@ -624,8 +721,7 @@ export default function Reports({ clinicId, clinicName, staffId, patients = [], 
               accent="#7c3aed"
               onClick={() => open("outcomes", "tpa_attach")} />
             <StatCard label="Committed revenue" value={usd.format(stats.revenue.committedRevenue)}
-              sub={`${stats.revenue.revenueCount} priced commits` +
-                (stats.revenue.estimatedAidCount ? ` · ${stats.revenue.estimatedAidCount} assumed bilateral` : "") +
+              sub={`${usd.format(stats.revenue.deviceRevenue)} devices · ${usd.format(stats.revenue.carePlanRevenue)} care plans` +
                 (stats.revenue.unpricedCount ? ` · ${stats.revenue.unpricedCount} unpriced` : "")}
               accent="#0369a1"
               onClick={() => open("outcomes", "revenue")} />

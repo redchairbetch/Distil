@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   computeReportStats, computeAdjustmentStats, computeFollowUpStats,
   toTransaction, outcomePredicate, selectOutcomeDrill, selectFollowUpDrill, selectAdjustmentDrill,
+  csvEscape, toCsv,
 } from "./reportStats.js";
 
 // Outcome-row factory in the appointment_outcomes DB shape.
@@ -78,21 +79,39 @@ describe("computeReportStats — TPA care-plan attach (the headline)", () => {
 });
 
 describe("computeReportStats — revenue & tier mix", () => {
-  it("prices from the snapshot × fitted ears, assuming bilateral when unlinked", () => {
+  it("prices devices from the snapshot × fitted ears, assuming bilateral when unlinked", () => {
     const stats = computeReportStats(
       [
         outcome({ visit_id: "v1" }),                      // bilateral → 999 × 2
         outcome({ visit_id: "v2" }),                      // unilateral → 999 × 1
         outcome(),                                        // no visit → assume 2, flagged
-        outcome({ payer_plan_snapshot: {} }),             // committed but unpriced
-        outcome({ device_disposition: "declined", device_reason: "price_budget", care_plan_disposition: "not_applicable", care_plan_selected: null }), // not committed — no revenue
+        outcome({ payer_plan_snapshot: {} }),             // committed but unpriced device
+        outcome({ device_disposition: "declined", device_reason: "price_budget", care_plan_disposition: "not_applicable", care_plan_selected: null }), // not committed — no device revenue
       ],
       { v1: "bilateral", v2: "unilateral" }
     );
-    expect(stats.revenue.committedRevenue).toBe(999 * 2 + 999 + 999 * 2);
+    // Devices: bilateral + unilateral + assumed-bilateral (the unpriced row adds nothing).
+    expect(stats.revenue.deviceRevenue).toBe(999 * 2 + 999 + 999 * 2);
+    // Care plans: the four committed Complete Care+ (all TPA → separate charge).
+    expect(stats.revenue.carePlanRevenue).toBe(1250 * 4);
+    expect(stats.revenue.carePlanCount).toBe(4);
+    // Headline folds both together.
+    expect(stats.revenue.committedRevenue).toBe(999 * 2 + 999 + 999 * 2 + 1250 * 4);
     expect(stats.revenue.revenueCount).toBe(3);
     expect(stats.revenue.estimatedAidCount).toBe(1);
     expect(stats.revenue.unpricedCount).toBe(1);
+  });
+
+  it("counts care-plan revenue as a separate purchase, except bundled private-pay Complete Care+", () => {
+    const stats = computeReportStats([
+      outcome(),                                                                    // TPA + Complete Care+ → +1250
+      outcome({ care_plan_selected: "punch" }),                                     // TPA + MHC Care Card → +575
+      outcome({ payer_type: "private_pay", payer_plan_snapshot: { private_pay_tier: "Advanced", private_pay_price_per_aid: 3000 } }),               // private + CC+ bundled → +0
+      outcome({ payer_type: "private_pay", care_plan_selected: "punch", payer_plan_snapshot: { private_pay_tier: "Advanced", private_pay_price_per_aid: 3000 } }), // private + Care Card → +575
+      outcome({ care_plan_disposition: "declined", care_plan_reason: "price_budget", care_plan_selected: null }), // care plan lost → +0
+    ]);
+    expect(stats.revenue.carePlanRevenue).toBe(1250 + 575 + 0 + 575);
+    expect(stats.revenue.carePlanCount).toBe(3);
   });
 
   it("builds tier and payer mixes from snapshots, not live records", () => {
@@ -172,21 +191,22 @@ describe("toTransaction", () => {
     expect(t).toMatchObject({
       id: "o1", patientId: "p1", patientName: "Jane Doe", clinicName: "Provo",
       deviceDisposition: "committed", payerType: "tpa", tier: "Premium",
-      perAid: 999, aids: 2, aidsEstimated: false, revenue: 1998,
+      perAid: 999, aids: 2, aidsEstimated: false,
+      deviceRevenue: 1998, carePlanRevenue: 1250, revenue: 3248, // device + Complete Care+ (TPA)
     });
   });
 
-  it("assumes bilateral (flagged) when no fitting is linked, and null-prices non-commits", () => {
+  it("assumes bilateral (flagged) when no fitting is linked, and zero-prices non-commits", () => {
     const est = toTransaction(outcome({ visit_id: null }));
-    expect(est).toMatchObject({ aids: 2, aidsEstimated: true, revenue: 1998 });
+    expect(est).toMatchObject({ aids: 2, aidsEstimated: true, deviceRevenue: 1998, carePlanRevenue: 1250, revenue: 3248 });
     const declined = toTransaction(outcome({ device_disposition: "declined", device_reason: "price_budget", care_plan_disposition: "not_applicable", care_plan_selected: null }));
-    expect(declined.revenue).toBeNull();
+    expect(declined.revenue).toBe(0);
     expect(declined.aids).toBeNull();
   });
 
-  it("falls back to private-pay snapshot fields and a null patient name", () => {
+  it("falls back to private-pay snapshot fields, bundles private-pay CC+, and null patient name", () => {
     const t = toTransaction(outcome({ payer_type: "private_pay", payer_name: null, patient: null, payer_plan_snapshot: { private_pay_tier: "Advanced", private_pay_price_per_aid: 3497.5 } }));
-    expect(t).toMatchObject({ patientName: null, tier: "Advanced", perAid: 3497.5 });
+    expect(t).toMatchObject({ patientName: null, tier: "Advanced", perAid: 3497.5, carePlanRevenue: 0 }); // CC+ bundled in device price
   });
 });
 
@@ -221,8 +241,9 @@ describe("outcomePredicate + selectOutcomeDrill", () => {
 
   it("revenue keeps priced commits and sums back to the committed-revenue card", () => {
     const sel = selectOutcomeDrill(rows, { kind: "revenue" });
-    expect(sel.count).toBe(2);                 // a + b committed & priced
-    expect(sel.revenue).toBe(999 * 2 + 999 * 2); // both bilateral-assumed
+    expect(sel.count).toBe(2);                          // a + b committed & priced
+    // a: devices 999×2 + Complete Care+ 1250 (TPA); b: devices 999×2 + care plan declined 0.
+    expect(sel.revenue).toBe(999 * 2 + 1250 + 999 * 2);
   });
 
   it("tier drills the snapshot tier of commits", () => {
@@ -263,6 +284,22 @@ describe("selectFollowUpDrill", () => {
   it("followup_committed keeps only converted contacts", () => {
     const sel = selectFollowUpDrill(patients, { kind: "followup_committed" }, { classify, outcomes });
     expect(sel.rows.map(r => r.id)).toEqual(["p1"]);
+  });
+});
+
+describe("CSV helpers", () => {
+  it("quotes fields with commas, quotes, or newlines and doubles inner quotes", () => {
+    expect(csvEscape("plain")).toBe("plain");
+    expect(csvEscape("a,b")).toBe('"a,b"');
+    expect(csvEscape('she said "hi"')).toBe('"she said ""hi"""');
+    expect(csvEscape("line1\nline2")).toBe('"line1\nline2"');
+    expect(csvEscape(null)).toBe("");
+    expect(csvEscape(1998)).toBe("1998");
+  });
+
+  it("builds CRLF-joined rows with a header", () => {
+    const csv = toCsv(["Patient", "Revenue"], [["Doe, Jane", 3248], ["Ann", 0]]);
+    expect(csv).toBe('Patient,Revenue\r\n"Doe, Jane",3248\r\nAnn,0');
   });
 });
 
