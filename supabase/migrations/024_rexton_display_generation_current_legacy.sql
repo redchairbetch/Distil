@@ -1,3 +1,9 @@
+-- Distil — hearing clinic patient management & intake system
+-- Copyright (c) 2026 Kurt Mooney. All rights reserved.
+-- PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, or distribution is
+-- prohibited without the prior written permission of the copyright holder.
+-- See the LICENSE file at the repository root for full terms.
+
 -- 024: Rexton display_generation → "Current" / "Legacy".
 --
 -- Follow-up to 023. The #16 device screen renders `{family} · {display_generation}`.

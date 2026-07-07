@@ -1,3 +1,9 @@
+-- Distil — hearing clinic patient management & intake system
+-- Copyright (c) 2026 Kurt Mooney. All rights reserved.
+-- PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, or distribution is
+-- prohibited without the prior written permission of the copyright holder.
+-- See the LICENSE file at the repository root for full terms.
+
 -- Phase 2 of the annual/upgrade kiosk route (backlog #23): cross-device prefill.
 -- A provider mints a short-lived, single-use code from the CRM that carries the
 -- returning patient's prior contact + last readiness answers; the anonymous

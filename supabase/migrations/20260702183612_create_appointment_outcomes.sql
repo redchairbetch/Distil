@@ -1,3 +1,9 @@
+-- Distil — hearing clinic patient management & intake system
+-- Copyright (c) 2026 Kurt Mooney. All rights reserved.
+-- PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, or distribution is
+-- prohibited without the prior written permission of the copyright holder.
+-- See the LICENSE file at the repository root for full terms.
+
 -- Close Appointment disposition capture. Two-layer design: device and care
 -- plan dispositions are logged separately so the TPA care-plan attach rate
 -- (the pilot's headline metric) stays computable when a patient accepts

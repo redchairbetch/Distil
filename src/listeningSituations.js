@@ -1,3 +1,15 @@
+/*!
+ * Distil — hearing clinic patient management & intake system
+ *
+ * Copyright (c) 2026 Kurt Mooney. All rights reserved.
+ *
+ * PROPRIETARY AND CONFIDENTIAL. This source code is the exclusive property of
+ * the copyright holder. Unauthorized copying, distribution, modification, or
+ * use of this file, in whole or in part, via any medium, is strictly
+ * prohibited without the prior written permission of the copyright holder.
+ * See the LICENSE file at the repository root for full terms.
+ */
+
 // ── Listening situations — shared data for the patient journey ───────────────
 // Extracted from views/TierSelection.jsx so both the Technology Tier step
 // (Step 1 — "what we found") and the Pricing Reveal (Step 2) can reflect the

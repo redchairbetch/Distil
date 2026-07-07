@@ -3,6 +3,9 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "author": "Kurt Mooney",
+  "license": "UNLICENSED",
+  "description": "Distil — hearing clinic patient management & intake system. Proprietary and confidential. Copyright (c) 2026 Kurt Mooney. All rights reserved.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

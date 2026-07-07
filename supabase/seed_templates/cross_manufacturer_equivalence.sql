@@ -1,3 +1,9 @@
+-- Distil — hearing clinic patient management & intake system
+-- Copyright (c) 2026 Kurt Mooney. All rights reserved.
+-- PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, or distribution is
+-- prohibited without the prior written permission of the copyright holder.
+-- See the LICENSE file at the repository root for full terms.
+
 -- ═══════════════════════════════════════════════════════════════════════════
 -- SEED TEMPLATE — cross_manufacturer_equivalence (Kurt-owned, spec §11)
 -- NOT a migration. Fill in the tier-parity judgments below and run the

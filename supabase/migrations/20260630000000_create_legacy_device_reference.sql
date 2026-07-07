@@ -1,3 +1,9 @@
+-- Distil — hearing clinic patient management & intake system
+-- Copyright (c) 2026 Kurt Mooney. All rights reserved.
+-- PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, or distribution is
+-- prohibited without the prior written permission of the copyright holder.
+-- See the LICENSE file at the repository root for full terms.
+
 -- Old-vs-new device comparison: curated reference of legacy / competitor /
 -- trade-in hearing aids so the comparator can score a patient's CURRENT device
 -- against a proposed new one. These devices (e.g. a 7-yr-old Costco KS9) are

@@ -1,3 +1,15 @@
+/*!
+ * Distil — hearing clinic patient management & intake system
+ *
+ * Copyright (c) 2026 Kurt Mooney. All rights reserved.
+ *
+ * PROPRIETARY AND CONFIDENTIAL. This source code is the exclusive property of
+ * the copyright holder. Unauthorized copying, distribution, modification, or
+ * use of this file, in whole or in part, via any medium, is strictly
+ * prohibited without the prior written permission of the copyright holder.
+ * See the LICENSE file at the repository root for full terms.
+ */
+
 import { getPTA } from "./audiogramAnalysis.js";
 
 // Reprogram-vs-upgrade decision aid (backlog #23, PR3). Pure functions, reused by

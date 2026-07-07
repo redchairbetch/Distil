@@ -1,3 +1,9 @@
+-- Distil — hearing clinic patient management & intake system
+-- Copyright (c) 2026 Kurt Mooney. All rights reserved.
+-- PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, or distribution is
+-- prohibited without the prior written permission of the copyright holder.
+-- See the LICENSE file at the repository root for full terms.
+
 -- 007_add_intake_assessment_fields.sql
 -- Narrative Thread UX (backlog #8) — PR 1: Chapter intro pattern + Chapter 1 enhancements.
 -- Adds two provider-assessed fields captured during the Health History wizard step:

@@ -1,3 +1,9 @@
+-- Distil — hearing clinic patient management & intake system
+-- Copyright (c) 2026 Kurt Mooney. All rights reserved.
+-- PROPRIETARY AND CONFIDENTIAL. Unauthorized use, copying, or distribution is
+-- prohibited without the prior written permission of the copyright holder.
+-- See the LICENSE file at the repository root for full terms.
+
 -- 009_add_analytics_events.sql
 -- Lightweight event sink for in-app product analytics. First consumers are
 -- care_plan_viewed / care_plan_changed / care_plan_selected on the Care
