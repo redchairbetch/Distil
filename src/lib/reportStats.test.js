@@ -80,6 +80,17 @@ describe("computeReportStats — TPA care-plan attach (the headline)", () => {
     expect(stats.carePlan.reasons.price_budget).toBe(1);
   });
 
+  it("tracks Direct Purchase as its own attach bucket and counts CC+ like a TPA sale", () => {
+    const stats = computeReportStats([
+      outcome({ payer_type: "direct_purchase", payer_name: "TruHearing (direct)" }),                         // attached
+      outcome({ payer_type: "direct_purchase", care_plan_disposition: "declined", care_plan_reason: "price_budget", care_plan_selected: null }), // candidate, not attached
+    ]);
+    expect(stats.carePlan.byPayer.direct_purchase).toEqual({ candidates: 2, attached: 1, rate: 0.5 });
+    // Complete Care+ on a Direct Purchase is a separate charge (not bundled) → counts.
+    expect(stats.revenue.carePlanRevenue).toBe(1250);
+    expect(stats.carePlan.byPayer.private_pay).toEqual({ candidates: 0, attached: 0, rate: null });
+  });
+
   it("tracks which care plan was selected", () => {
     const stats = computeReportStats([
       outcome({ care_plan_selected: "complete" }),

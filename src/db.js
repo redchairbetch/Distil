@@ -641,6 +641,8 @@ function assemblePatient(row) {
     email:     row.email || '',
     address:   row.address || '',
     payType:   row.pay_type,
+    directPurchase: row.direct_purchase === true, // TruHearing benefit sold private at the TPA price
+
     notes:     row.notes || '',
 
     // Raw DB IDs needed for inline edits — not displayed in UI
@@ -909,6 +911,7 @@ export async function savePatient(patient, staffId, clinicId) {
       email:     patient.email     || null,
       address:   patient.address   || null,
       pay_type:  patient.payType,
+      direct_purchase: patient.directPurchase === true,
       notes:     patient.notes     || null,
       patient_status: patient.patientStatus || 'prospect',
       // Private-pay tier snapshot — null for insurance patients.
@@ -1278,6 +1281,7 @@ export async function createPatientDraft(data, staffId, clinicId) {
       email:          data.email     || null,
       address:        data.address   || null,
       pay_type:       data.payType,
+      direct_purchase: data.directPurchase === true,
       notes:          data.notes     || null,
       patient_status: 'prospect',
       // Private-pay tier snapshot — null for insurance patients.
@@ -1471,12 +1475,15 @@ export async function logAnalyticsEvent(eventName, payload = {}) {
 }
 
 // Final — promote draft to active/tns and set warranty/fitting info
-export async function finalizePatient(patientId, status, devices, carePlan, notes, appointments, staffId, clinicId, privatePay = null, visitId = null) {
+export async function finalizePatient(patientId, status, devices, carePlan, notes, appointments, staffId, clinicId, privatePay = null, visitId = null, opts = {}) {
   // Update patient status + notes. Stamp care_plan_start_date with the
   // fitting date when the patient is being finalized with a care plan
   // selected — gives the year-4 upgrade pathway a ground-truth anchor.
   const updates = { patient_status: status || 'active' }
   if (notes != null) updates.notes = notes
+  // Direct Purchase can be toggled mid-wizard (after createPatientDraft ran),
+  // so re-stamp it at finalize as the canonical write moment.
+  if (opts.directPurchase != null) updates.direct_purchase = opts.directPurchase === true
   if (carePlan && devices?.fittingDate) {
     // Set-once: care_plan_start_date is the "Year 0" of the patient's original
     // journey. An upgrade re-finalize must not reset it (current-aids age is
@@ -1607,7 +1614,7 @@ export function validateAppointmentOutcome(o) {
   if (o.deviceDisposition === 'not_applicable' && o.carePlanDisposition === 'not_applicable') {
     return 'Device and care plan outcomes cannot both be "not applicable".'
   }
-  if (!['tpa', 'other_insurance', 'private_pay'].includes(o.payerType)) return 'Missing payer type.'
+  if (!['tpa', 'direct_purchase', 'other_insurance', 'private_pay'].includes(o.payerType)) return 'Missing payer type.'
   return null
 }
 

@@ -138,6 +138,27 @@ export function nationsCoverageTier(family, techLevel) {
   }
 }
 
+// ── Direct Purchase (TruHearing benefit, sold private at the TPA price) ──────
+// A patient who has a TruHearing benefit but wasn't referred to the clinic can
+// be sold privately at their insurance price with the equivalent Signia device.
+// The chosen TruHearing plan tier locks the Signia tech-level NUMBER; the
+// provider still picks the Signia family/style, which is what fixes IX vs AX
+// (Pure 7IX for a RIC, an AX-only custom where that's all Signia makes). Price
+// parity is automatic — deriveEarPrice echoes the flat TruHearing tier price
+// (source 'direct-purchase'), so every device at a tier costs the same.
+export const DIRECT_PURCHASE_TIER_LEVEL = { Premium: 7, Advanced: 5, Standard: 3 };
+
+// The single locked tech-level string for a Signia family at a TruHearing tier,
+// e.g. (Pure Charge&Go IX, "Premium") → "7IX"; (Pure Charge&Go AX, "Advanced")
+// → "5AX". Returns null when the family doesn't offer that level, so the family
+// is simply hidden at that tier (Active IX has only 7IX/1IX — nothing at
+// Advanced). parseInt('7IX') → 7, parseInt('5AX') → 5.
+export function directPurchaseLockedTech(family, tier) {
+  const num = DIRECT_PURCHASE_TIER_LEVEL[tier];
+  if (!family || num == null) return null;
+  return (family.techLevels || []).find(t => parseInt(t, 10) === num) || null;
+}
+
 // (familyId, techLevel) → tier_rank lookup via the product_catalog_tier table.
 // Returns null when the family isn't in the catalog tier table yet (the row
 // would need to be seeded — see migration 008 for the Signia IX 2IX/1IX pass).
@@ -233,6 +254,13 @@ export function deriveEarPrice(side, opts) {
     };
   }
   if (form?.payType === 'insurance') {
+    // Direct Purchase: TruHearing benefit sold private at the TPA tier price on
+    // a Signia device. Flat tier price like an insurance copay, distinct source
+    // so the UI/tests can tell it apart. tierPrice is always set (from the tier
+    // step) before this branch is reachable.
+    if (form.directPurchase && form.tierPrice != null) {
+      return { price: form.tierPrice, source: 'direct-purchase' };
+    }
     if (form.tierPrice != null) {
       return { price: form.tierPrice, source: 'insurance-copay' };
     }
