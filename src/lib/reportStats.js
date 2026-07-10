@@ -26,7 +26,22 @@
 //   visit's fitting_type; bilateral is assumed when no fitting is linked and
 //   the estimate is flagged.
 
+import { NATIONS_TIER_PRICING } from "../nations_catalog_data.js";
+
 const CLOSABLE = ["committed", "deferred", "declined", "no_decision"];
+
+// Nations clinic-side economics: the member's copay flows to NationsBenefits,
+// NOT the clinic — what the clinic earns on a Nations fitting is the per-aid
+// FITTING FEE, which slides by tier ($200 Standard … $700 Specialty). Kurt
+// (2026-07-10): report fitting fees as true clinic revenue; never surface them
+// patient-facing (quotes/PAs/pricing reveal stay copay-only). Returns the
+// per-aid fee for an on-plan Nations outcome snapshot, or null for everything
+// else — including Nations OFF-plan sales ("Off-Plan" tier), where the patient
+// pays the clinic standard retail directly and no TPA fee applies.
+export function nationsFittingFeePerAid(snap = {}) {
+  if (snap?.tpa !== "Nations") return null;
+  return NATIONS_TIER_PRICING[snap.tier]?.fittingFeePerAid ?? null;
+}
 
 function rate(closed, denominator) {
   return denominator > 0 ? closed / denominator : null;
@@ -60,6 +75,10 @@ export function computeReportStats(outcomes = [], fittingTypeByVisit = {}) {
   let unpricedCount = 0;      // committed outcomes with no per-aid price in the snapshot
   const tierMix = {};
   const payerMix = {};
+  // Nations clinic revenue (fitting fees) — see nationsFittingFeePerAid.
+  // memberCopays = the Nations on-plan copay dollars inside deviceRevenue,
+  // so the view can say how much of the headline flows to the TPA instead.
+  const nationsFees = { revenue: 0, count: 0, estimatedAidCount: 0, memberCopays: 0 };
 
   for (const o of outcomes) {
     tally(deviceMix, o.device_disposition);
@@ -90,15 +109,23 @@ export function computeReportStats(outcomes = [], fittingTypeByVisit = {}) {
       const snap = o.payer_plan_snapshot || {};
       const perAid = snap.tier_price_per_aid ?? snap.private_pay_price_per_aid ?? null;
       tally(tierMix, snap.tier ?? snap.private_pay_tier ?? "(no tier)");
+      const fittingType = o.visit_id ? fittingTypeByVisit[o.visit_id] : null;
+      const aids = fittingType ? (fittingType === "bilateral" ? 2 : 1) : 2;
       if (perAid != null) {
-        const fittingType = o.visit_id ? fittingTypeByVisit[o.visit_id] : null;
-        let aids;
-        if (fittingType) aids = fittingType === "bilateral" ? 2 : 1;
-        else { aids = 2; estimatedAidCount++; }
+        if (!fittingType) estimatedAidCount++;
         deviceRevenue += perAid * aids;
         revenueCount++;
       } else {
         unpricedCount++;
+      }
+      // Nations fitting fees accrue independently of the copay being priced —
+      // the fee schedule is keyed on the snapshot tier alone.
+      const fee = nationsFittingFeePerAid(snap);
+      if (fee != null) {
+        nationsFees.revenue += fee * aids;
+        nationsFees.count++;
+        if (!fittingType) nationsFees.estimatedAidCount++;
+        if (perAid != null) nationsFees.memberCopays += perAid * aids;
       }
     }
 
@@ -135,6 +162,7 @@ export function computeReportStats(outcomes = [], fittingTypeByVisit = {}) {
       revenueCount,
       estimatedAidCount,
       unpricedCount,
+      nationsFittingFees: nationsFees,
       tierMix,
       payerMix,
     },
@@ -214,12 +242,20 @@ export function carePlanRevenueOf(o = {}) {
 export function toTransaction(o = {}, fittingTypeByVisit = {}) {
   const perAid = snapPerAid(o);
   const committed = o.device_disposition === "committed";
-  let aids = null, aidsEstimated = false, deviceRevenue = 0;
+  let aids = null, aidsEstimated = false, deviceRevenue = 0, nationsFittingFee = 0;
   if (committed && perAid != null) {
     const ft = o.visit_id ? fittingTypeByVisit[o.visit_id] : null;
     if (ft) aids = ft === "bilateral" ? 2 : 1;
     else { aids = 2; aidsEstimated = true; }
     deviceRevenue = perAid * aids;
+  }
+  // Clinic-side Nations economics (fitting fee × aids); 0 for everything else.
+  if (committed) {
+    const fee = nationsFittingFeePerAid(o.payer_plan_snapshot || {});
+    if (fee != null) {
+      const ft = o.visit_id ? fittingTypeByVisit[o.visit_id] : null;
+      nationsFittingFee = fee * (ft ? (ft === "bilateral" ? 2 : 1) : 2);
+    }
   }
   const carePlanRevenue = carePlanRevenueOf(o);
   const pt = o.patient || null;
@@ -244,6 +280,7 @@ export function toTransaction(o = {}, fittingTypeByVisit = {}) {
     aidsEstimated,
     deviceRevenue,
     carePlanRevenue,
+    nationsFittingFee,
     revenue: deviceRevenue + carePlanRevenue,
   };
 }
