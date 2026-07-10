@@ -146,6 +146,7 @@ import LimaCharlie from "./views/LimaCharlie.jsx";
 import FollowUpQueue, { countFollowUpPatients } from "./views/FollowUpQueue.jsx";
 import CommsInbox from "./views/CommsInbox.jsx";
 import ProvidersAdmin from "./views/ProvidersAdmin.jsx";
+import NationsCatalog from "./views/NationsCatalog.jsx";
 import AdjustmentHistory from "./views/AdjustmentHistory.jsx";
 import CloserLocationPicker from "./views/CloserLocationPicker.jsx";
 import AdjustPriceModal from "./views/AdjustPriceModal.jsx";
@@ -9233,7 +9234,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 were separately added and produced two Admin sections on merge. */}
             {checkRole(staffRole, ["admin"]) && <>
               <div className="nav-section-label">Admin</div>
-              {[["users","Team","team"],["badge","Providers","providers"],["shield","Insurance Plans","insurance-plans"],["percent","Rebates","rebates"],["clipboard","Product Catalog","catalog"],["settings","Settings","settings"]].map(([icon,label,id])=>(
+              {[["users","Team","team"],["badge","Providers","providers"],["shield","Insurance Plans","insurance-plans"],["percent","Rebates","rebates"],["clipboard","Product Catalog","catalog"],["book","Nations Catalog","nations-catalog"],["settings","Settings","settings"]].map(([icon,label,id])=>(
                 <div key={id} className={`nav-item ${view===id?"active":""}`} onClick={()=>setView(id)}>
                   <span className="nav-icon"><Icon name={icon} size={17}/></span>{label}
                 </div>
@@ -9414,6 +9415,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           {view === "catalog" && (checkRole(staffRole, ["admin"]) ? renderCatalog() : renderAdminDenied())}
           {view === "providers" && (checkRole(staffRole, ["admin"]) ? <ProvidersAdmin /> : renderAdminDenied())}
           {view === "insurance-plans" && (checkRole(staffRole, ["admin"]) ? renderInsurancePlans() : renderAdminDenied())}
+          {view === "nations-catalog" && (checkRole(staffRole, ["admin"]) ? <NationsCatalog /> : renderAdminDenied())}
           {view === "team" && (checkRole(staffRole, ["admin"]) ? <TeamAdmin activeClinicId={clinicId} /> : renderAdminDenied())}
           {view === "adjustments" && <AdjustmentHistory staffId={staffId} patients={patients} />}
           {view === "rebates" && renderRebates()}
