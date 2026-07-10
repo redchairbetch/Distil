@@ -303,6 +303,28 @@ describe("deriveEarPrice", () => {
     expect(ep).toEqual({ price: 800, source: "nations-onplan", tier: "Select" });
   });
 
+  it("flags an on-plan Nations device whose tier copay is a catalog hole", () => {
+    // The device resolves to a covered tier (Specialty), but the plan row has
+    // no copay for it → not off-plan, just an un-mapped rate to verify.
+    const plansWithHole = [{ tpa: "Nations", carrier: "Aetna", planGroup: "Nations Hearing",
+      tiers: [{ label: "Standard", price: 600 }] }]; // Specialty missing
+    const ep = deriveEarPrice(
+      { familyId: "sig-pure-ix", techLevel: "7IX" }, // maps to Specialty
+      { ...baseOpts, plans: plansWithHole, form: nationsForm }
+    );
+    expect(ep).toEqual({ price: null, source: "nations-onplan", tier: "Specialty", requiresVerification: true });
+  });
+
+  it("flags an on-plan UHCH device whose tier copay is a catalog hole", () => {
+    const plansWithHole = [{ tpa: "UHCH", carrier: "UnitedHealthcare", planGroup: "Medicare Supplement",
+      tiers: [{ label: "Standard", price: 775 }] }]; // Premium missing
+    const ep = deriveEarPrice(
+      { familyId: "fam-signia-pure", techLevel: "7IX" }, // maps to Premium
+      { ...baseOpts, plans: plansWithHole, form: { payType: "insurance", tpa: "UHCH", carrier: "UnitedHealthcare", planGroup: "Medicare Supplement" } }
+    );
+    expect(ep).toEqual({ price: null, source: "uhch-onplan", tier: "Premium", requiresVerification: true });
+  });
+
   it("flags Nations off-plan devices at standard retail (Oticon Intent)", () => {
     const ep = deriveEarPrice(
       { familyId: "oti-intent", techLevel: "1" },

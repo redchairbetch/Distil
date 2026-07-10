@@ -253,7 +253,11 @@ export function deriveEarPrice(side, opts) {
     if (covTier) {
       const plan = (plans || []).find(p => p.tpa === 'UHCH' && p.carrier === form.carrier && p.planGroup === form.planGroup);
       const price = plan?.tiers?.find(t => t.label === covTier)?.price ?? null;
-      if (price == null) return null;
+      // On-plan (a covered tier resolved) but the copay for that tier is a
+      // catalog hole — our managed-care rates are reverse-engineered and have
+      // gaps. Flag it (instead of silently returning null) so the reveal can
+      // offer a "verify rate" input rather than a dead placeholder.
+      if (price == null) return { price: null, source: 'uhch-onplan', tier: covTier, requiresVerification: true };
       return { price, source: 'uhch-onplan', tier: covTier };
     }
     // Off-plan: not covered by UHCH → standard retail (manufacturer-class
@@ -278,7 +282,9 @@ export function deriveEarPrice(side, opts) {
       const plan = (plans || []).find(p => p.tpa === 'Nations'
         && p.carrier === form.carrier && p.planGroup === form.planGroup);
       const price = plan?.tiers?.find(t => t.label === covTier)?.price ?? null;
-      if (price == null) return null;
+      // On-plan but the flat tier copay is a catalog hole — flag for the reveal
+      // to surface a "verify rate" input instead of a dead placeholder.
+      if (price == null) return { price: null, source: 'nations-onplan', tier: covTier, requiresVerification: true };
       return { price, source: 'nations-onplan', tier: covTier };
     }
     // Off-plan: not in Nations' catalog → standard retail (manufacturer-class

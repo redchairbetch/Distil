@@ -15,6 +15,7 @@ import { unwrapIntakeAnswers } from "./recommendationEngine.js";
 import { ENVIRONMENTS, SITUATION_LABEL, TIER_EFFORT_COPY, flaggedEnvironments } from "./listeningSituations.js";
 import Icon from "./components/Icon.jsx";
 import FinancingCalculator from "./components/FinancingCalculator.jsx";
+import VerifyRateCard from "./components/VerifyRateCard.jsx";
 import DeviceComparison, { techLevelToRank } from "./views/DeviceComparison.jsx";
 import ComparisonHub from "./views/ComparisonHub.jsx";
 import { LegacyDevicePanel } from "./views/LegacyFastPath.jsx";
@@ -131,6 +132,10 @@ import {
   updateStaffSignature,
   logPriceAdjustment,
   deletePatientProfile,
+  recordRateVerification,
+  loadPendingRateVerifications,
+  promoteRateVerification,
+  dismissRateVerification,
 } from "./db.js";
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 import { downloadQuote } from "./generateQuote.js";
@@ -1812,6 +1817,33 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     })();
     return () => { cancelled = true; };
   }, [view, clinicId]);
+
+  // Rate-verification reconcile state (Admin → Rate Verifications). Pending
+  // catalog-hole copays a provider verified by phone, awaiting admin promotion
+  // into insurance_plans. Lazy-load on entering the view.
+  const [rateVerifications, setRateVerifications] = useState([]);
+  const [rvBusyId, setRvBusyId] = useState(null);
+  const [rvError, setRvError] = useState(null);
+  const refreshRateVerifications = async () => {
+    try { const r = await loadPendingRateVerifications(); setRateVerifications(r || []); }
+    catch (e) { console.error("loadPendingRateVerifications:", e); }
+  };
+  useEffect(() => {
+    if (view !== "rate-verifications") return;
+    refreshRateVerifications();
+  }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
+  const doPromoteVerification = async (v) => {
+    setRvBusyId(v.id); setRvError(null);
+    try { await promoteRateVerification(v, staffId); await refreshRateVerifications(); }
+    catch (e) { console.error("promoteRateVerification:", e); setRvError(e?.message || "Couldn't promote the rate."); }
+    finally { setRvBusyId(null); }
+  };
+  const doDismissVerification = async (v) => {
+    setRvBusyId(v.id); setRvError(null);
+    try { await dismissRateVerification(v.id, staffId); await refreshRateVerifications(); }
+    catch (e) { console.error("dismissRateVerification:", e); setRvError(e?.message || "Couldn't dismiss."); }
+    finally { setRvBusyId(null); }
+  };
 
 
   const EMPTY_SIDE = () => ({
@@ -4341,6 +4373,34 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     };
   }, [form.tier, form.tierPrice, form.priceOverridePerAid, form.payType, form.tpa, earPriceOpts, retailAnchors, retailAnchorsStandard, leftEarPrice, rightEarPrice]);
 
+  // Catalog-hole fix: the provider verified a managed-care copay by phone for a
+  // covered-but-unmapped tier. Record it for admin reconcile (needs a saved
+  // patient), then patch the in-memory plan so the reveal re-prices immediately
+  // — the recompute effect picks up the filled tier and sets form.tierPrice, and
+  // the normal wizard save persists it onto this patient's coverage row.
+  async function handleVerifyRate(tierLabel, dollars) {
+    const cents = Math.round(dollars * 100);
+    if (wizardPatientId) {
+      await recordRateVerification({
+        patientId: wizardPatientId,
+        tpa: form.tpa || null,
+        carrier: form.carrier,
+        planGroup: form.planGroup,
+        tierLabel,
+        copayPerAid: cents,
+      });
+    }
+    setInsurancePlans(prev => prev.map(p => {
+      if (!(p.tpa === form.tpa && p.carrier === form.carrier && p.planGroup === form.planGroup)) return p;
+      const tiers = p.tiers || [];
+      const idx = tiers.findIndex(t => t.label === tierLabel);
+      const nextTiers = idx >= 0
+        ? tiers.map((t, i) => i === idx ? { ...t, price: dollars } : t)
+        : [...tiers, { label: tierLabel, price: dollars }];
+      return { ...p, tiers: nextTiers };
+    }));
+  }
+
   // Device family lookups
   const leftFamily = catalog.find(e => e.id === form.left.familyId);
   const rightFamily = catalog.find(e => e.id === form.right.familyId);
@@ -5460,6 +5520,22 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       </div>
                     )}
                   </div>
+                );
+              }
+
+              // Catalog hole: an on-plan device-driven tier (Nations / UHCH)
+              // whose copay hasn't been reverse-engineered yet. Offer an inline
+              // "verify rate" input instead of the dead placeholder below.
+              const verifyEar = (leftConfigured && leftEarPrice?.requiresVerification) ? leftEarPrice
+                : (rightConfigured && rightEarPrice?.requiresVerification) ? rightEarPrice : null;
+              if (verifyEar) {
+                const vTpaName = form.tpa === 'Nations' ? 'Nations Hearing' : (form.tpa === 'UHCH' ? 'UHCH' : (form.tpa || 'the plan'));
+                return (
+                  <VerifyRateCard
+                    tpaName={vTpaName}
+                    tier={verifyEar.tier}
+                    onSave={(dollars) => handleVerifyRate(verifyEar.tier, dollars)}
+                  />
                 );
               }
 
@@ -9026,6 +9102,58 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     );
   };
 
+  // ── RATE VERIFICATIONS (Admin → Rate Verifications) ─────────────────────────
+  // Reconcile queue for catalog holes: a provider verified a managed-care copay
+  // by phone for a covered-but-unmapped tier. Promoting writes it into
+  // insurance_plans (plugs the hole for every future patient); dismissing drops
+  // a mis-entry. Admin-only.
+  const renderRateVerifications = () => {
+    const fmtMoney = (cents) => `$${(cents/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+    return (
+      <>
+        <div className="topbar">
+          <div>
+            <div className="topbar-title">Rate Verifications</div>
+            <div className="topbar-sub">{rateVerifications.length} pending · provider-verified managed-care copays awaiting promotion into the plan catalog</div>
+          </div>
+        </div>
+        <div className="content">
+          <div className="catalog-wrap">
+            {rvError && <div className="save-error">⚠ {rvError}</div>}
+            {rateVerifications.length === 0 && (
+              <div className="empty-state">
+                <div className="empty-icon">✅</div>
+                <div className="empty-title">No pending rate verifications</div>
+                <div className="empty-sub">When a provider verifies a managed-care copay for an un-mapped tier, it appears here to promote into the plan catalog.</div>
+              </div>
+            )}
+            {rateVerifications.map(v => (
+              <div className="catalog-entry" key={v.id}>
+                <div className="catalog-entry-header">
+                  <div>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <div className="catalog-entry-name">{v.carrier} · {v.tier_label}</div>
+                      {v.tpa && <span className="catalog-entry-badge">{v.tpa}</span>}
+                    </div>
+                    <div className="catalog-entry-gen">
+                      {v.plan_group} · verified copay <strong>{fmtMoney(v.verified_copay_per_aid)}</strong> / aid · {fmtDate(v.created_at)}
+                    </div>
+                  </div>
+                  <div className="catalog-entry-actions">
+                    <button className="cat-btn primary" disabled={rvBusyId===v.id} onClick={()=>doPromoteVerification(v)}>
+                      {rvBusyId===v.id ? "…" : "Promote to plan"}
+                    </button>
+                    <button className="cat-btn" disabled={rvBusyId===v.id} onClick={()=>doDismissVerification(v)}>Dismiss</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </>
+    );
+  };
+
 
   // ── RENDER ────────────────────────────────────────────────────────────────
   return (
@@ -9296,7 +9424,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 were separately added and produced two Admin sections on merge. */}
             {checkRole(staffRole, ["admin"]) && <>
               <div className="nav-section-label">Admin</div>
-              {[["users","Team","team"],["badge","Providers","providers"],["shield","Insurance Plans","insurance-plans"],["percent","Rebates","rebates"],["clipboard","Product Catalog","catalog"],["settings","Settings","settings"]].map(([icon,label,id])=>(
+              {[["users","Team","team"],["badge","Providers","providers"],["shield","Insurance Plans","insurance-plans"],["verify","Rate Verifications","rate-verifications"],["percent","Rebates","rebates"],["clipboard","Product Catalog","catalog"],["settings","Settings","settings"]].map(([icon,label,id])=>(
                 <div key={id} className={`nav-item ${view===id?"active":""}`} onClick={()=>setView(id)}>
                   <span className="nav-icon"><Icon name={icon} size={17}/></span>{label}
                 </div>
@@ -9480,6 +9608,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           {view === "team" && (checkRole(staffRole, ["admin"]) ? <TeamAdmin activeClinicId={clinicId} /> : renderAdminDenied())}
           {view === "adjustments" && <AdjustmentHistory staffId={staffId} patients={patients} />}
           {view === "rebates" && renderRebates()}
+          {view === "rate-verifications" && (checkRole(staffRole, ["admin"]) ? renderRateVerifications() : renderAdminDenied())}
           {view === "campaigns" && <CampaignManager clinicId={clinicId} staffId={staffId} patients={patients} />}
           {view === "content" && <ContentLibrary clinicId={clinicId} staffId={staffId} />}
           {view === "lima-charlie" && <LimaCharlie clinicId={clinicId} staffId={staffId} />}

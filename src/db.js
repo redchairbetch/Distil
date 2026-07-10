@@ -2182,6 +2182,98 @@ export async function loadPriceAdjustmentHistory(providerId, { limit = 500 } = {
 }
 
 
+// ============================================================
+// CATALOG-HOLE RATE VERIFICATION
+// ============================================================
+// A device-driven managed-care patient (Nations / UHCH) can land on a COVERED
+// tier whose copay hasn't been reverse-engineered yet (a "catalog hole"). The
+// provider phones the insurer, enters the confirmed per-aid copay, and it
+// (1) prices this patient immediately (written to insurance_coverage by the
+// caller via updateInsuranceCoverage) and (2) is recorded here as a pending
+// verification for an admin to promote into insurance_plans, plugging the hole
+// network-wide. copayPerAid is CENTS. The write goes through the
+// record_rate_verification SECURITY DEFINER RPC (stamps provider_id + derives
+// clinic_id server-side, like log_price_adjustment) so a traveling closer can
+// record at a non-home clinic.
+
+export async function recordRateVerification({
+  patientId, tpa = null, carrier, planGroup, tierLabel, copayPerAid, notes = null,
+}) {
+  const { data, error } = await supabase.rpc('record_rate_verification', {
+    p_patient_id: patientId,
+    p_tpa: tpa,
+    p_carrier: carrier,
+    p_plan_group: planGroup,
+    p_tier_label: tierLabel,
+    p_copay_per_aid: copayPerAid,
+    p_notes: notes,
+  })
+  if (error) throw error
+  return data
+}
+
+// Pending catalog-hole verifications for the admin reconcile view (newest first).
+export async function loadPendingRateVerifications() {
+  const { data, error } = await supabase
+    .from('insurance_rate_verifications')
+    .select('*')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+  if (error) { console.error('loadPendingRateVerifications:', error); return [] }
+  return data || []
+}
+
+// Admin: promote a pending verification into insurance_plans (plugs the hole for
+// every future patient on that plan tier) and mark it promoted. Upserts the
+// active tier row keyed on (carrier, plan_group, tier_label) — the partial unique
+// index on insurance_plans allows exactly one active row per that combo. Admin
+// only (insurance_plans has an admin-role RLS write policy). Throws.
+export async function promoteRateVerification(v, staffId) {
+  const { data: existing, error: findErr } = await supabase
+    .from('insurance_plans')
+    .select('id')
+    .eq('carrier', v.carrier)
+    .eq('plan_group', v.plan_group)
+    .eq('tier_label', v.tier_label)
+    .eq('active', true)
+    .maybeSingle()
+  if (findErr) throw findErr
+  if (existing?.id) {
+    const { error } = await supabase
+      .from('insurance_plans')
+      .update({ price_per_aid: v.verified_copay_per_aid })
+      .eq('id', existing.id)
+    if (error) throw error
+  } else {
+    const { error } = await supabase
+      .from('insurance_plans')
+      .insert({
+        carrier: v.carrier,
+        plan_group: v.plan_group,
+        tpa: v.tpa,
+        tier_label: v.tier_label,
+        price_per_aid: v.verified_copay_per_aid,
+        active: true,
+      })
+    if (error) throw error
+  }
+  const { error: e2 } = await supabase
+    .from('insurance_rate_verifications')
+    .update({ status: 'promoted', resolved_at: new Date().toISOString(), resolved_by: staffId })
+    .eq('id', v.id)
+  if (e2) throw e2
+}
+
+// Admin: dismiss a pending verification without promoting it (e.g. a mis-entry).
+export async function dismissRateVerification(id, staffId) {
+  const { error } = await supabase
+    .from('insurance_rate_verifications')
+    .update({ status: 'dismissed', resolved_at: new Date().toISOString(), resolved_by: staffId })
+    .eq('id', id)
+  if (error) throw error
+}
+
+
 // Load all tier rows (one per device tier within a family) with their parent
 // family fields denormalized onto each row for convenient consumption.
 // Used by the Device Selection screen's recommendation engine and tier comparison.
