@@ -15,7 +15,7 @@ import {
   CROS_PRICE_PER_UNIT, isSideCros, manufacturerToClass, uhchCoverageTier,
   nationsCoverageTier, NATIONS_TIER_ORDER,
   findTierRank, findAnchorForRank, deriveEarPrice, pickBaselinePerAid,
-  DIRECT_PURCHASE_TIER_LEVEL, directPurchaseLockedTech,
+  DIRECT_PURCHASE_TIER_LEVEL, directPurchaseLockedTech, resolveClassRetailPerAid,
 } from "./pricing.js";
 
 // Minimal fixtures mirroring the real data shapes.
@@ -167,6 +167,46 @@ describe("findTierRank / findAnchorForRank", () => {
     expect(findTierRank(TIERS, "fam-signia-pure", null)).toBeNull();
     expect(findAnchorForRank(ANCHORS.signia, null)).toBeNull();
     expect(findAnchorForRank([], 5)).toBeNull();
+  });
+});
+
+describe("resolveClassRetailPerAid (managed-care savings anchor)", () => {
+  const opts = { catalog: CATALOG, productCatalogTiers: TIERS, anchorsByClass: ANCHORS };
+
+  it("resolves an honest per-brand retail for a known manufacturer", () => {
+    const r = resolveClassRetailPerAid({ familyId: "fam-signia-pure", techLevel: "7IX" }, opts);
+    expect(r).toMatchObject({ price: 3997.5, class: "signia", rank: 5, anchorLabel: "Premium", fallbackUsed: false, realRetail: true });
+  });
+
+  it("marks a standard-class backfill as NOT a real per-brand retail", () => {
+    // Rexton has no class anchors in the fixture → falls back to 'standard'.
+    const r = resolveClassRetailPerAid({ familyId: "fam-rexton-reach", techLevel: "R-Li M" }, opts);
+    expect(r.price).toBe(3997.5); // standard rank-3
+    expect(r.fallbackUsed).toBe(true);
+    expect(r.realRetail).toBe(false);
+  });
+
+  it("treats an unrecognized brand (→ standard class, e.g. Relate) as no real retail", () => {
+    // manufacturerToClass('Relate') → 'standard'; the standard anchors match
+    // directly (no fallback), but 'standard' is never an honest per-brand
+    // anchor, so the savings framing must stay suppressed for Relate.
+    const localCatalog = [{ id: "relate-x", manufacturer: "Relate" }];
+    const localTiers = [{ productCatalogId: "relate-x", tierName: "Gold", tierRank: 5 }];
+    const r = resolveClassRetailPerAid(
+      { familyId: "relate-x", techLevel: "Gold" },
+      { catalog: localCatalog, productCatalogTiers: localTiers, anchorsByClass: ANCHORS }
+    );
+    expect(r.class).toBe("standard");
+    expect(r.fallbackUsed).toBe(false);
+    expect(r.realRetail).toBe(false);
+    expect(r.price).toBe(4997.5); // standard rank-5
+  });
+
+  it("returns null for CROS units and insufficient config", () => {
+    expect(resolveClassRetailPerAid({ variant: "CROS Pure" }, opts)).toBeNull();
+    expect(resolveClassRetailPerAid({ familyId: "fam-signia-pure" }, opts)).toBeNull(); // no techLevel
+    expect(resolveClassRetailPerAid({ familyId: "fam-unknown", techLevel: "7IX" }, opts)).toBeNull();
+    expect(resolveClassRetailPerAid(null, opts)).toBeNull();
   });
 });
 

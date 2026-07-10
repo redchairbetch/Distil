@@ -76,7 +76,8 @@ const PROMPTER_CONTENT = {
   3: {
     base: [
       "Lead with what they'll experience, not the technology.",
-      "Anchor the tier recommendation to their lifestyle — show why this tier fits them specifically.",
+      "Frame tiers by listening effort, not hobbies: it's not whether they go out, it's how hard their brain works when they do.",
+      "If they lean to a lower tier to save money, name the trade-off — fatigue in the noise they DO hit. Inform, don't push.",
       "Present patient cost first. Retail price is for anchoring only — never bare.",
     ],
     conditional: [

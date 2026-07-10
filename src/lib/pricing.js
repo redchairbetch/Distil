@@ -178,6 +178,45 @@ export function findAnchorForRank(anchors, rank) {
   return anchors.find(a => a.sort_order === (6 - rank)) || null;
 }
 
+// Resolve the clinic retail (private-pay anchor) for ONE ear from its
+// manufacturer class × tech-level rank. This is the "what would this exact
+// device cost at our private retail" number — used both by the private-pay
+// branch below and by the managed-care "found money" savings anchor in the
+// Pricing Reveal (Nations copay vs. our retail for the same device).
+//
+// Returns { price, class, rank, anchorLabel, fallbackUsed, realRetail } or
+// null when the ear can't be priced. `fallbackUsed` is true when the device's
+// own manufacturer class had no anchors and we fell back to the manufacturer-
+// agnostic 'standard' class. `realRetail` is true only when we matched the
+// device's own per-brand anchors — NOT the 'standard' backfill and NOT an
+// unrecognized brand that maps to 'standard' (e.g. UHCH's Relate private
+// label, which has no street retail to anchor against). Callers that need an
+// honest per-brand retail (the savings anchor) must gate on `realRetail`.
+export function resolveClassRetailPerAid(side, opts) {
+  if (!side || isSideCros(side)) return null;
+  const { catalog, productCatalogTiers, anchorsByClass } = opts || {};
+  const family = (catalog || []).find(e => e.id === side.familyId);
+  if (!family || !side.techLevel) return null;
+  const cls = manufacturerToClass(family.manufacturer);
+  const rank = findTierRank(productCatalogTiers, family.id, side.techLevel);
+  if (rank == null) return null;
+  let anchor = findAnchorForRank(anchorsByClass?.[cls], rank);
+  let fallbackUsed = false;
+  if (!anchor) {
+    anchor = findAnchorForRank(anchorsByClass?.standard, rank);
+    fallbackUsed = true;
+  }
+  if (!anchor) return null;
+  return {
+    price: parseFloat(anchor.price_per_aid),
+    class: cls,
+    rank,
+    anchorLabel: anchor.label,
+    fallbackUsed,
+    realRetail: cls !== 'standard' && !fallbackUsed,
+  };
+}
+
 // Resolve the per-aid price for one ear. Returns null when the configuration
 // isn't sufficient to derive a price (manufacturer/techLevel unset, anchor
 // row missing). Caller falls back to the tier baseline in that case.
@@ -280,25 +319,19 @@ export function deriveEarPrice(side, opts) {
       source: 'insurance-standard', class: 'standard', rank, anchorLabel: anchor.label,
     };
   }
-  // Private-pay branch — manufacturer + techLevel required.
-  const family = (catalog || []).find(e => e.id === side.familyId);
-  if (!family || !side.techLevel) return null;
-  const cls = manufacturerToClass(family.manufacturer);
-  const rank = findTierRank(productCatalogTiers, family.id, side.techLevel);
-  if (rank == null) return null;
-  let anchor = findAnchorForRank(anchorsByClass?.[cls], rank);
-  let source = 'class';
-  if (!anchor) {
-    anchor = findAnchorForRank(anchorsByClass?.standard, rank);
-    source = 'fallback';
-  }
-  if (!anchor) return null;
+  // Private-pay branch — manufacturer + techLevel required. Anchor resolution
+  // is shared with the reveal's managed-care savings anchor via
+  // resolveClassRetailPerAid (source mirrors the prior inline logic exactly:
+  // 'class' when the device's own manufacturer anchors matched, 'fallback'
+  // when we backfilled from the 'standard' class).
+  const r = resolveClassRetailPerAid(side, opts);
+  if (!r) return null;
   return {
-    price: parseFloat(anchor.price_per_aid),
-    source,
-    class: cls,
-    rank,
-    anchorLabel: anchor.label,
+    price: r.price,
+    source: r.fallbackUsed ? 'fallback' : 'class',
+    class: r.class,
+    rank: r.rank,
+    anchorLabel: r.anchorLabel,
   };
 }
 

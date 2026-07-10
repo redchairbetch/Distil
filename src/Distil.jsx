@@ -12,7 +12,7 @@
 
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from "react";
 import { unwrapIntakeAnswers } from "./recommendationEngine.js";
-import { ENVIRONMENTS, SITUATION_LABEL, flaggedEnvironments } from "./listeningSituations.js";
+import { ENVIRONMENTS, SITUATION_LABEL, TIER_EFFORT_COPY, flaggedEnvironments } from "./listeningSituations.js";
 import Icon from "./components/Icon.jsx";
 import FinancingCalculator from "./components/FinancingCalculator.jsx";
 import DeviceComparison, { techLevelToRank } from "./views/DeviceComparison.jsx";
@@ -24,7 +24,7 @@ import { CARE_ARC, buildCareArc } from "./lib/careArc.js";
 import {
   CROS_PRICE_PER_UNIT, isSideCros, manufacturerToClass, uhchCoverageTier,
   nationsCoverageTier, findTierRank, findAnchorForRank, deriveEarPrice, pickBaselinePerAid,
-  directPurchaseLockedTech,
+  directPurchaseLockedTech, resolveClassRetailPerAid,
 } from "./lib/pricing.js";
 
 // ── Body style images ──
@@ -4265,7 +4265,53 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     const anchor = isPrivatePay
       ? anchorSet.find(a => a.label === form.tier)
       : anchorSet.find(a => a.id === TIER_TO_ANCHOR[form.tier]);
-    if (!anchor) return null;
+    if (!anchor) {
+      // On-plan device-driven managed care (Nations; UHCH non-Relate): the
+      // billing tier (e.g. Nations "Specialty") has no tier→anchor mapping,
+      // but the chosen device DOES have a clinic retail anchor. Resolve it per
+      // ear so the patient sees honest savings vs. OUR retail for that exact
+      // device (their copay is a real discount off private retail). Off-plan
+      // (tier === "Off-Plan") and Relate (→ 'standard' fallback, no real street
+      // retail) don't qualify → fall through to the bare device-driven card.
+      const isDeviceDrivenOnPlan =
+        form.payType === "insurance" &&
+        (form.tpa === "UHCH" || form.tpa === "Nations") &&
+        form.tier && form.tier !== "Off-Plan";
+      if (!isDeviceDrivenOnPlan) return null;
+      const lr = resolveClassRetailPerAid(form.left, earPriceOpts);
+      const rr = resolveClassRetailPerAid(form.right, earPriceOpts);
+      // Every CONFIGURED ear must resolve to an honest per-brand retail. A side
+      // with a device but no real anchor (Relate, or a CROS unit) keeps the
+      // reveal bare rather than fabricating a comparison.
+      const leftOk = !form.left.familyId || (lr && lr.realRetail);
+      const rightOk = !form.right.familyId || (rr && rr.realRetail);
+      const anyReal = (lr && lr.realRetail) || (rr && rr.realRetail);
+      if (!anyReal || !leftOk || !rightOk) return null;
+      const dOvr = form.priceOverridePerAid;
+      const dApplyOvr = (ep) => (dOvr != null && ep && ep.source !== "cros") ? { ...ep, price: dOvr } : ep;
+      const copay = dOvr ?? form.tierPrice;
+      const lRetail = lr ? lr.price : null;
+      const rRetail = rr ? rr.price : null;
+      const retailPair = (lRetail != null || rRetail != null) ? (lRetail || 0) + (rRetail || 0) : null;
+      const retailDrv = Math.max(lRetail ?? 0, rRetail ?? 0) || null; // per-aid headline uses the higher ear
+      const savingsDrv = retailDrv != null ? retailDrv - copay : null;
+      const dLeftEP = dApplyOvr(leftEarPrice);
+      const dRightEP = dApplyOvr(rightEarPrice);
+      const dlp = dLeftEP?.price ?? null;
+      const drp = dRightEP?.price ?? null;
+      const dPairTotal = (dlp != null || drp != null) ? (dlp || 0) + (drp || 0) : null;
+      return {
+        tierLabel: (lr || rr)?.anchorLabel || form.tier,
+        retailPerAid: retailDrv,
+        copayPerAid: copay,
+        savingsPerAid: savingsDrv,
+        savingsPct: retailDrv ? Math.round((savingsDrv / retailDrv) * 100) : 0,
+        perEar: { left: dLeftEP, right: dRightEP, pairTotal: dPairTotal },
+        // Per-ear retail so the reveal totals stay honest for mismatched-brand
+        // device-driven fittings (present only on this branch).
+        retailPerEar: { left: lRetail, right: rRetail, pairTotal: retailPair },
+      };
+    }
     const retailPerAid = parseFloat(anchor.price_per_aid);
     // A confirmed Price Adjustment (§6) overrides the per-aid copay for the rest
     // of the session. Applies to real-aid ears; a CROS transmitter side keeps
@@ -4293,7 +4339,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       savingsPct,
       perEar: { left: leftEP, right: rightEP, pairTotal },
     };
-  }, [form.tier, form.tierPrice, form.priceOverridePerAid, form.payType, retailAnchors, retailAnchorsStandard, leftEarPrice, rightEarPrice]);
+  }, [form.tier, form.tierPrice, form.priceOverridePerAid, form.payType, form.tpa, earPriceOpts, retailAnchors, retailAnchorsStandard, leftEarPrice, rightEarPrice]);
 
   // Device family lookups
   const leftFamily = catalog.find(e => e.id === form.left.familyId);
@@ -5427,7 +5473,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 );
               }
 
-              const { tierLabel, retailPerAid, copayPerAid, savingsPerAid, savingsPct, perEar } = pricingRevealData;
+              const { tierLabel, retailPerAid, copayPerAid, savingsPerAid, savingsPct, perEar, retailPerEar } = pricingRevealData;
               // Per-aid until both ears configured, then snap to pair. Avoids
               // the $0 headline when no device side has been picked yet.
               const multiplier = bothDone ? 2 : 1;
@@ -5448,9 +5494,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               // markup); otherwise it's the per-aid anchor times the aid count.
               const retailDisplay = isPrivatePay
                 ? investmentDisplay
-                : ((bothDone && hasCrosSide)
-                    ? retailPerAid + CROS_PRICE_PER_UNIT
-                    : retailPerAid * multiplier);
+                : (retailPerEar && bothDone && retailPerEar.pairTotal != null)
+                    // Device-driven (Nations / UHCH non-Relate): per-ear retail
+                    // sum keeps mismatched-brand fittings honest.
+                    ? retailPerEar.pairTotal
+                    : ((bothDone && hasCrosSide)
+                        ? retailPerAid + CROS_PRICE_PER_UNIT
+                        : retailPerAid * multiplier);
               const planCoversDisplay = retailDisplay - investmentDisplay;
               // Private-pay bundles Complete Care+ at no charge. Its $1,250 value
               // takes the "Plan covers" line (there's no insurance plan in private
@@ -5500,9 +5550,22 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   ) : null}
 
                   {/* Technology tier label */}
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#B5832E",marginBottom:12}}>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#B5832E",marginBottom:6}}>
                     {tierLabel} Technology
                   </div>
+
+                  {/* Listening-effort framing — how hard the brain works at this
+                      tier (the counseling pivot away from a hobby checklist).
+                      Keyed off the tier label's rank; silent if unmapped. */}
+                  {(() => {
+                    const effRank = rankFromTierLabel(tierLabel);
+                    const eff = effRank != null ? TIER_EFFORT_COPY[effRank] : null;
+                    return eff ? (
+                      <div style={{fontSize:12.5,lineHeight:1.55,color:"#54625C",marginBottom:14}}>
+                        {eff}
+                      </div>
+                    ) : null;
+                  })()}
 
                   {/* Your investment — cost first, stated plainly, in the display serif */}
                   <div style={{marginBottom:16}}>
