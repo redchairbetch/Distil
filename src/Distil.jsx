@@ -16,6 +16,8 @@ import { ENVIRONMENTS, SITUATION_LABEL, TIER_EFFORT_COPY, flaggedEnvironments } 
 import Icon from "./components/Icon.jsx";
 import FinancingCalculator from "./components/FinancingCalculator.jsx";
 import VerifyRateCard from "./components/VerifyRateCard.jsx";
+import ComplexBenefitCalculator from "./components/ComplexBenefitCalculator.jsx";
+import { computeComplexBenefit } from "./lib/complexBenefit.js";
 import DeviceComparison, { techLevelToRank } from "./views/DeviceComparison.jsx";
 import ComparisonHub from "./views/ComparisonHub.jsx";
 import { LegacyDevicePanel } from "./views/LegacyFastPath.jsx";
@@ -4286,6 +4288,17 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     });
   }, [directPurchaseActive, form.tier, catalog]);
 
+  // Complex commercial/PPO benefit (coinsurance / deductible / OOP) — an
+  // alternative pricing method for non-device-driven insurance patients whose
+  // VOB the provider entered. Seeded from the loaded patient's coverage.
+  const [cbOpen, setCbOpen] = useState(false);
+  const [cbInputs, setCbInputs] = useState(null);
+  useEffect(() => {
+    const stored = selectedPatient?.insurance?.complexBenefit || null;
+    setCbInputs(stored);
+    setCbOpen(!!stored);
+  }, [selectedPatient?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const pricingRevealData = useMemo(() => {
     if (form.tierPrice == null || !form.tier) return null;
     // Private-pay uses standard-class anchors (manufacturer-agnostic baseline).
@@ -4399,6 +4412,31 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         : [...tiers, { label: tierLabel, price: dollars }];
       return { ...p, tiers: nextTiers };
     }));
+  }
+
+  // Complex-benefit eligibility: an insurance patient NOT on a device-driven TPA
+  // (UHCH-MedSupp / Nations) and not a TruHearing private-label / direct purchase.
+  const complexEligible = form.payType === "insurance"
+    && form.tpa !== "UHCH" && form.tpa !== "Nations"
+    && !isPrivateLabel && !form.directPurchase;
+  // Per-aid clinic retail for the configured device — the amount billed to the
+  // plan, and the calculator's baseline. Higher ear drives a mismatched pair.
+  const complexBaselinePerAid = (() => {
+    const l = resolveClassRetailPerAid(form.left, earPriceOpts);
+    const r = resolveClassRetailPerAid(form.right, earPriceOpts);
+    return Math.max(l?.price ?? 0, r?.price ?? 0) || null;
+  })();
+  async function handleSaveComplexBenefit(inputs, computedPerAid) {
+    setCbInputs(inputs);
+    // In-session price so quote / PA / save use the computed patient cost.
+    setForm(f => ({ ...f, tierPrice: computedPerAid }));
+    // Persist the raw VOB when the patient already has a coverage row (returning
+    // insured patient). A brand-new draft prices in-session; the VOB persists on
+    // the next coverage save. Never INSERTs here (avoids duplicate coverage rows).
+    const coverageId = selectedPatient?._ids?.coverageId || null;
+    if (wizardPatientId && coverageId) {
+      await updateInsuranceCoverage(wizardPatientId, { complex_benefit: inputs }, coverageId);
+    }
   }
 
   // Device family lookups
@@ -5474,6 +5512,28 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               const bothDone = leftConfigured && rightConfigured;
               const anyConfigured = leftConfigured || rightConfigured;
 
+              // Complex commercial/PPO benefit takes precedence for eligible
+              // insurance patients once the provider opens the VOB calculator
+              // (or the patient already has one saved). Prices from the device
+              // retail baseline; financing follows the computed patient total.
+              if (complexEligible && (cbOpen || cbInputs)) {
+                const cbResult = (cbInputs && complexBaselinePerAid)
+                  ? computeComplexBenefit({ baselinePerAid: complexBaselinePerAid, fittingType: bothDone ? 'binaural' : 'monaural', inputs: cbInputs })
+                  : null;
+                return (
+                  <>
+                    <ComplexBenefitCalculator
+                      baselinePerAid={complexBaselinePerAid}
+                      fittingType={bothDone ? 'binaural' : 'monaural'}
+                      initial={cbInputs}
+                      onSave={handleSaveComplexBenefit}
+                      onCancel={cbInputs ? null : () => setCbOpen(false)}
+                    />
+                    {cbResult && cbResult.patientTotal > 0 && <FinancingCalculator total={cbResult.patientTotal} />}
+                  </>
+                );
+              }
+
               // UHCH Relate (Gold/Platinum) and off-plan devices have no retail
               // anchor → pricingRevealData is null, but they DO have a price.
               // Render the investment without a savings badge (Kurt: Relate has
@@ -5736,6 +5796,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 </div>
               );
             })()}
+            {complexEligible && !cbOpen && !cbInputs && (
+              <button type="button" onClick={() => setCbOpen(true)}
+                style={{marginTop:12,background:"none",border:"1px dashed #EADFC7",borderRadius:8,padding:"8px 12px",color:"#B5832E",fontSize:12,fontWeight:600,cursor:"pointer",width:"100%",fontFamily:"'Sora',sans-serif"}}>
+                Coinsurance / deductible plan? Enter the VOB →
+              </button>
+            )}
           </div>
           {/* Then vs. Now — when the intake says the patient already wears
               hearing aids, offer the old-vs-new comparator right on Device

@@ -659,6 +659,10 @@ function assemblePatient(row) {
       tpa:       coverage.tpa,
       tier:      coverage.tier,
       tierPrice: coverage.tier_price_per_aid ? coverage.tier_price_per_aid / 100 : null,
+      // Complex commercial/PPO benefit (coinsurance / deductible / OOP) entered
+      // from the VOB — drives computeComplexBenefit in the reveal. Null for
+      // device-driven copay plans.
+      complexBenefit: coverage.complex_benefit || null,
     } : null,
 
     // Mirrors the insurance block for private-pay flow. Snapshot of the
