@@ -9737,8 +9737,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 were separately added and produced two Admin sections on merge. */}
             {checkRole(staffRole, ["admin"]) && <>
               <div className="nav-section-label">Admin</div>
-              {[["users","Team","team"],["badge","Providers","providers"],["shield","Insurance Plans","insurance-plans"],["verify","Rate Verifications","rate-verifications"],["percent","Rebates","rebates"],["clipboard","Product Catalog","catalog"],["settings","Settings","settings"]].map(([icon,label,id])=>(
-              {[["users","Team","team"],["badge","Providers","providers"],["shield","Insurance Plans","insurance-plans"],["percent","Rebates","rebates"],["clipboard","Product Catalog","catalog"],["book","Nations Catalog","nations-catalog"],["settings","Settings","settings"]].map(([icon,label,id])=>(
+              {[["users","Team","team"],["badge","Providers","providers"],["shield","Insurance Plans","insurance-plans"],["verify","Rate Verifications","rate-verifications"],["percent","Rebates","rebates"],["clipboard","Product Catalog","catalog"],["book","Nations Catalog","nations-catalog"],["settings","Settings","settings"]].map(([icon,label,id])=>(
                 <div key={id} className={`nav-item ${view===id?"active":""}`} onClick={()=>setView(id)}>
                   <span className="nav-icon"><Icon name={icon} size={17}/></span>{label}
                 </div>
