@@ -1601,6 +1601,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // Upgrade check-in handoff code shown to the front desk (Phase 2 prefill).
   const [checkinSession,  setCheckinSession]  = useState(null); // { code, expiresAt, patientName } | null
   const [checkinBusy,     setCheckinBusy]     = useState(false);
+  // "Start a New Visit" chooser — the patient whose visit type is being picked
+  // (returning-patient flow vs. a full new-patient appointment), or null.
+  const [visitTypePicker, setVisitTypePicker] = useState(null);
   const seenIntakeIds = useRef(new Set());
 
   // ── TNS queue state ───────────────────────────────────────────────
@@ -3199,6 +3202,48 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     if (!p) return;
     setSelectedPatient(p);
     setView("upgrade");
+  };
+
+  // New-patient appointment on an EXISTING chart — the safeguard for an
+  // interrupted first visit: the draft patient survived (created at step 0 /
+  // intake accept) but the wizard session didn't, so the provider needs a way
+  // to run the full 8-step appointment for that chart without creating a
+  // duplicate. Seeds the wizard from the chart and sets wizardPatientId, so
+  // step 0's Continue skips createPatientDraft; a fresh initial_fit visit
+  // scopes this appointment's audiogram/device saves (prior visits' records
+  // survive — visits model). The chart's saved audiogram pre-fills Testing so
+  // thresholds captured before the interruption don't need re-entry.
+  const startNewAppointmentForPatient = async (p) => {
+    if (!p) return;
+    if (!confirmDiscardWizardDraft()) return;
+    const nameParts = String(p.name || "").trim().split(/\s+/);
+    const firstName = nameParts.shift() || "";
+    const lastName = nameParts.join(" ");
+    setForm({
+      ...BLANK_FORM(),
+      firstName, lastName,
+      dob: p.dob || "", phone: p.phone || "", email: p.email || "", address: p.address || "",
+      payType: p.payType || "insurance",
+      directPurchase: p.directPurchase || false,
+      carrier: p.insurance?.carrier || "", planGroup: p.insurance?.planGroup || "", tpa: p.insurance?.tpa || "",
+      tier: p.insurance?.tier || "", tierPrice: p.insurance?.tierPrice ?? null,
+      audiology: p.audiology ? { ...BLANK_AUDIOLOGY(), ...p.audiology } : BLANK_AUDIOLOGY(),
+      notes: p.notes || "",
+    });
+    setWizardPatientId(p.id);
+    setWizardVisitId(null);
+    setActiveSide("left");
+    setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
+    setWizardMode("new"); setShowWizardCompare(false);
+    setSaveError(null); setSaveToast(false);
+    setVisitTypePicker(null);
+    setStep(0); setSaved(false); setView("new");
+    // Best-effort: if the visit insert fails, saves fall back to the unscoped
+    // legacy path rather than blocking the appointment.
+    try {
+      const vid = await createVisit(p.id, { clinicId, staffId, visitType: 'initial_fit' });
+      setWizardVisitId(vid);
+    } catch (e) { console.error("createVisit (new appointment on existing chart):", e); }
   };
 
   // Mint a short single-use code the front desk reads to a returning patient so
@@ -6770,8 +6815,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             </button>
             <button
               style={{background:"#0f766e",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
-              onClick={() => startNewVisitForPatient(p)}
-              title="Start a new visit — opens the upgrade flow for this established patient"
+              onClick={() => setVisitTypePicker(p)}
+              title="Start a new visit — choose a returning-patient visit or a full new-patient appointment"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12h14"/></svg>
               Start a New Visit
@@ -9149,6 +9194,42 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               <p style={{margin:"10px 0 0",color:"#9ca3af",fontSize:11}}>
                 Expires in 30 minutes · one-time use
               </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Start a New Visit — visit-type chooser ─────────────────────── */}
+      {visitTypePicker && (
+        <div className="queue-modal-overlay" onClick={() => setVisitTypePicker(null)}>
+          <div className="queue-modal" onClick={e => e.stopPropagation()} style={{maxWidth:480}}>
+            <div style={{padding:"28px"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:0.6,marginBottom:6}}>Start a New Visit</div>
+              <h2 style={{margin:"0 0 4px",fontFamily:"'Sora',sans-serif",fontSize:20,color:"#111"}}>{visitTypePicker.name}</h2>
+              <p style={{margin:"0 0 18px",color:"#6b7280",fontSize:13,lineHeight:1.5}}>What kind of visit is this?</p>
+              <button
+                onClick={() => { const p = visitTypePicker; setVisitTypePicker(null); startNewVisitForPatient(p); }}
+                style={{display:"block",width:"100%",textAlign:"left",background:"#f0fdfa",border:"2px solid #5eead4",borderRadius:12,padding:"14px 16px",marginBottom:10,cursor:"pointer"}}>
+                <div style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,color:"#0f766e"}}>Returning Patient Visit</div>
+                <div style={{fontSize:12,color:"#6b7280",marginTop:2,lineHeight:1.5}}>
+                  Annual check, follow-up, or upgrade conversation — the quick-confirm flow for an established patient.
+                </div>
+              </button>
+              <button
+                onClick={() => startNewAppointmentForPatient(visitTypePicker)}
+                style={{display:"block",width:"100%",textAlign:"left",background:"#eff6ff",border:"2px solid #93c5fd",borderRadius:12,padding:"14px 16px",marginBottom:14,cursor:"pointer"}}>
+                <div style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,color:"#1d4ed8"}}>New Patient Appointment</div>
+                <div style={{fontSize:12,color:"#6b7280",marginTop:2,lineHeight:1.5}}>
+                  The full appointment from the top — health history, testing, device selection, care plan — on this
+                  patient's existing chart. Use when the first appointment never finished or needs a restart.
+                </div>
+              </button>
+              <div style={{textAlign:"center"}}>
+                <button onClick={() => setVisitTypePicker(null)}
+                  style={{background:"none",border:"none",color:"#9ca3af",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         </div>
