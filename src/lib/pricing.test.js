@@ -15,7 +15,7 @@ import {
   CROS_PRICE_PER_UNIT, isSideCros, manufacturerToClass, uhchCoverageTier,
   nationsCoverageTier, NATIONS_TIER_ORDER,
   findTierRank, findAnchorForRank, deriveEarPrice, pickBaselinePerAid,
-  DIRECT_PURCHASE_TIER_LEVEL, directPurchaseLockedTech,
+  DIRECT_PURCHASE_TIER_LEVEL, directPurchaseLockedTech, resolveClassRetailPerAid,
 } from "./pricing.js";
 
 // Minimal fixtures mirroring the real data shapes.
@@ -32,6 +32,12 @@ const CATALOG = [
   { id: "oti-intent",        manufacturer: "Oticon",  generation: "Intent" },
   { id: "res-nexia-ric",     manufacturer: "Resound", generation: "Nexia" },
   { id: "res-nexia-custom",  manufacturer: "Resound", generation: "Nexia" },
+  { id: "res-key-ric",       manufacturer: "Resound", generation: "Key" },
+  { id: "res-key-custom",    manufacturer: "Resound", generation: "Key" },
+  { id: "res-savi-ric",      manufacturer: "Resound", generation: "Savi" },
+  { id: "res-vivia",         manufacturer: "Resound", generation: "Nexia" },
+  { id: "oti-own",           manufacturer: "Oticon",  generation: "Own" },
+  { id: "oti-own-intent",    manufacturer: "Oticon",  generation: "Intent" },
   { id: "sta-edge-ai-ric",   manufacturer: "Starkey", generation: "Edge AI" },
   { id: "wid-moment-bte",    manufacturer: "Widex",   generation: "Moment" },
   { id: "rex-reach-r",       manufacturer: "Rexton",  generation: "IX" },
@@ -138,6 +144,28 @@ describe("nationsCoverageTier", () => {
     expect(nationsCoverageTier(fam("res-nexia-custom"), "7")).toBe("Specialty");
     expect(nationsCoverageTier(fam("res-nexia-ric"), "3")).toBeNull(); // level 3 off-plan
   });
+  it("maps the ReSound value lines (Key / Savi) by family — the no-OOP options", () => {
+    // Level 3 means different tiers per family (off-plan for Nexia, Standard for
+    // Key, Select for Savi) — hence the per-family branch.
+    expect(nationsCoverageTier(fam("res-key-ric"), "3")).toBe("Standard");
+    expect(nationsCoverageTier(fam("res-key-ric"), "4")).toBe("Select");
+    expect(nationsCoverageTier(fam("res-key-custom"), "3")).toBe("Superior Plus");
+    expect(nationsCoverageTier(fam("res-key-custom"), "4")).toBe("Superior Plus");
+    expect(nationsCoverageTier(fam("res-savi-ric"), "2")).toBe("Standard");
+    expect(nationsCoverageTier(fam("res-savi-ric"), "3")).toBe("Select");
+  });
+  it("maps ReSound Vivia level 3 to Superior Plus (not off-plan like Nexia 3)", () => {
+    expect(nationsCoverageTier(fam("res-vivia"), "9")).toBe("Specialty");
+    expect(nationsCoverageTier(fam("res-vivia"), "7")).toBe("Advanced Plus");
+    expect(nationsCoverageTier(fam("res-vivia"), "5")).toBe("Advanced");
+    expect(nationsCoverageTier(fam("res-vivia"), "3")).toBe("Superior Plus");
+  });
+  it("maps Oticon legacy Own (inverted) and keeps Own-Intent off-plan", () => {
+    expect(nationsCoverageTier(fam("oti-own"), "1")).toBe("Specialty");
+    expect(nationsCoverageTier(fam("oti-own"), "3")).toBe("Advanced Plus");
+    expect(nationsCoverageTier(fam("oti-own"), "5")).toBe("Superior Plus");
+    expect(nationsCoverageTier(fam("oti-own-intent"), "1")).toBeNull(); // Intent gen off-plan
+  });
   it("maps Starkey and Widex by numeric level", () => {
     expect(nationsCoverageTier(fam("sta-edge-ai-ric"), "24")).toBe("Specialty");
     expect(nationsCoverageTier(fam("sta-edge-ai-ric"), "12")).toBe("Superior Plus");
@@ -167,6 +195,46 @@ describe("findTierRank / findAnchorForRank", () => {
     expect(findTierRank(TIERS, "fam-signia-pure", null)).toBeNull();
     expect(findAnchorForRank(ANCHORS.signia, null)).toBeNull();
     expect(findAnchorForRank([], 5)).toBeNull();
+  });
+});
+
+describe("resolveClassRetailPerAid (managed-care savings anchor)", () => {
+  const opts = { catalog: CATALOG, productCatalogTiers: TIERS, anchorsByClass: ANCHORS };
+
+  it("resolves an honest per-brand retail for a known manufacturer", () => {
+    const r = resolveClassRetailPerAid({ familyId: "fam-signia-pure", techLevel: "7IX" }, opts);
+    expect(r).toMatchObject({ price: 3997.5, class: "signia", rank: 5, anchorLabel: "Premium", fallbackUsed: false, realRetail: true });
+  });
+
+  it("marks a standard-class backfill as NOT a real per-brand retail", () => {
+    // Rexton has no class anchors in the fixture → falls back to 'standard'.
+    const r = resolveClassRetailPerAid({ familyId: "fam-rexton-reach", techLevel: "R-Li M" }, opts);
+    expect(r.price).toBe(3997.5); // standard rank-3
+    expect(r.fallbackUsed).toBe(true);
+    expect(r.realRetail).toBe(false);
+  });
+
+  it("treats an unrecognized brand (→ standard class, e.g. Relate) as no real retail", () => {
+    // manufacturerToClass('Relate') → 'standard'; the standard anchors match
+    // directly (no fallback), but 'standard' is never an honest per-brand
+    // anchor, so the savings framing must stay suppressed for Relate.
+    const localCatalog = [{ id: "relate-x", manufacturer: "Relate" }];
+    const localTiers = [{ productCatalogId: "relate-x", tierName: "Gold", tierRank: 5 }];
+    const r = resolveClassRetailPerAid(
+      { familyId: "relate-x", techLevel: "Gold" },
+      { catalog: localCatalog, productCatalogTiers: localTiers, anchorsByClass: ANCHORS }
+    );
+    expect(r.class).toBe("standard");
+    expect(r.fallbackUsed).toBe(false);
+    expect(r.realRetail).toBe(false);
+    expect(r.price).toBe(4997.5); // standard rank-5
+  });
+
+  it("returns null for CROS units and insufficient config", () => {
+    expect(resolveClassRetailPerAid({ variant: "CROS Pure" }, opts)).toBeNull();
+    expect(resolveClassRetailPerAid({ familyId: "fam-signia-pure" }, opts)).toBeNull(); // no techLevel
+    expect(resolveClassRetailPerAid({ familyId: "fam-unknown", techLevel: "7IX" }, opts)).toBeNull();
+    expect(resolveClassRetailPerAid(null, opts)).toBeNull();
   });
 });
 
@@ -261,6 +329,28 @@ describe("deriveEarPrice", () => {
       { ...baseOpts, plans: NATIONS_PLANS, form: nationsForm }
     );
     expect(ep).toEqual({ price: 800, source: "nations-onplan", tier: "Select" });
+  });
+
+  it("flags an on-plan Nations device whose tier copay is a catalog hole", () => {
+    // The device resolves to a covered tier (Specialty), but the plan row has
+    // no copay for it → not off-plan, just an un-mapped rate to verify.
+    const plansWithHole = [{ tpa: "Nations", carrier: "Aetna", planGroup: "Nations Hearing",
+      tiers: [{ label: "Standard", price: 600 }] }]; // Specialty missing
+    const ep = deriveEarPrice(
+      { familyId: "sig-pure-ix", techLevel: "7IX" }, // maps to Specialty
+      { ...baseOpts, plans: plansWithHole, form: nationsForm }
+    );
+    expect(ep).toEqual({ price: null, source: "nations-onplan", tier: "Specialty", requiresVerification: true });
+  });
+
+  it("flags an on-plan UHCH device whose tier copay is a catalog hole", () => {
+    const plansWithHole = [{ tpa: "UHCH", carrier: "UnitedHealthcare", planGroup: "Medicare Supplement",
+      tiers: [{ label: "Standard", price: 775 }] }]; // Premium missing
+    const ep = deriveEarPrice(
+      { familyId: "fam-signia-pure", techLevel: "7IX" }, // maps to Premium
+      { ...baseOpts, plans: plansWithHole, form: { payType: "insurance", tpa: "UHCH", carrier: "UnitedHealthcare", planGroup: "Medicare Supplement" } }
+    );
+    expect(ep).toEqual({ price: null, source: "uhch-onplan", tier: "Premium", requiresVerification: true });
   });
 
   it("flags Nations off-plan devices at standard retail (Oticon Intent)", () => {

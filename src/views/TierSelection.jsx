@@ -17,6 +17,7 @@ import {
   ENVIRONMENTS,
   COVERAGE_BY_RANK,
   SITUATION_LABEL,
+  TIER_EFFORT_COPY,
   flaggedEnvironments,
 } from "../listeningSituations.js";
 import { EnvironmentCoverage } from "../components/CoverageBars.jsx";
@@ -369,6 +370,7 @@ function RecommendationBanner({ loading, engineError, recommended, rationaleText
 function TierCard({ tier, selected, recommended, selectable, blurb, flagged, onSelect }) {
   const rank = tierLabelToRank(tier.label);
   const coverage = rank != null ? COVERAGE_BY_RANK[rank] : null;
+  const effortCopy = rank != null ? TIER_EFFORT_COPY[rank] : null;
 
   // Recommended (engine pick) is the dominant visual state. The selected
   // state only matters in the manual-fallback mode — when the engine has
@@ -409,6 +411,11 @@ function TierCard({ tier, selected, recommended, selectable, blurb, flagged, onS
         <div style={{ fontFamily:FONT.display, fontSize:19, fontWeight:600, color:TEXT }}>{tier.label}</div>
         {blurb && (
           <div style={{ marginTop:6, fontSize:12, lineHeight:1.45, color:"#475569" }}>{blurb}</div>
+        )}
+        {effortCopy && (
+          <div style={{ marginTop:8, fontSize:12, lineHeight:1.5, color:BRASS_INK, background:BRASS_SOFT, borderRadius:8, padding:"8px 10px" }}>
+            <span style={{ fontWeight:700 }}>Listening effort · </span>{effortCopy}
+          </div>
         )}
       </div>
 

@@ -12,9 +12,12 @@
 
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from "react";
 import { unwrapIntakeAnswers } from "./recommendationEngine.js";
-import { ENVIRONMENTS, SITUATION_LABEL, flaggedEnvironments } from "./listeningSituations.js";
+import { ENVIRONMENTS, SITUATION_LABEL, TIER_EFFORT_COPY, flaggedEnvironments } from "./listeningSituations.js";
 import Icon from "./components/Icon.jsx";
 import FinancingCalculator from "./components/FinancingCalculator.jsx";
+import VerifyRateCard from "./components/VerifyRateCard.jsx";
+import ComplexBenefitCalculator from "./components/ComplexBenefitCalculator.jsx";
+import { computeComplexBenefit } from "./lib/complexBenefit.js";
 import DeviceComparison, { techLevelToRank } from "./views/DeviceComparison.jsx";
 import ComparisonHub from "./views/ComparisonHub.jsx";
 import { LegacyDevicePanel } from "./views/LegacyFastPath.jsx";
@@ -24,7 +27,7 @@ import { CARE_ARC, buildCareArc } from "./lib/careArc.js";
 import {
   CROS_PRICE_PER_UNIT, isSideCros, manufacturerToClass, uhchCoverageTier,
   nationsCoverageTier, findTierRank, findAnchorForRank, deriveEarPrice, pickBaselinePerAid,
-  directPurchaseLockedTech,
+  directPurchaseLockedTech, resolveClassRetailPerAid,
 } from "./lib/pricing.js";
 
 // ── Body style images ──
@@ -131,6 +134,10 @@ import {
   updateStaffSignature,
   logPriceAdjustment,
   deletePatientProfile,
+  recordRateVerification,
+  loadPendingRateVerifications,
+  promoteRateVerification,
+  dismissRateVerification,
 } from "./db.js";
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 import { downloadQuote } from "./generateQuote.js";
@@ -643,6 +650,17 @@ const CATALOG_DEFAULT = [
     battery:["Size 312","Size 10","Size 13"], active:true, notes:"Custom styles on Intent platform." },
 
 
+  // Nations-covered LEGACY Own (pre-Intent) — Nations-only, distinct from the
+  // Intent-gen Own above. Own 1/2 → Specialty, 3 → Advanced Plus, 4/5 → Superior Plus.
+  { id:"oti-own", manufacturer:"Oticon", generation:"Own",
+    family:"Own", styles:["cic","iic","itc","ite"],
+    variants:["Standard"],
+    techLevels:["1","2","3","4","5"],
+    colors:SKIN_TONES,
+    battery:["Size 312","Size 10","Size 13"], active:true, tpa:"Nations",
+    notes:"Nations-covered legacy Own custom line (pre-Intent, Nations-only)." },
+
+
   { id:"oti-xceed", manufacturer:"Oticon", generation:"Intent",
     family:"Xceed", styles:["bte"],
     variants:["SP","UP"],
@@ -725,6 +743,34 @@ const CATALOG_DEFAULT = [
     techLevels:["9","7","5","3"],
     colors:["Silver","Champagne","Rose Gold","Dark Brown","Carbon Black","Ivory"],
     battery:["Rechargeable","Size 312"], active:true, notes:"" },
+
+
+  // ── RESOUND Nations value lines (Nations-only, no OOP options) ────────────
+  { id:"res-key-ric", manufacturer:"Resound", generation:"Key",
+    family:"Key", styles:["ric","bte"],
+    variants:["Standard"],
+    techLevels:["4","3"],
+    colors:["Silver","Champagne","Rose Gold","Dark Brown","Carbon Black","Ivory"],
+    battery:["Rechargeable","Size 312","Size 13"], active:true, tpa:"Nations",
+    notes:"Nations value line (Nations-only). Key 3 → Standard, Key 4 → Select. No-OOP option." },
+
+
+  { id:"res-key-custom", manufacturer:"Resound", generation:"Key",
+    family:"Key Custom", styles:["itc","ite"],
+    variants:["Standard"],
+    techLevels:["4","3"],
+    colors:SKIN_TONES,
+    battery:["Size 312","Size 10","Size 13"], active:true, tpa:"Nations",
+    notes:"Nations value line customs (Nations-only). Key 3/4 → Superior Plus." },
+
+
+  { id:"res-savi-ric", manufacturer:"Resound", generation:"Savi",
+    family:"Savi", styles:["ric","bte"],
+    variants:["Standard"],
+    techLevels:["3","2"],
+    colors:["Silver","Champagne","Rose Gold","Dark Brown","Carbon Black","Ivory"],
+    battery:["Rechargeable","Size 312","Size 13"], active:true, tpa:"Nations",
+    notes:"Nations value line (Nations-only). Savi 2 → Standard, Savi 3 → Select. No-OOP option. Customs excluded." },
 
 
   { id:"res-enzo-q", manufacturer:"Resound", generation:"Nexia",
@@ -1817,6 +1863,33 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     })();
     return () => { cancelled = true; };
   }, [view, clinicId]);
+
+  // Rate-verification reconcile state (Admin → Rate Verifications). Pending
+  // catalog-hole copays a provider verified by phone, awaiting admin promotion
+  // into insurance_plans. Lazy-load on entering the view.
+  const [rateVerifications, setRateVerifications] = useState([]);
+  const [rvBusyId, setRvBusyId] = useState(null);
+  const [rvError, setRvError] = useState(null);
+  const refreshRateVerifications = async () => {
+    try { const r = await loadPendingRateVerifications(); setRateVerifications(r || []); }
+    catch (e) { console.error("loadPendingRateVerifications:", e); }
+  };
+  useEffect(() => {
+    if (view !== "rate-verifications") return;
+    refreshRateVerifications();
+  }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
+  const doPromoteVerification = async (v) => {
+    setRvBusyId(v.id); setRvError(null);
+    try { await promoteRateVerification(v, staffId); await refreshRateVerifications(); }
+    catch (e) { console.error("promoteRateVerification:", e); setRvError(e?.message || "Couldn't promote the rate."); }
+    finally { setRvBusyId(null); }
+  };
+  const doDismissVerification = async (v) => {
+    setRvBusyId(v.id); setRvError(null);
+    try { await dismissRateVerification(v.id, staffId); await refreshRateVerifications(); }
+    catch (e) { console.error("dismissRateVerification:", e); setRvError(e?.message || "Couldn't dismiss."); }
+    finally { setRvBusyId(null); }
+  };
 
 
   const EMPTY_SIDE = () => ({
@@ -4426,6 +4499,17 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     });
   }, [directPurchaseActive, form.tier, catalog]);
 
+  // Complex commercial/PPO benefit (coinsurance / deductible / OOP) — an
+  // alternative pricing method for non-device-driven insurance patients whose
+  // VOB the provider entered. Seeded from the loaded patient's coverage.
+  const [cbOpen, setCbOpen] = useState(false);
+  const [cbInputs, setCbInputs] = useState(null);
+  useEffect(() => {
+    const stored = selectedPatient?.insurance?.complexBenefit || null;
+    setCbInputs(stored);
+    setCbOpen(!!stored);
+  }, [selectedPatient?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const pricingRevealData = useMemo(() => {
     if (form.tierPrice == null || !form.tier) return null;
     // Private-pay uses standard-class anchors (manufacturer-agnostic baseline).
@@ -4437,7 +4521,53 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     const anchor = isPrivatePay
       ? anchorSet.find(a => a.label === form.tier)
       : anchorSet.find(a => a.id === TIER_TO_ANCHOR[form.tier]);
-    if (!anchor) return null;
+    if (!anchor) {
+      // On-plan device-driven managed care (Nations; UHCH non-Relate): the
+      // billing tier (e.g. Nations "Specialty") has no tier→anchor mapping,
+      // but the chosen device DOES have a clinic retail anchor. Resolve it per
+      // ear so the patient sees honest savings vs. OUR retail for that exact
+      // device (their copay is a real discount off private retail). Off-plan
+      // (tier === "Off-Plan") and Relate (→ 'standard' fallback, no real street
+      // retail) don't qualify → fall through to the bare device-driven card.
+      const isDeviceDrivenOnPlan =
+        form.payType === "insurance" &&
+        (form.tpa === "UHCH" || form.tpa === "Nations") &&
+        form.tier && form.tier !== "Off-Plan";
+      if (!isDeviceDrivenOnPlan) return null;
+      const lr = resolveClassRetailPerAid(form.left, earPriceOpts);
+      const rr = resolveClassRetailPerAid(form.right, earPriceOpts);
+      // Every CONFIGURED ear must resolve to an honest per-brand retail. A side
+      // with a device but no real anchor (Relate, or a CROS unit) keeps the
+      // reveal bare rather than fabricating a comparison.
+      const leftOk = !form.left.familyId || (lr && lr.realRetail);
+      const rightOk = !form.right.familyId || (rr && rr.realRetail);
+      const anyReal = (lr && lr.realRetail) || (rr && rr.realRetail);
+      if (!anyReal || !leftOk || !rightOk) return null;
+      const dOvr = form.priceOverridePerAid;
+      const dApplyOvr = (ep) => (dOvr != null && ep && ep.source !== "cros") ? { ...ep, price: dOvr } : ep;
+      const copay = dOvr ?? form.tierPrice;
+      const lRetail = lr ? lr.price : null;
+      const rRetail = rr ? rr.price : null;
+      const retailPair = (lRetail != null || rRetail != null) ? (lRetail || 0) + (rRetail || 0) : null;
+      const retailDrv = Math.max(lRetail ?? 0, rRetail ?? 0) || null; // per-aid headline uses the higher ear
+      const savingsDrv = retailDrv != null ? retailDrv - copay : null;
+      const dLeftEP = dApplyOvr(leftEarPrice);
+      const dRightEP = dApplyOvr(rightEarPrice);
+      const dlp = dLeftEP?.price ?? null;
+      const drp = dRightEP?.price ?? null;
+      const dPairTotal = (dlp != null || drp != null) ? (dlp || 0) + (drp || 0) : null;
+      return {
+        tierLabel: (lr || rr)?.anchorLabel || form.tier,
+        retailPerAid: retailDrv,
+        copayPerAid: copay,
+        savingsPerAid: savingsDrv,
+        savingsPct: retailDrv ? Math.round((savingsDrv / retailDrv) * 100) : 0,
+        perEar: { left: dLeftEP, right: dRightEP, pairTotal: dPairTotal },
+        // Per-ear retail so the reveal totals stay honest for mismatched-brand
+        // device-driven fittings (present only on this branch).
+        retailPerEar: { left: lRetail, right: rRetail, pairTotal: retailPair },
+      };
+    }
     const retailPerAid = parseFloat(anchor.price_per_aid);
     // A confirmed Price Adjustment (§6) overrides the per-aid copay for the rest
     // of the session. Applies to real-aid ears; a CROS transmitter side keeps
@@ -4465,7 +4595,60 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       savingsPct,
       perEar: { left: leftEP, right: rightEP, pairTotal },
     };
-  }, [form.tier, form.tierPrice, form.priceOverridePerAid, form.payType, retailAnchors, retailAnchorsStandard, leftEarPrice, rightEarPrice]);
+  }, [form.tier, form.tierPrice, form.priceOverridePerAid, form.payType, form.tpa, earPriceOpts, retailAnchors, retailAnchorsStandard, leftEarPrice, rightEarPrice]);
+
+  // Catalog-hole fix: the provider verified a managed-care copay by phone for a
+  // covered-but-unmapped tier. Record it for admin reconcile (needs a saved
+  // patient), then patch the in-memory plan so the reveal re-prices immediately
+  // — the recompute effect picks up the filled tier and sets form.tierPrice, and
+  // the normal wizard save persists it onto this patient's coverage row.
+  async function handleVerifyRate(tierLabel, dollars) {
+    const cents = Math.round(dollars * 100);
+    if (wizardPatientId) {
+      await recordRateVerification({
+        patientId: wizardPatientId,
+        tpa: form.tpa || null,
+        carrier: form.carrier,
+        planGroup: form.planGroup,
+        tierLabel,
+        copayPerAid: cents,
+      });
+    }
+    setInsurancePlans(prev => prev.map(p => {
+      if (!(p.tpa === form.tpa && p.carrier === form.carrier && p.planGroup === form.planGroup)) return p;
+      const tiers = p.tiers || [];
+      const idx = tiers.findIndex(t => t.label === tierLabel);
+      const nextTiers = idx >= 0
+        ? tiers.map((t, i) => i === idx ? { ...t, price: dollars } : t)
+        : [...tiers, { label: tierLabel, price: dollars }];
+      return { ...p, tiers: nextTiers };
+    }));
+  }
+
+  // Complex-benefit eligibility: an insurance patient NOT on a device-driven TPA
+  // (UHCH-MedSupp / Nations) and not a TruHearing private-label / direct purchase.
+  const complexEligible = form.payType === "insurance"
+    && form.tpa !== "UHCH" && form.tpa !== "Nations"
+    && !isPrivateLabel && !form.directPurchase;
+  // Per-aid clinic retail for the configured device — the amount billed to the
+  // plan, and the calculator's baseline. Higher ear drives a mismatched pair.
+  const complexBaselinePerAid = (() => {
+    const l = resolveClassRetailPerAid(form.left, earPriceOpts);
+    const r = resolveClassRetailPerAid(form.right, earPriceOpts);
+    return Math.max(l?.price ?? 0, r?.price ?? 0) || null;
+  })();
+  async function handleSaveComplexBenefit(inputs, computedPerAid) {
+    setCbInputs(inputs);
+    // In-session price so quote / PA / save use the computed patient cost.
+    setForm(f => ({ ...f, tierPrice: computedPerAid }));
+    // Persist the raw VOB when the patient already has a coverage row (returning
+    // insured patient). A brand-new draft prices in-session; the VOB persists on
+    // the next coverage save. Never INSERTs here (avoids duplicate coverage rows).
+    const coverageId = selectedPatient?._ids?.coverageId || null;
+    if (wizardPatientId && coverageId) {
+      await updateInsuranceCoverage(wizardPatientId, { complex_benefit: inputs }, coverageId);
+    }
+  }
 
   // Device family lookups
   const leftFamily = catalog.find(e => e.id === form.left.familyId);
@@ -5540,6 +5723,28 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               const bothDone = leftConfigured && rightConfigured;
               const anyConfigured = leftConfigured || rightConfigured;
 
+              // Complex commercial/PPO benefit takes precedence for eligible
+              // insurance patients once the provider opens the VOB calculator
+              // (or the patient already has one saved). Prices from the device
+              // retail baseline; financing follows the computed patient total.
+              if (complexEligible && (cbOpen || cbInputs)) {
+                const cbResult = (cbInputs && complexBaselinePerAid)
+                  ? computeComplexBenefit({ baselinePerAid: complexBaselinePerAid, fittingType: bothDone ? 'binaural' : 'monaural', inputs: cbInputs })
+                  : null;
+                return (
+                  <>
+                    <ComplexBenefitCalculator
+                      baselinePerAid={complexBaselinePerAid}
+                      fittingType={bothDone ? 'binaural' : 'monaural'}
+                      initial={cbInputs}
+                      onSave={handleSaveComplexBenefit}
+                      onCancel={cbInputs ? null : () => setCbOpen(false)}
+                    />
+                    {cbResult && cbResult.patientTotal > 0 && <FinancingCalculator total={cbResult.patientTotal} />}
+                  </>
+                );
+              }
+
               // UHCH Relate (Gold/Platinum) and off-plan devices have no retail
               // anchor → pricingRevealData is null, but they DO have a price.
               // Render the investment without a savings badge (Kurt: Relate has
@@ -5589,6 +5794,22 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 );
               }
 
+              // Catalog hole: an on-plan device-driven tier (Nations / UHCH)
+              // whose copay hasn't been reverse-engineered yet. Offer an inline
+              // "verify rate" input instead of the dead placeholder below.
+              const verifyEar = (leftConfigured && leftEarPrice?.requiresVerification) ? leftEarPrice
+                : (rightConfigured && rightEarPrice?.requiresVerification) ? rightEarPrice : null;
+              if (verifyEar) {
+                const vTpaName = form.tpa === 'Nations' ? 'Nations Hearing' : (form.tpa === 'UHCH' ? 'UHCH' : (form.tpa || 'the plan'));
+                return (
+                  <VerifyRateCard
+                    tpaName={vTpaName}
+                    tier={verifyEar.tier}
+                    onSave={(dollars) => handleVerifyRate(verifyEar.tier, dollars)}
+                  />
+                );
+              }
+
               // Hold the reveal until a device is configured — tier alone (set
               // on the prior step) only yields the bare baseline, not a real price.
               if (!pricingRevealData || form.tierPrice == null || !anyConfigured) {
@@ -5599,7 +5820,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 );
               }
 
-              const { tierLabel, retailPerAid, copayPerAid, savingsPerAid, savingsPct, perEar } = pricingRevealData;
+              const { tierLabel, retailPerAid, copayPerAid, savingsPerAid, savingsPct, perEar, retailPerEar } = pricingRevealData;
               // Per-aid until both ears configured, then snap to pair. Avoids
               // the $0 headline when no device side has been picked yet.
               const multiplier = bothDone ? 2 : 1;
@@ -5620,9 +5841,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               // markup); otherwise it's the per-aid anchor times the aid count.
               const retailDisplay = isPrivatePay
                 ? investmentDisplay
-                : ((bothDone && hasCrosSide)
-                    ? retailPerAid + CROS_PRICE_PER_UNIT
-                    : retailPerAid * multiplier);
+                : (retailPerEar && bothDone && retailPerEar.pairTotal != null)
+                    // Device-driven (Nations / UHCH non-Relate): per-ear retail
+                    // sum keeps mismatched-brand fittings honest.
+                    ? retailPerEar.pairTotal
+                    : ((bothDone && hasCrosSide)
+                        ? retailPerAid + CROS_PRICE_PER_UNIT
+                        : retailPerAid * multiplier);
               const planCoversDisplay = retailDisplay - investmentDisplay;
               // Private-pay bundles Complete Care+ at no charge. Its $1,250 value
               // takes the "Plan covers" line (there's no insurance plan in private
@@ -5672,9 +5897,22 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   ) : null}
 
                   {/* Technology tier label */}
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#B5832E",marginBottom:12}}>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#B5832E",marginBottom:6}}>
                     {tierLabel} Technology
                   </div>
+
+                  {/* Listening-effort framing — how hard the brain works at this
+                      tier (the counseling pivot away from a hobby checklist).
+                      Keyed off the tier label's rank; silent if unmapped. */}
+                  {(() => {
+                    const effRank = rankFromTierLabel(tierLabel);
+                    const eff = effRank != null ? TIER_EFFORT_COPY[effRank] : null;
+                    return eff ? (
+                      <div style={{fontSize:12.5,lineHeight:1.55,color:"#54625C",marginBottom:14}}>
+                        {eff}
+                      </div>
+                    ) : null;
+                  })()}
 
                   {/* Your investment — cost first, stated plainly, in the display serif */}
                   <div style={{marginBottom:16}}>
@@ -5769,6 +6007,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 </div>
               );
             })()}
+            {complexEligible && !cbOpen && !cbInputs && (
+              <button type="button" onClick={() => setCbOpen(true)}
+                style={{marginTop:12,background:"none",border:"1px dashed #EADFC7",borderRadius:8,padding:"8px 12px",color:"#B5832E",fontSize:12,fontWeight:600,cursor:"pointer",width:"100%",fontFamily:"'Sora',sans-serif"}}>
+                Coinsurance / deductible plan? Enter the VOB →
+              </button>
+            )}
           </div>
           {/* Then vs. Now — when the intake says the patient already wears
               hearing aids, offer the old-vs-new comparator right on Device
@@ -9135,6 +9379,58 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     );
   };
 
+  // ── RATE VERIFICATIONS (Admin → Rate Verifications) ─────────────────────────
+  // Reconcile queue for catalog holes: a provider verified a managed-care copay
+  // by phone for a covered-but-unmapped tier. Promoting writes it into
+  // insurance_plans (plugs the hole for every future patient); dismissing drops
+  // a mis-entry. Admin-only.
+  const renderRateVerifications = () => {
+    const fmtMoney = (cents) => `$${(cents/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+    return (
+      <>
+        <div className="topbar">
+          <div>
+            <div className="topbar-title">Rate Verifications</div>
+            <div className="topbar-sub">{rateVerifications.length} pending · provider-verified managed-care copays awaiting promotion into the plan catalog</div>
+          </div>
+        </div>
+        <div className="content">
+          <div className="catalog-wrap">
+            {rvError && <div className="save-error">⚠ {rvError}</div>}
+            {rateVerifications.length === 0 && (
+              <div className="empty-state">
+                <div className="empty-icon">✅</div>
+                <div className="empty-title">No pending rate verifications</div>
+                <div className="empty-sub">When a provider verifies a managed-care copay for an un-mapped tier, it appears here to promote into the plan catalog.</div>
+              </div>
+            )}
+            {rateVerifications.map(v => (
+              <div className="catalog-entry" key={v.id}>
+                <div className="catalog-entry-header">
+                  <div>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <div className="catalog-entry-name">{v.carrier} · {v.tier_label}</div>
+                      {v.tpa && <span className="catalog-entry-badge">{v.tpa}</span>}
+                    </div>
+                    <div className="catalog-entry-gen">
+                      {v.plan_group} · verified copay <strong>{fmtMoney(v.verified_copay_per_aid)}</strong> / aid · {fmtDate(v.created_at)}
+                    </div>
+                  </div>
+                  <div className="catalog-entry-actions">
+                    <button className="cat-btn primary" disabled={rvBusyId===v.id} onClick={()=>doPromoteVerification(v)}>
+                      {rvBusyId===v.id ? "…" : "Promote to plan"}
+                    </button>
+                    <button className="cat-btn" disabled={rvBusyId===v.id} onClick={()=>doDismissVerification(v)}>Dismiss</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </>
+    );
+  };
+
 
   // ── RENDER ────────────────────────────────────────────────────────────────
   return (
@@ -9441,7 +9737,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 were separately added and produced two Admin sections on merge. */}
             {checkRole(staffRole, ["admin"]) && <>
               <div className="nav-section-label">Admin</div>
-              {[["users","Team","team"],["badge","Providers","providers"],["shield","Insurance Plans","insurance-plans"],["percent","Rebates","rebates"],["clipboard","Product Catalog","catalog"],["book","Nations Catalog","nations-catalog"],["settings","Settings","settings"]].map(([icon,label,id])=>(
+              {[["users","Team","team"],["badge","Providers","providers"],["shield","Insurance Plans","insurance-plans"],["verify","Rate Verifications","rate-verifications"],["percent","Rebates","rebates"],["clipboard","Product Catalog","catalog"],["book","Nations Catalog","nations-catalog"],["settings","Settings","settings"]].map(([icon,label,id])=>(
                 <div key={id} className={`nav-item ${view===id?"active":""}`} onClick={()=>setView(id)}>
                   <span className="nav-icon"><Icon name={icon} size={17}/></span>{label}
                 </div>
@@ -9626,6 +9922,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           {view === "team" && (checkRole(staffRole, ["admin"]) ? <TeamAdmin activeClinicId={clinicId} /> : renderAdminDenied())}
           {view === "adjustments" && <AdjustmentHistory staffId={staffId} patients={patients} />}
           {view === "rebates" && renderRebates()}
+          {view === "rate-verifications" && (checkRole(staffRole, ["admin"]) ? renderRateVerifications() : renderAdminDenied())}
           {view === "campaigns" && <CampaignManager clinicId={clinicId} staffId={staffId} patients={patients} />}
           {view === "content" && <ContentLibrary clinicId={clinicId} staffId={staffId} />}
           {view === "lima-charlie" && <LimaCharlie clinicId={clinicId} staffId={staffId} />}

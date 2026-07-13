@@ -115,12 +115,25 @@ export function nationsCoverageTier(family, techLevel) {
       // Infinio (Audéo / Naída / Virto): 30 sits a rung above Lumity 30.
       return { 90: 'Specialty', 70: 'Advanced Plus', 50: 'Advanced', 30: 'Superior Plus' }[num] || null;
     case 'Oticon':
-      // Only Real and Xceed are in Nations' catalog; Intent-generation is not.
+      // Real, Xceed, and the LEGACY Own custom line are in Nations' catalog; the
+      // newer Intent generation (including Own-Intent, oti-own-intent) is not.
       if (family.id === 'oti-real')  return { 1: 'Specialty', 2: 'Advanced Plus', 3: 'Advanced' }[num] || null;
       if (family.id === 'oti-xceed') return { 1: 'Specialty', 2: 'Specialty', 3: 'Advanced Plus' }[num] || null;
+      if (family.id === 'oti-own')   return { 1: 'Specialty', 2: 'Specialty', 3: 'Advanced Plus', 4: 'Superior Plus', 5: 'Superior Plus' }[num] || null; // inverted numbering (1 = flagship)
       return null;
     case 'Resound': {
-      // Nexia customs sit one tier above the RIC/BTE forms at the same level.
+      // Value lines (Nations-only). Their level numbers overlap Nexia's but map
+      // to different tiers, so branch by family id, not the number alone —
+      // e.g. level 3 is off-plan for Nexia but Standard for Key and Select for
+      // Savi. Key 3 / Savi 2 land in Standard, the no-OOP tier on Aetna MA.
+      if (family.id === 'res-key-ric')    return { 4: 'Select', 3: 'Standard' }[num] || null;
+      if (family.id === 'res-key-custom') return { 4: 'Superior Plus', 3: 'Superior Plus' }[num] || null;
+      if (family.id === 'res-savi-ric')   return { 3: 'Select', 2: 'Standard' }[num] || null;
+      // Vivia's entry tier (level 3) is Superior Plus in Nations — NOT off-plan
+      // like Nexia's level 3; its 9/7/5 follow the standard ladder.
+      if (family.id === 'res-vivia')
+        return { 9: 'Specialty', 7: 'Advanced Plus', 5: 'Advanced', 3: 'Superior Plus' }[num] || null;
+      // Nexia + ENZO Q: customs sit one tier above the RIC/BTE forms.
       const custom = family.id === 'res-nexia-custom';
       return custom
         ? { 9: 'Specialty', 7: 'Specialty', 5: 'Advanced Plus' }[num] || null
@@ -178,6 +191,45 @@ export function findAnchorForRank(anchors, rank) {
   return anchors.find(a => a.sort_order === (6 - rank)) || null;
 }
 
+// Resolve the clinic retail (private-pay anchor) for ONE ear from its
+// manufacturer class × tech-level rank. This is the "what would this exact
+// device cost at our private retail" number — used both by the private-pay
+// branch below and by the managed-care "found money" savings anchor in the
+// Pricing Reveal (Nations copay vs. our retail for the same device).
+//
+// Returns { price, class, rank, anchorLabel, fallbackUsed, realRetail } or
+// null when the ear can't be priced. `fallbackUsed` is true when the device's
+// own manufacturer class had no anchors and we fell back to the manufacturer-
+// agnostic 'standard' class. `realRetail` is true only when we matched the
+// device's own per-brand anchors — NOT the 'standard' backfill and NOT an
+// unrecognized brand that maps to 'standard' (e.g. UHCH's Relate private
+// label, which has no street retail to anchor against). Callers that need an
+// honest per-brand retail (the savings anchor) must gate on `realRetail`.
+export function resolveClassRetailPerAid(side, opts) {
+  if (!side || isSideCros(side)) return null;
+  const { catalog, productCatalogTiers, anchorsByClass } = opts || {};
+  const family = (catalog || []).find(e => e.id === side.familyId);
+  if (!family || !side.techLevel) return null;
+  const cls = manufacturerToClass(family.manufacturer);
+  const rank = findTierRank(productCatalogTiers, family.id, side.techLevel);
+  if (rank == null) return null;
+  let anchor = findAnchorForRank(anchorsByClass?.[cls], rank);
+  let fallbackUsed = false;
+  if (!anchor) {
+    anchor = findAnchorForRank(anchorsByClass?.standard, rank);
+    fallbackUsed = true;
+  }
+  if (!anchor) return null;
+  return {
+    price: parseFloat(anchor.price_per_aid),
+    class: cls,
+    rank,
+    anchorLabel: anchor.label,
+    fallbackUsed,
+    realRetail: cls !== 'standard' && !fallbackUsed,
+  };
+}
+
 // Resolve the per-aid price for one ear. Returns null when the configuration
 // isn't sufficient to derive a price (manufacturer/techLevel unset, anchor
 // row missing). Caller falls back to the tier baseline in that case.
@@ -214,7 +266,11 @@ export function deriveEarPrice(side, opts) {
     if (covTier) {
       const plan = (plans || []).find(p => p.tpa === 'UHCH' && p.carrier === form.carrier && p.planGroup === form.planGroup);
       const price = plan?.tiers?.find(t => t.label === covTier)?.price ?? null;
-      if (price == null) return null;
+      // On-plan (a covered tier resolved) but the copay for that tier is a
+      // catalog hole — our managed-care rates are reverse-engineered and have
+      // gaps. Flag it (instead of silently returning null) so the reveal can
+      // offer a "verify rate" input rather than a dead placeholder.
+      if (price == null) return { price: null, source: 'uhch-onplan', tier: covTier, requiresVerification: true };
       return { price, source: 'uhch-onplan', tier: covTier };
     }
     // Off-plan: not covered by UHCH → standard retail (manufacturer-class
@@ -239,7 +295,9 @@ export function deriveEarPrice(side, opts) {
       const plan = (plans || []).find(p => p.tpa === 'Nations'
         && p.carrier === form.carrier && p.planGroup === form.planGroup);
       const price = plan?.tiers?.find(t => t.label === covTier)?.price ?? null;
-      if (price == null) return null;
+      // On-plan but the flat tier copay is a catalog hole — flag for the reveal
+      // to surface a "verify rate" input instead of a dead placeholder.
+      if (price == null) return { price: null, source: 'nations-onplan', tier: covTier, requiresVerification: true };
       return { price, source: 'nations-onplan', tier: covTier };
     }
     // Off-plan: not in Nations' catalog → standard retail (manufacturer-class
@@ -280,25 +338,19 @@ export function deriveEarPrice(side, opts) {
       source: 'insurance-standard', class: 'standard', rank, anchorLabel: anchor.label,
     };
   }
-  // Private-pay branch — manufacturer + techLevel required.
-  const family = (catalog || []).find(e => e.id === side.familyId);
-  if (!family || !side.techLevel) return null;
-  const cls = manufacturerToClass(family.manufacturer);
-  const rank = findTierRank(productCatalogTiers, family.id, side.techLevel);
-  if (rank == null) return null;
-  let anchor = findAnchorForRank(anchorsByClass?.[cls], rank);
-  let source = 'class';
-  if (!anchor) {
-    anchor = findAnchorForRank(anchorsByClass?.standard, rank);
-    source = 'fallback';
-  }
-  if (!anchor) return null;
+  // Private-pay branch — manufacturer + techLevel required. Anchor resolution
+  // is shared with the reveal's managed-care savings anchor via
+  // resolveClassRetailPerAid (source mirrors the prior inline logic exactly:
+  // 'class' when the device's own manufacturer anchors matched, 'fallback'
+  // when we backfilled from the 'standard' class).
+  const r = resolveClassRetailPerAid(side, opts);
+  if (!r) return null;
   return {
-    price: parseFloat(anchor.price_per_aid),
-    source,
-    class: cls,
-    rank,
-    anchorLabel: anchor.label,
+    price: r.price,
+    source: r.fallbackUsed ? 'fallback' : 'class',
+    class: r.class,
+    rank: r.rank,
+    anchorLabel: r.anchorLabel,
   };
 }
 

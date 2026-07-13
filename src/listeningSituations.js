@@ -56,6 +56,20 @@ export const COVERAGE_BY_RANK = {
  '-1': { home: 95, tv: 70, phone: 70, religious: 40, car: 40, restaurant: 30, groups: 30, outdoors: 25, crowds: 25 }, // Level 1
 };
 
+// Listening-effort framing by tier rank. The counseling pivot away from a
+// "where do you go" hobby checklist (which backfires — a homebody self-selects
+// the entry tier and then struggles in the noise they DO hit) toward "how hard
+// does your brain work to follow speech." One patient-facing sentence per rank,
+// paired with — not replacing — the environment coverage bars. Warm, plain, no
+// jargon ("channels", "dB"), no banned terms.
+export const TIER_EFFORT_COPY = {
+  5: "The processor does the heavy lifting — separating speech from noise automatically, so you stay in the conversation without straining.",
+  3: "Adapts smoothly as the room shifts — modest effort in busier places, comfortable through most of your day.",
+  1: "Clear and reliable in calm, predictable settings; your brain works harder to keep up when noise is unexpected.",
+  0: "Solid for quiet, one-on-one listening; noisy rooms take noticeably more effort to follow.",
+ '-1': "Best for quiet homes and close conversation; expect real effort anywhere background noise builds.",
+};
+
 // Intake answer (true) → environment IDs the patient struggles with.
 // Multiple flags can map to the same environment; de-duplicated in
 // flaggedEnvironments(). Drawn from #56 backlog comment + the structured
