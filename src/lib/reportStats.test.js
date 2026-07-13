@@ -345,3 +345,70 @@ describe("selectAdjustmentDrill", () => {
     expect(recent.rows.map(r => r.id)).toEqual(["2", "1"]);
   });
 });
+
+// ── Nations clinic revenue (fitting fees) ─────────────────────────────────
+// The member copay flows to NationsBenefits; the clinic earns the tier-sliding
+// per-aid fitting fee (Kurt 2026-07-10 — reportable metric, never patient-
+// facing). Snapshot detection keys on payer_plan_snapshot.tpa === 'Nations'.
+describe("computeReportStats — Nations fitting fees", () => {
+  const nationsSnap = (tier, price) => ({
+    carrier: "Aetna", plan_group: "Nations Hearing", tpa: "Nations",
+    tier, tier_price_per_aid: price,
+  });
+  const nations = (tier, price, over = {}) =>
+    outcome({ payer_name: "Nations", payer_plan_snapshot: nationsSnap(tier, price), ...over });
+
+  it("accrues fee × fitted ears and tracks the copay dollars that flow to the TPA", () => {
+    const stats = computeReportStats(
+      [nations("Advanced Plus", 1625, { visit_id: "v1" })],
+      { v1: "bilateral" }
+    );
+    expect(stats.revenue.nationsFittingFees).toEqual({
+      revenue: 1100,        // $550/aid Advanced Plus fee × 2
+      count: 1,
+      estimatedAidCount: 0,
+      memberCopays: 3250,   // 1625 × 2 — inside deviceRevenue, but TPA money
+    });
+    expect(stats.revenue.deviceRevenue).toBe(3250);
+  });
+
+  it("handles unilateral fittings and assumes bilateral when no fitting is linked", () => {
+    const stats = computeReportStats(
+      [nations("Specialty", 2000, { visit_id: "v1" }), nations("Standard", 600)],
+      { v1: "unilateral" }
+    );
+    // Specialty $700 × 1 + Standard $200 × 2 (bilateral assumed)
+    expect(stats.revenue.nationsFittingFees.revenue).toBe(1100);
+    expect(stats.revenue.nationsFittingFees.count).toBe(2);
+    expect(stats.revenue.nationsFittingFees.estimatedAidCount).toBe(1);
+  });
+
+  it("skips Nations OFF-plan sales — patient pays clinic retail, no TPA fee", () => {
+    const stats = computeReportStats([nations("Off-Plan", 4997.5, { visit_id: "v1" })], { v1: "bilateral" });
+    expect(stats.revenue.nationsFittingFees.count).toBe(0);
+    expect(stats.revenue.nationsFittingFees.revenue).toBe(0);
+    expect(stats.revenue.deviceRevenue).toBe(9995); // retail still counts as committed revenue
+  });
+
+  it("stays zero for non-Nations payers and non-committed Nations outcomes", () => {
+    const stats = computeReportStats([
+      outcome(),                                                    // TruHearing
+      outcome({ payer_type: "private_pay", payer_name: null, payer_plan_snapshot: { private_pay_tier: "Advanced", private_pay_price_per_aid: 3497.5 } }),
+      nations("Advanced", 1450, { device_disposition: "declined", device_reason: "price_budget", care_plan_disposition: "not_applicable", care_plan_selected: null }),
+    ]);
+    expect(stats.revenue.nationsFittingFees).toEqual({ revenue: 0, count: 0, estimatedAidCount: 0, memberCopays: 0 });
+  });
+
+  it("accrues the fee even when the snapshot copay is unpriced (fee keys on tier alone)", () => {
+    const stats = computeReportStats([nations("Select", null, { visit_id: "v1" })], { v1: "bilateral" });
+    expect(stats.revenue.nationsFittingFees).toEqual({ revenue: 430, count: 1, estimatedAidCount: 0, memberCopays: 0 });
+    expect(stats.revenue.unpricedCount).toBe(1);
+  });
+
+  it("toTransaction mirrors the per-row clinic fee for drill/CSV consistency", () => {
+    const t = toTransaction(nations("Advanced", 1450, { visit_id: "v1" }), { v1: "unilateral" });
+    expect(t.nationsFittingFee).toBe(400);   // $400/aid Advanced × 1
+    expect(t.deviceRevenue).toBe(1450);
+    expect(toTransaction(outcome()).nationsFittingFee).toBe(0);
+  });
+});

@@ -737,6 +737,17 @@ export default function Reports({ clinicId, clinicName, staffId, patients = [], 
                 (stats.revenue.unpricedCount ? ` · ${stats.revenue.unpricedCount} unpriced` : "")}
               accent="#0369a1"
               onClick={() => open("outcomes", "revenue")} />
+            {/* Nations economics: member copays flow to the TPA, not the clinic —
+                the clinic earns the per-aid fitting fee (tier-sliding, from
+                NATIONS_TIER_PRICING). Provider-facing only; never shown on
+                quotes/PAs. Renders only once Nations commits exist in range. */}
+            {stats.revenue.nationsFittingFees.count > 0 && (
+              <StatCard label="Nations clinic revenue" value={usd.format(stats.revenue.nationsFittingFees.revenue)}
+                sub={`Fitting fees on ${stats.revenue.nationsFittingFees.count} Nations commit${stats.revenue.nationsFittingFees.count === 1 ? "" : "s"}` +
+                  ` · ${usd.format(stats.revenue.nationsFittingFees.memberCopays)} member copays flow to NationsBenefits` +
+                  (stats.revenue.nationsFittingFees.estimatedAidCount ? ` · ${stats.revenue.nationsFittingFees.estimatedAidCount} bilateral assumed` : "")}
+                accent="#0e7490" />
+            )}
             <StatCard label="Outcomes logged" value={stats.total}
               sub={Object.entries(stats.byContext).map(([k, v]) => `${CONTEXT_LABELS[k] || k}: ${pct(v.rate)}`).join(" · ")}
               accent="#374151"
