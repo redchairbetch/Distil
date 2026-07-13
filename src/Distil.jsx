@@ -7235,7 +7235,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             clinicId={clinicId}
             staffId={staffId}
             catalog={catalog}
-            insurancePlans={insurancePlans}
+            insurancePlans={activePlans}
+            productCatalogTiers={productCatalogTiers}
+            anchorsByClass={retailAnchorsByClass}
             resolveRetailPerAid={(side) => {
               // Clinic retail anchor for a device side — manufacturer class ×
               // tech-level rank, the same resolution private-pay deriveEarPrice

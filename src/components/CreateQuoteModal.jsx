@@ -14,13 +14,16 @@ import { useState, useMemo } from 'react'
 import { downloadQuote } from '../generateQuote.js'
 import { uploadPatientDocument, logPriceAdjustment } from '../db.js'
 import { ADJUST_REASON_CODES } from '../views/AdjustPriceModal.jsx'
-import { nationsCoverageTier } from '../lib/pricing.js'
+import { nationsCoverageTier, deriveEarPrice } from '../lib/pricing.js'
 
 // Custom-quote modal launched from the patient profile (the sole quote entry
 // point — the saved-config "Generate Quote" button was retired). Lets the
 // provider pick any devices the patient is eligible for and, for private pay,
 // discount off the clinic's retail anchor rather than typing an arbitrary
 // price — so every printed quote reflects the clinic's selected retail pricing.
+// Insurance quotes price from a selected insurance plan (carrier → plan →
+// tier copay; UHCH/Nations derive the copay from the chosen device), with a
+// manual-copay fallback when the plan isn't in the table.
 // Any discount is recorded to the §6 price_adjustment_log (a paper trail
 // explaining the reason). Ephemeral — does not write to device_fittings or
 // update form.tierPrice. Quote PDF is archived to patient_documents with
@@ -136,30 +139,76 @@ export default function CreateQuoteModal({
   clinicId,
   staffId,
   catalog = [],
+  insurancePlans = [],
+  productCatalogTiers = [],
+  anchorsByClass = {},
   resolveRetailPerAid,
   onClose,
   onArchived,
 }) {
+  const patientTpa = patient?.insurance?.tpa || null
+
+  const [payType, setPayType] = useState(patient?.payType || 'insurance')
+  const [carePlan, setCarePlan] = useState(patient?.carePlan || 'complete')
+
+  // Insurance plan selection — defaults to the patient's saved coverage so an
+  // insurance quote opens already priced at their plan, not at private-pay
+  // numbers. An empty carrier means "manual copay" (the legacy behavior),
+  // kept for plans that aren't in the table yet.
+  const [planCarrier, setPlanCarrier] = useState(patient?.insurance?.carrier || '')
+  const [planGroup,   setPlanGroup]   = useState(patient?.insurance?.planGroup || '')
+  const [planTier,    setPlanTier]    = useState(patient?.insurance?.tier || '')
+
+  const planMode = payType === 'insurance' && planCarrier !== ''
+  const selectedPlan = planMode
+    ? insurancePlans.find(pl => pl.carrier === planCarrier && pl.planGroup === planGroup) || null
+    : null
+  // UHCH and Nations are device-driven: the chosen device decides the tier and
+  // its flat copay (via the coverage maps in lib/pricing), so no tier picker.
+  const deviceDriven = selectedPlan?.tpa === 'UHCH' || selectedPlan?.tpa === 'Nations'
+  const tierCopay = selectedPlan && !deviceDriven
+    ? (selectedPlan.tiers?.find(t => t.label === planTier)?.price ?? null)
+    : null
+
   // TPA exclusivity mirrors the wizard's visibleCatalog gate: tpa-less rows
   // show for everyone; tpa'd rows (Relate → UHCH, TH white-labels →
-  // TruHearing) only for patients on that TPA. Keyed to the saved plan, not
-  // the modal's pay-type toggle — eligibility comes from the patient's
-  // coverage, and TPA-exclusive products have no street retail to quote.
-  const patientTpa = patient?.insurance?.tpa || null
+  // TruHearing) only when quoting on that TPA. Keyed to the selected plan
+  // when quoting insurance (so picking a TruHearing plan surfaces the TH
+  // white-labels), and to the saved coverage otherwise — TPA-exclusive
+  // products have no street retail to quote.
+  const quoteTpa = selectedPlan ? selectedPlan.tpa : patientTpa
   // Nations obligates us to the plan's covered catalog — off-plan families and
   // tech levels are disabled in the pickers (mirrors the wizard cascade).
-  const isNations = patientTpa === 'Nations'
+  const isNations = quoteTpa === 'Nations'
   const famOffPlan = (fam) =>
     isNations && Array.isArray(fam?.techLevels) && fam.techLevels.length > 0
       && fam.techLevels.every(t => nationsCoverageTier(fam, t) === null)
   const techOffPlan = (fam, t) => isNations && nationsCoverageTier(fam, t) === null
   const activeCatalog = useMemo(
-    () => catalog.filter(e => e.active && (!e.tpa || e.tpa === patientTpa)),
-    [catalog, patientTpa]
+    () => catalog.filter(e => e.active && (!e.tpa || e.tpa === quoteTpa)),
+    [catalog, quoteTpa]
   )
 
-  const [payType, setPayType] = useState(patient?.payType || 'insurance')
-  const [carePlan, setCarePlan] = useState(patient?.carePlan || 'complete')
+  const planCarriers = useMemo(
+    () => [...new Set(insurancePlans.map(pl => pl.carrier))].sort(),
+    [insurancePlans]
+  )
+  const carrierPlans = insurancePlans.filter(pl => pl.carrier === planCarrier)
+
+  // Picking earlier in the carrier → plan → tier chain clears later; single
+  // options auto-select so the common one-plan carriers price in one click.
+  const pickCarrier = (c) => {
+    const groups = insurancePlans.filter(pl => pl.carrier === c)
+    const only = groups.length === 1 ? groups[0] : null
+    setPlanCarrier(c)
+    setPlanGroup(only ? only.planGroup : '')
+    setPlanTier(only?.tiers?.length === 1 ? only.tiers[0].label : '')
+  }
+  const pickPlanGroup = (g) => {
+    const pl = insurancePlans.find(x => x.carrier === planCarrier && x.planGroup === g)
+    setPlanGroup(g)
+    setPlanTier(pl?.tiers?.length === 1 ? pl.tiers[0].label : '')
+  }
 
   const [hasLeft,  setHasLeft]  = useState(!!patient?.devices?.left  || !patient?.devices)
   const [hasRight, setHasRight] = useState(!!patient?.devices?.right || !patient?.devices)
@@ -176,9 +225,13 @@ export default function CreateQuoteModal({
     return { ...s, style: normalizeStyle(activeCatalog, s.manufacturer, s.style) }
   })
 
-  // Insurance keeps an editable per-aid copay price. Private pay derives the
-  // price from the clinic retail anchor minus the per-ear discount below.
-  const initialPrice = defaultPricePerAid(patient) || 2750
+  // Manual-copay fallback (insurance with no plan selected) keeps an editable
+  // per-aid price. Private pay derives the price from the clinic retail anchor
+  // minus the per-ear discount below. No `|| 2750` here — that turned a $0 or
+  // unknown insurance copay into the private-pay default.
+  const initialPrice = patient?.payType === 'private'
+    ? (defaultPricePerAid(patient) || 2750)
+    : (patient?.insurance?.tierPrice ?? 0)
   const [leftPrice,  setLeftPrice]  = useState(initialPrice)
   const [rightPrice, setRightPrice] = useState(initialPrice)
 
@@ -230,6 +283,17 @@ export default function CreateQuoteModal({
   }
 
   const setSideField = (which, field, value) => {
+    // TruHearing white-labels carry their plan tier on the product
+    // (planTierKey: TH7→Premium, TH6→Advanced, TH5→Standard). Picking one
+    // syncs the quote's tier when the selected plan offers that tier — TH5
+    // BTE on an Advanced/Premium-only plan stays at the chosen tier ("always
+    // available; the plan price covers whatever the clinician fits").
+    if (field === 'familyId' && selectedPlan && !deviceDriven) {
+      const f = activeCatalog.find(e => e.id === value)
+      if (f?.planTierKey && (selectedPlan.tiers || []).some(t => t.label === f.planTierKey)) {
+        setPlanTier(f.planTierKey)
+      }
+    }
     const update = (prev) => {
       const next = { ...prev, [field]: value }
       // Cascade resets — picking earlier in the chain clears later.
@@ -269,9 +333,10 @@ export default function CreateQuoteModal({
   })()
 
   // Per-ear pricing. Private pay anchors to the clinic retail price (resolved
-  // by the parent from clinic_retail_anchors) and applies the $/% discount;
-  // insurance keeps the editable copay price. CROS units are a fixed $1,250
-  // add-on with no discount.
+  // by the parent from clinic_retail_anchors) and applies the $/% discount.
+  // Insurance prices from the selected plan — flat tier copay, or per-device
+  // copay for UHCH/Nations — with an editable manual copay when no plan is
+  // selected. CROS units are a fixed $1,250 add-on with no discount.
   const fallbackRetail = defaultPricePerAid(patient) || 2750
   const earPricing = (active, side, disc, priceState) => {
     if (!active) return { retail: null, discountAmt: 0, net: null }
@@ -287,7 +352,37 @@ export default function CreateQuoteModal({
       amt = Math.max(0, Math.min(amt, retail))
       return { retail, discountAmt: amt, net: Math.max(0, retail - amt) }
     }
-    // insurance — editable copay, no retail anchor
+    // insurance — plan-driven copay when a plan is selected
+    if (planMode) {
+      // Carrier picked but plan not resolved yet — nothing to price.
+      if (!selectedPlan) return { retail: null, discountAmt: 0, net: null }
+      if (deviceDriven) {
+        // UHCH / Nations: the device decides the copay — same deriveEarPrice
+        // path the wizard uses (on-plan → flat tier copay; off-plan →
+        // standard retail, flagged; copay hole → requires rate verification).
+        if (!side.familyId || !side.techLevel) return { retail: null, discountAmt: 0, net: null }
+        const ep = deriveEarPrice(side, {
+          form: {
+            payType: 'insurance',
+            tpa: selectedPlan.tpa,
+            carrier: selectedPlan.carrier,
+            planGroup: selectedPlan.planGroup,
+          },
+          catalog, productCatalogTiers, anchorsByClass, plans: insurancePlans,
+        })
+        return {
+          retail: null, discountAmt: 0,
+          net: ep?.price ?? null,
+          coverageTier: ep?.tier || null,
+          offPlan: !!ep?.offPlan,
+          needsRate: !!ep?.requiresVerification,
+        }
+      }
+      // Tier-copay plan (TruHearing et al.) — flat per-aid copay for the
+      // chosen tier; null until a tier is picked, which blocks Generate.
+      return { retail: null, discountAmt: 0, net: tierCopay }
+    }
+    // insurance, manual copay (no plan selected) — editable, no retail anchor
     return { retail: null, discountAmt: 0, net: Number(priceState) || 0 }
   }
 
@@ -319,12 +414,20 @@ export default function CreateQuoteModal({
     (!!side.familyId && !!side.techLevel)
   const earsResolved = payType !== 'private' ||
     (sideConfigured(hasLeft, left) && sideConfigured(hasRight, right))
+  // Plan-priced quotes must fully resolve before generating: a tier picked
+  // for copay plans, a configured device for UHCH/Nations (and no unverified
+  // copay holes) — otherwise the quote would print a dash.
+  const planPriced = !planMode || (
+    (!hasLeft  || leftPx.net  != null) &&
+    (!hasRight || rightPx.net != null)
+  )
 
   const canGenerate = !!fittingType
     && (!hasLeft  || left.manufacturer)
     && (!hasRight || right.manufacturer)
     && reasonOk
     && earsResolved
+    && planPriced
     && !generating
 
   const handleGenerate = async () => {
@@ -338,6 +441,17 @@ export default function CreateQuoteModal({
       const leftRetail  = payType === 'private' && hasLeft  ? leftPx.retail  : null
       const rightRetail = payType === 'private' && hasRight ? rightPx.retail : null
       const reasonTextClean = reasonCode === 'other' ? (reasonText.trim() || null) : null
+      // Coverage identity on the quote follows the plan it was priced from —
+      // the saved coverage only when quoting manually / private.
+      const quoteCarrier = selectedPlan ? selectedPlan.carrier : (patient.insurance?.carrier || null)
+      const quoteTpaOut  = selectedPlan ? selectedPlan.tpa     : (patient.insurance?.tpa     || null)
+      // Tier label for the archive: quote-level for copay plans, per-ear
+      // coverage tiers for device-driven plans (they can differ by ear).
+      const tierLabel = selectedPlan
+        ? (deviceDriven
+            ? [...new Set([leftPx.coverageTier, rightPx.coverageTier].filter(Boolean))].join(' / ') || null
+            : planTier || null)
+        : null
 
       const { blob, fileName } = downloadQuote({
         patient: { name: patient.name, phone: patient.phone },
@@ -354,8 +468,8 @@ export default function CreateQuoteModal({
         rightRetail,
         selectedCarePlan: carePlan || 'complete',
         payType,
-        tpa:     patient.insurance?.tpa     || null,
-        carrier: patient.insurance?.carrier || null,
+        tpa:     quoteTpaOut,
+        carrier: quoteCarrier,
         audiology: patient.audiology,
         clinic,
         provider: {
@@ -411,8 +525,10 @@ export default function CreateQuoteModal({
             aidCount: (hasLeft ? 1 : 0) + (hasRight ? 1 : 0),
             selectedCarePlan: carePlan || 'complete',
             payType,
-            carrier: patient.insurance?.carrier || null,
-            tpa:     patient.insurance?.tpa     || null,
+            carrier: quoteCarrier,
+            tpa:     quoteTpaOut,
+            planGroup: selectedPlan ? selectedPlan.planGroup : null,
+            tierLabel,
             leftFamily:  hasLeft  ? (left.family  || null) : null,
             rightFamily: hasRight ? (right.family || null) : null,
           },
@@ -583,6 +699,46 @@ export default function CreateQuoteModal({
                 </span>
               </div>
             </div>
+          ) : planMode ? (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={labelStyle}>
+                  Plan copay
+                  {deviceDriven
+                    ? (px.coverageTier ? ` — ${px.coverageTier} tier` : '')
+                    : (planTier ? ` — ${planTier}` : '')}
+                </span>
+                <span style={{ fontSize: 15, fontWeight: 800, color: px.offPlan ? '#b45309' : C.ink }}>
+                  {px.net != null ? `${money(px.net)} / aid` : '—'}
+                </span>
+              </div>
+              {!selectedPlan && (
+                <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>
+                  Select the plan above to price this ear.
+                </div>
+              )}
+              {selectedPlan && !deviceDriven && !planTier && (
+                <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>
+                  Select a plan tier above to price this ear.
+                </div>
+              )}
+              {selectedPlan && deviceDriven && (!side.familyId || !side.techLevel) && (
+                <div style={{ fontSize: 12, color: C.muted, marginTop: 6 }}>
+                  Select family and tech level — {selectedPlan.tpa} copays are device-driven.
+                </div>
+              )}
+              {px.offPlan && (
+                <div style={{ fontSize: 12, color: '#b45309', marginTop: 6 }}>
+                  Not covered by this plan — priced at standard retail. Requires a signed
+                  insurance acknowledgement form.
+                </div>
+              )}
+              {px.needsRate && (
+                <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 6 }}>
+                  Covered tier, but its copay isn't on file — verify the rate before quoting.
+                </div>
+              )}
+            </div>
           ) : (
             <div>
               <label style={labelStyle}>Price per aid</label>
@@ -685,6 +841,59 @@ export default function CreateQuoteModal({
             <div style={{ fontSize: 12, color: C.muted, marginBottom: 16, lineHeight: 1.5 }}>
               Pricing starts from the clinic's retail anchor for the selected device. Enter a discount to
               adjust — the quote prints the retail price and the discount, and the reason is recorded to the audit log.
+            </div>
+          )}
+
+          {/* Insurance plan — devices and copays price from the selected plan */}
+          {payType === 'insurance' && (
+            <div style={{
+              background: C.bgSoft, border: `1px solid ${C.line}`,
+              borderRadius: 8, padding: 14, marginBottom: 20,
+            }}>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 180 }}>
+                  <label style={labelStyle}>Carrier</label>
+                  <select style={inputStyle} value={planCarrier} onChange={e => pickCarrier(e.target.value)}>
+                    <option value="">Manual copay — no plan</option>
+                    {/* Saved coverage naming a carrier the plan table doesn't
+                        have — keep it visible instead of a blank select. */}
+                    {planCarrier && !planCarriers.includes(planCarrier) && (
+                      <option value={planCarrier}>{planCarrier} — not in plan table</option>
+                    )}
+                    {planCarriers.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                {planCarrier && (
+                  <div style={{ flex: 2, minWidth: 220 }}>
+                    <label style={labelStyle}>Plan</label>
+                    <select style={inputStyle} value={planGroup} onChange={e => pickPlanGroup(e.target.value)}>
+                      <option value="">— Select plan —</option>
+                      {planGroup && !carrierPlans.some(pl => pl.planGroup === planGroup) && (
+                        <option value={planGroup}>{planGroup} — not in plan table</option>
+                      )}
+                      {carrierPlans.map(pl => <option key={pl.planGroup} value={pl.planGroup}>{pl.planGroup}</option>)}
+                    </select>
+                  </div>
+                )}
+                {selectedPlan && !deviceDriven && (
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <label style={labelStyle}>Plan tier</label>
+                    <select style={inputStyle} value={planTier} onChange={e => setPlanTier(e.target.value)}>
+                      <option value="">— Select tier —</option>
+                      {(selectedPlan.tiers || []).map(t => (
+                        <option key={t.label} value={t.label}>{t.label} — {money(t.price)} / aid</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+              {selectedPlan && (
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>
+                  {deviceDriven
+                    ? `${selectedPlan.tpa} is device-driven — the copay resolves from each ear's device once family and tech level are selected. Devices outside the plan's catalog price at standard retail and need an insurance acknowledgement form.`
+                    : 'Copay applies per aid at the selected tier. Devices are chosen freely — the tier sets the price, not the device.'}
+                </div>
+              )}
             </div>
           )}
 
