@@ -3144,7 +3144,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // upgrade visit so the step-5 incremental save writes a NEW visit-scoped
   // device_fittings row (the original fit survives — updatePatientDevices is
   // visit-scoped) and finalize targets only this visit's fitting dates.
-  const startUpgradePurchase = (p, { visitId = null, tierOffered = null, tierPrice = null, audiology = null } = {}) => {
+  const startUpgradePurchase = (p, { visitId = null, tierOffered = null, tierPrice = null, audiology = null, refreshedPlan = null } = {}) => {
     if (!p) return;
     if (!confirmDiscardWizardDraft()) return;
     const nameParts = String(p.name || "").trim().split(/\s+/);
@@ -3154,10 +3154,18 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     // the chart's audiology so Results/Recommendation still have data.
     const hasFreshAudio = audiology
       && (Object.keys(audiology.rightT || {}).length > 0 || Object.keys(audiology.leftT || {}).length > 0);
-    const plan = p.payType === "insurance"
-      ? activePlans.find(pl => pl.carrier === p.insurance?.carrier && pl.planGroup === p.insurance?.planGroup)
+    // A refreshed-benefit plan verified at the Journey Review overrides the
+    // saved coverage for THIS purchase: it seeds the wizard form, which is
+    // what gates the device cascade (visibleCatalog on form.tpa / the TH card
+    // flow on carrier+planGroup) and pricing. The chart's coverage record is
+    // deliberately untouched — that update belongs to the profile's Coverage
+    // card.
+    const payType = refreshedPlan ? "insurance" : (p.payType || "insurance");
+    const cov = refreshedPlan || p.insurance || null;
+    const plan = payType === "insurance"
+      ? activePlans.find(pl => pl.carrier === cov?.carrier && pl.planGroup === cov?.planGroup)
       : null;
-    const privLabel = p.payType === "insurance" && isPrivateLabelPlan(plan);
+    const privLabel = payType === "insurance" && isPrivateLabelPlan(plan);
     // Tier price: the UpgradeClose hands us its reference price (plan copay or
     // retail anchor); for private-label plans re-resolve from the plan row so
     // the seeded price matches what TierSelection would write.
@@ -3168,9 +3176,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       ...BLANK_FORM(),
       firstName, lastName,
       dob: p.dob || "", phone: p.phone || "", email: p.email || "", address: p.address || "",
-      payType: p.payType || "insurance",
+      payType,
       directPurchase: p.directPurchase || false, // preserve a direct-purchase patient's mode on upgrade
-      carrier: p.insurance?.carrier || "", planGroup: p.insurance?.planGroup || "", tpa: p.insurance?.tpa || "",
+      carrier: cov?.carrier || "", planGroup: cov?.planGroup || "", tpa: cov?.tpa || "",
       tier: tierOffered || "", tierPrice: seededTierPrice,
       audiology: hasFreshAudio ? audiology : (p.audiology || BLANK_AUDIOLOGY()),
       notes: p.notes || "",
@@ -3190,7 +3198,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       .catch(() => {});
     // Technology Tier only applies to private-label + private-pay flows;
     // regular insurance renders that step empty, so land on Device Selection.
-    setStep((privLabel || p.payType === "private") ? 4 : 5);
+    setStep((privLabel || payType === "private") ? 4 : 5);
     setView("new");
   };
 
@@ -9639,6 +9647,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               patient={selectedPatient}
               clinicId={clinicId}
               staffId={staffId}
+              plans={activePlans}
               onExit={() => setView("patient")}
               onCompleted={async () => { await refreshPatients(); setView("patient"); }}
               onProceedToPurchase={(ctx) => {
