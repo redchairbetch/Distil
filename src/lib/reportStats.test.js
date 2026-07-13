@@ -48,6 +48,16 @@ describe("computeReportStats — close rate", () => {
     expect(stats.deviceReasons).toEqual({ wants_to_think: 1, price_budget: 1 });
   });
 
+  it("excludes Tested No Loss from the denominator but keeps it in the mix", () => {
+    const stats = computeReportStats([
+      outcome(),                                                            // committed
+      outcome({ device_disposition: "no_hearing_loss", care_plan_disposition: "not_applicable", care_plan_selected: null }),
+    ]);
+    // Normal hearing = never a losable opportunity — the close rate stays 1/1.
+    expect(stats.closeRate).toEqual({ closed: 1, denominator: 1, rate: 1 });
+    expect(stats.deviceMix.no_hearing_loss).toBe(1);
+  });
+
   it("splits close rate by context", () => {
     const stats = computeReportStats([
       outcome({ context: "new_fit" }),

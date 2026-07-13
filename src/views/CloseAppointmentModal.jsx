@@ -40,6 +40,7 @@ export const DISPOSITION_OPTIONS = [
   { id: 'declined',        label: 'Not proceeding' },
   { id: 'no_decision',     label: 'No decision this visit' },
   { id: 'not_a_candidate', label: 'Not a candidate' },
+  { id: 'no_hearing_loss', label: 'Tested — no hearing loss' },
   { id: 'not_applicable',  label: 'Not applicable' },
 ]
 
@@ -173,9 +174,9 @@ export default function CloseAppointmentModal({
 
   const setDeviceDisposition = (id) => {
     setDevice(id)
-    // Medical referral out (etc.) means there was no care plan decision to
-    // make — auto-set that layer, but leave it editable.
-    if (id === 'not_a_candidate') {
+    // Medical referral out / normal hearing means there was no care plan
+    // decision to make — auto-set that layer, but leave it editable.
+    if (id === 'not_a_candidate' || id === 'no_hearing_loss') {
       setCarePlan('not_applicable')
       setCarePlanSelected(null)
     }

@@ -50,11 +50,13 @@ function rangeToFrom(key) {
 
 const DISPOSITION_LABELS = {
   committed: "Committed", deferred: "Deferred", declined: "Declined",
-  no_decision: "No decision", not_a_candidate: "Not a candidate", not_applicable: "N/A",
+  no_decision: "No decision", not_a_candidate: "Not a candidate",
+  no_hearing_loss: "Tested — no loss", not_applicable: "N/A",
 };
 const DISPOSITION_COLORS = {
   committed: "#0d9488", deferred: "#b45309", declined: "#dc2626",
-  no_decision: "#6b7280", not_a_candidate: "#7c3aed", not_applicable: "#9ca3af",
+  no_decision: "#6b7280", not_a_candidate: "#7c3aed",
+  no_hearing_loss: "#2563eb", not_applicable: "#9ca3af",
 };
 const REASON_LABELS = {
   price_budget: "Price / budget",
