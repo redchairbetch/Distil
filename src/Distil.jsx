@@ -1088,11 +1088,13 @@ const TH_RECEIVER_STYLES = ["ric","ric_bct","sr"];
 
 // Patient-facing benefit copy for TruHearing tier rows. Each tier is framed
 // as capable on its own; the next tier adds capability in noisier / more
-// complex listening environments. Avoid disparaging lower tiers.
+// complex listening environments. Avoid disparaging lower tiers. These are
+// the secondary FEATURE lines — the effort story lives exclusively in
+// TIER_EFFORT_COPY (listeningSituations.js), so no effort claims here.
 const TH_TIER_BLURBS = {
   Standard: "Clear, automatic hearing for quieter, one-on-one settings — home, small groups, TV.",
   Advanced: "Adds active noise management and directional focus — restaurants, gatherings, and conversations over background noise become easier to follow.",
-  Premium:  "The most sophisticated processing offered — effortless clarity in the hardest listening environments, with richer spatial awareness, steadier streaming, and the lowest listening effort across a full day."
+  Premium:  "The most sophisticated processing offered — the strongest speech-from-noise separation available, richer spatial awareness, and steadier streaming."
 };
 
 
@@ -5888,7 +5890,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       nothing was flagged. */}
                   {reflectText ? (
                     <div style={{fontSize:13.5,color:"#54625C",fontStyle:"italic",borderLeft:"3px solid #B5832E",paddingLeft:13,marginBottom:16,lineHeight:1.55}}>
-                      You told us the hardest moments have been {reflectText}.
+                      You told us the hardest moments have been {reflectText} — the places where listening takes the most out of you.
                     </div>
                   ) : chiefComplaint ? (
                     <div style={{fontSize:13.5,color:"#54625C",fontStyle:"italic",borderLeft:"3px solid #B5832E",paddingLeft:13,marginBottom:16,lineHeight:1.55}}>
@@ -5901,15 +5903,17 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     {tierLabel} Technology
                   </div>
 
-                  {/* Listening-effort framing — how hard the brain works at this
-                      tier (the counseling pivot away from a hobby checklist).
-                      Keyed off the tier label's rank; silent if unmapped. */}
+                  {/* Listening-effort framing — who does the work of separating
+                      speech from noise at this tier (the counseling pivot away
+                      from a hobby checklist). "Listening effort" is the one
+                      consistent label across screens. Keyed off the tier
+                      label's rank; silent if unmapped. */}
                   {(() => {
                     const effRank = rankFromTierLabel(tierLabel);
                     const eff = effRank != null ? TIER_EFFORT_COPY[effRank] : null;
                     return eff ? (
                       <div style={{fontSize:12.5,lineHeight:1.55,color:"#54625C",marginBottom:14}}>
-                        {eff}
+                        <span style={{fontWeight:700,color:"#B5832E"}}>Listening effort · </span>{eff}
                       </div>
                     ) : null;
                   })()}

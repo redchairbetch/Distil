@@ -310,7 +310,7 @@ function IntakeReflection({ flagged, hasIntakeAnswers }) {
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: TEAL_DARK, marginBottom: 9 }}>
-        From your intake — what you told us was getting harder
+        From your intake — where listening takes the most effort
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
         {labels.map(l => (
@@ -353,7 +353,7 @@ function RecommendationBanner({ loading, engineError, recommended, rationaleText
     ? " Recommendation is grounded in audiometric findings — no intake on file."
     : flaggedCount === 0
       ? " Recommendation reflects your audiogram. Your intake answers didn't flag specific listening challenges, which the engine reads as a quieter listening profile."
-      : ` Recommendation reflects your audiogram and the ${flaggedCount === 1 ? "environment you flagged" : `${flaggedCount} environments you flagged`} in your intake.`;
+      : ` Recommendation reflects your audiogram and the ${flaggedCount === 1 ? "situation" : `${flaggedCount} situations`} you flagged as taking the most listening effort.`;
 
   return (
     <div style={{ background:TEAL_BG, borderLeft:`4px solid ${TEAL}`, borderRadius:6, padding:"12px 16px" }}>
@@ -409,18 +409,30 @@ function TierCard({ tier, selected, recommended, selectable, blurb, flagged, onS
 
       <div style={{ padding:"16px 16px 12px" }}>
         <div style={{ fontFamily:FONT.display, fontSize:19, fontWeight:600, color:TEXT }}>{tier.label}</div>
-        {blurb && (
-          <div style={{ marginTop:6, fontSize:12, lineHeight:1.45, color:"#475569" }}>{blurb}</div>
-        )}
+        {/* Listening effort is the tier's primary description (effort pivot) —
+            who does the work of separating speech from noise at this level.
+            The feature blurb demotes to a secondary line underneath. */}
         {effortCopy && (
-          <div style={{ marginTop:8, fontSize:12, lineHeight:1.5, color:BRASS_INK, background:BRASS_SOFT, borderRadius:8, padding:"8px 10px" }}>
-            <span style={{ fontWeight:700 }}>Listening effort · </span>{effortCopy}
+          <div style={{ marginTop:9 }}>
+            <div style={{ fontSize:10, fontWeight:700, letterSpacing:"0.07em", textTransform:"uppercase", color:BRASS_INK, marginBottom:4 }}>
+              Listening effort
+            </div>
+            <div style={{ fontSize:13, lineHeight:1.55, color:TEXT }}>{effortCopy}</div>
           </div>
+        )}
+        {blurb && (
+          <div style={{ marginTop:8, fontSize:11.5, lineHeight:1.45, color:MUTED }}>{blurb}</div>
         )}
       </div>
 
       {coverage ? (
         <div style={{ borderTop:`1px solid ${BORDER}`, padding:"12px 16px", flex:1 }}>
+          {/* Coverage bars are supporting evidence for the effort story above,
+              not the headline — the connector line makes that relationship
+              explicit. */}
+          <div style={{ fontSize:11.5, color:MUTED, marginBottom:9, lineHeight:1.4 }}>
+            Here's where that shows up, situation by situation:
+          </div>
           <EnvironmentCoverage rank={rank} flagged={flagged} />
         </div>
       ) : (

@@ -198,31 +198,36 @@ function describeIntake(intake) {
   return 'the relatively contained listening challenges you reported'
 }
 
+// Rationale copy follows the listening-effort frame (listeningSituations.js):
+// degraded signal → the brain fills the gaps → that work is felt as fatigue →
+// the tier determines who does the separating. Entry-tier rationale must never
+// read as "you'll strain, but it's cheap" — it's recommended because the
+// patient's demands center on settings where effort stays low anyway.
 export function generateRationale(audio, intake, recommendedRank) {
   const loss = describeLoss(audio)
   const listening = describeIntake(intake)
 
   if (recommendedRank === 5) {
     if (loss && listening) {
-      return `Based on your ${loss} and ${listening}, the top-tier device is recommended — it's designed to handle the full range of environments you're likely to encounter.`
+      return `Based on your ${loss} and ${listening}, the top-tier device is recommended. Right now your brain is filling in what your ears miss — that work is why listening can leave you drained. This tier's processing separates speech from noise before it reaches you, so your energy goes to the conversation itself.`
     }
     if (loss) {
-      return `Based on your ${loss}, the top-tier device is recommended. Its processing is built for the complex listening situations most patients encounter day to day.`
+      return `Based on your ${loss}, the top-tier device is recommended. With this degree of loss, your brain works hard to fill in what your ears miss, and that effort adds up over a day. The top tier shifts that work onto the processor, keeping listening effort low even in demanding places.`
     }
-    return `The top-tier device is recommended as the strongest foundation for your hearing care.`
+    return `The top-tier device is recommended as the strongest foundation for your hearing care — its processing takes on the work of separating speech from noise, so less of that effort lands on your brain.`
   }
 
   if (recommendedRank === 3) {
     const base = loss && listening
       ? `Given your ${loss} and ${listening}`
       : loss ? `Given your ${loss}` : `Given what we've reviewed together`
-    return `${base}, the mid-tier device offers the features that will benefit you most without paying for processing you may not use day-to-day.`
+    return `${base}, the mid-tier device is the right fit — it takes on most of the work of separating speech from noise, keeping listening effort modest through a typical day, without paying for processing your routine may not call on.`
   }
 
   const base = loss && listening
     ? `Based on your ${loss} and ${listening}`
     : loss ? `Based on your ${loss}` : `Based on what we've reviewed together`
-  return `${base}, the entry-tier device is well-matched to your needs — it covers the essentials without features that wouldn't meaningfully change your day-to-day experience.`
+  return `${base}, the entry-tier device is well-matched to your needs. Your listening demands center on calmer settings, and restoring what your ears are missing there keeps listening effort low — without features that wouldn't meaningfully change your day-to-day experience.`
 }
 
 // ============================================================
