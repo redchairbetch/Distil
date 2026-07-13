@@ -74,6 +74,22 @@ export const TIER_EFFORT_COPY = {
  '-1': "Brings speech back within reach at home and up close; anywhere noise builds, your brain carries the listening work largely on its own.",
 };
 
+// Listening-effort intake signals (kiosk hear_fatigue / hear_strain) with
+// their patient-facing reflection-chip labels. Separate from INTAKE_TO_ENVS —
+// these aren't places, they're the felt cost of listening, and they render as
+// distinct chips alongside the environment ones.
+export const EFFORT_SIGNAL_LABEL = {
+  hear_fatigue: "Drained after noisy conversations",
+  hear_strain:  "Concentrating hard to keep up",
+};
+
+// The effort signals this patient flagged, in display order. Empty array if
+// no intake / nothing flagged.
+export function flaggedEffortSignals(intakeAnswers) {
+  if (!intakeAnswers) return [];
+  return Object.keys(EFFORT_SIGNAL_LABEL).filter(k => intakeAnswers[k] === true);
+}
+
 // Intake answer (true) → environment IDs the patient struggles with.
 // Multiple flags can map to the same environment; de-duplicated in
 // flaggedEnvironments(). Drawn from #56 backlog comment + the structured

@@ -18,7 +18,9 @@ import {
   COVERAGE_BY_RANK,
   SITUATION_LABEL,
   TIER_EFFORT_COPY,
+  EFFORT_SIGNAL_LABEL,
   flaggedEnvironments,
+  flaggedEffortSignals,
 } from "../listeningSituations.js";
 import { EnvironmentCoverage } from "../components/CoverageBars.jsx";
 
@@ -168,6 +170,7 @@ export default function TierSelection({
     [engineResult, availableTiers]
   );
   const flagged = useMemo(() => flaggedEnvironments(intakeAnswers), [intakeAnswers]);
+  const effortSignals = useMemo(() => flaggedEffortSignals(intakeAnswers), [intakeAnswers]);
   // Distinguish "no intake on file" from "intake exists but nothing flagged"
   // so the banner copy doesn't tell a patient who answered every question
   // that no intake answers were available.
@@ -253,7 +256,7 @@ export default function TierSelection({
         Based on what you told us and your hearing test.
       </div>
 
-      <IntakeReflection flagged={flagged} hasIntakeAnswers={hasIntakeAnswers} />
+      <IntakeReflection flagged={flagged} effortSignals={effortSignals} hasIntakeAnswers={hasIntakeAnswers} />
 
       <RecommendationBanner
         loading={loading}
@@ -300,10 +303,12 @@ export default function TierSelection({
 }
 
 // "Here's what you told us" — reflects the patient's flagged listening
-// situations back as warm chips at the top of the step. Renders nothing if
-// there's no intake on file or nothing was flagged.
-function IntakeReflection({ flagged, hasIntakeAnswers }) {
-  if (!hasIntakeAnswers || flagged.size === 0) return null;
+// situations back as warm chips at the top of the step, plus brass chips for
+// the effort signals (drained / concentrating hard), which are the felt cost
+// rather than a place. Renders nothing if there's no intake on file or
+// nothing was flagged.
+function IntakeReflection({ flagged, effortSignals = [], hasIntakeAnswers }) {
+  if (!hasIntakeAnswers || (flagged.size === 0 && effortSignals.length === 0)) return null;
   const labels = ENVIRONMENTS
     .filter(e => flagged.has(e.id))
     .map(e => SITUATION_LABEL[e.id] || e.label);
@@ -322,6 +327,17 @@ function IntakeReflection({ flagged, hasIntakeAnswers }) {
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: BRASS }} />
             {l}
+          </span>
+        ))}
+        {effortSignals.map(k => (
+          <span key={k} style={{
+            display: "inline-flex", alignItems: "center", gap: 7,
+            background: BRASS_SOFT, color: BRASS_INK,
+            border: `1px solid ${BRASS_SOFT}`, borderRadius: 20,
+            padding: "6px 13px", fontSize: 12.5, fontWeight: 600,
+          }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: BRASS }} />
+            {EFFORT_SIGNAL_LABEL[k]}
           </span>
         ))}
       </div>

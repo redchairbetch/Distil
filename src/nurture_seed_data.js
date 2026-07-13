@@ -11,7 +11,11 @@
  */
 
 // Auto-generated from Distil_Nurture_Content_Calendar.xlsx
-// 115 content items + 60-month timeline
+// 115 content items + 60-month timeline, plus the listening-effort series
+// (#116-118, library-only — no timeline slot, available for manual sends).
+// Cognitive-health items (#40, #49, #50) are effort-framed by design: the
+// science stays, the dementia scare framing does not. Timeline pri/sec
+// strings must track those items' titles — seeding matches by substring.
 
 export const CONTENT_LIBRARY = [
   {
@@ -526,8 +530,8 @@ export const CONTENT_LIBRARY = [
     "cat": "education",
     "type": "article",
     "ch": "in_app",
-    "title": "The Link Between Hearing and Brain Health",
-    "body": "Your hearing aids aren't just for your ears — they're protecting your brain too.",
+    "title": "Your Hearing Aids Are Doing Your Brain a Favor",
+    "body": "Every hour you wear them, your hearing aids take over the work of decoding sound — work your brain used to do alone. Less listening effort means more energy left for the conversation itself.",
     "src": "Johns Hopkins / ACHIEVE Study",
     "url": "https://publichealth.jhu.edu/2023/hearing-aids-may-slow-dementia-onset",
     "phase": "Early Adoption",
@@ -643,8 +647,8 @@ export const CONTENT_LIBRARY = [
     "cat": "research",
     "type": "article",
     "ch": "email",
-    "title": "ACHIEVE Study: Hearing Aids Slow Cognitive Decline",
-    "body": "Landmark Lancet study shows hearing aids can reduce cognitive decline by 48% in at-risk adults.",
+    "title": "ACHIEVE Study: What Consistent Wear Does Long-Term",
+    "body": "The landmark ACHIEVE trial in The Lancet found hearing aid use slowed cognitive change by 48% in at-risk older adults over three years. A leading explanation is listening effort: treated ears send a cleaner signal, so the brain spends less of every day straining to decode speech — and consistent wear is what delivers that.",
     "src": "The Lancet (2023)",
     "url": "https://www.thelancet.com/journals/lancet/article/PIIS0140-6736(23)01406-X/abstract",
     "phase": "Settled",
@@ -656,8 +660,8 @@ export const CONTENT_LIBRARY = [
     "cat": "research",
     "type": "article",
     "ch": "email",
-    "title": "Hearing Loss and Dementia: The Lancet Commission",
-    "body": "Hearing loss is the #1 modifiable risk factor for dementia, according to the Lancet Commission.",
+    "title": "The Lancet Commission: Why Treating Hearing Loss Matters",
+    "body": "The Lancet Commission ranks treating hearing loss among the most impactful health steps an adult can take. Not a reason for alarm — a reason for confidence: by wearing your hearing aids, you've taken the daily work of straining to hear off your brain's plate.",
     "src": "Lancet Commission on Dementia",
     "url": "https://www.thelancet.com/commissions/dementia",
     "phase": "Mid-Life",
@@ -1508,6 +1512,45 @@ export const CONTENT_LIBRARY = [
     "phase": "Mid-Life",
     "month": "28",
     "tone": "Heartwarming"
+  },
+  {
+    "n": 116,
+    "cat": "education",
+    "type": "article",
+    "ch": "in_app",
+    "title": "Listening Effort: The Work You Don't See",
+    "body": "Hearing happens in your ears; understanding happens in your brain. When hearing fades, the brain works overtime to fill the gaps — that's why untreated hearing loss is so tiring. Your hearing aids take that work back.",
+    "src": "Distil effort series",
+    "url": "",
+    "phase": "Early Adoption",
+    "month": "2",
+    "tone": "Educational"
+  },
+  {
+    "n": 117,
+    "cat": "maintenance",
+    "type": "push",
+    "ch": "push",
+    "title": "Less Tired Lately?",
+    "body": "Notice you're less drained after gatherings? That's your hearing aids doing the decoding work your brain used to do. Keep wearing them all day.",
+    "src": "Distil effort series",
+    "url": "",
+    "phase": "Early Adoption",
+    "month": "3",
+    "tone": "Encouraging"
+  },
+  {
+    "n": 118,
+    "cat": "education",
+    "type": "article",
+    "ch": "in_app",
+    "title": "Why Dinner Out Used to Wear You Out",
+    "body": "Straining to follow speech in noise burns real mental energy — researchers can measure it in the lab. If restaurants feel easier now, that's your listening effort coming down. Here's what changed.",
+    "src": "Distil effort series",
+    "url": "",
+    "phase": "Settled",
+    "month": "6",
+    "tone": "Educational"
   }
 ];
 
@@ -1551,7 +1594,7 @@ export const CAMPAIGN_TIMELINE = [
   {
     "month": 4,
     "phase": "Early Adoption",
-    "pri": "Link Between Hearing and Brain Health",
+    "pri": "Your Hearing Aids Are Doing Your Brain a Favor",
     "priType": "article",
     "note": "Educational engagement",
     "sec": "What Does Hearing Loss Sound Like? (Video)",
@@ -1587,7 +1630,7 @@ export const CAMPAIGN_TIMELINE = [
   {
     "month": 8,
     "phase": "Settled",
-    "pri": "ACHIEVE Study: Hearing Aids Slow Cognitive Decline",
+    "pri": "ACHIEVE Study: What Consistent Wear Does Long-Term",
     "priType": "email",
     "note": "Science + humor combo",
     "sec": "Hearing Joke: Audiologist at the Beach",
@@ -1644,7 +1687,7 @@ export const CAMPAIGN_TIMELINE = [
     "pri": "Hearing Joke: Best Reception",
     "priType": "sms",
     "note": "Pre-cleaning joke + research",
-    "sec": "Lancet Commission on Dementia",
+    "sec": "The Lancet Commission: Why Treating Hearing Loss Matters",
     "secType": "email"
   },
   {

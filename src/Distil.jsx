@@ -12,7 +12,7 @@
 
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from "react";
 import { unwrapIntakeAnswers } from "./recommendationEngine.js";
-import { ENVIRONMENTS, SITUATION_LABEL, TIER_EFFORT_COPY, flaggedEnvironments } from "./listeningSituations.js";
+import { ENVIRONMENTS, SITUATION_LABEL, TIER_EFFORT_COPY, flaggedEnvironments, flaggedEffortSignals } from "./listeningSituations.js";
 import Icon from "./components/Icon.jsx";
 import FinancingCalculator from "./components/FinancingCalculator.jsx";
 import VerifyRateCard from "./components/VerifyRateCard.jsx";
@@ -5877,7 +5877,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
 
               // Structured reflection from intake answers — "you told us the hardest
               // moments are X, Y, Z" — replaces the free-text provider-notes quote.
-              const reflectFlags = flaggedEnvironments(unwrapIntakeAnswers(wizardIntake?.answers) || null);
+              // Effort signals (drained / concentrating hard) shape the closing
+              // clause; they can also carry the reflection alone when no
+              // environments were flagged.
+              const reflectAnswers = unwrapIntakeAnswers(wizardIntake?.answers) || null;
+              const reflectFlags = flaggedEnvironments(reflectAnswers);
+              const reflectEffort = flaggedEffortSignals(reflectAnswers).length > 0;
               const reflectSits = ENVIRONMENTS.filter(e => reflectFlags.has(e.id)).map(e => (SITUATION_LABEL[e.id] || e.label).toLowerCase());
               const reflectText = reflectSits.length === 0 ? null
                 : reflectSits.length === 1 ? reflectSits[0]
@@ -5890,7 +5895,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       nothing was flagged. */}
                   {reflectText ? (
                     <div style={{fontSize:13.5,color:"#54625C",fontStyle:"italic",borderLeft:"3px solid #B5832E",paddingLeft:13,marginBottom:16,lineHeight:1.55}}>
-                      You told us the hardest moments have been {reflectText} — the places where listening takes the most out of you.
+                      You told us the hardest moments have been {reflectText}{reflectEffort
+                        ? " — and that listening there leaves you drained."
+                        : " — the places where listening takes the most out of you."}
+                    </div>
+                  ) : reflectEffort ? (
+                    <div style={{fontSize:13.5,color:"#54625C",fontStyle:"italic",borderLeft:"3px solid #B5832E",paddingLeft:13,marginBottom:16,lineHeight:1.55}}>
+                      You told us listening takes real work these days — conversations leave you more tired than they should.
                     </div>
                   ) : chiefComplaint ? (
                     <div style={{fontSize:13.5,color:"#54625C",fontStyle:"italic",borderLeft:"3px solid #B5832E",paddingLeft:13,marginBottom:16,lineHeight:1.55}}>
