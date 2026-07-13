@@ -118,7 +118,7 @@ function fmtDate(s) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCompleted, onProceedToPurchase }) {
+export default function UpgradeWizard({ patient, clinicId, staffId, plans = [], onExit, onCompleted, onProceedToPurchase }) {
   const fittingDate = patient?.devices?.fittingDate || patient?.carePlanStartDate || null;
   const years = yearsSince(fittingDate);
   const suggestedYear = years != null ? Math.min(5, Math.max(1, Math.round(years))) : 1;
@@ -145,6 +145,13 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
   const [environments, setEnvironments] = useState([]);
   const [featureGaps, setFeatureGaps] = useState([]);
   const [benefitRefreshed, setBenefitRefreshed] = useState(false);
+  // The plan the refreshed benefit renews under, picked from the clinic's plan
+  // list (`plans` prop) when benefitRefreshed is checked. Rides the proceed
+  // hand-off so the purchase wizard's device cascade + pricing gate on the
+  // CURRENT plan instead of the possibly-stale saved coverage.
+  // { carrier, planGroup, tpa } | null — null falls back to saved coverage.
+  const [refreshedPlan, setRefreshedPlan] = useState(null);
+  const [planSearch, setPlanSearch] = useState("");
 
   // Reprogram-vs-upgrade decision (Y4–5 only). The audiogram delta is loaded once
   // when the provider reaches the review; the verdict is derived synchronously
@@ -353,6 +360,11 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
         journeyYear,
         satisfaction, environments, featureGaps,
         benefitRefreshed: isUpg ? benefitRefreshed : false,
+        // The verified plan the refreshed benefit renews under (null = provider
+        // kept the plan on file). Recorded here as the verification's paper
+        // trail; the chart's coverage record is updated via the profile's
+        // Coverage card, not from this flow.
+        benefitRefreshedPlan: isUpg && benefitRefreshed ? refreshedPlan : null,
         rem: { performed: remDone || null, onTarget: remDone === "yes" ? (remTarget || null) : null },
         changeNotes, yearsSinceFit: years,
       };
@@ -404,9 +416,10 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
       await updateVisit(visitId, { notes: mergedNotes || null, status: "completed" });
       if (proceed && effPath === "upgrade" && onProceedToPurchase) {
         // Hand the purchase flow everything it can't cheaply re-derive: the
-        // visit (keeps the new fitting visit-scoped) and today's audiogram.
+        // visit (keeps the new fitting visit-scoped), today's audiogram, and
+        // the verified refreshed-benefit plan (gates the device cascade).
         // Tier + pricing are picked in device selection.
-        onProceedToPurchase({ visitId, audiology });
+        onProceedToPurchase({ visitId, audiology, refreshedPlan: benefitRefreshed ? refreshedPlan : null });
       } else {
         onCompleted?.();
       }
@@ -654,10 +667,69 @@ export default function UpgradeWizard({ patient, clinicId, staffId, onExit, onCo
                 </div>
 
                 {isUpgradeYear && (
-                  <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 14, color: "#374151" }}>
-                    <input type="checkbox" checked={benefitRefreshed} onChange={(e) => setBenefitRefreshed(e.target.checked)} style={{ width: 18, height: 18, accentColor: "#0f766e" }} />
-                    Insurance hearing benefit available / refreshed now
-                  </label>
+                  <div>
+                    <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 14, color: "#374151" }}>
+                      <input type="checkbox" checked={benefitRefreshed}
+                        onChange={(e) => {
+                          setBenefitRefreshed(e.target.checked);
+                          if (!e.target.checked) { setRefreshedPlan(null); setPlanSearch(""); }
+                        }}
+                        style={{ width: 18, height: 18, accentColor: "#0f766e" }} />
+                      Insurance hearing benefit available / refreshed now
+                    </label>
+
+                    {/* Verify the actual plan the benefit renews under — the pick
+                        rides the proceed hand-off, so device selection shows that
+                        plan's covered devices instead of the saved coverage's. */}
+                    {benefitRefreshed && (
+                      <div style={{ marginTop: 12, background: "#FBF9F3", border: "1px solid #E4E0D5", borderRadius: 10, padding: "14px 16px" }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: "#9ca3af", marginBottom: 4 }}>Verify the plan</div>
+                        <p style={{ margin: "0 0 10px", fontSize: 12, color: "#6b7280", lineHeight: 1.5 }}>
+                          {patient?.insurance?.carrier
+                            ? <>On file: <strong>{patient.insurance.carrier}{patient.insurance.planGroup ? ` — ${patient.insurance.planGroup}` : ""}</strong>.{" "}</>
+                            : "No plan on file. "}
+                          Select the plan the benefit renews under — device selection will show that plan's covered devices. Leave unselected to keep the plan on file.
+                        </p>
+                        {refreshedPlan ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: "#0f766e", background: "#f0fdfa", border: "1px solid #5eead4", borderRadius: 8, padding: "6px 12px" }}>
+                              ✓ {refreshedPlan.carrier} — {refreshedPlan.planGroup}{refreshedPlan.tpa ? ` · via ${refreshedPlan.tpa}` : ""}
+                            </span>
+                            <button onClick={() => setRefreshedPlan(null)}
+                              style={{ fontSize: 12, color: "#9ca3af", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                              ✕ Change
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <input
+                              placeholder="Search carrier or plan name…"
+                              value={planSearch}
+                              onChange={(e) => setPlanSearch(e.target.value)}
+                              style={{ width: "100%", marginBottom: 8, padding: "8px 10px", border: "1px solid #E4E0D5", borderRadius: 8, fontFamily: "inherit", fontSize: 13, outline: "none", boxSizing: "border-box" }}
+                            />
+                            <div style={{ maxHeight: 180, overflowY: "auto", display: "flex", flexDirection: "column", gap: 5, paddingRight: 2 }}>
+                              {plans
+                                .filter((pl) => { const q = planSearch.toLowerCase(); return !q || pl.carrier.toLowerCase().includes(q) || pl.planGroup.toLowerCase().includes(q) || (pl.tpa || "").toLowerCase().includes(q); })
+                                .sort((a, b) => a.planGroup.localeCompare(b.planGroup))
+                                .slice(0, 30)
+                                .map((pl) => (
+                                  <div key={`${pl.carrier}:${pl.planGroup}`}
+                                    onClick={() => setRefreshedPlan({ carrier: pl.carrier, planGroup: pl.planGroup, tpa: pl.tpa || "" })}
+                                    style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #E4E0D5", background: "white", cursor: "pointer" }}>
+                                    <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>{pl.planGroup}</div>
+                                    <div style={{ fontSize: 11, color: "#9ca3af" }}>{pl.carrier}{pl.tpa ? ` · via ${pl.tpa}` : ""}</div>
+                                  </div>
+                                ))}
+                              {plans.length === 0 && (
+                                <div style={{ fontSize: 12, color: "#9ca3af" }}>Plan list unavailable — the plan on file will be used.</div>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 
