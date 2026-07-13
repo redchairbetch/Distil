@@ -155,6 +155,7 @@ import CloseAppointmentModal, {
   readPendingOutcome,
   clearPendingOutcome,
 } from "./views/CloseAppointmentModal.jsx";
+import { stashWizardDraft, readWizardDraft, clearWizardDraft } from "./lib/wizardDraft.js";
 
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
@@ -1821,9 +1822,18 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     thModel:"", thBodyStyle:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""
   });
 
+  const BLANK_AUDIOLOGY = () => ({
+    rightT:{}, leftT:{}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{},
+    tinnitusRight:false, tinnitusLeft:false, unaidedR:null, unaidedL:null, aidedR:null, aidedL:null,
+    wrMclR:null, wrMclL:null, sinBin:null, cctR:null, cctL:null, cctLevelR:null, cctLevelL:null,
+  });
 
-  // New patient form state
-  const [form, setForm] = useState({
+  // Canonical blank wizard form — the single source of the form's shape.
+  // useState init, startNew, handleAcceptIntake, startUpgradePurchase, and the
+  // resume-draft merge all build from this (the inline resets they used to
+  // carry had drifted: startNew was missing address/priceOverridePerAid and
+  // the TruHearing side keys, and its audiology blank lacked the CCT fields).
+  const BLANK_FORM = () => ({
     intakeId: null,
     firstName:"", lastName:"", dob:"", phone:"", email:"", address:"",
     payType:"insurance",
@@ -1833,13 +1843,16 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     // billing/reporting to a private, direct_purchase classification.
     directPurchase:false,
     carrier:"", planGroup:"", tpa:"", tier:"", tierPrice:null, priceOverridePerAid:null,
-    left: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, thModel:"", thBodyStyle:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""},
-    right: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, thModel:"", thBodyStyle:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""},
-    audiology: { rightT:{}, leftT:{}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:null, unaidedL:null, aidedR:null, aidedL:null, wrMclR:null, wrMclL:null, sinBin:null, cctR:null, cctL:null, cctLevelR:null, cctLevelL:null },
+    left: EMPTY_SIDE(),
+    right: EMPTY_SIDE(),
+    audiology: BLANK_AUDIOLOGY(),
     carePlan:"",
     appointments:[],
     notes:"",
   });
+
+  // New patient form state
+  const [form, setForm] = useState(BLANK_FORM);
 
 
   const [activeSide, setActiveSide] = useState("left");
@@ -2597,6 +2610,75 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     if (!wizardPatientId) setWizardIntake(null);
   }, [wizardPatientId]);
 
+  // ── In-progress appointment draft (resume after navigating away) ────────
+  // The wizard session lives in React state only, so Cancel, a sidebar click,
+  // or a refresh mid-visit used to lose everything since the last incremental
+  // save with no way back in. While the provider is in the wizard, the whole
+  // session snapshots to localStorage; the dashboard offers Resume/Discard.
+  // Cleared on Close Appointment or explicit discard; expires after ~a clinic
+  // day (see lib/wizardDraft.js).
+  const [wizardDraft, setWizardDraft] = useState(() => readWizardDraft({ clinicId, staffId }));
+
+  useEffect(() => {
+    if (view !== "new") return;
+    // A pristine step-0 form isn't worth a resume nag — wait for substance.
+    if (!wizardPatientId && !form.firstName && !form.lastName) return;
+    const draft = { clinicId, staffId, form, step, wizardPatientId, wizardVisitId, wizardMode, activeSide, wizardPaSigned, wizardPaSignatureDate };
+    stashWizardDraft(draft);
+    setWizardDraft({ ...draft, savedAt: Date.now() });
+  }, [view, form, step, wizardPatientId, wizardVisitId, wizardMode, activeSide, wizardPaSigned, wizardPaSignatureDate, clinicId, staffId]);
+
+  const discardWizardDraft = () => { clearWizardDraft(); setWizardDraft(null); };
+
+  // Gate for every wizard entry point: seeding a new session overwrites the
+  // snapshot, so an unfinished appointment must be explicitly discarded first.
+  // Returns true when it's safe to proceed.
+  const confirmDiscardWizardDraft = () => {
+    const d = wizardDraft || readWizardDraft({ clinicId, staffId });
+    if (!d) return true;
+    const name = [d.form?.firstName, d.form?.lastName].filter(Boolean).join(" ") || "an unnamed patient";
+    const ok = window.confirm(
+      `You have an appointment in progress with ${name} (${STEPS[d.step] || "Patient"} step). ` +
+      `Starting another will discard that unfinished appointment — the patient record and anything already saved stay on their chart.\n\n` +
+      `Discard the in-progress appointment?`
+    );
+    if (ok) discardWizardDraft();
+    return ok;
+  };
+
+  // Rebuild the wizard from the stashed snapshot and land on the saved step.
+  // The form merges over the canonical blank so a draft stashed before a
+  // schema tweak still carries every key the wizard expects.
+  const resumeAppointment = () => {
+    const d = readWizardDraft({ clinicId, staffId });
+    if (!d) { setWizardDraft(null); return; }
+    setForm({
+      ...BLANK_FORM(),
+      ...(d.form || {}),
+      left:  { ...EMPTY_SIDE(), ...(d.form?.left  || {}) },
+      right: { ...EMPTY_SIDE(), ...(d.form?.right || {}) },
+      audiology: { ...BLANK_AUDIOLOGY(), ...(d.form?.audiology || {}) },
+    });
+    setWizardPatientId(d.wizardPatientId || null);
+    setWizardVisitId(d.wizardVisitId || null);
+    setWizardMode(d.wizardMode || "new");
+    setActiveSide(d.activeSide || "left");
+    setWizardPaSigned(!!d.wizardPaSigned);
+    setWizardPaSignatureDate(d.wizardPaSignatureDate || null);
+    setShowWizardPaModal(false); setShowWizardCompare(false);
+    setSaved(false); setSaveError(null); setSaveToast(false);
+    // The intake loader only fires when landing on Health History (step 1) —
+    // reload explicitly so later steps (prompter, reflection flags) have it.
+    setWizardIntake(null);
+    if (d.wizardPatientId) {
+      loadIntakesForPatient(d.wizardPatientId)
+        .then(intakes => setWizardIntake(normalizeWizardIntake(intakes[0])))
+        .catch(() => {});
+    }
+    setStep(Math.min(Math.max(d.step || 0, 0), STEPS.length - 1));
+    setView("new");
+  };
+
   // Care plan analytics — fire care_plan_viewed once per (patient, step)
   // when step 6 mounts. Reset trackers when the patient changes so each
   // session gets fresh view/change events.
@@ -3010,6 +3092,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       try { await updateVisit(wizardVisitId, { status: "completed" }); }
       catch (e) { console.error("close visit:", e); }
     }
+    // The appointment is done — the resume snapshot has served its purpose.
+    discardWizardDraft();
     setCloseAppointment(null);
     setSelectedPatient(patient);
     setPunchData({ cleanings: 0, appointments: 0, log: [] });
@@ -3042,7 +3126,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
 
 
   const startNew = () => {
-    setForm({ intakeId:null,firstName:"",lastName:"",dob:"",phone:"",email:"",payType:"insurance",directPurchase:false,carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null,left:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},right:{style:"",manufacturer:"",generation:"",familyId:"",variant:"",techLevel:"",color:"",battery:"",receiverLength:"",receiverPower:"",dome:"",isCROS:false},audiology:{rightT:{},leftT:{},rightBC:{},leftBC:{},rightMask:{},leftMask:{},rightBCMask:{},leftBCMask:{},tinnitusRight:false,tinnitusLeft:false,unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,wrMclR:null,wrMclL:null,sinBin:null},carePlan:"",appointments:[],notes:"" });
+    if (!confirmDiscardWizardDraft()) return;
+    setForm(BLANK_FORM());
     setActiveSide("left");
     setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
     setWizardPatientId(null); setWizardVisitId(null); setSaveToast(false);
@@ -3058,6 +3143,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // visit-scoped) and finalize targets only this visit's fitting dates.
   const startUpgradePurchase = (p, { visitId = null, tierOffered = null, tierPrice = null, audiology = null } = {}) => {
     if (!p) return;
+    if (!confirmDiscardWizardDraft()) return;
     const nameParts = String(p.name || "").trim().split(/\s+/);
     const firstName = nameParts.shift() || "";
     const lastName = nameParts.join(" ");
@@ -3076,16 +3162,15 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       ? tierPrice
       : (privLabel && tierOffered ? (plan?.tiers?.find(t => t.label === tierOffered)?.price ?? null) : null);
     setForm({
-      intakeId: null,
+      ...BLANK_FORM(),
       firstName, lastName,
       dob: p.dob || "", phone: p.phone || "", email: p.email || "", address: p.address || "",
       payType: p.payType || "insurance",
       directPurchase: p.directPurchase || false, // preserve a direct-purchase patient's mode on upgrade
       carrier: p.insurance?.carrier || "", planGroup: p.insurance?.planGroup || "", tpa: p.insurance?.tpa || "",
       tier: tierOffered || "", tierPrice: seededTierPrice,
-      left: EMPTY_SIDE(), right: EMPTY_SIDE(),
-      audiology: hasFreshAudio ? audiology : (p.audiology || {rightT:{},leftT:{},rightBC:{},leftBC:{},rightMask:{},leftMask:{},rightBCMask:{},leftBCMask:{},tinnitusRight:false,tinnitusLeft:false,unaidedR:null,unaidedL:null,aidedR:null,aidedL:null,wrMclR:null,wrMclL:null,sinBin:null}),
-      carePlan: "", appointments: [], notes: p.notes || "",
+      audiology: hasFreshAudio ? audiology : (p.audiology || BLANK_AUDIOLOGY()),
+      notes: p.notes || "",
     });
     setWizardPatientId(p.id);
     setWizardVisitId(visitId);
@@ -3141,6 +3226,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // patient. Link happens synchronously with draft creation to keep the
   // intake queryable by patient_id from the very first save.
   const handleAcceptIntake = async (intake) => {
+    if (!confirmDiscardWizardDraft()) return; // intake stays in the queue
     const a = unwrapIntakeAnswers(intake.answers) || {};
     const phone = a.mobilePhone || a.homePhone || a.workPhone || a.phone || "";
     const digits = phone.replace(/\D/g,"").slice(0,10);
@@ -3199,8 +3285,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       try { await dbAcceptIntake(intakeId); } catch {}
     }
 
-    setForm(f => ({
-      ...f,
+    // Fresh session seeded from the intake alone — building on BLANK_FORM
+    // (not the current form) so a prior abandoned session's audiogram,
+    // devices, or notes can never bleed into this patient's chart.
+    setForm({
+      ...BLANK_FORM(),
       intakeId,
       firstName,
       lastName,
@@ -3210,14 +3299,16 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       address,
       payType,
       carrier: a.carrier || "",
-      notes:   [f.notes, notes].filter(Boolean).join("\n"),
-    }));
+      notes,
+    });
     setWizardPatientId(newPatientId);
     const vid = await createVisit(newPatientId, { clinicId, staffId, visitType: 'initial_fit' });
     setWizardVisitId(vid);
     setPendingIntakes(prev => prev.filter(i => i._meta?.intakeId !== intakeId));
     setShowIntakeQueue(false);
     setIntakeToast(null);
+    setActiveSide("left");
+    setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
     setWizardMode("new"); setShowWizardCompare(false);
     setStep(0); setSaved(false); setView("new");
     refreshPatients();
@@ -3802,6 +3893,33 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         </div>
       </div>
       <div className="content">
+        {/* ── In-progress appointment (resume/discard) ─────────────────── */}
+        {wizardDraft && (() => {
+          const dName = [wizardDraft.form?.firstName, wizardDraft.form?.lastName].filter(Boolean).join(" ") || "Unnamed patient";
+          const savedAtDate = wizardDraft.savedAt ? new Date(wizardDraft.savedAt) : null;
+          const savedLabel = !savedAtDate ? "moments ago"
+            : savedAtDate.toDateString() === new Date().toDateString()
+              ? savedAtDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+              : savedAtDate.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+          return (
+            <div className="table-card" style={{ marginBottom: 16, borderLeft: "4px solid #2563eb", padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: "#0a1628" }}>
+                  {"⏸"} Appointment in progress — {dName}
+                </div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                  {wizardDraft.wizardMode === "upgrade" ? "Upgrade purchase" : "New patient"} · {STEPS[wizardDraft.step] || "Patient"} step · saved {savedLabel}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn-ghost" onClick={() => {
+                  if (window.confirm(`Discard the in-progress appointment with ${dName}? The patient record and anything already saved stay on their chart.`)) discardWizardDraft();
+                }}>Discard</button>
+                <button className="btn-primary" onClick={resumeAppointment}>Resume →</button>
+              </div>
+            </div>
+          );
+        })()}
         <div className="stats-grid">
           <div className="stat-card highlight">
             <div className="stat-icon">👥</div>
