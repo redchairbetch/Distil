@@ -1478,7 +1478,7 @@ export async function logAnalyticsEvent(eventName, payload = {}) {
   }
 }
 
-// Final — promote draft to active/tns and set warranty/fitting info
+// Final — promote draft to active/tns/tnl and set warranty/fitting info
 export async function finalizePatient(patientId, status, devices, carePlan, notes, appointments, staffId, clinicId, privatePay = null, visitId = null, opts = {}) {
   // Update patient status + notes. Stamp care_plan_start_date with the
   // fitting date when the patient is being finalized with a care plan
@@ -1574,6 +1574,28 @@ export async function finalizePatient(patientId, status, devices, carePlan, note
       console.error('auto-enroll campaign:', e)
     }
   }
+
+  // Tested No Loss: enroll in the clinic's TNL nurture campaign (retest
+  // reminders / hearing-wellness education), keyed by trigger_type rather
+  // than a hard-coded name so the clinic can rename theirs. Silently no-ops
+  // until a tnl-triggered template exists — the retest appointment above is
+  // the load-bearing recall; the campaign is reinforcement.
+  if (status === 'tnl') {
+    try {
+      const { data: tnlTemplate } = await supabase
+        .from('campaign_templates')
+        .select('id')
+        .eq('trigger_type', 'tnl')
+        .eq('active', true)
+        .limit(1)
+        .maybeSingle()
+      if (tnlTemplate) {
+        await enrollPatientInCampaign(patientId, tnlTemplate.id, new Date().toISOString().split('T')[0], staffId)
+      }
+    } catch (e) {
+      console.error('auto-enroll tnl campaign:', e)
+    }
+  }
 }
 
 
@@ -1586,7 +1608,10 @@ export async function finalizePatient(patientId, status, devices, carePlan, note
 // care-plan attach rate stays computable when a patient accepts devices
 // but declines a care plan.
 export const OUTCOME_CONTEXTS = ['new_fit', 'upgrade', 'care_plan_only']
-export const OUTCOME_DISPOSITIONS = ['committed', 'deferred', 'declined', 'not_a_candidate', 'no_decision', 'not_applicable']
+// 'no_hearing_loss' = Tested No Loss: thresholds within normal limits (≤20 dB),
+// so there was never a recommendation to accept or decline. Excluded from
+// close-rate denominators alongside not_a_candidate (see lib/reportStats.js).
+export const OUTCOME_DISPOSITIONS = ['committed', 'deferred', 'declined', 'not_a_candidate', 'no_hearing_loss', 'no_decision', 'not_applicable']
 export const OUTCOME_REASON_REQUIRED = ['deferred', 'declined']
 export const OUTCOME_REASONS = [
   'price_budget',

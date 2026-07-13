@@ -24,6 +24,7 @@ import { LegacyDevicePanel } from "./views/LegacyFastPath.jsx";
 import { rankFromTierLabel } from "./deviceComparison.js";
 import { parseDateOnly, fmtDate, warrantyDate, daysUntil } from "./lib/dates.js";
 import { CARE_ARC, buildCareArc } from "./lib/careArc.js";
+import { isTestedNoLoss, buildTnlRetestAppointment, TNL_RETEST_TYPE } from "./lib/audiogram.js";
 import {
   CROS_PRICE_PER_UNIT, isSideCros, manufacturerToClass, uhchCoverageTier,
   nationsCoverageTier, findTierRank, findAnchorForRank, deriveEarPrice, pickBaselinePerAid,
@@ -2987,15 +2988,20 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     // The retention outcome is already recorded by the UpgradeWizard close.
     // A 'committed' device disposition counts like a signed PA: the provider
     // is attesting the patient signed today (e.g. on paper).
+    // Tested No Loss: thresholds within normal limits — no sale was ever on
+    // the table, so the patient exits as 'tnl' (not 'tns') with an annual
+    // retest recall instead of a fitting/warranty record.
+    const isTnl = deviceDisposition === "no_hearing_loss" && wizardMode !== "upgrade";
     const finalizeStatus = (wizardPaSigned || deviceDisposition === "committed")
       ? "active"
+      : isTnl ? "tnl"
       : (wizardMode === "upgrade" ? "active" : "tns");
 
     // Incremental save path — patient already exists in DB as draft
     if (wizardPatientId) {
       try {
-        const carePlan = form.payType === "insurance" ? form.carePlan : null;
-        const privatePay = form.payType === "private" && form.tierPrice != null
+        const carePlan = isTnl ? null : (form.payType === "insurance" ? form.carePlan : null);
+        const privatePay = !isTnl && form.payType === "private" && form.tierPrice != null
           ? { tier: form.tier, tierPrice: form.tierPrice }
           : null;
         // Regimented care arc — full 4-year schedule auto-generated at finalize for a signed fitting (backlog #5).
@@ -3003,11 +3009,18 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         const careArc = wizardPaSigned
           ? buildCareArc(warrantyStart).filter(a => !existingApptKeys.has(`${a.type}|${a.date}`))
           : [];
-        const finalizeAppointments = [...(form.appointments || []), ...careArc];
+        // TNL path: the annual retest recall IS the follow-up plan (no care
+        // arc, no fitting). finalizePatient's type+date guard dedupes a
+        // double-finalize, same as the care arc.
+        const retestArc = isTnl ? [buildTnlRetestAppointment()] : [];
+        const finalizeAppointments = [...(form.appointments || []), ...careArc, ...retestArc];
         await finalizePatient(
           wizardPatientId,
           finalizeStatus,
-          { fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null },
+          // TNL never fits devices — null keeps finalizePatient away from the
+          // fitting/warranty updates AND the fitting-date campaign enrollment
+          // (it enrolls the tnl-triggered campaign off the status instead).
+          isTnl ? null : { fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null },
           carePlan,
           form.notes,
           finalizeAppointments,
@@ -3029,7 +3042,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           directPurchase: !!form.directPurchase,
           insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
           privatePay,
-          devices: { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null, serialLeft: genId(), serialRight: genId() },
+          devices: isTnl ? null : { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null, serialLeft: genId(), serialRight: genId() },
           audiology: form.audiology,
           carePlan: carePlan,
           appointments: finalizeAppointments,
@@ -3056,10 +3069,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       payType: form.payType,
       directPurchase: !!form.directPurchase,
       insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
-      privatePay: form.payType === "private" && form.tierPrice != null
+      privatePay: !isTnl && form.payType === "private" && form.tierPrice != null
         ? { tier: form.tier, tierPrice: form.tierPrice }
         : null,
-      devices: {
+      devices: isTnl ? null : {
         left: leftRec,
         right: rightRec,
         fittingType,
@@ -3075,8 +3088,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         serialRight: genId(),
       },
       audiology: form.audiology,
-      carePlan: form.payType === "insurance" ? form.carePlan : null,
-      appointments: form.appointments,
+      carePlan: isTnl ? null : (form.payType === "insurance" ? form.carePlan : null),
+      appointments: isTnl ? [...(form.appointments || []), buildTnlRetestAppointment()] : form.appointments,
       notes: form.notes,
       patientStatus: finalizeStatus,
     };
@@ -3532,11 +3545,15 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   };
 
   const statsData = useMemo(() => {
-    const active = patients.filter(p => p.patientStatus !== "tns");
-    const tnsCount = patients.length - active.length;
+    // TNS (tested not sold) and TNL (tested no loss) both sit outside the
+    // fitted-patient stats — TNL was never a treatment candidate at all.
+    const active = patients.filter(p => p.patientStatus !== "tns" && p.patientStatus !== "tnl");
+    const tnsCount = patients.filter(p => p.patientStatus === "tns").length;
+    const tnlCount = patients.filter(p => p.patientStatus === "tnl").length;
     return {
       total: patients.length,
       tnsCount,
+      tnlCount,
       fittingsThisMonth: active.filter(p => {
         const d = new Date(p.devices?.fittingDate||0);
         const now = new Date();
@@ -3892,8 +3909,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         p.name?.toLowerCase().includes(tableSearch.toLowerCase()) ||
         p.devices?.manufacturer?.toLowerCase().includes(tableSearch.toLowerCase()))
   ).filter(p => {
-    if (statusFilter === "active") return p.patientStatus !== "tns";
+    if (statusFilter === "active") return p.patientStatus !== "tns" && p.patientStatus !== "tnl";
     if (statusFilter === "tns") return p.patientStatus === "tns";
+    if (statusFilter === "tnl") return p.patientStatus === "tnl";
     return true;
   });
 
@@ -3975,7 +3993,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                         </span>
                       </td>
                       <td>
-                        <span style={{background:isTns?"#fef3c7":"#F0EDE3",color:isTns?"#92400e":"#6b7280",borderRadius:99,padding:"1px 9px",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:0.4}}>
+                        <span style={{background:isTns?"#fef3c7":p.patientStatus==="tnl"?"#dbeafe":"#F0EDE3",color:isTns?"#92400e":p.patientStatus==="tnl"?"#1d4ed8":"#6b7280",borderRadius:99,padding:"1px 9px",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:0.4}}>
                           {p.patientStatus}
                         </span>
                       </td>
@@ -4050,7 +4068,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           <div className="stat-card highlight">
             <div className="stat-icon">👥</div>
             <div className="stat-val">{statsData.total}</div>
-            <div className="stat-label">Total Patients{statsData.tnsCount > 0 && <span style={{fontSize:10,color:"#d97706",fontWeight:400}}> ({statsData.tnsCount} TNS)</span>}</div>
+            <div className="stat-label">Total Patients{statsData.tnsCount > 0 && <span style={{fontSize:10,color:"#d97706",fontWeight:400}}> ({statsData.tnsCount} TNS)</span>}{statsData.tnlCount > 0 && <span style={{fontSize:10,color:"#1d4ed8",fontWeight:400}}> ({statsData.tnlCount} TNL)</span>}</div>
           </div>
           <div className="stat-card">
             <div className="stat-icon">🎧</div>
@@ -4201,11 +4219,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             <div style={{display:"flex",alignItems:"center",gap:12}}>
               <div className="table-title">Patients</div>
               <div style={{display:"flex",gap:4}}>
-                {[["all","All"],["active","Active"],["tns","TNS"]].map(([val,label])=>(
+                {[["all","All"],["active","Active"],["tns","TNS"],["tnl","TNL"]].map(([val,label])=>(
                   <button key={val} onClick={()=>setStatusFilter(val)} style={{
                     padding:"3px 10px",fontSize:11,fontWeight:600,borderRadius:99,border:"none",cursor:"pointer",
-                    background: statusFilter===val ? (val==="tns"?"#fef3c7":"#dcfce7") : "#F0EDE3",
-                    color: statusFilter===val ? (val==="tns"?"#92400e":"#15803d") : "#6b7280",
+                    background: statusFilter===val ? (val==="tns"?"#fef3c7":val==="tnl"?"#dbeafe":"#dcfce7") : "#F0EDE3",
+                    color: statusFilter===val ? (val==="tns"?"#92400e":val==="tnl"?"#1d4ed8":"#15803d") : "#6b7280",
                   }}>{label}</button>
                 ))}
               </div>
@@ -4249,16 +4267,18 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               <tbody>
                 {filteredPatients.map(p => {
                   const isTns = p.patientStatus === "tns";
+                  const isTnl = p.patientStatus === "tnl";
                   const days = daysUntil(p.devices?.warrantyExpiry||"");
                   const total = p.carePlan === "complete" ? 4 * 365 : 3 * 365;
                   const pct = Math.max(0, Math.min(100, (days / total) * 100));
                   const fillClass = days < 90 ? "exp" : days < 360 ? "warn" : "";
                   return (
-                    <tr key={p.id} onClick={() => { setSelectedPatient(p); setView("patient"); }} style={isTns ? {borderLeft:"3px solid #f59e0b"} : undefined}>
+                    <tr key={p.id} onClick={() => { setSelectedPatient(p); setView("patient"); }} style={isTns ? {borderLeft:"3px solid #f59e0b"} : isTnl ? {borderLeft:"3px solid #3b82f6"} : undefined}>
                       <td>
                         <div style={{display:"flex",alignItems:"center",gap:6}}>
                           <div className="patient-name">{p.name}</div>
                           {isTns && <span style={{background:"#fef3c7",color:"#92400e",borderRadius:99,padding:"1px 7px",fontSize:10,fontWeight:700}}>TNS</span>}
+                          {isTnl && <span style={{background:"#dbeafe",color:"#1d4ed8",borderRadius:99,padding:"1px 7px",fontSize:10,fontWeight:700}}>TNL</span>}
                           {searchScope === "global" && p.location && (
                             <span style={{background:p.clinicId===clinicId?"#dcfce7":"#e0e7ff",color:p.clinicId===clinicId?"#15803d":"#3730a3",borderRadius:99,padding:"1px 7px",fontSize:10,fontWeight:700}}>
                               {p.location.replace(/^My Hearing Centers\s*[–-]\s*/,"")}
@@ -4279,12 +4299,16 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       <td>
                         {isTns
                           ? <span style={{fontSize:12,color:"#9ca3af",fontStyle:"italic"}}>Quoted</span>
+                          : isTnl
+                          ? <span style={{fontSize:12,color:"#9ca3af",fontStyle:"italic"}}>Annual retest</span>
                           : <span className={`badge ${p.carePlan}`}>{CARE_PLANS.find(c=>c.id===p.carePlan)?.label||p.carePlan}</span>
                         }
                       </td>
                       <td>
                         {isTns ? (
                           <div style={{fontSize:12,color:"#d97706",fontWeight:600}}>Quoted</div>
+                        ) : isTnl ? (
+                          <div style={{fontSize:12,color:"#1d4ed8",fontWeight:600}}>No loss</div>
                         ) : (
                           <>
                             <div style={{fontSize:12,color: days<90?"#ef4444":days<360?"#f59e0b":"#16a34a",fontWeight:600}}>
@@ -4297,6 +4321,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       <td style={{fontSize:12,color:"#6b7280"}}>
                         {isTns
                           ? <span style={{color:"#d97706"}}>Quote {fmtDate(p.createdAt)}</span>
+                          : isTnl
+                          ? <span style={{color:"#1d4ed8"}}>Tested {fmtDate(p.createdAt)}</span>
                           : fmtDate(p.devices?.fittingDate||p.createdAt)
                         }
                       </td>
@@ -5175,7 +5201,37 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       return <AudiogramEntry value={form.audiology} onChange={(a)=>upd("audiology", a)} />;
     }
     if (step === 3) {
-      return renderResultsContent(form.audiology, form.notes || "");
+      // Tested No Loss suggestion — auto-detected from the entered thresholds
+      // (both ears tested, everything ≤ 20 dB), provider confirms. Upgrade
+      // visits are excluded: an established wearer's flow is retention, and a
+      // now-normal audiogram there deserves a human conversation, not a badge.
+      const suggestTnl = wizardMode !== "upgrade" && isTestedNoLoss(form.audiology);
+      return (
+        <>
+          {suggestTnl && (
+            <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:10,padding:"16px 20px",marginBottom:16,display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:280}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#1d4ed8",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4}}>
+                  Hearing Within Normal Limits
+                </div>
+                <div style={{fontSize:13,color:"#1e40af",lineHeight:1.5}}>
+                  Every entered threshold is at or below 20 dB in both ears. If word recognition and history agree,
+                  close this visit as <strong>Tested No Loss</strong> — today's audiogram is saved as their baseline
+                  and an annual retest is scheduled automatically. If something still concerns you, Continue proceeds
+                  to treatment planning as usual.
+                </div>
+              </div>
+              <button
+                style={{background:"#1d4ed8",color:"white",border:"none",borderRadius:8,padding:"10px 18px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}
+                onClick={() => setCloseAppointment({ source: "wizard", tnl: true })}
+              >
+                ✓ Close as Tested No Loss
+              </button>
+            </div>
+          )}
+          {renderResultsContent(form.audiology, form.notes || "")}
+        </>
+      );
     }
     if (step === 4) {
       // Technology Tier — patient picks Standard / Advanced / Premium
@@ -7041,6 +7097,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   {profileTnsActive ? "Cancel" : "Tag Reasons"}
                 </button>
               </>
+            ) : p.patientStatus === "tnl" ? (
+              <span style={{background:"#dbeafe",color:"#1d4ed8",borderRadius:99,padding:"4px 12px",fontSize:11,fontWeight:700}} title="Tested No Loss — hearing within normal limits at last test">TNL</span>
             ) : (
               <button
                 className="btn-ghost"
@@ -7174,6 +7232,26 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             </div>
           </div>
         )}
+
+        {p.patientStatus === "tnl" && (() => {
+          // Next scheduled annual retest — the TNL path's whole follow-up plan.
+          const upcoming = (p.appointments || [])
+            .filter(a => a.type === TNL_RETEST_TYPE && daysUntil(a.date) >= 0)
+            .sort((a, b) => new Date(a.date) - new Date(b.date))[0];
+          return (
+            <div style={{ margin: "12px 24px 0" }}>
+              <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"12px 18px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                <span style={{fontSize:12,fontWeight:700,color:"#1d4ed8",textTransform:"uppercase",letterSpacing:"0.06em"}}>Tested No Loss</span>
+                <span style={{fontSize:12,color:"#1e40af",flex:1,minWidth:200}}>
+                  Hearing within normal limits at the last test — the audiogram below is their baseline.
+                  {upcoming
+                    ? ` Annual retest scheduled ${fmtDate(upcoming.date)}.`
+                    : " No upcoming retest on the schedule — consider adding one."}
+                </span>
+              </div>
+            </div>
+          );
+        })()}
 
         {p.patientStatus === "tns" && patientTnsOutcome && !profileTnsActive && (
           <div style={{ margin: "12px 24px 0" }}>
@@ -9848,6 +9926,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 defaultCarePlan: pending.carePlanDisposition || null,
                 defaultCarePlanReason: pending.carePlanReason || null,
                 defaultCarePlanSelected: pending.carePlanSelected || null,
+              };
+            } else if (isWizard && closeAppointment.tnl) {
+              // Tested No Loss — launched from the Results step's TNL banner.
+              // Both layers arrive set; the provider can still override.
+              defaults = {
+                defaultContext: "new_fit",
+                defaultDevice: "no_hearing_loss",
+                defaultCarePlan: "not_applicable",
               };
             } else if (isWizard) {
               // Private pay bundles Complete Care+ with a signed purchase.

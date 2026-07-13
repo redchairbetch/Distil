@@ -25,6 +25,7 @@ const TRIGGER_TYPES = [
   { id: "fitting_date", label: "Fitting Date" },
   { id: "warranty_expiry", label: "Warranty Expiry" },
   { id: "tns", label: "Treatment Not Started" },
+  { id: "tnl", label: "Tested No Loss" },
   { id: "manual", label: "Manual Trigger" },
 ];
 
