@@ -115,12 +115,25 @@ export function nationsCoverageTier(family, techLevel) {
       // Infinio (Audéo / Naída / Virto): 30 sits a rung above Lumity 30.
       return { 90: 'Specialty', 70: 'Advanced Plus', 50: 'Advanced', 30: 'Superior Plus' }[num] || null;
     case 'Oticon':
-      // Only Real and Xceed are in Nations' catalog; Intent-generation is not.
+      // Real, Xceed, and the LEGACY Own custom line are in Nations' catalog; the
+      // newer Intent generation (including Own-Intent, oti-own-intent) is not.
       if (family.id === 'oti-real')  return { 1: 'Specialty', 2: 'Advanced Plus', 3: 'Advanced' }[num] || null;
       if (family.id === 'oti-xceed') return { 1: 'Specialty', 2: 'Specialty', 3: 'Advanced Plus' }[num] || null;
+      if (family.id === 'oti-own')   return { 1: 'Specialty', 2: 'Specialty', 3: 'Advanced Plus', 4: 'Superior Plus', 5: 'Superior Plus' }[num] || null; // inverted numbering (1 = flagship)
       return null;
     case 'Resound': {
-      // Nexia customs sit one tier above the RIC/BTE forms at the same level.
+      // Value lines (Nations-only). Their level numbers overlap Nexia's but map
+      // to different tiers, so branch by family id, not the number alone —
+      // e.g. level 3 is off-plan for Nexia but Standard for Key and Select for
+      // Savi. Key 3 / Savi 2 land in Standard, the no-OOP tier on Aetna MA.
+      if (family.id === 'res-key-ric')    return { 4: 'Select', 3: 'Standard' }[num] || null;
+      if (family.id === 'res-key-custom') return { 4: 'Superior Plus', 3: 'Superior Plus' }[num] || null;
+      if (family.id === 'res-savi-ric')   return { 3: 'Select', 2: 'Standard' }[num] || null;
+      // Vivia's entry tier (level 3) is Superior Plus in Nations — NOT off-plan
+      // like Nexia's level 3; its 9/7/5 follow the standard ladder.
+      if (family.id === 'res-vivia')
+        return { 9: 'Specialty', 7: 'Advanced Plus', 5: 'Advanced', 3: 'Superior Plus' }[num] || null;
+      // Nexia + ENZO Q: customs sit one tier above the RIC/BTE forms.
       const custom = family.id === 'res-nexia-custom';
       return custom
         ? { 9: 'Specialty', 7: 'Specialty', 5: 'Advanced Plus' }[num] || null

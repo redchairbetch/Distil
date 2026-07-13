@@ -648,6 +648,17 @@ const CATALOG_DEFAULT = [
     battery:["Size 312","Size 10","Size 13"], active:true, notes:"Custom styles on Intent platform." },
 
 
+  // Nations-covered LEGACY Own (pre-Intent) — Nations-only, distinct from the
+  // Intent-gen Own above. Own 1/2 → Specialty, 3 → Advanced Plus, 4/5 → Superior Plus.
+  { id:"oti-own", manufacturer:"Oticon", generation:"Own",
+    family:"Own", styles:["cic","iic","itc","ite"],
+    variants:["Standard"],
+    techLevels:["1","2","3","4","5"],
+    colors:SKIN_TONES,
+    battery:["Size 312","Size 10","Size 13"], active:true, tpa:"Nations",
+    notes:"Nations-covered legacy Own custom line (pre-Intent, Nations-only)." },
+
+
   { id:"oti-xceed", manufacturer:"Oticon", generation:"Intent",
     family:"Xceed", styles:["bte"],
     variants:["SP","UP"],
@@ -730,6 +741,34 @@ const CATALOG_DEFAULT = [
     techLevels:["9","7","5","3"],
     colors:["Silver","Champagne","Rose Gold","Dark Brown","Carbon Black","Ivory"],
     battery:["Rechargeable","Size 312"], active:true, notes:"" },
+
+
+  // ── RESOUND Nations value lines (Nations-only, no OOP options) ────────────
+  { id:"res-key-ric", manufacturer:"Resound", generation:"Key",
+    family:"Key", styles:["ric","bte"],
+    variants:["Standard"],
+    techLevels:["4","3"],
+    colors:["Silver","Champagne","Rose Gold","Dark Brown","Carbon Black","Ivory"],
+    battery:["Rechargeable","Size 312","Size 13"], active:true, tpa:"Nations",
+    notes:"Nations value line (Nations-only). Key 3 → Standard, Key 4 → Select. No-OOP option." },
+
+
+  { id:"res-key-custom", manufacturer:"Resound", generation:"Key",
+    family:"Key Custom", styles:["itc","ite"],
+    variants:["Standard"],
+    techLevels:["4","3"],
+    colors:SKIN_TONES,
+    battery:["Size 312","Size 10","Size 13"], active:true, tpa:"Nations",
+    notes:"Nations value line customs (Nations-only). Key 3/4 → Superior Plus." },
+
+
+  { id:"res-savi-ric", manufacturer:"Resound", generation:"Savi",
+    family:"Savi", styles:["ric","bte"],
+    variants:["Standard"],
+    techLevels:["3","2"],
+    colors:["Silver","Champagne","Rose Gold","Dark Brown","Carbon Black","Ivory"],
+    battery:["Rechargeable","Size 312","Size 13"], active:true, tpa:"Nations",
+    notes:"Nations value line (Nations-only). Savi 2 → Standard, Savi 3 → Select. No-OOP option. Customs excluded." },
 
 
   { id:"res-enzo-q", manufacturer:"Resound", generation:"Nexia",

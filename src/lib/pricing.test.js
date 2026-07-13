@@ -32,6 +32,12 @@ const CATALOG = [
   { id: "oti-intent",        manufacturer: "Oticon",  generation: "Intent" },
   { id: "res-nexia-ric",     manufacturer: "Resound", generation: "Nexia" },
   { id: "res-nexia-custom",  manufacturer: "Resound", generation: "Nexia" },
+  { id: "res-key-ric",       manufacturer: "Resound", generation: "Key" },
+  { id: "res-key-custom",    manufacturer: "Resound", generation: "Key" },
+  { id: "res-savi-ric",      manufacturer: "Resound", generation: "Savi" },
+  { id: "res-vivia",         manufacturer: "Resound", generation: "Nexia" },
+  { id: "oti-own",           manufacturer: "Oticon",  generation: "Own" },
+  { id: "oti-own-intent",    manufacturer: "Oticon",  generation: "Intent" },
   { id: "sta-edge-ai-ric",   manufacturer: "Starkey", generation: "Edge AI" },
   { id: "wid-moment-bte",    manufacturer: "Widex",   generation: "Moment" },
   { id: "rex-reach-r",       manufacturer: "Rexton",  generation: "IX" },
@@ -137,6 +143,28 @@ describe("nationsCoverageTier", () => {
     expect(nationsCoverageTier(fam("res-nexia-ric"), "7")).toBe("Advanced Plus");
     expect(nationsCoverageTier(fam("res-nexia-custom"), "7")).toBe("Specialty");
     expect(nationsCoverageTier(fam("res-nexia-ric"), "3")).toBeNull(); // level 3 off-plan
+  });
+  it("maps the ReSound value lines (Key / Savi) by family — the no-OOP options", () => {
+    // Level 3 means different tiers per family (off-plan for Nexia, Standard for
+    // Key, Select for Savi) — hence the per-family branch.
+    expect(nationsCoverageTier(fam("res-key-ric"), "3")).toBe("Standard");
+    expect(nationsCoverageTier(fam("res-key-ric"), "4")).toBe("Select");
+    expect(nationsCoverageTier(fam("res-key-custom"), "3")).toBe("Superior Plus");
+    expect(nationsCoverageTier(fam("res-key-custom"), "4")).toBe("Superior Plus");
+    expect(nationsCoverageTier(fam("res-savi-ric"), "2")).toBe("Standard");
+    expect(nationsCoverageTier(fam("res-savi-ric"), "3")).toBe("Select");
+  });
+  it("maps ReSound Vivia level 3 to Superior Plus (not off-plan like Nexia 3)", () => {
+    expect(nationsCoverageTier(fam("res-vivia"), "9")).toBe("Specialty");
+    expect(nationsCoverageTier(fam("res-vivia"), "7")).toBe("Advanced Plus");
+    expect(nationsCoverageTier(fam("res-vivia"), "5")).toBe("Advanced");
+    expect(nationsCoverageTier(fam("res-vivia"), "3")).toBe("Superior Plus");
+  });
+  it("maps Oticon legacy Own (inverted) and keeps Own-Intent off-plan", () => {
+    expect(nationsCoverageTier(fam("oti-own"), "1")).toBe("Specialty");
+    expect(nationsCoverageTier(fam("oti-own"), "3")).toBe("Advanced Plus");
+    expect(nationsCoverageTier(fam("oti-own"), "5")).toBe("Superior Plus");
+    expect(nationsCoverageTier(fam("oti-own-intent"), "1")).toBeNull(); // Intent gen off-plan
   });
   it("maps Starkey and Widex by numeric level", () => {
     expect(nationsCoverageTier(fam("sta-edge-ai-ric"), "24")).toBe("Specialty");
