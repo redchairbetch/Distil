@@ -18,7 +18,9 @@ import {
   COVERAGE_BY_RANK,
   SITUATION_LABEL,
   TIER_EFFORT_COPY,
+  EFFORT_SIGNAL_LABEL,
   flaggedEnvironments,
+  flaggedEffortSignals,
 } from "../listeningSituations.js";
 import { EnvironmentCoverage } from "../components/CoverageBars.jsx";
 
@@ -168,6 +170,7 @@ export default function TierSelection({
     [engineResult, availableTiers]
   );
   const flagged = useMemo(() => flaggedEnvironments(intakeAnswers), [intakeAnswers]);
+  const effortSignals = useMemo(() => flaggedEffortSignals(intakeAnswers), [intakeAnswers]);
   // Distinguish "no intake on file" from "intake exists but nothing flagged"
   // so the banner copy doesn't tell a patient who answered every question
   // that no intake answers were available.
@@ -253,7 +256,7 @@ export default function TierSelection({
         Based on what you told us and your hearing test.
       </div>
 
-      <IntakeReflection flagged={flagged} hasIntakeAnswers={hasIntakeAnswers} />
+      <IntakeReflection flagged={flagged} effortSignals={effortSignals} hasIntakeAnswers={hasIntakeAnswers} />
 
       <RecommendationBanner
         loading={loading}
@@ -300,17 +303,19 @@ export default function TierSelection({
 }
 
 // "Here's what you told us" — reflects the patient's flagged listening
-// situations back as warm chips at the top of the step. Renders nothing if
-// there's no intake on file or nothing was flagged.
-function IntakeReflection({ flagged, hasIntakeAnswers }) {
-  if (!hasIntakeAnswers || flagged.size === 0) return null;
+// situations back as warm chips at the top of the step, plus brass chips for
+// the effort signals (drained / concentrating hard), which are the felt cost
+// rather than a place. Renders nothing if there's no intake on file or
+// nothing was flagged.
+function IntakeReflection({ flagged, effortSignals = [], hasIntakeAnswers }) {
+  if (!hasIntakeAnswers || (flagged.size === 0 && effortSignals.length === 0)) return null;
   const labels = ENVIRONMENTS
     .filter(e => flagged.has(e.id))
     .map(e => SITUATION_LABEL[e.id] || e.label);
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: TEAL_DARK, marginBottom: 9 }}>
-        From your intake — what you told us was getting harder
+        From your intake — where listening takes the most effort
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
         {labels.map(l => (
@@ -322,6 +327,17 @@ function IntakeReflection({ flagged, hasIntakeAnswers }) {
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: BRASS }} />
             {l}
+          </span>
+        ))}
+        {effortSignals.map(k => (
+          <span key={k} style={{
+            display: "inline-flex", alignItems: "center", gap: 7,
+            background: BRASS_SOFT, color: BRASS_INK,
+            border: `1px solid ${BRASS_SOFT}`, borderRadius: 20,
+            padding: "6px 13px", fontSize: 12.5, fontWeight: 600,
+          }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: BRASS }} />
+            {EFFORT_SIGNAL_LABEL[k]}
           </span>
         ))}
       </div>
@@ -353,7 +369,7 @@ function RecommendationBanner({ loading, engineError, recommended, rationaleText
     ? " Recommendation is grounded in audiometric findings — no intake on file."
     : flaggedCount === 0
       ? " Recommendation reflects your audiogram. Your intake answers didn't flag specific listening challenges, which the engine reads as a quieter listening profile."
-      : ` Recommendation reflects your audiogram and the ${flaggedCount === 1 ? "environment you flagged" : `${flaggedCount} environments you flagged`} in your intake.`;
+      : ` Recommendation reflects your audiogram and the ${flaggedCount === 1 ? "situation" : `${flaggedCount} situations`} you flagged as taking the most listening effort.`;
 
   return (
     <div style={{ background:TEAL_BG, borderLeft:`4px solid ${TEAL}`, borderRadius:6, padding:"12px 16px" }}>
@@ -409,18 +425,30 @@ function TierCard({ tier, selected, recommended, selectable, blurb, flagged, onS
 
       <div style={{ padding:"16px 16px 12px" }}>
         <div style={{ fontFamily:FONT.display, fontSize:19, fontWeight:600, color:TEXT }}>{tier.label}</div>
-        {blurb && (
-          <div style={{ marginTop:6, fontSize:12, lineHeight:1.45, color:"#475569" }}>{blurb}</div>
-        )}
+        {/* Listening effort is the tier's primary description (effort pivot) —
+            who does the work of separating speech from noise at this level.
+            The feature blurb demotes to a secondary line underneath. */}
         {effortCopy && (
-          <div style={{ marginTop:8, fontSize:12, lineHeight:1.5, color:BRASS_INK, background:BRASS_SOFT, borderRadius:8, padding:"8px 10px" }}>
-            <span style={{ fontWeight:700 }}>Listening effort · </span>{effortCopy}
+          <div style={{ marginTop:9 }}>
+            <div style={{ fontSize:10, fontWeight:700, letterSpacing:"0.07em", textTransform:"uppercase", color:BRASS_INK, marginBottom:4 }}>
+              Listening effort
+            </div>
+            <div style={{ fontSize:13, lineHeight:1.55, color:TEXT }}>{effortCopy}</div>
           </div>
+        )}
+        {blurb && (
+          <div style={{ marginTop:8, fontSize:11.5, lineHeight:1.45, color:MUTED }}>{blurb}</div>
         )}
       </div>
 
       {coverage ? (
         <div style={{ borderTop:`1px solid ${BORDER}`, padding:"12px 16px", flex:1 }}>
+          {/* Coverage bars are supporting evidence for the effort story above,
+              not the headline — the connector line makes that relationship
+              explicit. */}
+          <div style={{ fontSize:11.5, color:MUTED, marginBottom:9, lineHeight:1.4 }}>
+            Here's where that shows up, situation by situation:
+          </div>
           <EnvironmentCoverage rank={rank} flagged={flagged} />
         </div>
       ) : (
