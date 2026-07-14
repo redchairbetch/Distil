@@ -246,6 +246,14 @@ describe("deriveEarPrice", () => {
       .toEqual({ price: CROS_PRICE_PER_UNIT, source: "cros" });
   });
 
+  it("prices a TruHearing-flow CROS transmitter (isCROS flag) at $1,250, not the tier copay", () => {
+    // The TH card flow sets isCROS on the transmitter side (no variant string,
+    // no familyId). The CROS branch must win over the insurance-copay branch.
+    const side = { manufacturer: "TruHearing", thModel: "th7li", style: "ric", techLevel: "Premium", isCROS: true };
+    expect(deriveEarPrice(side, { ...baseOpts, form: { payType: "insurance", tpa: "TruHearing", tierPrice: 699 } }))
+      .toEqual({ price: CROS_PRICE_PER_UNIT, source: "cros" });
+  });
+
   it("uses the carrier copay for insurance patients regardless of manufacturer", () => {
     const ep = deriveEarPrice(
       { familyId: "fam-signia-pure", techLevel: "7IX" },

@@ -1087,6 +1087,12 @@ const TH_DOMES = {
 // Styles that show receiver length + dome selection
 const TH_RECEIVER_STYLES = ["ric","ric_bct","sr"];
 
+// TH styles that can anchor a CROS fitting. TruHearing sells its CROS
+// transmitter only alongside RIC-form aids (TH7 Li RIC / RIC+BCT, TH6 RIC —
+// the granular catalog entries carrying a "CROS" variant); SR, BTE, and
+// customs have no companion transmitter on the TH portal.
+const TH_CROS_STYLES = ["ric","ric_bct"];
+
 // Patient-facing benefit copy for TruHearing tier rows. Each tier is framed
 // as capable on its own; the next tier adds capability in noisier / more
 // complex listening environments. Avoid disparaging lower tiers. These are
@@ -4429,12 +4435,16 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     // Has receiver (RIC/RIC+BCT/SR)
     const thHasReceiver = TH_RECEIVER_STYLES.includes(sd.style);
 
+    // Can this side anchor a CROS fitting? (RIC-form TH aids only — drives
+    // the "copy as CROS transmitter" button in the TH card flow.)
+    const thHasCROS = TH_CROS_STYLES.includes(sd.style);
+
     // Pricing
     const thTierPrice = privateLabelTiers.find(t => t.label === sd.techLevel)?.price ?? 0;
     return { availMfrs, availGens, availFamilies, selectedFamily, availColors, availBatteries,
       availPowers, availDomes, selectedPower, requiresEarmold, variantRequired, hasCROSVariant,
       thAvailBodyStyles, thAvailModels, thAvailVariants, thGainOptions, thColorCategory, thBattery, thIsLi,
-      thRequiresEarmold, thHasReceiver, thTierPrice };
+      thRequiresEarmold, thHasReceiver, thHasCROS, thTierPrice };
   };
   const leftDerived = getSideDerived(form.left);
   const rightDerived = getSideDerived(form.right);
@@ -4689,7 +4699,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
 
   const isSideConfigured = (s) => {
     const d = form[s];
-    if (d.manufacturer === "TruHearing") return !!(d.style && d.techLevel && d.thModel && d.gainMatrix);
+    if (d.manufacturer === "TruHearing") {
+      // A CROS transmitter side has no receiver — no gain/matrix to pick.
+      if (d.isCROS) return !!(d.style && d.techLevel && d.thModel);
+      return !!(d.style && d.techLevel && d.thModel && d.gainMatrix);
+    }
     return !!(d.familyId && d.techLevel);
   };
 
@@ -5412,11 +5426,28 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               ))}
             </>)}
 
+            {/* ── Private-label: CROS transmitter side. The cascade collapses to
+                a summary card — the transmitter mirrors the aid it was copied
+                from (model/color) and has no receiver, gain, or dome of its
+                own. Removing it restores the blank TH cascade for this ear. ── */}
+            {showTH && s.isCROS && (
+              <div style={{background:"#eef2ff",border:"1px solid #a5b4fc",borderRadius:8,padding:"14px 16px",marginBottom:16}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#4f46e5",marginBottom:4}}>📡 CROS Transmitter</div>
+                <div style={{fontSize:12.5,color:"#374151",lineHeight:1.5}}>
+                  {(TH_MODELS.find(m=>m.id===s.thModel)?.label || "TruHearing")} CROS unit{s.color ? ` · ${s.color}` : ""} — picks up sound on this side and routes it to the aid on the other ear.
+                </div>
+                <button className="side-action-btn" style={{marginTop:10}}
+                  onClick={(e)=>{ e.stopPropagation(); resetSide(side, {manufacturer:"TruHearing", techLevel:form.tier}); }}>
+                  ✕ Remove CROS transmitter
+                </button>
+              </div>
+            )}
+
             {/* ── Private-label: TruHearing cascade (skipped for Direct Purchase) ── */}
             {/* Tier was chosen in the Technology Tier wizard step (4); this
                 cascade now starts at Body Style. The chosen tier flows into
                 each side via form.tier → s.techLevel sync (see useEffect). */}
-            {showTH && (<>
+            {showTH && !s.isCROS && (<>
               {/* Body Style (card grid — mirrors private-pay imagery) */}
               {s.techLevel && d.thAvailBodyStyles.length > 0 && (
                 <div className="field" style={{marginBottom:16}}><label>Body Style</label>
@@ -5699,8 +5730,26 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
 
       const leftConfigured = isSideConfigured("left");
       const rightConfigured = isSideConfigured("right");
-      const leftHasCROS = leftDerived.hasCROSVariant;
-      const rightHasCROS = rightDerived.hasCROSVariant;
+      // TH card flow sides never carry a familyId, so hasCROSVariant (catalog-
+      // derived) is always false there — CROS availability comes from the TH
+      // config instead (RIC-form aids). A side that is itself a transmitter
+      // can't anchor another CROS.
+      const thCardFlow = isPrivateLabel && !directPurchaseActive;
+      const leftHasCROS  = thCardFlow ? (leftDerived.thHasCROS  && !form.left.isCROS)  : leftDerived.hasCROSVariant;
+      const rightHasCROS = thCardFlow ? (rightDerived.thHasCROS && !form.right.isCROS) : rightDerived.hasCROSVariant;
+      // Copy `src` onto the opposite side as a CROS transmitter. TH flow flags
+      // isCROS and strips receiver/gain/dome (transmitters have none); the
+      // standard catalog flow keeps its variant-string mechanism.
+      const copyAsCros = (src, targetSide) => {
+        if (thCardFlow) {
+          setForm(f=>({...f,[targetSide]:{...src, isCROS:true, variant:"", gainMatrix:"", receiverLength:"", receiverPower:"", dome:"", domeCategory:"", domeSize:""}}));
+        } else {
+          const crosFam = catalog.find(e => e.id === src.familyId);
+          const crosVariant = crosFam?.variants.find(v=>v.toLowerCase().includes("cros")) || "CROS";
+          setForm(f=>({...f,[targetSide]:{...src, variant:crosVariant, receiverLength:"", receiverPower:"", dome:""}}));
+        }
+        setActiveSide(targetSide);
+      };
 
       return (
         <>
@@ -5731,13 +5780,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 </button>
                 {leftHasCROS && (
                   <button className="copy-btn cros" disabled={!leftConfigured}
-                    onClick={()=>{
-                      const src = form.left;
-                      const crosFam = catalog.find(e => e.id === src.familyId);
-                      const crosVariant = crosFam?.variants.find(v=>v.toLowerCase().includes("cros")) || "CROS";
-                      setForm(f=>({...f,right:{...src, variant:crosVariant, receiverLength:"", receiverPower:"", dome:""}}));
-                      setActiveSide("right");
-                    }}
+                    onClick={()=>copyAsCros(form.left, "right")}
                     title="Copy as CROS transmitter to right ear">
                     📡 CROS →
                   </button>
@@ -5750,13 +5793,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 </button>
                 {rightHasCROS && (
                   <button className="copy-btn cros" disabled={!rightConfigured}
-                    onClick={()=>{
-                      const src = form.right;
-                      const crosFam = catalog.find(e => e.id === src.familyId);
-                      const crosVariant = crosFam?.variants.find(v=>v.toLowerCase().includes("cros")) || "CROS";
-                      setForm(f=>({...f,left:{...src, variant:crosVariant, receiverLength:"", receiverPower:"", dome:""}}));
-                      setActiveSide("left");
-                    }}
+                    onClick={()=>copyAsCros(form.right, "left")}
                     title="Copy as CROS transmitter to left ear">
                     ← CROS 📡
                   </button>
@@ -6547,7 +6584,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 ...(d.variant ? [[d.variant, "Variant / Style"]] : []),
                 [d.isCROS ? "CROS Transmitter" : "Standard", "CROS"],
                 [isLi ? "Rechargeable (Li-Ion)" : (d.battery||"—"), "Battery"],
-                ...(thHasReceiver ? [
+                // A CROS transmitter has no receiver/gain/dome of its own.
+                ...(thHasReceiver && !d.isCROS ? [
                   [d.receiverLength||"—", "Receiver Length"],
                   [pwrLabel, "Receiver Power"],
                   [thDome, "Dome / Coupling"],
@@ -6568,7 +6606,15 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             ].map(([v,k])=>(
               <div className="review-row" key={k}><span className="review-key">{k}</span><span className="review-val">{v}</span></div>
             ))}
-            {isTH && planTierPrice !== null && (
+            {isTH && d.isCROS ? (
+              // CROS transmitter side: flat unit price, not the plan's per-aid copay.
+              <div className="review-row" style={{background:"#eef2ff",borderRadius:6,padding:"6px 10px",marginTop:4}}>
+                <span className="review-key">Patient Cost</span>
+                <span className="review-val" style={{fontWeight:700,color:"#4f46e5"}}>
+                  ${CROS_PRICE_PER_UNIT.toLocaleString()} / CROS unit
+                </span>
+              </div>
+            ) : isTH && planTierPrice !== null && (
               <div className="review-row" style={{background:"#f0fdf4",borderRadius:6,padding:"6px 10px",marginTop:4}}>
                 <span className="review-key">Patient Cost</span>
                 <span className="review-val" style={{fontWeight:700,color:"#15803d"}}>

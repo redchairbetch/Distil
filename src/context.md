@@ -38,7 +38,7 @@ Companion patient-facing app.
 - `Distil.jsx` migrated from `window.storage` to Supabase
 - `Login.jsx` passes `staffId` and `clinicId` as props to `ProviderCRM`
 - `db.js` data layer intact
-- TruHearing Select catalog: 11 granular entries, five-step cascade UI (tier → product/power → Li-Ion upcharge → variant → CROS toggle)
+- TruHearing Select catalog: 11 granular entries, five-step cascade UI (tier → product/power → Li-Ion upcharge → variant → CROS toggle). CROS shipped 2026-07-14: the card flow's center "📡 CROS →" button copies a configured RIC-form aid (`TH_CROS_STYLES`: ric/ric_bct — SR/BTE/customs have no TH transmitter) to the other ear as a transmitter (`isCROS:true`, receiver/gain/dome stripped, cascade collapses to a summary card with remove). Prices at the flat $1,250 CROS unit rate (`CROS_PRICE_PER_UNIT`) like every other CROS side — verify against TruHearing's actual transmitter price and adjust in `lib/pricing.js` if their catalog bills differently.
 - Real insurance plan data integrated: ~60 TruHearing Third Party Exclusive Plans; UHCH modeled as a single generic "Medicare Supplement" plan (4 device-driven price tiers + Relate exclusive line) — added 2026-06-08, see UHCH under Critical Architecture Rules
 - Warranty countdown widget: color-coded progress bar (red <90d, yellow <360d, green 360d+)
 - Calendar feature: **deliberately dropped** — clinics have existing scheduling tools; Distil adds a simple `next_appointment_date` field only
