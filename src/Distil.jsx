@@ -863,10 +863,17 @@ const CATALOG_DEFAULT = [
     battery:["Size 10"], active:true, notes:"BiCore platform (predecessor). Instant-fit Click CIC, size 10 zinc-air. No direct wireless streaming. Premium tiers only." },
 
 
-  // ── TRUHEARING (Private-label Signia IX platform) ─────────────────────────
   // ── TRUHEARING SELECT (Private-label WSAudiology products) ─────────────────
-  // Plan tier → product (one-to-one): "Premium"→TH7 Premium (48ch·IX), "Advanced"→TH6 Advanced (32ch·AX), "Standard"→TH5 (X)
-  // TH5 BTE is always available regardless of plan tier — the plan price covers whatever the clinician fits.
+  // Two orthogonal axes — never conflate them:
+  //   · Model number = PLATFORM generation: TH7 = Signia IX, TH6 = AX, TH5 = X.
+  //   · Plan tier (Premium/Advanced/Standard) = TECHNOLOGY LEVEL (≈ Signia
+  //     7/5/3 prefix), chosen in the Technology Tier step.
+  // "TruHearing 7 Li Premium" ≈ Signia Pure Charge&Go 7IX. Tier×model is
+  // many-to-many (see TH_AVAILABILITY) — these coarse entries group each
+  // series at its most common tier for legacy paths, but they are NOT a
+  // tier→product mapping. The card flow runs on TH_MODELS/TH_AVAILABILITY.
+  // TH5 BTE is always available regardless of plan tier — the plan price
+  // covers whatever the clinician fits.
 
   // ── TH7 Premium · Signia IX · 48ch ── planTierKey:"Premium" ──────────────
   { id:"th7-prem-ric-li", manufacturer:"TruHearing", tpa:"TruHearing", generation:"IX",
@@ -998,16 +1005,33 @@ const TH_STYLE_TO_BODY = Object.fromEntries(
   TH_BODY_STYLES.flatMap(b => b.thStyleIds.map(sid => [sid, b.id]))
 );
 
+// The model NUMBER is the platform generation (TH7 = Signia IX, TH6 = AX,
+// TH5 = X) — NOT a technology level. The tech level is the plan tier
+// (Premium/Advanced/Standard ≈ Signia's 7/5/3 prefix), chosen in the
+// Technology Tier step. "TruHearing 7 Li Premium" ≈ Signia Pure Charge&Go
+// 7IX. The two axes are orthogonal — never collapse the model pick into
+// the tier pick.
 const TH_MODELS = [
-  { id:"th7",   label:"TruHearing 7",    li:false },
-  { id:"th7li", label:"TruHearing 7 Li", li:true },
-  { id:"th6",   label:"TruHearing 6",    li:false },
-  { id:"th6li", label:"TruHearing 6 Li", li:true },
-  { id:"th5",   label:"TruHearing 5",    li:false },
-  { id:"th5li", label:"TruHearing 5 Li", li:true },
+  { id:"th7",   label:"TruHearing 7",    li:false, series:"TH7", platform:"IX" },
+  { id:"th7li", label:"TruHearing 7 Li", li:true,  series:"TH7", platform:"IX" },
+  { id:"th6",   label:"TruHearing 6",    li:false, series:"TH6", platform:"AX" },
+  { id:"th6li", label:"TruHearing 6 Li", li:true,  series:"TH6", platform:"AX" },
+  { id:"th5",   label:"TruHearing 5",    li:false, series:"TH5", platform:"X"  },
+  { id:"th5li", label:"TruHearing 5 Li", li:true,  series:"TH5", platform:"X"  },
 ];
+// Patient-facing subtitle for the model pills — names the platform axis so
+// the number doesn't read as a Signia-style "7 = top tier" tech level.
+const TH_PLATFORM_NOTE = {
+  IX: "IX platform · newest generation",
+  AX: "AX platform",
+  X:  "X platform",
+};
 
-// model|techLevel → [style IDs]
+// model|techLevel → [style IDs]. Deliberately many-to-many: the model is the
+// platform generation, the techLevel is the plan tier, and most combinations
+// exist (th7|Standard customs, th6|Premium RIC). th5li BTE is listed under
+// every tier — TH5 BTE is always available regardless of plan tier
+// (non-negotiable domain rule; the plan price covers whatever is fitted).
 const TH_AVAILABILITY = {
   "th7|Standard":   ["iic","cic"],
   "th7|Advanced":   ["cic","itc","hs","fs"],
@@ -1020,6 +1044,7 @@ const TH_AVAILABILITY = {
   "th6li|Advanced": ["itc","hs","fs"],
   "th6li|Premium":  ["itc","hs","fs","sr"],
   "th5|Premium":    ["if"],
+  "th5li|Standard": ["s_bte","p_bte","sp_bte"],
   "th5li|Advanced": ["s_bte","p_bte","sp_bte"],
   "th5li|Premium":  ["s_bte","p_bte","sp_bte"],
 };
@@ -2838,10 +2863,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       const thDome = thIsEarmold ? "Custom Earmold" : (s.domeCategory && s.domeSize ? `${s.domeCategory} ${s.domeSize}` : s.domeCategory || s.dome || "");
       return {
         manufacturer: "TruHearing",
-        generation: "IX",
+        // Platform generation follows the MODEL, not the tier: TH7→IX,
+        // TH6→AX, TH5→X. (Was hardcoded "IX", which mislabeled every
+        // TH6/TH5 fitting saved before this fix.)
+        generation: thMod?.platform || "",
         family: thMod?.label || "TruHearing Select",
         thModel: s.thModel || "",
-        thSeries: "",
+        thSeries: thMod?.series || "",
         rechargeable: thMod?.li || false,
         liUpcharge: 0,
         variant: s.isCROS ? "CROS Transmitter" : (s.variant || ""),
@@ -5448,6 +5476,24 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 cascade now starts at Body Style. The chosen tier flows into
                 each side via form.tier → s.techLevel sync (see useEffect). */}
             {showTH && !s.isCROS && (<>
+              {/* Locked technology-level chip — the tech level was decided on
+                  the Technology Tier step (form.tier → techLevel sync effect);
+                  this is context, not a picker, so the cascade below reads as
+                  "pick the model/style" rather than picking the tier again. */}
+              {s.techLevel && (
+                <div className="field" style={{marginBottom:16}}><label>Technology Level</label>
+                  <div style={{display:"inline-flex",alignItems:"center",gap:8,border:"2px solid #0B4A42",background:"#FBF9F3",borderRadius:8,padding:"8px 12px"}}>
+                    <span style={{fontSize:14,fontWeight:700,color:"#0a1628"}}>{s.techLevel} technology</span>
+                    <span style={{fontSize:12,color:"#6b7280"}}>
+                      {d.thTierPrice === 0 ? "No Charge" : `$${d.thTierPrice.toLocaleString()}/aid`} · chosen in Technology Tier
+                    </span>
+                  </div>
+                  <div style={{fontSize:11.5,color:"#6b7280",marginTop:6}}>
+                    Every model below comes with {s.techLevel}-level processing at this price. The model number is the platform generation — how recent the chip inside is — not a different technology level.
+                  </div>
+                </div>
+              )}
+
               {/* Body Style (card grid — mirrors private-pay imagery) */}
               {s.techLevel && d.thAvailBodyStyles.length > 0 && (
                 <div className="field" style={{marginBottom:16}}><label>Body Style</label>
@@ -5485,6 +5531,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                         <div key={m.id} className={`radio-pill ${s.thModel===m.id?"active":""}`}
                           onClick={()=>setForm(f=>({...f,[side]:{...f[side], thModel:m.id, style:autoStyle, color:"", faceplateColor:"", shellColor:autoShell, gainMatrix:autoGain, battery:autoBattery, receiverLength:"", receiverPower:"", dome:"", domeCategory:"", domeSize:"", familyId:"", variant:"", generation:""}}))}>
                           <div className="radio-pill-label">{m.label}</div>
+                          {/* Platform subtitle — the number is the generation,
+                              not a tier; without this it invites a false
+                              Signia-style "7 = top tier" reading. */}
+                          <div className="radio-pill-sub">{TH_PLATFORM_NOTE[m.platform] || ""}</div>
                         </div>
                       );
                     })}
@@ -6563,8 +6613,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         const thDome = isEm ? "Custom Earmold" : (d.domeCategory && d.domeSize ? `${d.domeCategory} ${d.domeSize}` : d.domeCategory || d.dome || "—");
         const styleLabel = BODY_STYLES.find(s=>s.id===d.style)?.label || d.style || "—";
         const thMod = TH_MODELS.find(m => m.id === d.thModel);
-        const thGen = fam?.generation || d.generation || "";
-        const thSeries = fam?.thSeries || "";
+        // Platform generation follows the MODEL (TH7→IX, TH6→AX, TH5→X);
+        // fam/generation fallbacks cover legacy sides saved outside the card flow.
+        const thGen = thMod?.platform || fam?.generation || d.generation || "";
         const isLi = isTH ? (thMod?.li || false) : (fam?.rechargeable || false);
         const thHasReceiver = ["ric","ric_bct","sr"].includes(d.style);
         const planTierPrice = activePlans.find(p=>p.carrier===form.carrier&&p.planGroup===form.planGroup)
@@ -6576,10 +6627,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             </div>
             {[
               [d.manufacturer, "Manufacturer"],
-              [isTH ? (thGen ? `${thGen} TruHearing Select` : "TruHearing Select") : d.generation, "Platform"],
+              [isTH ? (thGen ? `${thGen} platform · TruHearing Select` : "TruHearing Select") : d.generation, "Platform"],
               [isTH ? (thMod?.label || "TruHearing Select") : (fam?.family||""), "Model Family"],
               ...(isTH ? [
-                [thSeries ? `${thSeries} · ${d.techLevel}` : d.techLevel, "Series / Tier"],
                 [styleLabel, "Body Style"],
                 ...(d.variant ? [[d.variant, "Variant / Style"]] : []),
                 [d.isCROS ? "CROS Transmitter" : "Standard", "CROS"],
@@ -6590,6 +6640,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   [pwrLabel, "Receiver Power"],
                   [thDome, "Dome / Coupling"],
                 ] : []),
+                // Technology level prints ONCE, adjacent to Patient Cost —
+                // the model rows above stay tier-free (same scheme as the
+                // quote and purchase-agreement PDFs).
+                [d.techLevel, "Technology Level"],
               ] : [
                 [d.variant||"—", "Variant"],
                 [d.color||"N/A", "Color"],
@@ -10312,12 +10366,24 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                             <tr key={label} style={{background:i%2===0?"#FBF9F3":"white"}}>
                               <td style={{padding:"6px 8px",fontWeight:600,color:"#0a1628"}}>{label}</td>
                               <td style={{padding:"6px 8px"}}>{d.manufacturer||"—"}</td>
-                              <td style={{padding:"6px 8px"}}>{[d.family,d.variant,d.techLevel].filter(Boolean).join(" ")||"—"}</td>
+                              {/* TruHearing: model alone — the tech level prints once below,
+                                  next to pricing (same scheme as the quote + agreement PDFs). */}
+                              <td style={{padding:"6px 8px"}}>{(d.manufacturer==="TruHearing" ? [d.family,d.variant] : [d.family,d.variant,d.techLevel]).filter(Boolean).join(" ")||"—"}</td>
                               <td style={{padding:"6px 8px"}}>{d.style||"—"}</td>
                               <td style={{padding:"6px 8px"}}>{d.battery||"—"}</td>
                               <td style={{padding:"6px 8px",fontWeight:700}}>${effPerAid.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
                             </tr>
                           ))}
+                          {(()=>{
+                            const t = [leftRec,rightRec].find(r => r?.manufacturer==="TruHearing" && !/^(CROS|BICROS)/i.test(r?.variant||""))?.techLevel;
+                            return t ? (
+                              <tr>
+                                <td colSpan={6} style={{padding:"4px 8px",fontSize:11,color:"#6b7280"}}>
+                                  Technology level: {t} — included in the price shown for each device above.
+                                </td>
+                              </tr>
+                            ) : null;
+                          })()}
                           <tr style={{background:"#E4E0D5"}}>
                             <td colSpan={5} style={{padding:"6px 8px",fontWeight:700,color:"#0a1628"}}>Device Total ({ac===2?"pair":"single"})</td>
                             <td style={{padding:"6px 8px",fontWeight:700,color:"#0a1628"}}>${devTotal.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
