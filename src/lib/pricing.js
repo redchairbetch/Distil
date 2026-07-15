@@ -15,8 +15,11 @@
 // step 5 used to lock `form.tierPrice` to whatever step 4 wrote — meaning a
 // private-pay Signia 7IX patient saw the manufacturer-agnostic $4,997.50
 // Premium price instead of Signia's $3,997.50. Now each ear resolves its own
-// price from (manufacturer × techLevel × clinic_retail_anchors), with CROS/
-// BICROS pricing flat at $1,250/unit per Kurt.
+// price from (manufacturer × techLevel × clinic_retail_anchors). CROS/BICROS
+// doctrine (Kurt, 2026-07-14): private pay — and every non-TruHearing flow —
+// is flat at $1,250/unit; TruHearing CROS transmitters bill at the
+// coordinating technology-level instrument price (the plan's tier copay,
+// e.g. $850 Premium / $550 Advanced on a typical plan).
 // (Extracted from Distil.jsx so the money math is unit-testable. Callers pass
 // `plans` explicitly — Distil's activePlans already falls back to its seed
 // INSURANCE_PLANS constant, so no fallback lives here.)
@@ -253,6 +256,20 @@ export function resolveClassRetailPerAid(side, opts) {
 export function deriveEarPrice(side, opts) {
   if (!side) return null;
   if (isSideCros(side)) {
+    // TruHearing CROS transmitters bill at the coordinating technology-level
+    // instrument price — the plan's tier copay — NOT the clinic's flat unit
+    // rate (Kurt, 2026-07-14). Resolve from the TruHearing plan row by the
+    // side's tier label, falling back to the wizard's tierPrice. Every other
+    // CROS/BICROS unit (private pay, standard-catalog insurance, Direct
+    // Purchase Signia) stays flat at $1,250.
+    if (side.manufacturer === 'TruHearing') {
+      const { form: f, plans: pl } = opts || {};
+      const plan = (pl || []).find(p => p.tpa === 'TruHearing'
+        && p.carrier === f?.carrier && p.planGroup === f?.planGroup);
+      const price = plan?.tiers?.find(t => t.label === side.techLevel)?.price
+        ?? f?.tierPrice ?? null;
+      if (price != null) return { price, source: 'cros', tier: side.techLevel };
+    }
     return { price: CROS_PRICE_PER_UNIT, source: 'cros' };
   }
   const { form, catalog, productCatalogTiers, anchorsByClass, plans } = opts;
