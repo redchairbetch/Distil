@@ -184,9 +184,14 @@ export function generatePurchaseAgreement({
     doc.setTextColor(...BLACK)
     doc.text(side.manufacturer || '—', colX[1] + 4, y + 3)
     const isCrosSide = /^(CROS|BICROS)/i.test(side.variant || '')
+    // TruHearing rows print the model alone — the model number is the platform
+    // generation; the technology level (plan tier) prints once below, next to
+    // pricing, matching the quote and the in-wizard agreement review.
     const model = isCrosSide
       ? `${side.variant || 'CROS'} unit`
-      : [side.family, side.techLevel].filter(Boolean).join(' ')
+      : side.manufacturer === 'TruHearing'
+        ? side.family
+        : [side.family, side.techLevel].filter(Boolean).join(' ')
     doc.setFontSize(7)
     doc.text(model || '—', colX[2] + 4, y + 3)
     doc.setFontSize(7.5)
@@ -206,6 +211,18 @@ export function generatePurchaseAgreement({
     renderRow('Right', devices.right, [248, 250, 252], rightPrice)
   } else {
     renderRow('Left', devices.left, [248, 250, 252], leftPrice)
+  }
+
+  // Technology level — printed ONCE for TruHearing fittings, next to the
+  // pricing rows (the device rows above carry the model name alone).
+  const thTechLevel = [devices.left, devices.right]
+    .find(s => s?.manufacturer === 'TruHearing' && !/^(CROS|BICROS)/i.test(s?.variant || ''))?.techLevel
+  if (thTechLevel) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(6.5)
+    doc.setTextColor(...GRAY)
+    doc.text(`Technology level: ${thTechLevel} — included in the price shown for each device above.`, colX[0] + 4, y)
+    y += 10
   }
 
   // Subtotal

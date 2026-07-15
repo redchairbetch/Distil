@@ -320,14 +320,20 @@ export function generateQuote({
     doc.setTextColor(...BLACK)
     doc.text(fitText(doc, side.manufacturer || '—', colWidths[1] - 10), colX[1] + 6, y + 2)
     // CROS units render the variant inline so the row reads as a CROS
-    // transmitter rather than a hearing aid model. Skip the tech level when
-    // the family name already contains it (avoids "Premium ... Premium").
+    // transmitter rather than a hearing aid model. TruHearing rows print the
+    // model alone — the model number is the platform generation; the
+    // technology level (the plan tier) prints once near pricing below instead
+    // of being appended to every device name. Other manufacturers append the
+    // tech level unless the family name already contains it (avoids
+    // "Premium ... Premium").
     const isCrosSide = /^(CROS|BICROS)/i.test(side.variant || '')
     const fam = side.family || ''
     const tl = side.techLevel || ''
     const model = isCrosSide
       ? `${side.variant || 'CROS'} unit`
-      : (tl && !fam.toLowerCase().includes(tl.toLowerCase()) ? `${fam} ${tl}`.trim() : fam)
+      : side.manufacturer === 'TruHearing'
+        ? fam
+        : (tl && !fam.toLowerCase().includes(tl.toLowerCase()) ? `${fam} ${tl}`.trim() : fam)
     doc.text(fitText(doc, model || '—', colWidths[2] - 10), colX[2] + 6, y + 2)
     const styleLabel = (side.style || '—').toUpperCase()
     doc.text(fitText(doc, styleLabel, colWidths[3] - 10), colX[3] + 6, y + 2)
@@ -348,6 +354,18 @@ export function generateQuote({
     renderDeviceRow('Right', devices.right, [248, 250, 252], rightPrice, rightRetail)
   } else {
     renderDeviceRow('Left', devices.left, [248, 250, 252], leftPrice, leftRetail)
+  }
+
+  // Technology level — printed ONCE for TruHearing fittings, next to the
+  // pricing rows. The device rows above carry the model name alone.
+  const thTechLevel = [devices.left, devices.right]
+    .find(s => s?.manufacturer === 'TruHearing' && !/^(CROS|BICROS)/i.test(s?.variant || ''))?.techLevel
+  if (thTechLevel) {
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(7.5)
+    doc.setTextColor(...GRAY)
+    doc.text(`Technology level: ${thTechLevel} — included in the price shown for each device above.`, MARGIN + 6, y - 2)
+    y += 14
   }
 
   // Discount line (custom quote) — between the retail rows and the net total.

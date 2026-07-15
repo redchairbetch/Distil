@@ -252,9 +252,19 @@ export default function TierSelection({
       <div style={{ fontFamily: FONT.display, fontSize: 22, fontWeight: 600, color: TEXT, letterSpacing: "0.1px" }}>
         Here's what we found — and your options
       </div>
-      <div style={{ fontSize: 13, color: FAINT, marginTop: 3, marginBottom: 18 }}>
+      <div style={{ fontSize: 13, color: FAINT, marginTop: 3, marginBottom: isPrivateLabel ? 8 : 18 }}>
         Based on what you told us and your hearing test.
       </div>
+      {/* Two-axis framing for private-label (TruHearing) flows: this step
+          decides the TECHNOLOGY LEVEL; the next step's model number is the
+          platform generation. Seeding that here keeps the model pills from
+          reading like a second tier decision. */}
+      {isPrivateLabel && (
+        <div style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.5, marginBottom: 18 }}>
+          This choice sets the level of sound processing inside your hearing aids — and your price per aid.
+          On the next step you'll pick the model and style; every model comes with the technology level you choose here.
+        </div>
+      )}
 
       <IntakeReflection flagged={flagged} effortSignals={effortSignals} hasIntakeAnswers={hasIntakeAnswers} />
 
