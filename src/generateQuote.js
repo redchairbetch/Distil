@@ -52,11 +52,19 @@ const PLAN_COMPARE = [
   { label: 'Loss & Damage',        paygo: '$275/aid (3 yrs)', punch: '$275/aid (3 yrs)',   complete: '$275/aid (4 yrs)' },
 ]
 
-// Coverage dot data per plan (9 visits over lifecycle)
+// Coverage dot data per plan — 15 visits over the 4-year lifecycle:
+// 9 routine cleanings (large dots) + 6 triage visits (small dots).
+// The punch card covers the full 4-year window; only the Year 4+ visit
+// falls outside it. Complete Care+ is unlimited for the life of the aids.
+const VISIT_TYPES = [
+  'clean','triage','clean','triage','clean',
+  'clean','triage','clean','triage','clean',
+  'clean','triage','clean','triage','clean',
+]
 const PLAN_COV = {
-  paygo:    ['oop','oop','oop','oop','oop','oop','oop','oop','oop'],
-  punch:    ['inc','inc','inc','inc','inc','inc','inc','inc','oop'],
-  complete: ['inc','inc','inc','inc','inc','inc','inc','inc','inc'],
+  paygo:    Array(15).fill('oop'),
+  punch:    [...Array(14).fill('inc'), 'oop'],
+  complete: Array(15).fill('inc'),
 }
 const COV_COLORS = {
   inc:  { fill: [22, 163, 74],  stroke: [21, 128, 61]  },
@@ -100,6 +108,16 @@ function todayFormatted() {
 
 function wrapText(doc, text, maxWidth) {
   return doc.splitTextToSize(text, maxWidth)
+}
+
+// Clamp a single-line cell to its column width with an ellipsis so long
+// device names can never spill into the neighboring column. Measures with
+// the doc's current font/size — call after setFont/setFontSize.
+function fitText(doc, text, maxWidth) {
+  let t = String(text)
+  if (doc.getTextWidth(t) <= maxWidth) return t
+  while (t.length > 1 && doc.getTextWidth(t + '…') > maxWidth) t = t.slice(0, -1)
+  return t + '…'
 }
 
 function drawHR(doc, y, x1 = MARGIN, x2 = PAGE_W - MARGIN) {
@@ -272,8 +290,10 @@ export function generateQuote({
   doc.text('DEVICE SPECIFICATIONS', MARGIN, y)
   y += 6
 
+  // Model gets the widest column — TruHearing rows render as
+  // "TruHearing 7 Li Premium" and were overflowing the old 100pt width.
   const colLabels = ['', 'Manufacturer', 'Model', 'Style', 'Battery', 'Price']
-  const colWidths = [40, 80, 100, 65, 110, CONTENT_W - 395]
+  const colWidths = [34, 76, 168, 48, 108, CONTENT_W - 434]
   const colX = []
   let cx = MARGIN
   for (const w of colWidths) { colX.push(cx); cx += w }
@@ -298,17 +318,20 @@ export function generateQuote({
     doc.text(sideLabel, colX[0] + 6, y + 2)
     doc.setFont('helvetica', 'normal')
     doc.setTextColor(...BLACK)
-    doc.text(side.manufacturer || '—', colX[1] + 6, y + 2)
+    doc.text(fitText(doc, side.manufacturer || '—', colWidths[1] - 10), colX[1] + 6, y + 2)
     // CROS units render the variant inline so the row reads as a CROS
-    // transmitter rather than a hearing aid model.
+    // transmitter rather than a hearing aid model. Skip the tech level when
+    // the family name already contains it (avoids "Premium ... Premium").
     const isCrosSide = /^(CROS|BICROS)/i.test(side.variant || '')
+    const fam = side.family || ''
+    const tl = side.techLevel || ''
     const model = isCrosSide
       ? `${side.variant || 'CROS'} unit`
-      : [side.family, side.techLevel].filter(Boolean).join(' ')
-    doc.text(model || '—', colX[2] + 6, y + 2)
+      : (tl && !fam.toLowerCase().includes(tl.toLowerCase()) ? `${fam} ${tl}`.trim() : fam)
+    doc.text(fitText(doc, model || '—', colWidths[2] - 10), colX[2] + 6, y + 2)
     const styleLabel = (side.style || '—').toUpperCase()
-    doc.text(styleLabel, colX[3] + 6, y + 2)
-    doc.text(side.battery || '—', colX[4] + 6, y + 2)
+    doc.text(fitText(doc, styleLabel, colWidths[3] - 10), colX[3] + 6, y + 2)
+    doc.text(fitText(doc, side.battery || '—', colWidths[4] - 10), colX[4] + 6, y + 2)
     doc.setFont('helvetica', 'bold')
     // Print the retail anchor when provided (custom quote) so the table shows
     // clinic retail pricing — the discount is summarized below. Otherwise the
@@ -508,7 +531,7 @@ export function generateQuote({
   y += 16
 
   // ── Coverage Infographic ──
-  y = checkPage(doc, y, 180)
+  y = checkPage(doc, y, 200)
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(10)
@@ -518,13 +541,16 @@ export function generateQuote({
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8)
   doc.setTextColor(...GRAY)
-  doc.text('Each dot represents a typical clinic visit. Color shows what the plan covers.', MARGIN, y)
+  doc.text('15 typical clinic visits over 4 years — 9 routine cleanings (large dots) and 6 triage visits (small dots).', MARGIN, y)
+  y += 10
+  doc.text('Color shows what each plan covers.', MARGIN, y)
   y += 18
 
-  // Draw 3 rows of dots
-  const dotR = 6
-  const dotSpacing = 42
-  const dotStartX = MARGIN + 120
+  // Draw 3 rows of dots — cleanings render larger than triage visits so the
+  // graphic matches the visit math a patient would do (9 + 6 = 15).
+  const dotR = { clean: 5, triage: 3.5 }
+  const dotSpacing = 27
+  const dotStartX = MARGIN + 110
   const rowLabels = ['Standard Billing', 'MHC Punch Card', 'Complete Care+']
   const rowKeys = ['paygo', 'punch', 'complete']
 
@@ -542,7 +568,8 @@ export function generateQuote({
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(7)
       doc.setTextColor(...GREEN)
-      doc.text('← Selected', MARGIN, ry + 13)
+      // '•' is WinAnsi-safe; arrows (←) are not encodable in jsPDF core fonts
+      doc.text('• Selected', MARGIN, ry + 13)
     }
 
     // Dots
@@ -551,14 +578,30 @@ export function generateQuote({
       const cc = COV_COLORS[cov]
       doc.setFillColor(...cc.fill)
       doc.setDrawColor(...cc.stroke)
-      doc.setLineWidth(1.5)
-      doc.circle(dx, ry, dotR, cov === 'oop' ? 'S' : 'FD')
+      doc.setLineWidth(1.2)
+      doc.circle(dx, ry, dotR[VISIT_TYPES[di]] || dotR.clean, cov === 'oop' ? 'S' : 'FD')
     })
   })
 
-  y += 100
+  // Year markers — directly under the dot rows so they read as a timeline
+  y += 78
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(7)
+  doc.setTextColor(...MED_GRAY)
+  const yearMarkers = [
+    { dot: 0,  label: 'First fit' },
+    { dot: 4,  label: 'Year 1' },
+    { dot: 8,  label: 'Year 2' },
+    { dot: 11, label: 'Year 3' },
+    { dot: 14, label: 'Year 4+' },
+  ]
+  yearMarkers.forEach(m => {
+    doc.text(m.label, dotStartX + m.dot * dotSpacing, y, { align: 'center' })
+  })
 
-  // Legend
+  y += 20
+
+  // Legend — coverage color, plus a reminder of the size coding
   const legendItems = [
     { fill: GREEN,   stroke: [21,128,61],  label: 'Included' },
     { fill: WHITE,   stroke: [209,213,219], label: 'Out of pocket' },
@@ -576,23 +619,10 @@ export function generateQuote({
     doc.text(item.label, lx + 14, y + 3)
     lx += 90
   })
-
-  y += 20
-
-  // Year markers
   doc.setFont('helvetica', 'normal')
-  doc.setFontSize(7)
-  doc.setTextColor(...MED_GRAY)
-  const yearPositions = [
-    { x: dotStartX, label: 'First fit' },
-    { x: dotStartX + 2 * dotSpacing, label: 'Year 1' },
-    { x: dotStartX + 5 * dotSpacing, label: 'Year 2' },
-    { x: dotStartX + 7 * dotSpacing, label: 'Year 3' },
-    { x: dotStartX + 8 * dotSpacing, label: 'Year 4+' },
-  ]
-  yearPositions.forEach(p => {
-    doc.text(p.label, p.x, y, { align: 'center' })
-  })
+  doc.setFontSize(7.5)
+  doc.setTextColor(...GRAY)
+  doc.text('Large dots = routine cleanings  ·  Small dots = triage visits', lx + 10, y + 3)
 
 
   // ═══════════════════════════════════════════════════════════
@@ -613,9 +643,12 @@ export function generateQuote({
 
   if (hasAudiogramData) {
     // ── Audiogram Chart ──
+    // Sized to the page margins: chartX leaves room for the dB axis labels
+    // on the left; chartW leaves ~48pt on the right for the degree-of-loss
+    // labels (Normal…Profound) so they never clip at the margin.
     const chartX = MARGIN + 30
-    const chartW = 380
-    const chartH = 200
+    const chartW = 430
+    const chartH = 270
     const chartY = y
 
     // Title
@@ -637,7 +670,7 @@ export function generateQuote({
       doc.rect(chartX, ry1, chartW, ry2 - ry1, 'F')
       // Region label
       doc.setFont('helvetica', 'normal')
-      doc.setFontSize(6.5)
+      doc.setFontSize(7)
       doc.setTextColor(...MED_GRAY)
       doc.text(region.label, chartX + chartW + 4, (ry1 + ry2) / 2 + 2)
     })
