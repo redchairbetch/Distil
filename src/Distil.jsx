@@ -6607,11 +6607,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               <div className="review-row" key={k}><span className="review-key">{k}</span><span className="review-val">{v}</span></div>
             ))}
             {isTH && d.isCROS ? (
-              // CROS transmitter side: flat unit price, not the plan's per-aid copay.
+              // TruHearing CROS transmitter: bills at the coordinating
+              // technology-level instrument price (the tier copay), per Kurt.
               <div className="review-row" style={{background:"#eef2ff",borderRadius:6,padding:"6px 10px",marginTop:4}}>
                 <span className="review-key">Patient Cost</span>
                 <span className="review-val" style={{fontWeight:700,color:"#4f46e5"}}>
-                  ${CROS_PRICE_PER_UNIT.toLocaleString()} / CROS unit
+                  {(() => { const p = planTierPrice ?? form.tierPrice; return p == null ? "—" : p === 0 ? "No Charge" : `$${p.toLocaleString()} / CROS unit`; })()}
                 </span>
               </div>
             ) : isTH && planTierPrice !== null && (
@@ -7422,11 +7423,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           const aidCount = isBilateral ? 2 : 1;
           // Private pay bundles the care plan into the per-aid retail price.
           const carePlanCost = isPrivate ? 0 : (cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0);
-          // CROS sides flat at $1,250; non-CROS sides use the snapshotted
-          // pricePerAid. deviceTotal becomes the true pair total under CROS.
+          // CROS sides flat at $1,250 — except TruHearing transmitters, which
+          // bill at the coordinating technology-level instrument price (the
+          // snapshotted per-aid copay) per Kurt. Non-CROS sides use the
+          // snapshotted pricePerAid. deviceTotal becomes the true pair total.
           const sideHasCros = (s) => !!s && /^(CROS|BICROS)/i.test(s.variant || '');
-          const leftEarP  = p.devices?.left  ? (sideHasCros(p.devices.left)  ? CROS_PRICE_PER_UNIT : pricePerAid) : null;
-          const rightEarP = p.devices?.right ? (sideHasCros(p.devices.right) ? CROS_PRICE_PER_UNIT : pricePerAid) : null;
+          const crosUnitP = (s) => s?.manufacturer === 'TruHearing' ? pricePerAid : CROS_PRICE_PER_UNIT;
+          const leftEarP  = p.devices?.left  ? (sideHasCros(p.devices.left)  ? crosUnitP(p.devices.left)  : pricePerAid) : null;
+          const rightEarP = p.devices?.right ? (sideHasCros(p.devices.right) ? crosUnitP(p.devices.right) : pricePerAid) : null;
           const deviceTotal = (leftEarP || 0) + (rightEarP || 0) || pricePerAid * aidCount;
           const totalPurchasePrice = deviceTotal + carePlanCost;
 

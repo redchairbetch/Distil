@@ -58,6 +58,7 @@ You are not a single assistant — you are Kurt's entire development team. Use n
 - **Intake IDs:** Format `MHC-YYYYMMDD-XXXXX`
 - **Calendar feature:** Deliberately dropped. Clinics have scheduling tools. Distil uses `next_appointment_date` field only.
 - **Care plan default:** Complete Care+ (opt-out, not opt-in)
+- **CROS pricing:** $1,250/unit flat everywhere EXCEPT TruHearing — TH CROS transmitters bill at the coordinating technology level's instrument price (the plan's tier copay, e.g. $850 Premium / $550 Advanced)
 - **Pricing display:** Patient cost first, always. Retail shown as "full retail value" for anchoring. Never show retail without insurance savings alongside it.
 
 ## Project Structure

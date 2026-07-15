@@ -246,11 +246,33 @@ describe("deriveEarPrice", () => {
       .toEqual({ price: CROS_PRICE_PER_UNIT, source: "cros" });
   });
 
-  it("prices a TruHearing-flow CROS transmitter (isCROS flag) at $1,250, not the tier copay", () => {
-    // The TH card flow sets isCROS on the transmitter side (no variant string,
-    // no familyId). The CROS branch must win over the insurance-copay branch.
+  it("prices a TruHearing CROS transmitter at the tier instrument price (plan row), not $1,250", () => {
+    // Doctrine (Kurt, 2026-07-14): private-pay CROS is $1,250/unit; TruHearing
+    // CROS transmitters bill at the coordinating technology-level instrument
+    // price — the plan's tier copay. The TH card flow sets isCROS on the
+    // transmitter side (no variant string, no familyId).
     const side = { manufacturer: "TruHearing", thModel: "th7li", style: "ric", techLevel: "Premium", isCROS: true };
-    expect(deriveEarPrice(side, { ...baseOpts, form: { payType: "insurance", tpa: "TruHearing", tierPrice: 699 } }))
+    const plans = [{ tpa: "TruHearing", carrier: "Anthem", planGroup: "Prefix XMM",
+      tiers: [{ label: "Advanced", price: 550 }, { label: "Premium", price: 850 }] }];
+    const form = { payType: "insurance", tpa: "TruHearing", carrier: "Anthem", planGroup: "Prefix XMM", tierPrice: 850 };
+    expect(deriveEarPrice(side, { ...baseOpts, plans, form }))
+      .toEqual({ price: 850, source: "cros", tier: "Premium" });
+  });
+
+  it("falls back to form.tierPrice for a TruHearing CROS transmitter when the plan row is missing, then to $1,250", () => {
+    const side = { manufacturer: "TruHearing", thModel: "th6", style: "ric", techLevel: "Advanced", isCROS: true };
+    expect(deriveEarPrice(side, { ...baseOpts, plans: [], form: { payType: "insurance", tpa: "TruHearing", tierPrice: 550 } }))
+      .toEqual({ price: 550, source: "cros", tier: "Advanced" });
+    // No plan row AND no tierPrice resolved yet → flat unit rate backstop.
+    expect(deriveEarPrice(side, { ...baseOpts, plans: [], form: { payType: "insurance", tpa: "TruHearing" } }))
+      .toEqual({ price: CROS_PRICE_PER_UNIT, source: "cros" });
+  });
+
+  it("keeps non-TruHearing CROS flat at $1,250 even on insurance", () => {
+    // Standard-catalog CROS variants (and Direct Purchase Signia CROS) are
+    // clinic-priced units — the tier-copay rule is TruHearing-only.
+    expect(deriveEarPrice({ manufacturer: "Signia", variant: "CROS" },
+      { ...baseOpts, form: { payType: "insurance", tpa: "TruHearing", tierPrice: 850 } }))
       .toEqual({ price: CROS_PRICE_PER_UNIT, source: "cros" });
   });
 

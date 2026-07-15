@@ -341,7 +341,12 @@ export default function CreateQuoteModal({
   const earPricing = (active, side, disc, priceState) => {
     if (!active) return { retail: null, discountAmt: 0, net: null }
     if (side.isCROS || isCrosVariant(side.variant)) {
-      return { retail: CROS_PRICE_PER_UNIT, discountAmt: 0, net: CROS_PRICE_PER_UNIT }
+      // TruHearing CROS transmitters bill at the coordinating technology-level
+      // instrument price — fall through to the plan's tier copay below (Kurt,
+      // 2026-07-14). Every other CROS unit is a fixed $1,250 add-on, no discount.
+      if (!(side.manufacturer === 'TruHearing' && payType === 'insurance' && planMode)) {
+        return { retail: CROS_PRICE_PER_UNIT, discountAmt: 0, net: CROS_PRICE_PER_UNIT }
+      }
     }
     if (payType === 'private') {
       const resolved = resolveRetailPerAid ? resolveRetailPerAid(side) : null
@@ -652,7 +657,9 @@ export default function CreateQuoteModal({
             <div>
               <label style={labelStyle}>Price per unit</label>
               <div style={{ fontSize: 13, color: C.muted }}>
-                CROS unit — fixed {money(CROS_PRICE_PER_UNIT)}, no discount.
+                {side.manufacturer === 'TruHearing' && payType === 'insurance' && planMode
+                  ? <>CROS transmitter — bills at the tier instrument price{px.net != null ? ` (${money(px.net)})` : ''}.</>
+                  : <>CROS unit — fixed {money(CROS_PRICE_PER_UNIT)}, no discount.</>}
               </div>
             </div>
           ) : payType === 'private' ? (
