@@ -3069,16 +3069,22 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     // the table, so the patient exits as 'tnl' (not 'tns') with an annual
     // retest recall instead of a fitting/warranty record.
     const isTnl = deviceDisposition === "no_hearing_loss" && wizardMode !== "upgrade";
+    // Did Not Test: the visit ended before testing (wax removal only, patient
+    // declined, etc.) — nothing was ever recommended, so the patient STAYS a
+    // prospect. Demoting to 'tns' would poison the tested-not-sold funnel with
+    // people who were never tested.
+    const isDnt = deviceDisposition === "did_not_test" && wizardMode !== "upgrade";
     const finalizeStatus = (wizardPaSigned || deviceDisposition === "committed")
       ? "active"
       : isTnl ? "tnl"
+      : isDnt ? "prospect"
       : (wizardMode === "upgrade" ? "active" : "tns");
 
     // Incremental save path — patient already exists in DB as draft
     if (wizardPatientId) {
       try {
-        const carePlan = isTnl ? null : (form.payType === "insurance" ? form.carePlan : null);
-        const privatePay = !isTnl && form.payType === "private" && form.tierPrice != null
+        const carePlan = (isTnl || isDnt) ? null : (form.payType === "insurance" ? form.carePlan : null);
+        const privatePay = !isTnl && !isDnt && form.payType === "private" && form.tierPrice != null
           ? { tier: form.tier, tierPrice: form.tierPrice }
           : null;
         // Regimented care arc — full 4-year schedule auto-generated at finalize for a signed fitting (backlog #5).
@@ -3094,10 +3100,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         await finalizePatient(
           wizardPatientId,
           finalizeStatus,
-          // TNL never fits devices — null keeps finalizePatient away from the
-          // fitting/warranty updates AND the fitting-date campaign enrollment
-          // (it enrolls the tnl-triggered campaign off the status instead).
-          isTnl ? null : { fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null },
+          // TNL and Did Not Test never fit devices — null keeps finalizePatient
+          // away from the fitting/warranty updates AND the fitting-date campaign
+          // enrollment (TNL enrolls its campaign off the status instead).
+          (isTnl || isDnt) ? null : { fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null },
           carePlan,
           form.notes,
           finalizeAppointments,
@@ -3119,7 +3125,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           directPurchase: !!form.directPurchase,
           insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
           privatePay,
-          devices: isTnl ? null : { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null, serialLeft: genId(), serialRight: genId() },
+          devices: (isTnl || isDnt) ? null : { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null, serialLeft: genId(), serialRight: genId() },
           audiology: form.audiology,
           carePlan: carePlan,
           appointments: finalizeAppointments,
@@ -3146,10 +3152,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       payType: form.payType,
       directPurchase: !!form.directPurchase,
       insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
-      privatePay: !isTnl && form.payType === "private" && form.tierPrice != null
+      privatePay: !isTnl && !isDnt && form.payType === "private" && form.tierPrice != null
         ? { tier: form.tier, tierPrice: form.tierPrice }
         : null,
-      devices: isTnl ? null : {
+      devices: (isTnl || isDnt) ? null : {
         left: leftRec,
         right: rightRec,
         fittingType,
@@ -3165,7 +3171,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         serialRight: genId(),
       },
       audiology: form.audiology,
-      carePlan: isTnl ? null : (form.payType === "insurance" ? form.carePlan : null),
+      carePlan: (isTnl || isDnt) ? null : (form.payType === "insurance" ? form.carePlan : null),
       appointments: isTnl ? [...(form.appointments || []), buildTnlRetestAppointment()] : form.appointments,
       notes: form.notes,
       patientStatus: finalizeStatus,
@@ -5283,7 +5289,42 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       );
     }
     if (step === 2) {
-      return <AudiogramEntry value={form.audiology} onChange={(a)=>upd("audiology", a)} />;
+      // Did Not Test fork — the visit ended before any testing happened (e.g.
+      // the patient booked the slot just for wax removal). Offered only while
+      // the audiogram is still untouched: the moment a threshold goes in,
+      // they tested and the fork disappears. The profile is already saved
+      // (step-0 draft); the fork closes the appointment with a did_not_test
+      // disposition + reason and skips tier/device/care-plan entirely, so the
+      // patient exits as a prospect. Upgrade purchases land mid-flow and never
+      // render this step, but the guard keeps that invariant explicit.
+      const a = form.audiology || {};
+      const noTestData = Object.keys(a.rightT || {}).length === 0 && Object.keys(a.leftT || {}).length === 0
+        && Object.keys(a.rightBC || {}).length === 0 && Object.keys(a.leftBC || {}).length === 0
+        && a.unaidedR == null && a.unaidedL == null;
+      return (
+        <>
+          <AudiogramEntry value={form.audiology} onChange={(a)=>upd("audiology", a)} />
+          {wizardMode !== "upgrade" && noTestData && (
+            <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:10,padding:"14px 20px",marginTop:16,display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:280}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#4b5563",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4}}>
+                  No Test This Visit?
+                </div>
+                <div style={{fontSize:13,color:"#6b7280",lineHeight:1.5}}>
+                  If the appointment ended before testing — wax removal only, patient declined, medical issue —
+                  close it here with the reason. The profile is already saved, and the remaining steps are skipped.
+                </div>
+              </div>
+              <button
+                style={{background:"white",color:"#374151",border:"1px solid #d1d5db",borderRadius:8,padding:"10px 18px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}
+                onClick={() => setCloseAppointment({ source: "wizard", didNotTest: true })}
+              >
+                Did Not Test — Close Visit
+              </button>
+            </div>
+          )}
+        </>
+      );
     }
     if (step === 3) {
       // Tested No Loss suggestion — auto-detected from the entered thresholds
@@ -10116,6 +10157,15 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               defaults = {
                 defaultContext: "new_fit",
                 defaultDevice: "no_hearing_loss",
+                defaultCarePlan: "not_applicable",
+              };
+            } else if (isWizard && closeAppointment.didNotTest) {
+              // Did Not Test — launched from the Testing step's fork. The
+              // reason stays unset on purpose: picking it IS the provider's
+              // one required action in this close.
+              defaults = {
+                defaultContext: "new_fit",
+                defaultDevice: "did_not_test",
                 defaultCarePlan: "not_applicable",
               };
             } else if (isWizard) {

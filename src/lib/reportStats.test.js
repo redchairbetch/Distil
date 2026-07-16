@@ -58,6 +58,17 @@ describe("computeReportStats — close rate", () => {
     expect(stats.deviceMix.no_hearing_loss).toBe(1);
   });
 
+  it("excludes Did Not Test from the denominator but keeps it and its reason in the mix", () => {
+    const stats = computeReportStats([
+      outcome(),                                                            // committed
+      outcome({ device_disposition: "did_not_test", device_reason: "cerumen_management_only", care_plan_disposition: "not_applicable", care_plan_selected: null }),
+    ]);
+    // No test = no recommendation was ever on the table — the close rate stays 1/1.
+    expect(stats.closeRate).toEqual({ closed: 1, denominator: 1, rate: 1 });
+    expect(stats.deviceMix.did_not_test).toBe(1);
+    expect(stats.deviceReasons.cerumen_management_only).toBe(1);
+  });
+
   it("splits close rate by context", () => {
     const stats = computeReportStats([
       outcome({ context: "new_fit" }),

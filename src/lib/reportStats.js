@@ -19,9 +19,10 @@
 // - Close-rate denominator: committed + deferred + declined + no_decision.
 //   not_a_candidate (medical referrals out), no_hearing_loss (Tested No Loss —
 //   thresholds within normal limits, so no recommendation was ever on the
-//   table) and not_applicable are excluded — they are not losable
-//   opportunities. TNL visits still show up in the outcome mix as their own
-//   category.
+//   table), did_not_test (the visit ended before testing — wax removal only,
+//   patient declined, etc.) and not_applicable are excluded — they are not
+//   losable opportunities. TNL and did-not-test visits still show up in the
+//   outcome mix as their own categories.
 // - Care-plan attach candidates: device committed AND the care-plan layer was
 //   in play (≠ not_applicable). Attach = care-plan committed.
 // - Revenue: committed device outcomes only, per-aid price from the payer
