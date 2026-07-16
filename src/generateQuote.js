@@ -36,14 +36,14 @@ const GREEN = [22, 163, 74]
 // Complete Care+ adds one extra year of manufacturer warranty (3 + 1 = 4)
 // plus a matching 4-year L&D window. Office visits / cleanings /
 // adjustments / triage are unlimited for the life of the hearing aids.
-const CARE_PLAN_META = {
+export const CARE_PLAN_META = {
   paygo:    { label: 'Standard Billing', warrantyYears: 3, coverageYears: 0, price: null, ldCost: 275 },
   punch:    { label: 'MHC Punch Card',  warrantyYears: 3, coverageYears: 4, price: 575,  ldCost: 275 },
   complete: { label: 'Complete Care+',  warrantyYears: 4, coverageYears: 4, price: 1250, ldCost: 275 },
 }
 
 // Plan comparison data — feature-by-feature side-by-side, no anchor math
-const PLAN_COMPARE = [
+export const PLAN_COMPARE = [
   { label: 'Cost',                 paygo: '$65 per visit', punch: '$575 prepaid',         complete: '$1,250' },
   { label: 'Office Visits',        paygo: 'Per visit',     punch: 'All visits (4 yrs)',   complete: 'Unlimited (lifetime)' },
   { label: 'Cleanings',            paygo: 'Per visit',     punch: 'All included (4 yrs)', complete: 'Unlimited (lifetime)' },
@@ -72,8 +72,8 @@ const COV_COLORS = {
 }
 
 // Audiogram constants
-const FREQS = [250, 500, 1000, 2000, 3000, 4000, 6000, 8000]
-const DEGREE_REGIONS = [
+export const FREQS = [250, 500, 1000, 2000, 3000, 4000, 6000, 8000]
+export const DEGREE_REGIONS = [
   { label: 'Normal',     from: -10, to: 20,  fill: [220, 252, 231] },
   { label: 'Mild',       from: 25,  to: 40,  fill: [254, 249, 195] },
   { label: 'Moderate',   from: 40,  to: 55,  fill: [254, 215, 170] },
@@ -83,7 +83,7 @@ const DEGREE_REGIONS = [
 ]
 
 // Why treatment matters — evidence-based cards
-const WHY_IT_MATTERS = [
+export const WHY_IT_MATTERS = [
   { title: 'Relationships & connection',
     body: 'Communication difficulty strains relationships in ways patients often don\'t name directly. Spouses, children, and colleagues consistently report higher satisfaction and less frustration after treatment begins. For most patients, this is the most immediate and tangible benefit they notice.' },
   { title: 'Reducing cognitive load',
@@ -135,13 +135,13 @@ function checkPage(doc, y, needed = 80) {
   return y
 }
 
-function getPTA(t) {
+export function getPTA(t) {
   const fs = [500, 1000, 2000, 4000]
   const v = fs.map(f => t?.[f]).filter(x => x != null)
   return v.length ? Math.round(v.reduce((a, b) => a + b) / v.length) : null
 }
 
-function getDegreeName(pta) {
+export function getDegreeName(pta) {
   if (pta == null) return null
   if (pta <= 20) return 'Normal'
   if (pta <= 40) return 'Mild'

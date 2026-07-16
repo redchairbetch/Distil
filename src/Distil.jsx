@@ -128,6 +128,7 @@ import {
   uploadPatientDocument,
   listPatientDocuments,
   getDocumentSignedUrl,
+  createQuoteShare,
   recordUpgradeOutcome,
   logAnalyticsEvent,
   listMessagesForPatient,
@@ -142,6 +143,7 @@ import {
 } from "./db.js";
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 import { downloadQuote } from "./generateQuote.js";
+import { buildQuoteSharePayload, QUOTE_SHARE_VALID_DAYS } from "./lib/quoteShare.js";
 
 import TnsReasonsPicker from "./components/TnsReasonsPicker.jsx";
 import { TNS_TAG_BY_ID } from "./tns_tags.js";
@@ -1702,6 +1704,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // pricing without touching the patient's saved fitting. Distinct from the
   // existing "Generate Quote" button which uses the saved configuration.
   const [showCreateQuote, setShowCreateQuote] = useState(false);
+  // Take-home quote link minted by the wizard's Generate Quote — shown in a
+  // dismissible toast so the provider can copy/text it without leaving the
+  // wizard. Null when no link is pending.
+  const [quoteShareUrl, setQuoteShareUrl] = useState(null);
+  const [quoteShareCopied, setQuoteShareCopied] = useState(false);
   // "Notify Patient" modal — sends a one-off Web Push to the patient's Aided
   // app through the send-push edge function.
   const [showSendNotification, setShowSendNotification] = useState(false);
@@ -2970,9 +2977,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     });
 
     if (wizardPatientId) {
+      let docRow = null;
       try {
         const isBilateral = (fittingType === 'bilateral' || fittingType === 'cros_bicros');
-        await uploadPatientDocument({
+        docRow = await uploadPatientDocument({
           patientId: wizardPatientId,
           clinicId,
           staffId,
@@ -2993,6 +3001,39 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       } catch (e) {
         console.error('Archive quote PDF (wizard):', e);
         alert('Quote downloaded, but failed to archive to chart: ' + (e.message || e));
+      }
+
+      // Mint the take-home share link (/quote/<token>) — surfaced via the
+      // copy-link toast. Non-fatal: the PDF already downloaded (and archived
+      // unless the catch above fired), so a failure here only loses the link.
+      try {
+        const payload = buildQuoteSharePayload({
+          patient: { name: [form.firstName, form.lastName].filter(Boolean).join(" ") },
+          devices: { fittingType, left: leftRec, right: rightRec },
+          pricePerAid,
+          leftPrice: leftEarP,
+          rightPrice: rightEarP,
+          selectedCarePlan: form.carePlan || "complete",
+          payType: form.payType,
+          directPurchase: form.directPurchase,
+          tpa: form.tpa,
+          carrier: form.carrier,
+          audiology: form.audiology,
+          counselingSections,
+          provider: { fullName: paProvider?.fullName || "" },
+        });
+        const share = await createQuoteShare({
+          patientId: wizardPatientId,
+          clinicId,
+          staffId,
+          documentId: docRow?.id || null,
+          payload,
+          validDays: QUOTE_SHARE_VALID_DAYS,
+        });
+        setQuoteShareCopied(false);
+        setQuoteShareUrl(share.url);
+      } catch (e) {
+        console.error('Create quote share link (wizard):', e);
       }
     }
   };
@@ -9666,6 +9707,27 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             View
           </button>
           <button className="intake-toast-dismiss" onClick={() => setIntakeToast(null)}>×</button>
+        </div>
+      )}
+
+      {/* ── Take-home quote link toast (wizard Generate Quote) ── */}
+      {quoteShareUrl && (
+        <div style={{position:"fixed",bottom:20,left:"50%",transform:"translateX(-50%)",zIndex:9999,background:"#0C211E",color:"white",padding:"14px 18px",borderRadius:12,boxShadow:"0 12px 32px rgba(0,0,0,0.35)",fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",gap:14,maxWidth:"min(560px, calc(100vw - 32px))"}}>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:2}}>Take-home quote link ready</div>
+            <div style={{fontSize:11.5,color:"#9AA39B",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              Text or email it to the patient — expires in {QUOTE_SHARE_VALID_DAYS} days · {quoteShareUrl}
+            </div>
+          </div>
+          <button
+            onClick={() => { try { navigator.clipboard?.writeText(quoteShareUrl); setQuoteShareCopied(true); setTimeout(() => setQuoteShareCopied(false), 2000); } catch {} }}
+            style={{background: quoteShareCopied ? "#15803d" : "#1B8A7A",color:"white",border:"none",borderRadius:8,padding:"8px 14px",fontWeight:700,fontSize:12,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+            {quoteShareCopied ? "Copied ✓" : "Copy link"}
+          </button>
+          <button
+            onClick={() => setQuoteShareUrl(null)}
+            aria-label="Dismiss"
+            style={{background:"none",border:"none",color:"#9AA39B",fontSize:18,cursor:"pointer",padding:2,lineHeight:1,flexShrink:0}}>×</button>
         </div>
       )}
 

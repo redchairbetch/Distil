@@ -310,6 +310,74 @@ export async function getDocumentSignedUrl(storagePath, expiresIn = 3600) {
 
 
 // ============================================================
+// QUOTE SHARE LINKS (/quote/<token>)
+// ============================================================
+
+// 192-bit random token, base64url. The token IS the bearer credential for
+// the shared quote page, so it must come from crypto.getRandomValues —
+// never Math.random.
+function genQuoteShareToken() {
+  const bytes = new Uint8Array(24)
+  crypto.getRandomValues(bytes)
+  let bin = ''
+  bytes.forEach(b => { bin += String.fromCharCode(b) })
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+/**
+ * Mint a tokenized share row for a generated quote. `payload` must be the
+ * PHI-minimal snapshot from buildQuoteSharePayload (lib/quoteShare.js) —
+ * never pass raw wizard/patient state here. Expiry defaults to the quote's
+ * 30-day validity window. Returns { id, token, url, expiresAt }.
+ */
+export async function createQuoteShare({
+  patientId,
+  clinicId,
+  staffId = null,
+  documentId = null,
+  payload,
+  validDays = 30,
+}) {
+  if (!patientId || !clinicId) throw new Error('createQuoteShare: patientId and clinicId are required')
+  if (!payload) throw new Error('createQuoteShare: payload is required')
+  const token = genQuoteShareToken()
+  const expiresAt = new Date(Date.now() + validDays * 86400000).toISOString()
+  const { data, error } = await supabase
+    .from('quote_shares')
+    .insert({
+      token,
+      patient_id:  patientId,
+      clinic_id:   clinicId,
+      created_by:  staffId,
+      document_id: documentId,
+      payload,
+      expires_at:  expiresAt,
+    })
+    .select('id, token, expires_at')
+    .single()
+  if (error) throw error
+  return {
+    id: data.id,
+    token: data.token,
+    expiresAt: data.expires_at,
+    url: `${window.location.origin}/quote/${data.token}`,
+  }
+}
+
+/**
+ * Resolve a shared quote by token (anon-callable RPC — the /quote page's
+ * only data access). Returns { payload, clinic, createdAt, expiresAt } or
+ * null for unknown/expired/revoked tokens. Each successful resolve bumps
+ * the row's open tracking server-side.
+ */
+export async function fetchSharedQuote(token) {
+  const { data, error } = await supabase.rpc('get_shared_quote', { p_token: token })
+  if (error) throw error
+  return data || null
+}
+
+
+// ============================================================
 // PUSH NOTIFICATIONS
 // ============================================================
 
