@@ -1677,11 +1677,17 @@ export async function finalizePatient(patientId, status, devices, carePlan, note
 // but declines a care plan.
 export const OUTCOME_CONTEXTS = ['new_fit', 'upgrade', 'care_plan_only']
 // 'no_hearing_loss' = Tested No Loss: thresholds within normal limits (≤20 dB),
-// so there was never a recommendation to accept or decline. Excluded from
-// close-rate denominators alongside not_a_candidate (see lib/reportStats.js).
-export const OUTCOME_DISPOSITIONS = ['committed', 'deferred', 'declined', 'not_a_candidate', 'no_hearing_loss', 'no_decision', 'not_applicable']
-export const OUTCOME_REASON_REQUIRED = ['deferred', 'declined']
-export const OUTCOME_REASONS = [
+// so there was never a recommendation to accept or decline. 'did_not_test' =
+// no audiometric test happened this visit (e.g. wax removal only) — the
+// wizard's Testing-step fork; the patient stays a prospect. Both are excluded
+// from close-rate denominators alongside not_a_candidate (see lib/reportStats.js).
+export const OUTCOME_DISPOSITIONS = ['committed', 'deferred', 'declined', 'not_a_candidate', 'no_hearing_loss', 'did_not_test', 'no_decision', 'not_applicable']
+export const OUTCOME_REASON_REQUIRED = ['deferred', 'declined', 'did_not_test']
+// Two reason vocabularies share the outcome_reason enum: decline reasons
+// explain a "no" to a recommendation; no-test reasons explain why no
+// recommendation could exist. validateAppointmentOutcome (and the modal's
+// pickers) keep each disposition on its own list.
+export const DECLINE_REASONS = [
   'price_budget',
   'spouse_family_consult',
   'wants_to_think',
@@ -1691,6 +1697,16 @@ export const OUTCOME_REASONS = [
   'health_life_circumstances',
   'satisfied_with_current_devices',
 ]
+export const NO_TEST_REASONS = [
+  'cerumen_management_only',
+  'patient_declined_testing',
+  'medical_contraindication',
+  'equipment_issue',
+  'ran_out_of_time',
+]
+export const OUTCOME_REASONS = [...DECLINE_REASONS, ...NO_TEST_REASONS]
+export const outcomeReasonsFor = (disposition) =>
+  disposition === 'did_not_test' ? NO_TEST_REASONS : DECLINE_REASONS
 
 // Mirrors the table's CHECK constraints so the modal gets a readable message
 // instead of a Postgres constraint error. Returns null when valid.
@@ -1699,10 +1715,10 @@ export function validateAppointmentOutcome(o) {
   if (!OUTCOME_CONTEXTS.includes(o.context)) return 'Select the appointment context.'
   if (!OUTCOME_DISPOSITIONS.includes(o.deviceDisposition)) return 'Select a device outcome.'
   if (!OUTCOME_DISPOSITIONS.includes(o.carePlanDisposition)) return 'Select a care plan outcome.'
-  if (OUTCOME_REASON_REQUIRED.includes(o.deviceDisposition) && !OUTCOME_REASONS.includes(o.deviceReason)) {
+  if (OUTCOME_REASON_REQUIRED.includes(o.deviceDisposition) && !outcomeReasonsFor(o.deviceDisposition).includes(o.deviceReason)) {
     return 'Select a reason for the device outcome.'
   }
-  if (OUTCOME_REASON_REQUIRED.includes(o.carePlanDisposition) && !OUTCOME_REASONS.includes(o.carePlanReason)) {
+  if (OUTCOME_REASON_REQUIRED.includes(o.carePlanDisposition) && !outcomeReasonsFor(o.carePlanDisposition).includes(o.carePlanReason)) {
     return 'Select a reason for the care plan outcome.'
   }
   if (o.carePlanDisposition === 'committed' && !o.carePlanSelected) {

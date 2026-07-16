@@ -12,7 +12,7 @@
 
 import { useState } from 'react'
 import { COLOR, FONT } from '../theme.js'
-import { OUTCOME_REASON_REQUIRED, OUTCOME_REASONS } from '../db.js'
+import { OUTCOME_REASON_REQUIRED } from '../db.js'
 
 // Close Appointment disposition modal — the required final step of every
 // visit. Captures the two-layer outcome (device / care plan) that feeds the
@@ -41,8 +41,13 @@ export const DISPOSITION_OPTIONS = [
   { id: 'no_decision',     label: 'No decision this visit' },
   { id: 'not_a_candidate', label: 'Not a candidate' },
   { id: 'no_hearing_loss', label: 'Tested — no hearing loss' },
+  { id: 'did_not_test',    label: 'Did not test' },
   { id: 'not_applicable',  label: 'Not applicable' },
 ]
+
+// "Did not test" is a device-layer statement about the visit — it has no
+// meaning as a care-plan outcome, so that layer never offers it.
+const CARE_PLAN_DISPOSITION_OPTIONS = DISPOSITION_OPTIONS.filter(o => o.id !== 'did_not_test')
 
 export const REASON_OPTIONS = [
   { id: 'price_budget',                   label: 'Budget / price' },
@@ -54,6 +59,18 @@ export const REASON_OPTIONS = [
   { id: 'health_life_circumstances',      label: 'Health or life circumstances' },
   { id: 'satisfied_with_current_devices', label: 'Happy with current devices' },
 ]
+
+// Why the test didn't happen — surfaced only for the did_not_test disposition.
+export const NO_TEST_REASON_OPTIONS = [
+  { id: 'cerumen_management_only',  label: 'Wax removal only' },
+  { id: 'patient_declined_testing', label: 'Patient declined testing' },
+  { id: 'medical_contraindication', label: 'Medical issue — needs clearance first' },
+  { id: 'equipment_issue',          label: 'Equipment issue' },
+  { id: 'ran_out_of_time',          label: 'Ran out of time / rescheduled' },
+]
+
+const reasonOptionsFor = (disposition) =>
+  disposition === 'did_not_test' ? NO_TEST_REASON_OPTIONS : REASON_OPTIONS
 
 // App-internal care plan vocabulary (see wizard CARE_PLAN_OPTIONS).
 export const CARE_PLAN_CHOICES = [
@@ -115,12 +132,12 @@ function PillRow({ options, value, onChange }) {
   )
 }
 
-function ReasonPicker({ value, onChange }) {
+function ReasonPicker({ options, value, onChange }) {
   return (
     <div style={{ marginTop: 10 }}>
       <span style={{ ...label, marginBottom: 6 }}>Reason</span>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {REASON_OPTIONS.map(r => {
+        {options.map(r => {
           const selected = value === r.id
           return (
             <button
@@ -174,9 +191,14 @@ export default function CloseAppointmentModal({
 
   const setDeviceDisposition = (id) => {
     setDevice(id)
-    // Medical referral out / normal hearing means there was no care plan
-    // decision to make — auto-set that layer, but leave it editable.
-    if (id === 'not_a_candidate' || id === 'no_hearing_loss') {
+    // The two reason vocabularies don't overlap — a reason picked under the
+    // previous disposition must not survive a switch across vocabularies.
+    if (deviceReason && !reasonOptionsFor(id).some(r => r.id === deviceReason)) {
+      setDeviceReason(null)
+    }
+    // Medical referral out / normal hearing / no test means there was no care
+    // plan decision to make — auto-set that layer, but leave it editable.
+    if (id === 'not_a_candidate' || id === 'no_hearing_loss' || id === 'did_not_test') {
       setCarePlan('not_applicable')
       setCarePlanSelected(null)
     }
@@ -193,8 +215,8 @@ export default function CloseAppointmentModal({
   const problem = (() => {
     if (!device) return 'Select a device outcome.'
     if (!carePlan) return 'Select a care plan outcome.'
-    if (OUTCOME_REASON_REQUIRED.includes(device) && !OUTCOME_REASONS.includes(deviceReason || '')) return 'Select a reason for the device outcome.'
-    if (OUTCOME_REASON_REQUIRED.includes(carePlan) && !OUTCOME_REASONS.includes(carePlanReason || '')) return 'Select a reason for the care plan outcome.'
+    if (OUTCOME_REASON_REQUIRED.includes(device) && !reasonOptionsFor(device).some(r => r.id === deviceReason)) return 'Select a reason for the device outcome.'
+    if (OUTCOME_REASON_REQUIRED.includes(carePlan) && !reasonOptionsFor(carePlan).some(r => r.id === carePlanReason)) return 'Select a reason for the care plan outcome.'
     if (carePlan === 'committed' && !carePlanSelected) return 'Select which care plan was chosen.'
     if (device === 'not_applicable' && carePlan === 'not_applicable') return 'Device and care plan cannot both be "not applicable".'
     return null
@@ -263,14 +285,14 @@ export default function CloseAppointmentModal({
             <span style={label}>Devices</span>
             <PillRow options={DISPOSITION_OPTIONS} value={device} onChange={setDeviceDisposition} />
             {OUTCOME_REASON_REQUIRED.includes(device) && (
-              <ReasonPicker value={deviceReason} onChange={setDeviceReason} />
+              <ReasonPicker options={reasonOptionsFor(device)} value={deviceReason} onChange={setDeviceReason} />
             )}
           </div>
 
           {/* Care plan layer */}
           <div style={{ background: COLOR.paper, borderRadius: 10, padding: '14px 16px' }}>
             <span style={label}>Care plan</span>
-            <PillRow options={DISPOSITION_OPTIONS} value={carePlan} onChange={setCarePlan} />
+            <PillRow options={CARE_PLAN_DISPOSITION_OPTIONS} value={carePlan} onChange={setCarePlan} />
             {carePlan === 'committed' && (
               <div style={{ marginTop: 10 }}>
                 <span style={{ ...label, marginBottom: 6 }}>Plan chosen</span>
@@ -278,7 +300,7 @@ export default function CloseAppointmentModal({
               </div>
             )}
             {OUTCOME_REASON_REQUIRED.includes(carePlan) && (
-              <ReasonPicker value={carePlanReason} onChange={setCarePlanReason} />
+              <ReasonPicker options={reasonOptionsFor(carePlan)} value={carePlanReason} onChange={setCarePlanReason} />
             )}
           </div>
 

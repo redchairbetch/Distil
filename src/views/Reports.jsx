@@ -51,12 +51,14 @@ function rangeToFrom(key) {
 const DISPOSITION_LABELS = {
   committed: "Committed", deferred: "Deferred", declined: "Declined",
   no_decision: "No decision", not_a_candidate: "Not a candidate",
-  no_hearing_loss: "Tested — no loss", not_applicable: "N/A",
+  no_hearing_loss: "Tested — no loss", did_not_test: "Did not test",
+  not_applicable: "N/A",
 };
 const DISPOSITION_COLORS = {
   committed: "#0d9488", deferred: "#b45309", declined: "#dc2626",
   no_decision: "#6b7280", not_a_candidate: "#7c3aed",
-  no_hearing_loss: "#2563eb", not_applicable: "#9ca3af",
+  no_hearing_loss: "#2563eb", did_not_test: "#0891b2",
+  not_applicable: "#9ca3af",
 };
 const REASON_LABELS = {
   price_budget: "Price / budget",
@@ -67,6 +69,12 @@ const REASON_LABELS = {
   insurance_benefit_issue: "Insurance benefit issue",
   health_life_circumstances: "Health / life circumstances",
   satisfied_with_current_devices: "Satisfied with current devices",
+  // did_not_test reasons — why no test happened this visit
+  cerumen_management_only: "Wax removal only",
+  patient_declined_testing: "Patient declined testing",
+  medical_contraindication: "Medical issue — needs clearance",
+  equipment_issue: "Equipment issue",
+  ran_out_of_time: "Ran out of time / rescheduled",
 };
 const CONTEXT_LABELS = { new_fit: "New fittings", upgrade: "Upgrades", care_plan_only: "Care-plan only" };
 const CONTEXT_LABELS_SHORT = { new_fit: "New fit", upgrade: "Upgrade", care_plan_only: "Care plan" };
