@@ -50,6 +50,7 @@ function mapPlatform(row) {
     sourceUrls:          row.source_urls || [],
     verificationStatus:  row.verification_status,
     notes:               row.notes,
+    imageKey:            row.image_key || null,
   }
 }
 
