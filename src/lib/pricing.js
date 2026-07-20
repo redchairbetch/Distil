@@ -175,6 +175,36 @@ export function directPurchaseLockedTech(family, tier) {
   return (family.techLevels || []).find(t => parseInt(t, 10) === num) || null;
 }
 
+// ── Tier-first device selection (Kurt, 2026-07-20) ───────────────────────────
+// The Technology Tier step settles the PRICE before body style. For the
+// standard (non-TruHearing) cascade, the tier label chosen on that step
+// pre-selects each family's matching tech level via the product_catalog_tier
+// ranks — the cross-brand generalization of directPurchaseLockedTech, which
+// stays Signia-number-specific. Label → catalog tier_rank (5 = top). Covers
+// the private-pay anchor labels (Select/Advanced/Standard/Level 2/Level 1)
+// and the TruHearing plan labels (Premium/Advanced/Standard) in one map.
+// NOTE: these are catalog/anchor ranks (5..1, the 6 - sort_order scale), NOT
+// the recommendation engine's ranks (5/3/1/0/-1 in TierSelection).
+export const TIER_LABEL_CATALOG_RANK = {
+  'premium': 5, 'select': 5,
+  'advanced': 4,
+  'standard': 3,
+  'level 2': 2,
+  'level 1': 1,
+};
+
+// The tech level a family offers at the chosen tier's rank, e.g.
+// (Pure Charge&Go IX, "Select") → "7IX"; (Audéo Infinio, "Advanced") → "70".
+// Returns null when the tier label is unknown or the family has no level
+// seeded at that rank — callers leave the level unset and the provider picks.
+export function tierMatchedTech(family, tierLabel, productCatalogTiers) {
+  const rank = TIER_LABEL_CATALOG_RANK[String(tierLabel || '').toLowerCase().trim()];
+  if (!family || rank == null) return null;
+  return (family.techLevels || []).find(
+    t => findTierRank(productCatalogTiers, family.id, t) === rank
+  ) || null;
+}
+
 // (familyId, techLevel) → tier_rank lookup via the product_catalog_tier table.
 // Returns null when the family isn't in the catalog tier table yet (the row
 // would need to be seeded — see migration 008 for the Signia IX 2IX/1IX pass).

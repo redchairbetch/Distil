@@ -28,7 +28,7 @@ import { isTestedNoLoss, buildTnlRetestAppointment, TNL_RETEST_TYPE } from "./li
 import {
   CROS_PRICE_PER_UNIT, isSideCros, manufacturerToClass, uhchCoverageTier,
   nationsCoverageTier, findTierRank, findAnchorForRank, deriveEarPrice, pickBaselinePerAid,
-  directPurchaseLockedTech, resolveClassRetailPerAid,
+  directPurchaseLockedTech, resolveClassRetailPerAid, tierMatchedTech,
 } from "./lib/pricing.js";
 
 // ── Body style images ──
@@ -4612,6 +4612,29 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     });
   }, [directPurchaseActive, form.tier, catalog]);
 
+  // Tier-first (private pay): if the tier changes after a device is picked
+  // (back-nav to the Technology Tier step), re-match each configured side's
+  // tech level to the new tier so the settled price and the device can't
+  // drift apart. Softer than the Direct Purchase relock — a family with no
+  // level seeded at the new tier's rank keeps its current level (the per-ear
+  // recompute keeps the dollars honest either way). Keyed on form.tier only,
+  // never the sides, so a manual level override sticks and nothing loops.
+  useEffect(() => {
+    if (form.payType !== "private" || !form.tier) return;
+    setForm(f => {
+      let changed = false;
+      const rematch = (sd) => {
+        if (!sd.familyId || sd.isCROS) return sd;
+        const fam = catalog.find(e => e.id === sd.familyId);
+        const matched = tierMatchedTech(fam, f.tier, productCatalogTiers);
+        if (matched && sd.techLevel !== matched) { changed = true; return { ...sd, techLevel: matched }; }
+        return sd;
+      };
+      const left = rematch(f.left), right = rematch(f.right);
+      return changed ? { ...f, left, right } : f;
+    });
+  }, [form.payType, form.tier, catalog, productCatalogTiers]);
+
   // Complex commercial/PPO benefit (coinsurance / deductible / OOP) — an
   // alternative pricing method for non-device-driven insurance patients whose
   // VOB the provider entered. Seeded from the loaded patient's coverage.
@@ -5376,10 +5399,53 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           retailAnchors={form.payType === "private" ? retailAnchorsStandard : retailAnchors}
           intakeAnswers={wizardIntake?.answers || null}
           tierBlurbs={TH_TIER_BLURBS}
+          deviceDrivenTpa={form.payType === "insurance" && (form.tpa === "UHCH" || form.tpa === "Nations") ? form.tpa : null}
+          deviceDrivenTiers={selectedInsurancePlan?.tiers || []}
         />
       );
     }
     if (step === 5) {
+
+      // $3,997.50 → "3,997.50", $850 → "850" — whole dollars stay clean.
+      const moneyLabel = (p) => p.toLocaleString("en-US",
+        Number.isInteger(p) ? {} : { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+      // Per-level price for the tech-level pills — surfaces the price
+      // consequence of each level BEFORE it's picked, so overriding the
+      // tier-matched default is an eyes-open price decision. Flat-copay
+      // insurance (TruHearing / Direct Purchase — tierPrice fixed by the
+      // plan) returns null: the level doesn't change what the patient pays.
+      const techLevelPriceInfo = (fam, t) => {
+        if (!fam) return null;
+        if (form.payType === "insurance" && form.tpa === "UHCH") {
+          const covTier = uhchCoverageTier(fam.manufacturer, t);
+          if (!covTier) {
+            // Off-plan → the patient buys at standard retail (with the
+            // acknowledgement form) — show that price, flagged.
+            const rank = findTierRank(productCatalogTiers, fam.id, t);
+            let anchor = findAnchorForRank(retailAnchorsByClass?.[manufacturerToClass(fam.manufacturer)], rank);
+            if (!anchor) anchor = findAnchorForRank(retailAnchorsByClass?.standard, rank);
+            return anchor ? { price: parseFloat(anchor.price_per_aid), offPlan: true } : null;
+          }
+          const p = selectedInsurancePlan?.tiers?.find(x => x.label === covTier)?.price;
+          return p != null ? { price: p } : null;
+        }
+        if (isNationsPatient) {
+          const covTier = nationsCoverageTier(fam, t);
+          if (!covTier) return null; // off-plan pills are already blocked red
+          const p = selectedInsurancePlan?.tiers?.find(x => x.label === covTier)?.price;
+          return p != null ? { price: p } : null;
+        }
+        if (form.payType === "private" || (form.payType === "insurance" && form.tierPrice == null)) {
+          const rank = findTierRank(productCatalogTiers, fam.id, t);
+          if (rank == null) return null;
+          const cls = form.payType === "private" ? manufacturerToClass(fam.manufacturer) : "standard";
+          let anchor = findAnchorForRank(retailAnchorsByClass?.[cls], rank);
+          if (!anchor) anchor = findAnchorForRank(retailAnchorsByClass?.standard, rank);
+          return anchor ? { price: parseFloat(anchor.price_per_aid) } : null;
+        }
+        return null;
+      };
 
       const renderSideColumn = (side) => {
         const s = form[side];
@@ -5400,6 +5466,24 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 {isSideConfigured(side)?"Configured":"Not set"}
               </span>
             </div>
+
+            {/* ── Tier-first: the price was settled on the Technology Tier step;
+                this banner carries it into the cascade so Body Style opens with
+                the investment already framed (mirrors the TruHearing locked-tier
+                chip). Private pay only — flat-copay insurance shows its price in
+                the reveal, and device-driven TPAs price by the device below. ── */}
+            {showStd && !directPurchaseActive && form.payType === "private" && form.tier && (
+              <div style={{background:"#FBF9F3",border:"1px solid #E4E0D5",borderRadius:8,padding:"10px 14px",marginBottom:16}}>
+                <span style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>
+                  {form.tier} technology{form.tierPrice != null ? ` · $${moneyLabel(form.tierPrice)}/aid` : ""}
+                </span>
+                <span style={{fontSize:12,color:"#6b7280"}}> — chosen in Technology Tier</span>
+                <div style={{fontSize:11.5,color:"#6b7280",marginTop:5,lineHeight:1.45}}>
+                  Pick the style and brand below — each model's technology level is matched to this
+                  choice automatically, so the price stays settled while you choose the fit.
+                </div>
+              </div>
+            )}
 
             {/* ── 1. Body Style (standard catalog + Direct Purchase — TH uses its own style picker) ── */}
             {showStd && (
@@ -5470,8 +5554,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                         onClick={famOff ? undefined : ()=>{
                           const autoVar = fam.variants.length===1 ? fam.variants[0] : "";
                           const autoBat = fam.battery.length===1 ? fam.battery[0] : "";
-                          // Direct Purchase locks the tech level to the tier's rank.
-                          const lockTech = directPurchaseActive ? (directPurchaseLockedTech(fam, form.tier) || "") : "";
+                          // Direct Purchase locks the tech level to the tier's rank;
+                          // private pay pre-matches it to the tier settled on the
+                          // Technology Tier step (override stays possible below).
+                          const lockTech = directPurchaseActive
+                            ? (directPurchaseLockedTech(fam, form.tier) || "")
+                            : form.payType === "private"
+                              ? (tierMatchedTech(fam, form.tier, productCatalogTiers) || "")
+                              : "";
                           setForm(f=>({...f,[side]:{...f[side],familyId:fam.id,variant:autoVar,techLevel:lockTech,color:"",battery:autoBat}}));
                         }}>
                         <div className="plan-row-top">
@@ -5517,16 +5607,28 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       return(!isNaN(na)&&!isNaN(nb))?na-nb:a.localeCompare(b);
                     }).map(t=>{
                       const techOff = nationsTechOffPlan(selectedFamily, t);
+                      const pInfo = techOff ? null : techLevelPriceInfo(selectedFamily, t);
                       return (
                       <div key={t} className={`radio-pill ${s.techLevel===t?"active":""}`}
                         title={techOff ? "Not available on the Nations Hearing plan" : undefined}
                         style={techOff ? {opacity:0.6,cursor:"not-allowed",color:"#b91c1c",background:"#fef2f2",borderColor:"#fecaca"} : undefined}
                         onClick={techOff ? undefined : ()=>updSide(side,"techLevel",t)}>
                         <div className="radio-pill-label">{(selectedFamily.techLevelLabels?.[t] || t)}{techOff ? " *" : ""}</div>
+                        {pInfo && (
+                          <div className="radio-pill-sub">
+                            {pInfo.price === 0 ? "No Charge" : `$${moneyLabel(pInfo.price)}/aid`}{pInfo.offPlan ? " retail — off-plan" : ""}
+                          </div>
+                        )}
                       </div>
                       );
                     })}
                   </div>
+                  {form.payType === "private" && form.tier && s.techLevel
+                    && tierMatchedTech(selectedFamily, form.tier, productCatalogTiers) === s.techLevel && (
+                    <div style={{fontSize:11.5,color:"#6b7280",marginTop:8}}>
+                      Matched to your {form.tier} choice from the Technology Tier step — picking a different level changes the price.
+                    </div>
+                  )}
                   {isNationsPatient && selectedFamily.techLevels.some(t => nationsCoverageTier(selectedFamily, t) === null) && (
                     <div style={{fontSize:11.5,color:"#b91c1c",marginTop:8}}>
                       * Not available on the Nations Hearing plan.

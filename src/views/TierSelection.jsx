@@ -23,6 +23,7 @@ import {
   flaggedEffortSignals,
 } from "../listeningSituations.js";
 import { EnvironmentCoverage } from "../components/CoverageBars.jsx";
+import { findAnchorForRank, TIER_LABEL_CATALOG_RANK } from "../lib/pricing.js";
 
 // Technology Tier Selection — wizard step between Results and Device
 // Selection. Shows the patient three tier cards (filtered by insurance
@@ -106,6 +107,23 @@ function rankToLabel(rank) {
   return "—";
 }
 
+// Engine rank → neutral processing language for device-driven plans (UHCH /
+// Nations). Their price bands use their OWN tier vocabulary ("Advanced" means
+// something different — and a different dollar amount — on Nations' ladder),
+// so the recommendation deliberately avoids the Premium/Advanced/Standard
+// words there to keep the two vocabularies from being conflated.
+function rankToProcessingLabel(rank) {
+  if (rank === 5) return "top-of-the-line";
+  if (rank === 3) return "mid-line";
+  if (rank === 1) return "essential";
+  return null;
+}
+
+// $3,997.50 → "3,997.50", $850 → "850" — whole dollars stay clean, real
+// cents render as cents.
+const money = (n) => Number(n).toLocaleString("en-US",
+  Number.isInteger(Number(n)) ? {} : { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 export default function TierSelection({
   patientId, clinicId,
   selectedTier, onSelectTier,
@@ -113,6 +131,12 @@ export default function TierSelection({
   retailAnchors,
   intakeAnswers,
   tierBlurbs = {},
+  // Device-driven managed care (UHCH / Nations): no tier pick exists — the
+  // chosen device sets the price. The step still carries the recommendation
+  // conversation (intake reflection + engine pick + the plan's price bands)
+  // so the price frame is settled before body style, per the tier-first flow.
+  deviceDrivenTpa = null,
+  deviceDrivenTiers = [],
 }) {
   const [engineResult, setEngineResult] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -202,6 +226,21 @@ export default function TierSelection({
   // losing the recommendation context, and pricing updates downstream.
   const cardsSelectable = !loading && availableTiers.length > 0;
 
+  // Retail anchoring for insurance tiers — the patient's copay is the
+  // headline; the clinic retail anchor renders as "full retail value" WITH
+  // the savings alongside (pricing doctrine: never retail without savings).
+  // Private-pay tier prices ARE the retail anchors, so no comparison there.
+  const savingsFor = (tier) => {
+    if (tier.source !== "insurance" || tier.price == null) return null;
+    const rank = TIER_LABEL_CATALOG_RANK[String(tier.label || "").toLowerCase().trim()];
+    const anchor = findAnchorForRank(retailAnchors, rank);
+    if (!anchor) return null;
+    const retail = parseFloat(anchor.price_per_aid);
+    const amount = retail - tier.price;
+    if (!(retail > 0) || amount <= 0) return null;
+    return { retail, amount, pct: Math.round((amount / retail) * 100) };
+  };
+
   // Adopt the engine's pick as the default selection when no tier is
   // chosen yet, or when the prior choice is no longer valid for the
   // current tier list (e.g. plan changed via back-nav). Once the user
@@ -220,6 +259,74 @@ export default function TierSelection({
   }, [recommended?.tier?.label, recommended?.tier?.price, availableTiers]);
 
   if (availableTiers.length === 0) {
+    // Device-driven managed care: keep the recommendation conversation on
+    // this screen even though there is no tier to pick — the plan's price
+    // bands frame the investment before body style comes up at all.
+    if (deviceDrivenTpa) {
+      const tpaName = deviceDrivenTpa === "UHCH" ? "United Healthcare Hearing"
+        : deviceDrivenTpa === "Nations" ? "Nations Hearing"
+        : deviceDrivenTpa;
+      const processing = rankToProcessingLabel(engineResult?.recommended_tier_rank);
+      return (
+        <div style={{ background: COLOR.card, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 24, boxShadow: SHADOW.md, fontFamily: FONT.ui }}>
+          <div style={{ fontFamily: FONT.display, fontSize: 22, fontWeight: 600, color: TEXT, letterSpacing: "0.1px" }}>
+            Here's what we found — and what it will cost
+          </div>
+          <div style={{ fontSize: 13, color: FAINT, marginTop: 3, marginBottom: 18 }}>
+            Based on what you told us and your hearing test.
+          </div>
+
+          <IntakeReflection flagged={flagged} effortSignals={effortSignals} hasIntakeAnswers={hasIntakeAnswers} />
+
+          {loading ? (
+            <div style={{ background:BG_SOFT, border:`1px solid ${BORDER}`, borderRadius:8, padding:"10px 14px", fontSize:13, color:MUTED }}>
+              Computing recommendation…
+            </div>
+          ) : engineError ? (
+            <div style={{ background:"#fef9c3", border:"1px solid #fde047", borderRadius:8, padding:"10px 14px", fontSize:13, color:"#854d0e" }}>
+              {engineError}
+            </div>
+          ) : processing ? (
+            <div style={{ background:TEAL_BG, borderLeft:`4px solid ${TEAL}`, borderRadius:6, padding:"12px 16px" }}>
+              <div style={{ fontSize:13, fontWeight:700, color:TEAL_DARK, marginBottom:4 }}>
+                Recommended: {processing} processing
+              </div>
+              <div style={{ fontSize:13, color:TEXT, lineHeight:1.5 }}>
+                {engineResult?.generated_rationale_text}
+              </div>
+            </div>
+          ) : null}
+
+          {deviceDrivenTiers.length > 0 && (
+            <div style={{ marginTop:18 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: TEAL_DARK, marginBottom: 9 }}>
+                Your plan's price bands
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
+                {deviceDrivenTiers.map(t => (
+                  <div key={t.label} style={{
+                    display:"flex", alignItems:"baseline", justifyContent:"space-between",
+                    border:`1px solid ${BORDER}`, borderRadius:8, padding:"10px 14px", background:BG_SOFT,
+                  }}>
+                    <span style={{ fontSize:13, fontWeight:600, color:TEXT }}>{t.label}</span>
+                    <span style={{ fontFamily:FONT.display, fontSize:16, fontWeight:700, color:TEXT }}>
+                      {t.price === 0 ? "No Charge" : t.price != null ? `$${money(t.price)}` : "—"}
+                      {t.price != null && t.price !== 0 && <span style={{ fontSize:11, fontWeight:600, color:MUTED, marginLeft:5 }}>per aid</span>}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={{ marginTop:16, fontSize:12.5, color:MUTED, lineHeight:1.55 }}>
+            {tpaName} prices by the specific device rather than a technology level you pick here —
+            every covered device falls into one of the price bands above. On the next step we'll
+            choose the device together, which settles your exact price before style and fit details.
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="card">
         <div className="card-title">Technology Tier</div>
@@ -241,6 +348,7 @@ export default function TierSelection({
           selectable={cardsSelectable}
           blurb={tierBlurbs[tier.label]}
           flagged={flagged}
+          savings={savingsFor(tier)}
           onSelect={() => onSelectTier(tier.label, tier.price)}
         />
       ))}
@@ -252,17 +360,23 @@ export default function TierSelection({
       <div style={{ fontFamily: FONT.display, fontSize: 22, fontWeight: 600, color: TEXT, letterSpacing: "0.1px" }}>
         Here's what we found — and your options
       </div>
-      <div style={{ fontSize: 13, color: FAINT, marginTop: 3, marginBottom: isPrivateLabel ? 8 : 18 }}>
+      <div style={{ fontSize: 13, color: FAINT, marginTop: 3, marginBottom: (isPrivateLabel || payType === "private") ? 8 : 18 }}>
         Based on what you told us and your hearing test.
       </div>
-      {/* Two-axis framing for private-label (TruHearing) flows: this step
-          decides the TECHNOLOGY LEVEL; the next step's model number is the
-          platform generation. Seeding that here keeps the model pills from
-          reading like a second tier decision. */}
+      {/* Price-first framing: this step settles the technology level AND the
+          price before any body-style talk. For private-label (TruHearing) it
+          also disarms the two-axis confusion — the next step's model number
+          is the platform generation, not a second tier decision. */}
       {isPrivateLabel && (
         <div style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.5, marginBottom: 18 }}>
           This choice sets the level of sound processing inside your hearing aids — and your price per aid.
           On the next step you'll pick the model and style; every model comes with the technology level you choose here.
+        </div>
+      )}
+      {payType === "private" && !isPrivateLabel && (
+        <div style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.5, marginBottom: 18 }}>
+          This choice settles your investment level first. On the next step you'll pick the brand,
+          style, and model — whatever you choose there is matched to the technology level you select here.
         </div>
       )}
 
@@ -393,7 +507,7 @@ function RecommendationBanner({ loading, engineError, recommended, rationaleText
   );
 }
 
-function TierCard({ tier, selected, recommended, selectable, blurb, flagged, onSelect }) {
+function TierCard({ tier, selected, recommended, selectable, blurb, flagged, savings, onSelect }) {
   const rank = tierLabelToRank(tier.label);
   const coverage = rank != null ? COVERAGE_BY_RANK[rank] : null;
   const effortCopy = rank != null ? TIER_EFFORT_COPY[rank] : null;
@@ -435,6 +549,21 @@ function TierCard({ tier, selected, recommended, selectable, blurb, flagged, onS
 
       <div style={{ padding:"16px 16px 12px" }}>
         <div style={{ fontFamily:FONT.display, fontSize:19, fontWeight:600, color:TEXT }}>{tier.label}</div>
+        {/* Patient cost is the card's headline number — this step is where
+            the price gets settled, before any body-style conversation. */}
+        <div style={{ marginTop:6, display:"flex", alignItems:"baseline", gap:6, flexWrap:"wrap" }}>
+          <span style={{ fontFamily:FONT.display, fontSize:26, fontWeight:700, color:TEXT }}>
+            {tier.price === 0 ? "No Charge" : tier.price != null ? `$${money(tier.price)}` : "—"}
+          </span>
+          {tier.price != null && tier.price !== 0 && (
+            <span style={{ fontSize:12, fontWeight:600, color:MUTED }}>per aid</span>
+          )}
+        </div>
+        {savings && (
+          <div style={{ marginTop:5, fontSize:12, lineHeight:1.45, color:BRASS_INK }}>
+            Full retail value ${money(savings.retail)} — your plan saves you ${money(savings.amount)} ({savings.pct}%) per aid
+          </div>
+        )}
         {/* Listening effort is the tier's primary description (effort pivot) —
             who does the work of separating speech from noise at this level.
             The feature blurb demotes to a secondary line underneath. */}
