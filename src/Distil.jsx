@@ -148,6 +148,7 @@ import { buildQuoteSharePayload, QUOTE_SHARE_VALID_DAYS } from "./lib/quoteShare
 import TnsReasonsPicker from "./components/TnsReasonsPicker.jsx";
 import { TNS_TAG_BY_ID } from "./tns_tags.js";
 import CreateQuoteModal from "./components/CreateQuoteModal.jsx";
+import PurchaseAgreementModal from "./components/PurchaseAgreementModal.jsx";
 import SendMessageModal from "./components/SendMessageModal.jsx";
 import ContentLibrary from "./views/ContentLibrary.jsx";
 import NurturePreview from "./views/NurturePreview.jsx";
@@ -1847,10 +1848,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     : { fullName: staffProfile?.fullName || "Provider", activeLicense: staffProfile?.activeLicense || "", signatureUrl: staffProfile?.signatureUrl || null };
   const paSignatureB64 = (isCloser && closerProvider) ? closerSignatureB64 : providerSignatureB64;
   const [showPurchaseAgreement, setShowPurchaseAgreement] = useState(false);
+  // Configuration handed off from the Custom Quote's "Purchase Agreement →"
+  // button — null when the agreement opens directly from the profile (it
+  // then pre-fills from the saved chart).
+  const [paPrefill, setPaPrefill] = useState(null);
   const [paSignatureName, setPaSignatureName] = useState("");
-  const [paStep, setPaStep] = useState("sign"); // 'sign' | 'delivery' | 'done'
-  const [paDeliveryName, setPaDeliveryName] = useState("");
-  const [paDeliveryDate, setPaDeliveryDate] = useState("");
+  const [paStep, setPaStep] = useState("sign"); // wizard PA: 'review' | 'sign'
 
   // ── Wizard PA / Quote fork state ─────────────────────────────────────
   const [showWizardPaModal, setShowWizardPaModal] = useState(false);
@@ -7460,14 +7463,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               Custom Quote
             </button>
-            {p.devices && (p.carePlan || p.payType === "private") && (
-              <button
-                style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
-                onClick={() => { setPaSignatureName(""); setPaDeliveryName(""); setPaDeliveryDate(""); setPaStep("sign"); setShowPurchaseAgreement(true); }}
-              >
-                <span style={{fontSize:14}}>📄</span> Generate Purchase Agreement
-              </button>
-            )}
+            <button
+              style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
+              onClick={() => { setPaPrefill(null); setShowPurchaseAgreement(true); }}
+              title="Pick devices, pricing, and care plan, sign, and save the agreed configuration to the chart"
+            >
+              <span style={{fontSize:14}}>📄</span> Generate Purchase Agreement
+            </button>
             <button
               style={{background:"#f1f5f9",color:"#475569",border:"1px solid #cbd5e1",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
               onClick={() => setShowSendNotification(true)}
@@ -7633,6 +7635,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             }}
             onClose={() => setShowCreateQuote(false)}
             onArchived={() => { refreshDocuments?.(); }}
+            onConvertToAgreement={(state) => {
+              setShowCreateQuote(false);
+              setPaPrefill(state);
+              setShowPurchaseAgreement(true);
+            }}
           />
         )}
 
@@ -7647,235 +7654,45 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         )}
 
         {/* ── PURCHASE AGREEMENT MODAL ──────────────────────────────────── */}
-        {showPurchaseAgreement && (() => {
-          const cpId = p.carePlan;
-          const hasDevices = p.devices?.left || p.devices?.right;
-          const canGenerate = paSignatureName.trim().length > 2;
-          // Private pay reads from the snapshot persisted at finalize.
-          // Legacy records (pre-migration) fall back to the historical $2,750.
-          const isPrivate = p.payType === 'private';
-          const pricePerAid = isPrivate
-            ? (p.privatePay?.tierPrice || 2750)
-            : (p.insurance?.tierPrice || 0);
-          const isBilateral = (p.devices?.fittingType === 'bilateral' || p.devices?.fittingType === 'cros_bicros');
-          const aidCount = isBilateral ? 2 : 1;
-          // Private pay bundles the care plan into the per-aid retail price.
-          const carePlanCost = isPrivate ? 0 : (cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0);
-          // CROS sides flat at $1,250 — except TruHearing transmitters, which
-          // bill at the coordinating technology-level instrument price (the
-          // snapshotted per-aid copay) per Kurt. Non-CROS sides use the
-          // snapshotted pricePerAid. deviceTotal becomes the true pair total.
-          const sideHasCros = (s) => !!s && /^(CROS|BICROS)/i.test(s.variant || '');
-          const crosUnitP = (s) => s?.manufacturer === 'TruHearing' ? pricePerAid : CROS_PRICE_PER_UNIT;
-          const leftEarP  = p.devices?.left  ? (sideHasCros(p.devices.left)  ? crosUnitP(p.devices.left)  : pricePerAid) : null;
-          const rightEarP = p.devices?.right ? (sideHasCros(p.devices.right) ? crosUnitP(p.devices.right) : pricePerAid) : null;
-          const deviceTotal = (leftEarP || 0) + (rightEarP || 0) || pricePerAid * aidCount;
-          const totalPurchasePrice = deviceTotal + carePlanCost;
-
-          const handleGeneratePDF = async (includeDelivery = false) => {
-            if (closerNeedsLocation) { alert("Set your dispensing location in the sidebar before generating a purchase agreement."); setShowCloserPicker(true); return; } const { blob, fileName } = downloadPurchaseAgreement({
-              patient: { name: p.name, address: p.address, phone: p.phone, dob: p.dob },
-              devices: {
-                fittingType: p.devices?.fittingType || 'bilateral',
-                left: p.devices?.left || null,
-                right: p.devices?.right || null,
-              },
-              carePlan: cpId,
-              pricePerAid,
-              leftPrice: leftEarP,
-              rightPrice: rightEarP,
-              payType: p.payType,
-              clinic: paClinic,
-              provider: paProvider,
-              patientSignature: paSignatureName.trim(),
-              patientSignatureDate: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-              deliverySignature: includeDelivery ? paDeliveryName.trim() || null : null,
-              deliveryDate: includeDelivery ? paDeliveryDate || null : null,
-              signatureImageBase64: paSignatureB64,
-            });
-
-            // Always archive to chart — paper trail required for compliance.
-            try {
-              await uploadPatientDocument({
-                patientId: p.id,
-                clinicId,
-                staffId,
-                kind: 'purchase_agreement',
-                blob, fileName,
-                metadata: {
-                  carePlan: cpId,
-                  pricePerAid,
-                  aidCount,
-                  deviceTotal,
-                  carePlanCost,
-                  totalPurchasePrice,
-                  fittingType: p.devices?.fittingType || 'bilateral',
-                  payType: p.payType,
-                  patientSignature: paSignatureName.trim(),
-                  includesDelivery: includeDelivery,
-                  deliverySignature: includeDelivery ? (paDeliveryName.trim() || null) : null,
-                  deliveryDate: includeDelivery ? (paDeliveryDate || null) : null,
-                  providerName: paProvider.fullName || null,
-                },
+        {showPurchaseAgreement && (
+          <PurchaseAgreementModal
+            patient={p}
+            clinic={paClinic}
+            provider={paProvider}
+            signatureImageBase64={paSignatureB64}
+            clinicId={clinicId}
+            staffId={staffId}
+            catalog={catalog}
+            insurancePlans={activePlans}
+            productCatalogTiers={productCatalogTiers}
+            anchorsByClass={retailAnchorsByClass}
+            resolveRetailPerAid={(side) => {
+              // Clinic retail anchor for a device side — same resolution the
+              // Custom Quote uses, so agreement discounts anchor to the real
+              // clinic price regardless of the patient's pay type.
+              if (!side || !side.familyId || !side.techLevel) return null;
+              const ep = deriveEarPrice(side, {
+                form: { payType: "private" },
+                catalog,
+                productCatalogTiers,
+                anchorsByClass: retailAnchorsByClass,
+                plans: activePlans,
               });
-              await refreshDocuments();
-            } catch (e) {
-              console.error('Archive purchase agreement:', e);
-              alert('Purchase agreement downloaded, but failed to archive to chart: ' + (e.message || e));
-            }
-
-            // Convert TNS patient to active when PA is signed
-            if (p.patientStatus === "tns") {
-              try {
-                const years = p.payType === "insurance" && p.carePlan === "complete" ? 4 : 3;
-                await convertTnsToActive(p.id, years);
-                const fittingDate = new Date().toISOString().split("T")[0];
-                const expiry = new Date();
-                expiry.setFullYear(expiry.getFullYear() + years);
-                const warrantyExpiry = expiry.toISOString().split("T")[0];
-                const updated = {
-                  ...p,
-                  patientStatus: "active",
-                  devices: { ...p.devices, fittingDate, warrantyExpiry },
-                };
-                setSelectedPatient(updated);
-                await refreshPatients();
-              } catch (e) { console.error("convertTnsToActive:", e); }
-            }
-            setShowPurchaseAgreement(false);
-          };
-
-          return (
-            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(10,22,40,0.55)",backdropFilter:"blur(4px)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setShowPurchaseAgreement(false)}>
-              <div style={{background:"white",borderRadius:16,padding:32,width:520,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}} onClick={e=>e.stopPropagation()}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-                  <div>
-                    <div style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:18,color:"#0a1628"}}>Purchase Agreement</div>
-                    <div style={{fontFamily:"'Sora',sans-serif",fontSize:12,color:"#6b7280",marginTop:2}}>{p.name}</div>
-                  </div>
-                  <button onClick={()=>setShowPurchaseAgreement(false)} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#9ca3af",padding:4}}>✕</button>
-                </div>
-
-                {/* Summary */}
-                <div style={{background:"#FBF9F3",borderRadius:10,padding:16,marginBottom:20,border:"1px solid #E4E0D5"}}>
-                  <div style={{fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:11,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,marginBottom:8}}>Agreement Summary</div>
-                  {hasDevices && (
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#374151"}}>{p.devices?.left?.manufacturer || p.devices?.right?.manufacturer} {p.devices?.left?.family || p.devices?.right?.family} ({isBilateral ? 'pair' : 'single'})</span>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:600,color:"#0a1628"}}>${deviceTotal.toLocaleString('en-US',{minimumFractionDigits:2})}</span>
-                    </div>
-                  )}
-                  {cpId && cpId !== 'paygo' && (
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#374151"}}>{cpId === 'complete' ? 'Complete Care+' : 'MHC Punch Card'}</span>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:600,color: isPrivate ? '#15803d' : '#0a1628'}}>{isPrivate ? 'Included' : (cpId === 'complete' ? '$1,250.00' : '$575.00')}</span>
-                    </div>
-                  )}
-                  {cpId === 'paygo' && (
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#6b7280",fontStyle:"italic"}}>Standard Billing ($65 per visit)</span>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#6b7280"}}>$0.00</span>
-                    </div>
-                  )}
-                  <div style={{borderTop:"1px solid #E4E0D5",marginTop:8,paddingTop:8,display:"flex",justifyContent:"space-between"}}>
-                    <span style={{fontFamily:"'Sora',sans-serif",fontSize:14,fontWeight:700,color:"#0a1628"}}>Total</span>
-                    <span style={{fontFamily:"'Sora',sans-serif",fontSize:14,fontWeight:700,color:"#0a1628"}}>${totalPurchasePrice.toLocaleString('en-US',{minimumFractionDigits:2})}</span>
-                  </div>
-                </div>
-
-                {paStep === "sign" && (
-                  <>
-                    {/* Adopt and Sign */}
-                    <div style={{marginBottom:20}}>
-                      <div style={{fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:11,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,marginBottom:8}}>Patient Signature — Adopt and Sign</div>
-                      <div style={{fontFamily:"'Sora',sans-serif",fontSize:12,color:"#6b7280",marginBottom:10}}>Type your full legal name to electronically sign this agreement.</div>
-                      <input
-                        value={paSignatureName}
-                        onChange={e => setPaSignatureName(e.target.value)}
-                        placeholder="Full legal name"
-                        autoFocus
-                        style={{width:"100%",padding:"12px 14px",border:"1px solid #E4E0D5",borderRadius:10,fontFamily:"'Sora',sans-serif",fontSize:14,outline:"none",boxSizing:"border-box"}}
-                      />
-                      {paSignatureName.trim().length > 2 && (
-                        <div style={{marginTop:12,padding:"14px 18px",background:"#FBF9F3",borderRadius:10,border:"1px dashed #d1d5db"}}>
-                          <div style={{fontFamily:"'Georgia','Times New Roman',serif",fontSize:24,fontStyle:"italic",color:"#0a1628",letterSpacing:0.5}}>{paSignatureName}</div>
-                          <div style={{fontFamily:"'Sora',sans-serif",fontSize:10,color:"#9ca3af",marginTop:4}}>Electronic signature preview</div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div style={{display:"flex",gap:10}}>
-                      <button
-                        disabled={!canGenerate}
-                        onClick={() => handleGeneratePDF(false)}
-                        style={{flex:1,background:canGenerate?"#0a1628":"#d1d5db",color:"white",border:"none",borderRadius:10,padding:"12px 20px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,cursor:canGenerate?"pointer":"not-allowed",transition:"all 0.15s"}}
-                      >
-                        Adopt, Sign & Download
-                      </button>
-                      <button
-                        onClick={() => setPaStep("delivery")}
-                        style={{background:"none",border:"1px solid #E4E0D5",borderRadius:10,padding:"12px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",color:"#6b7280",whiteSpace:"nowrap"}}
-                      >
-                        + Delivery
-                      </button>
-                    </div>
-                  </>
-                )}
-
-                {paStep === "delivery" && (
-                  <>
-                    {/* Show patient signature as confirmed */}
-                    <div style={{background:"#ecfdf5",borderRadius:10,padding:12,marginBottom:16,border:"1px solid #a7f3d0",display:"flex",alignItems:"center",gap:8}}>
-                      <span style={{color:"#16a34a",fontSize:16}}>✓</span>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#065f46"}}>Purchase signed by {paSignatureName}</span>
-                    </div>
-
-                    <div style={{marginBottom:16}}>
-                      <div style={{fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:11,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,marginBottom:8}}>Delivery Acknowledgement</div>
-                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                        <div>
-                          <label style={{fontFamily:"'Sora',sans-serif",fontSize:11,color:"#6b7280",display:"block",marginBottom:4}}>Patient Name</label>
-                          <input
-                            value={paDeliveryName}
-                            onChange={e => setPaDeliveryName(e.target.value)}
-                            placeholder="Full legal name"
-                            autoFocus
-                            style={{width:"100%",padding:"10px 12px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}}
-                          />
-                        </div>
-                        <div>
-                          <label style={{fontFamily:"'Sora',sans-serif",fontSize:11,color:"#6b7280",display:"block",marginBottom:4}}>Delivery Date</label>
-                          <input
-                            type="date"
-                            value={paDeliveryDate}
-                            onChange={e => setPaDeliveryDate(e.target.value)}
-                            style={{width:"100%",padding:"10px 12px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}}
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{display:"flex",gap:10}}>
-                      <button
-                        onClick={() => setPaStep("sign")}
-                        style={{background:"none",border:"1px solid #E4E0D5",borderRadius:10,padding:"12px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",color:"#6b7280"}}
-                      >
-                        ← Back
-                      </button>
-                      <button
-                        onClick={() => handleGeneratePDF(true)}
-                        disabled={!paDeliveryName.trim() || !paDeliveryDate}
-                        style={{flex:1,background:(paDeliveryName.trim()&&paDeliveryDate)?"#0a1628":"#d1d5db",color:"white",border:"none",borderRadius:10,padding:"12px 20px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,cursor:(paDeliveryName.trim()&&paDeliveryDate)?"pointer":"not-allowed",transition:"all 0.15s"}}
-                      >
-                        Sign & Download with Delivery
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          );
-        })()}
+              return ep && ep.price != null ? ep.price : null;
+            }}
+            initialState={paPrefill}
+            closerNeedsLocation={closerNeedsLocation}
+            onNeedLocation={() => { alert("Set your dispensing location in the sidebar before generating a purchase agreement."); setShowCloserPicker(true); }}
+            onClose={() => { setShowPurchaseAgreement(false); setPaPrefill(null); }}
+            onArchived={() => { refreshDocuments?.(); }}
+            onChartSaved={async (patch) => {
+              // Optimistic merge so the open chart reflects the agreement
+              // immediately; the roster refresh pulls the canonical rows.
+              setSelectedPatient({ ...p, ...patch });
+              try { await refreshPatients(); } catch (e) { console.error("refreshPatients:", e); }
+            }}
+          />
+        )}
 
         <div className="content">
           {p.patientStatus === "tns" && (

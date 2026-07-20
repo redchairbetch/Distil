@@ -1516,6 +1516,44 @@ export async function updatePatientDevices(patientId, devices, staffId, visitId 
   }
 }
 
+// Record the device configuration sold on a signed purchase agreement as a
+// NEW fitting row + sides. Deliberately history-preserving — unlike
+// updatePatientDevices' replace pattern, prior fittings survive (an upgrade
+// patient's original aids stay on record), and assemblePatient's pickNewest
+// makes the just-inserted row the chart's current fitting. Stamps
+// fitting_date (the purchase date) and warranty_expiry directly. Throws on
+// failure so the caller can surface a chart-not-updated warning.
+export async function recordPurchaseFitting(patientId, devices, staffId, { fittingDate = null, warrantyExpiry = null } = {}) {
+  if (!devices) return null
+  const fittingType = (devices.fittingType || 'bilateral')
+    .toLowerCase().replace('/', '_').replace(' ', '_')
+
+  const { data: fittingRow, error: fittingError } = await supabase
+    .from('device_fittings')
+    .insert({
+      patient_id:      patientId,
+      visit_id:        null,
+      fitted_by:       staffId,
+      fitting_type:    fittingType,
+      fitting_date:    fittingDate,
+      warranty_expiry: warrantyExpiry,
+      serial_left:     devices.serialLeft  || null,
+      serial_right:    devices.serialRight || null,
+    })
+    .select()
+    .single()
+  if (fittingError) throw fittingError
+
+  const sidesToInsert = []
+  if (devices.left)  sidesToInsert.push(buildSideRow(fittingRow.id, 'left', devices.left))
+  if (devices.right) sidesToInsert.push(buildSideRow(fittingRow.id, 'right', devices.right))
+  if (sidesToInsert.length) {
+    const { error } = await supabase.from('device_sides').insert(sidesToInsert)
+    if (error) throw error
+  }
+  return fittingRow
+}
+
 // Step 4 — save care plan selection
 export async function updatePatientCarePlan(patientId, carePlan) {
   const { error } = await supabase

@@ -146,6 +146,11 @@ export default function CreateQuoteModal({
   resolveRetailPerAid,
   onClose,
   onArchived,
+  // Hand the current configuration off to the Purchase Agreement flow —
+  // the parent closes this modal and opens PurchaseAgreementModal with the
+  // same devices/pricing/care plan pre-filled, so a quote the patient says
+  // yes to becomes the agreement without re-entering anything.
+  onConvertToAgreement,
 }) {
   const patientTpa = patient?.insurance?.tpa || null
 
@@ -439,6 +444,17 @@ export default function CreateQuoteModal({
     && earsResolved
     && planPriced
     && !generating
+
+  // Everything PurchaseAgreementModal needs to open pre-filled with this
+  // quote's exact configuration.
+  const agreementState = () => ({
+    payType, carePlan, planCarrier, planGroup, planTier,
+    hasLeft, hasRight,
+    left: { ...left }, right: { ...right },
+    leftPrice, rightPrice,
+    leftDisc: { ...leftDisc }, rightDisc: { ...rightDisc },
+    reasonCode, reasonText,
+  })
 
   const handleGenerate = async () => {
     if (!canGenerate) return
@@ -885,7 +901,18 @@ export default function CreateQuoteModal({
             </div>
           )}
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            {onConvertToAgreement && (
+              <button
+                onClick={() => onConvertToAgreement(agreementState())}
+                title="Patient said yes — open the purchase agreement pre-filled with this quote's devices, pricing, and care plan"
+                style={{
+                  padding: '9px 18px', fontSize: 13, fontWeight: 600,
+                  background: C.ink, color: 'white',
+                  border: 'none', borderRadius: 6, cursor: 'pointer',
+                }}
+              >Purchase Agreement →</button>
+            )}
             <button
               onClick={onClose}
               style={{
@@ -1147,6 +1174,19 @@ export default function CreateQuoteModal({
               cursor: 'pointer',
             }}
           >Cancel</button>
+          {onConvertToAgreement && (
+            <button
+              onClick={() => canGenerate && onConvertToAgreement(agreementState())}
+              disabled={!canGenerate}
+              title="Skip the quote — take this configuration straight to a signed purchase agreement"
+              style={{
+                padding: '9px 18px', fontSize: 13, fontWeight: 600,
+                background: canGenerate ? C.ink : '#9ca3af',
+                color: 'white', border: 'none', borderRadius: 6,
+                cursor: canGenerate ? 'pointer' : 'not-allowed',
+              }}
+            >Purchase Agreement →</button>
+          )}
           <button
             onClick={handleGenerate}
             disabled={!canGenerate}
