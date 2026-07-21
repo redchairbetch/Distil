@@ -158,6 +158,7 @@ import FollowUpQueue, { countFollowUpPatients } from "./views/FollowUpQueue.jsx"
 import CommsInbox from "./views/CommsInbox.jsx";
 import ProvidersAdmin from "./views/ProvidersAdmin.jsx";
 import NationsCatalog from "./views/NationsCatalog.jsx";
+import HearingAidCatalog from "./views/HearingAidCatalog.jsx";
 import AdjustmentHistory from "./views/AdjustmentHistory.jsx";
 import CloserLocationPicker from "./views/CloserLocationPicker.jsx";
 import AdjustPriceModal from "./views/AdjustPriceModal.jsx";
@@ -9932,7 +9933,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             {/* "Schedule" deliberately absent: calendaring was dropped as a product
                 decision — clinics have scheduling tools; Distil tracks
                 next_appointment_date only. */}
-            {[["dashboard","Dashboard","dashboard"],["users","Patients","patients"],["bell","Follow-up","followup"],["archive","Archive","archive"],["chart","Reports","reports"],["compare","Compare Devices","compare"],["campaign","Campaigns","campaigns"],["book","Content Library","content"],["medal","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
+            {[["dashboard","Dashboard","dashboard"],["users","Patients","patients"],["bell","Follow-up","followup"],["archive","Archive","archive"],["chart","Reports","reports"],["compare","Compare Devices","compare"],["clipboard","Market Catalog","market-catalog"],["campaign","Campaigns","campaigns"],["book","Content Library","content"],["medal","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
               const badge = id === "followup" ? countFollowUpPatients(patients) : 0;
               return (
               <div key={id} className={`nav-item ${view===id||(id==="dashboard"&&view==="new")||(id==="patients"&&(view==="dashboard"||view==="patient"))?"active":""}`}
@@ -10157,6 +10158,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           {view === "providers" && (checkRole(staffRole, ["admin"]) ? <ProvidersAdmin /> : renderAdminDenied())}
           {view === "insurance-plans" && (checkRole(staffRole, ["admin"]) ? renderInsurancePlans() : renderAdminDenied())}
           {view === "nations-catalog" && (checkRole(staffRole, ["admin"]) ? <NationsCatalog /> : renderAdminDenied())}
+          {view === "market-catalog" && <HearingAidCatalog />}
           {view === "team" && (checkRole(staffRole, ["admin"]) ? <TeamAdmin activeClinicId={clinicId} /> : renderAdminDenied())}
           {view === "adjustments" && <AdjustmentHistory staffId={staffId} patients={patients} />}
           {view === "rebates" && renderRebates()}
