@@ -24,6 +24,23 @@ coverage degrades gracefully.
   credentialed for — not image search. Verify usage rights before anything
   ships patient-facing.
 
+## Fast path: the 2026 catalog URL map
+
+`scripts/device-image-sources.tsv` maps 55 of these keys to image URLs curated
+from the US Hearing Aid Catalog 2026 reference page (manufacturer CDN product
+renders where available). `scripts/fetch-device-images.sh` downloads and
+normalizes them in one shot — run it on a machine with open internet (the
+Claude Code cloud sandbox blocks these CDNs), then visually vet before
+committing: a handful of sources are lifestyle photos, not packshots.
+
+Not covered by that map (source manually): all Widex keys (brand absent from
+the catalog), older generations (`signia-pure-nx`/`-x`/`-ux`, `oticon-opn`,
+`starkey-livio`, `resound-linx-quattro`, `rexton-my-core`), `phonak-naida-infinio`,
+`rexton-reach-sr`, `rexton-bicore-bte`, `starkey-genesis-bte`, `resound-key-custom`,
+`jabra-enhance-select`, `sennheiser-all-day-clear`, `th5-bte`, `th5-bte-sp`,
+`th5-if`, `th19-bte`, `th-custom-ite`, and the remaining OTC tail (Apple, Eargo,
+Sony, Lexie, HP).
+
 ## Sourcing checklist
 
 ### TruHearing — provider portal (portal product pages / Winter 2025 catalog PDF)

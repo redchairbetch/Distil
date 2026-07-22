@@ -1,0 +1,61 @@
+# image_key <TAB> source URL — curated from the US Hearing Aid Catalog 2026 upload.
+# 55 of the 89 keys in src/assets/devices/MANIFEST.md have a candidate here.
+# Picks favor product/packshot renders over lifestyle photography, but a few are
+# unvetted (marked in MANIFEST gaps notes) — visually check downloads before committing.
+jabra-enhance-pro	https://www.jabra.com/-/media/Images/Products/Jabra-Enhance-Pro-30/enhance-pro-30-micro-rie-pair-464.png
+oticon-intent	https://assets.ha.demant.com/-/media/project/hearing-aid/oticon/shared/images/global/products/product-spot-688x540/ot_product_spot_1images_family_intent_minirite_minibte_688x428.jpg
+oticon-more	https://media.hearingtracker.com/storage/v1/object/public/assets/model-oticon-more-minirite-r-3a57d749-c927-4318-80e3-639220a30989-image_500x500.jpg
+oticon-own	https://assets.ha.demant.com/-/media/project/hearing-aid/oticon/shared/images/global/campaigns/own/hero-2560x1097/ot_hero_family_own_2560x1097.jpg
+oticon-real	https://assets.ha.demant.com/-/media/project/hearing-aid/oticon/shared/images/global/campaigns/real/hero-2560x1097/ot_hero_family_real_2560x1097.jpg
+oticon-xceed	https://assets.ha.demant.com/-/media/project/hearing-aid/oticon/shared/images/global/campaigns/xceed/ot_hero_family_xceed_2560x1097.jpg
+oticon-zeal	https://media.hearingtracker.com/storage/v1/object/public/assets/model-oticon-zeal-image_943x943.jpg
+philips-hearlink	https://damcdn.demant.com/19ee6e21-3ae9-4ca7-a898-b0b200c241e1/Philips_HearLink50_miniRITE_H1-2024_Left_C063Black_LEDgreen_Speaker60_OpenBassDome_1200x1200px_Original%20file.png
+phonak-audeo-infinio	https://www.phonak.com/content/dam/celum/phonak/master-assets/en/products/infinio/audeo-i-r/ph-packshot-audeo-i-r-x-receiver-without-logo-050-1050-p4/ph-packshot-audeo-i-r-x-receiver-without-logo-050-1050-p4-1920x1920.png
+phonak-audeo-infinio-ultra	https://www.phonak.com/content/dam/celum/phonak/master-assets/en/products/infinio/audeo-i-r/ph-packshot-audeo-i-r-x-receiver-without-logo-050-1050-p4/ph-packshot-audeo-i-r-x-receiver-without-logo-050-1050-p4-1920x1920.png
+phonak-audeo-lumity	https://www.phonak.com/content/dam/celum/phonak/master-assets/en/products/lumity/audeo-l-312/ph-packshot-audeo-l-312-sreceiver-050-1094-p3/ph-packshot-audeo-l-312-sreceiver-050-1094-p3-1920x1920.png
+phonak-audeo-marvel	https://hearinghealthmatters.org/wp-content/uploads/2019/07/kirkland-9-review.jpg
+phonak-audeo-paradise	https://media.hearingtracker.com/storage/v1/object/public/assets/release-kirkland-signature-costco-10-social-image_1200x675.jpg
+phonak-naida-lumity	https://www.phonak.com/content/dam/celum/phonak/master-assets/en/products/lumity/naida-l-pr/ph-packshot-na%C3%ADda-l-pr-050-1069-h0/ph-packshot-na%C3%ADda-l-pr-050-1069-h0-1920x1920.png
+phonak-sphere-infinio	https://www.phonak.com/content/dam/celum/phonak/master-assets/en/products/infinio/audeo-i-sphere/ph-packshot-audeo-i-sphere-x-receiver-050-1029-p6/ph-packshot-audeo-i-sphere-x-receiver-050-1029-p6-1920x1920.png
+phonak-virto	https://www.phonak.com/content/dam/celum/phonak/master-assets/en/products/infinio/virto-r-i/ph-packshot-virto-i-r-front-06-063-0526-01-ne.png
+relate-bte	https://www.relatehearing.com/on/demandware.static/-/Sites-RelateHearing-Library/default/dwb5bc82b2/images/homepage/Carousel-Image_BTE@2x.png
+relate-custom	https://www.relatehearing.com/on/demandware.static/-/Sites-RelateHearing-Library/default/dwc228175f/images/homepage/ite-r-l-beige-home2.png
+relate-ric	https://www.relatehearing.com/on/demandware.static/-/Sites-RelateHearing-Library/default/dw27cacbda/images/homepage/relate5.0-car-transparent.png
+resound-enzo-q	https://www.resound.com/-/media/resound/resound-international/products/hearing-aids/resound-enzo-q/rs_eq_bte_88_500x330_v2.ashx
+resound-key-ric	https://a.storyblok.com/f/45415/1200x675/e0a16e7a58/resound-key.jpg
+resound-nexia-custom	https://pro.resound.com/-/media/partnerportal/resound/products/nexia/rhodium/renderings/rs_nx_itc_non-re_anthracite.ashx
+resound-nexia-ric	https://pro.resound.com/-/media/partnerportal/resound/products/nexia/product-renderings/rs_nx_rie_61_312_sparkling_silver_mrie.ashx
+resound-omnia	https://www.hearingaid.org.uk/images/300x300/0x0-0x0/brandsproducts/resound/omnia/resound-omnia-hearing-devices.jpg
+resound-one	https://www.hearingaid.org.uk/images/300x300/0x0-0x0/brandsproducts/resound/resound-one/resound-one-300x300.jpg
+resound-savi	https://pro.resound.com/-/media/partnerportal/resound/products/savi/renderings400/rs_sa_rie_61_312_sterling_grey.ashx
+resound-vivia	https://pro.resound.com/-/media/partnerportal/resound/products/vivia/renderings400/rs_vi_microrie_60s_sparkling_silver.ashx
+rexton-bicore-ric	https://cdn.rexton.com/-/media/rexton/global/images/products/bicore/r-312/bicore_r-312_silver_with-shadow_1600x1067.png?rev=8493efac0d414c9aad8aefcea6e2d1e7&hash=9E37B4AB99E8A2C5B191690F92AF72F9
+rexton-bicore-sr	https://cdn.rexton.com/-/media/rexton/global/images/products/bicore/slim-ric/bicore_slim-ric_black-silver_1600x1067.png?rev=ddd74508557c49dc9581e2d0869b5a19&hash=FA8E66B05D2A8CC2120C1169575FDA52
+rexton-custom	https://cdn.rexton.com/-/media/rexton/global/images/products/bicore/custom-li/bicore_custom-li_brown_with-shadow_1600x1067_smaller.png?rev=e653784403b940ada4b6591c43b2b24c&hash=F836B7F07E661C7C9767F5555D892211
+rexton-inox-cic	https://cdn.rexton.com/-/media/rexton/global/images/products/reach/ix-cic-li/reach-ix-cic-li_into-charger_lifeproof_1600x1067.jpg?rev=860eadefa26545fe9596684e4e86b096&hash=1ECD7B8D0C37FA87E971EA7DE875B8C1
+rexton-motion-core	https://hearingreview.com/wp-content/uploads/2020/10/Rely-on-Rexton-2.jpg
+rexton-reach-ric	https://cdn.rexton.com/-/media/rexton/global/images/products/reach/r-plus/rexton_reach-r-plus_black_pair_1600x1067.jpg?rev=bb432cccdca14b5bb56bb03d9c0f9525&hash=23F77D8A2BC823E4584019C91919A52A
+signia-active	https://hearingreview.com/wp-content/uploads/2024/09/Active-Pro-IX-charger-with-LED-HA.png
+signia-insio-cic	https://cdn.signia.net/-/media/signia/global/images/products/signia-ix/insio-chargego-ix/insio-chargego-cic-ix_black_pair_1000x1000.jpg?h=1000&w=1000&rev=366ecdb302b5496ab0247ad1937f3dac&hash=50FCD7566AE15D8EFA217201719343C5
+signia-insio-iic	https://cdn.signia.net/-/media/signia/global/images/products/signia-ix/insio-ix/insio-ix_iic_black_pair_side_1920x1080.jpg?rev=b5eb2cc5e56c4a098305261e65ac6f66&hash=5F7385D8BB4188D762AFA00B55F5A9C1
+signia-insio-itc	https://cdn.signia.net/-/media/signia/global/images/campaigns/signia-ix/insio-ix/insio-ix_woman-holding-hearing-aid_circle_1920x1080.jpg?h=1080&w=1920&rev=099b5a920d3f41e3b6e2c6d426b49c10&hash=20D75F23F8F69C1FC45138C56FA20131
+signia-insio-ite	https://cdn.signia.net/-/media/signia/global/images/products/signia-ax/insio-chargego-ax/insio-ax_black_double_1920x1080.jpg?h=1080&w=1920&rev=6bfe08ba8dd94364a75a53a7899ef531&hash=43C0E6AC33428DB90544FC6C57C53BE2
+signia-motion	https://cdn.signia.net/-/media/signia/global/images/campaigns/signia-ix/motion-chargego-ix/motion-charge-go-ix_woman-holding-ha_devices_1920x1080.jpg?rev=8c56ecc5f70c408a87ad907b51c19232&hash=9F90CF955304A72BB4DD7668D7EE3950
+signia-pure-312-ax	https://cdn.signia.net/-/media/signia/us/images/pure-312-ax/siv-13557_pure-312-ax-pair-1920x1080.jpg?h=1080&w=1920&rev=ccfc90b8af7b43fc9730e8669c17c9da&hash=18164164D3F460B9E13C100101085D55
+signia-pure-ax	https://cdn.signia.net/-/media/signia/global/images/products/signia-ax/pure-chargego-ax/pure-charge-go-ax_fine-gold_pair_1920x1080.jpg?h=1080&w=1920&rev=0f6170dbd46b4de7ad22239cf4c9d289&hash=60906B6F900A467E987E3026593E3019
+signia-pure-ix	https://cdn.signia.net/-/media/signia/global/images/products/accessories/chargers/pure-charge-go-ix_chargers_1000x1000.jpg?rev=6d543c47b6cc41d68afcf44caeca35f5&hash=2BD7B562D4DE0932C0F533836ED749E7
+signia-silk	https://cdn.signia.net/-/media/signia/global/images/products/accessories/chargers/portable-charger-silk_with-silk-chgo-ix-out_led-on_shadow_1920x1080.jpg?rev=f35b8e9e446e400192a17043f822c5b1&hash=C52AA485260ABBC07A31EB0F3E7C97A2
+signia-styletto	https://cdn.signia.net/-/media/signia/global/images/products/signia-ix/styletto-ix/styletto-ix_black-silver_double_charger_1920x1080.jpg?rev=fe1007da0e2f44e280ff9b0e9804716b&hash=7CA8BD22E731619B89F7742016461DC5
+starkey-evolv-ai	https://a.storyblok.com/f/45415/1138x650/02053acd06/starkey-evolv-ai-micro-ric-312.jpg
+starkey-g-series	https://www.starkey.com/-/media/ConsumerSites/Images/Renderings/ItemSource/CTATiles/CTA%20Tiles%20Medium/Starkey/g-series-ai-wbst2879.jpg
+starkey-genesis-custom	https://cdn.ziphearing.com/dist/dynamic/files/manufacturers/starkey/hearing-aids/edge-ai/colors/391/500/01.jpg
+starkey-genesis-ric	https://media.hearingtracker.com/storage/v1/object/public/assets/model-starkey-genesis-ai-image_1500x1500.png
+th-custom-cic	https://www.truhearing.com/wp-content/uploads/2024/11/TH7lineup-copy-scaled.webp
+th6-ric	https://www.truhearing.com/wp-content/uploads/2024/08/REXTON_BiCORE_R-Li_T_DeepBrown_edit_pair-1024x1024.webp
+th6-sr	https://cdn.rexton.com/-/media/rexton/global/images/products/bicore/slim-ric/bicore_slim-ric_black-silver_1600x1067.png?rev=ddd74508557c49dc9581e2d0869b5a19&hash=FA8E66B05D2A8CC2120C1169575FDA52
+th7-if	https://www.truhearing.com/wp-content/uploads/2024/08/NearlyInvisible.webp
+th7-ric	https://www.truhearing.com/wp-content/uploads/2024/08/RIC-TH7.webp
+th7-sr	https://www.truhearing.com/wp-content/uploads/2024/11/TH7lineup-copy-scaled.webp
+unitron-moxi	https://www.unitron.com/content/dam/celum/unitron/01_master-assets/images/platforms/smile/produtcs/uh-packshot-moxi-s-r-left-left-receiver-p6-platinum-rgb7850x7850.jpg
+# alternate for signia-active (lifestyle shot, use only if the primary is unusable):
+# signia-active	https://cdn.signia.net/-/media/signia/global/images/campaigns/signia-ix/active-ix/active-ix_conversation_1200x630.jpg?h=630&w=1200&rev=2b3ba0e1740742a182b8aa97d03e083e&hash=471C8382DDCAB27EF1B2770109B4017E
