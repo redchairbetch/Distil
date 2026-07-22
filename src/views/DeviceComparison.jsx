@@ -150,6 +150,7 @@ function deviceCatalogToDevice(platform, tier) {
   return {
     kind: "device-catalog",
     display: `${platform.manufacturer} ${platform.platformName}`,
+    imageKey: platform.imageKey,
     sub: [tier.tierDesignation, platform.releaseYear, platform.deviceClass === "otc" ? "OTC" : null]
       .filter(Boolean).join(" · "),
     tierRank: rank,
