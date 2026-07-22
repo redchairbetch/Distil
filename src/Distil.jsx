@@ -12,7 +12,7 @@
 
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from "react";
 import { unwrapIntakeAnswers } from "./recommendationEngine.js";
-import { ENVIRONMENTS, SITUATION_LABEL, TIER_EFFORT_COPY, flaggedEnvironments } from "./listeningSituations.js";
+import { ENVIRONMENTS, SITUATION_LABEL, TIER_EFFORT_COPY, flaggedEnvironments, flaggedEffortSignals } from "./listeningSituations.js";
 import Icon from "./components/Icon.jsx";
 import FinancingCalculator from "./components/FinancingCalculator.jsx";
 import VerifyRateCard from "./components/VerifyRateCard.jsx";
@@ -28,7 +28,7 @@ import { isTestedNoLoss, buildTnlRetestAppointment, TNL_RETEST_TYPE } from "./li
 import {
   CROS_PRICE_PER_UNIT, isSideCros, manufacturerToClass, uhchCoverageTier,
   nationsCoverageTier, findTierRank, findAnchorForRank, deriveEarPrice, pickBaselinePerAid,
-  directPurchaseLockedTech, resolveClassRetailPerAid,
+  directPurchaseLockedTech, resolveClassRetailPerAid, tierMatchedTech,
 } from "./lib/pricing.js";
 
 // ── Body style images ──
@@ -130,6 +130,7 @@ import {
   uploadPatientDocument,
   listPatientDocuments,
   getDocumentSignedUrl,
+  createQuoteShare,
   recordUpgradeOutcome,
   logAnalyticsEvent,
   listMessagesForPatient,
@@ -144,10 +145,12 @@ import {
 } from "./db.js";
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 import { downloadQuote } from "./generateQuote.js";
+import { buildQuoteSharePayload, QUOTE_SHARE_VALID_DAYS } from "./lib/quoteShare.js";
 
 import TnsReasonsPicker from "./components/TnsReasonsPicker.jsx";
 import { TNS_TAG_BY_ID } from "./tns_tags.js";
 import CreateQuoteModal from "./components/CreateQuoteModal.jsx";
+import PurchaseAgreementModal from "./components/PurchaseAgreementModal.jsx";
 import SendMessageModal from "./components/SendMessageModal.jsx";
 import ContentLibrary from "./views/ContentLibrary.jsx";
 import NurturePreview from "./views/NurturePreview.jsx";
@@ -157,6 +160,7 @@ import FollowUpQueue, { countFollowUpPatients } from "./views/FollowUpQueue.jsx"
 import CommsInbox from "./views/CommsInbox.jsx";
 import ProvidersAdmin from "./views/ProvidersAdmin.jsx";
 import NationsCatalog from "./views/NationsCatalog.jsx";
+import HearingAidCatalog from "./views/HearingAidCatalog.jsx";
 import AdjustmentHistory from "./views/AdjustmentHistory.jsx";
 import CloserLocationPicker from "./views/CloserLocationPicker.jsx";
 import AdjustPriceModal from "./views/AdjustPriceModal.jsx";
@@ -865,10 +869,17 @@ const CATALOG_DEFAULT = [
     battery:["Size 10"], active:true, notes:"BiCore platform (predecessor). Instant-fit Click CIC, size 10 zinc-air. No direct wireless streaming. Premium tiers only." },
 
 
-  // ── TRUHEARING (Private-label Signia IX platform) ─────────────────────────
   // ── TRUHEARING SELECT (Private-label WSAudiology products) ─────────────────
-  // Plan tier → product (one-to-one): "Premium"→TH7 Premium (48ch·IX), "Advanced"→TH6 Advanced (32ch·AX), "Standard"→TH5 (X)
-  // TH5 BTE is always available regardless of plan tier — the plan price covers whatever the clinician fits.
+  // Two orthogonal axes — never conflate them:
+  //   · Model number = PLATFORM generation: TH7 = Signia IX, TH6 = AX, TH5 = X.
+  //   · Plan tier (Premium/Advanced/Standard) = TECHNOLOGY LEVEL (≈ Signia
+  //     7/5/3 prefix), chosen in the Technology Tier step.
+  // "TruHearing 7 Li Premium" ≈ Signia Pure Charge&Go 7IX. Tier×model is
+  // many-to-many (see TH_AVAILABILITY) — these coarse entries group each
+  // series at its most common tier for legacy paths, but they are NOT a
+  // tier→product mapping. The card flow runs on TH_MODELS/TH_AVAILABILITY.
+  // TH5 BTE is always available regardless of plan tier — the plan price
+  // covers whatever the clinician fits.
 
   // ── TH7 Premium · Signia IX · 48ch ── planTierKey:"Premium" ──────────────
   { id:"th7-prem-ric-li", manufacturer:"TruHearing", tpa:"TruHearing", generation:"IX",
@@ -1000,16 +1011,33 @@ const TH_STYLE_TO_BODY = Object.fromEntries(
   TH_BODY_STYLES.flatMap(b => b.thStyleIds.map(sid => [sid, b.id]))
 );
 
+// The model NUMBER is the platform generation (TH7 = Signia IX, TH6 = AX,
+// TH5 = X) — NOT a technology level. The tech level is the plan tier
+// (Premium/Advanced/Standard ≈ Signia's 7/5/3 prefix), chosen in the
+// Technology Tier step. "TruHearing 7 Li Premium" ≈ Signia Pure Charge&Go
+// 7IX. The two axes are orthogonal — never collapse the model pick into
+// the tier pick.
 const TH_MODELS = [
-  { id:"th7",   label:"TruHearing 7",    li:false },
-  { id:"th7li", label:"TruHearing 7 Li", li:true },
-  { id:"th6",   label:"TruHearing 6",    li:false },
-  { id:"th6li", label:"TruHearing 6 Li", li:true },
-  { id:"th5",   label:"TruHearing 5",    li:false },
-  { id:"th5li", label:"TruHearing 5 Li", li:true },
+  { id:"th7",   label:"TruHearing 7",    li:false, series:"TH7", platform:"IX" },
+  { id:"th7li", label:"TruHearing 7 Li", li:true,  series:"TH7", platform:"IX" },
+  { id:"th6",   label:"TruHearing 6",    li:false, series:"TH6", platform:"AX" },
+  { id:"th6li", label:"TruHearing 6 Li", li:true,  series:"TH6", platform:"AX" },
+  { id:"th5",   label:"TruHearing 5",    li:false, series:"TH5", platform:"X"  },
+  { id:"th5li", label:"TruHearing 5 Li", li:true,  series:"TH5", platform:"X"  },
 ];
+// Patient-facing subtitle for the model pills — names the platform axis so
+// the number doesn't read as a Signia-style "7 = top tier" tech level.
+const TH_PLATFORM_NOTE = {
+  IX: "IX platform · newest generation",
+  AX: "AX platform",
+  X:  "X platform",
+};
 
-// model|techLevel → [style IDs]
+// model|techLevel → [style IDs]. Deliberately many-to-many: the model is the
+// platform generation, the techLevel is the plan tier, and most combinations
+// exist (th7|Standard customs, th6|Premium RIC). th5li BTE is listed under
+// every tier — TH5 BTE is always available regardless of plan tier
+// (non-negotiable domain rule; the plan price covers whatever is fitted).
 const TH_AVAILABILITY = {
   "th7|Standard":   ["iic","cic"],
   "th7|Advanced":   ["cic","itc","hs","fs"],
@@ -1022,6 +1050,7 @@ const TH_AVAILABILITY = {
   "th6li|Advanced": ["itc","hs","fs"],
   "th6li|Premium":  ["itc","hs","fs","sr"],
   "th5|Premium":    ["if"],
+  "th5li|Standard": ["s_bte","p_bte","sp_bte"],
   "th5li|Advanced": ["s_bte","p_bte","sp_bte"],
   "th5li|Premium":  ["s_bte","p_bte","sp_bte"],
 };
@@ -1089,13 +1118,21 @@ const TH_DOMES = {
 // Styles that show receiver length + dome selection
 const TH_RECEIVER_STYLES = ["ric","ric_bct","sr"];
 
+// TH styles that can anchor a CROS fitting. TruHearing sells its CROS
+// transmitter only alongside RIC-form aids (TH7 Li RIC / RIC+BCT, TH6 RIC —
+// the granular catalog entries carrying a "CROS" variant); SR, BTE, and
+// customs have no companion transmitter on the TH portal.
+const TH_CROS_STYLES = ["ric","ric_bct"];
+
 // Patient-facing benefit copy for TruHearing tier rows. Each tier is framed
 // as capable on its own; the next tier adds capability in noisier / more
-// complex listening environments. Avoid disparaging lower tiers.
+// complex listening environments. Avoid disparaging lower tiers. These are
+// the secondary FEATURE lines — the effort story lives exclusively in
+// TIER_EFFORT_COPY (listeningSituations.js), so no effort claims here.
 const TH_TIER_BLURBS = {
   Standard: "Clear, automatic hearing for quieter, one-on-one settings — home, small groups, TV.",
   Advanced: "Adds active noise management and directional focus — restaurants, gatherings, and conversations over background noise become easier to follow.",
-  Premium:  "The most sophisticated processing offered — effortless clarity in the hardest listening environments, with richer spatial awareness, steadier streaming, and the lowest listening effort across a full day."
+  Premium:  "The most sophisticated processing offered — the strongest speech-from-noise separation available, richer spatial awareness, and steadier streaming."
 };
 
 
@@ -1671,6 +1708,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // pricing without touching the patient's saved fitting. Distinct from the
   // existing "Generate Quote" button which uses the saved configuration.
   const [showCreateQuote, setShowCreateQuote] = useState(false);
+  // Take-home quote link minted by the wizard's Generate Quote — shown in a
+  // dismissible toast so the provider can copy/text it without leaving the
+  // wizard. Null when no link is pending.
+  const [quoteShareUrl, setQuoteShareUrl] = useState(null);
+  const [quoteShareCopied, setQuoteShareCopied] = useState(false);
   // "Notify Patient" modal — sends a one-off Web Push to the patient's Aided
   // app through the send-push edge function.
   const [showSendNotification, setShowSendNotification] = useState(false);
@@ -1809,10 +1851,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     : { fullName: staffProfile?.fullName || "Provider", activeLicense: staffProfile?.activeLicense || "", signatureUrl: staffProfile?.signatureUrl || null };
   const paSignatureB64 = (isCloser && closerProvider) ? closerSignatureB64 : providerSignatureB64;
   const [showPurchaseAgreement, setShowPurchaseAgreement] = useState(false);
+  // Configuration handed off from the Custom Quote's "Purchase Agreement →"
+  // button — null when the agreement opens directly from the profile (it
+  // then pre-fills from the saved chart).
+  const [paPrefill, setPaPrefill] = useState(null);
   const [paSignatureName, setPaSignatureName] = useState("");
-  const [paStep, setPaStep] = useState("sign"); // 'sign' | 'delivery' | 'done'
-  const [paDeliveryName, setPaDeliveryName] = useState("");
-  const [paDeliveryDate, setPaDeliveryDate] = useState("");
+  const [paStep, setPaStep] = useState("sign"); // wizard PA: 'review' | 'sign'
 
   // ── Wizard PA / Quote fork state ─────────────────────────────────────
   const [showWizardPaModal, setShowWizardPaModal] = useState(false);
@@ -2832,10 +2876,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       const thDome = thIsEarmold ? "Custom Earmold" : (s.domeCategory && s.domeSize ? `${s.domeCategory} ${s.domeSize}` : s.domeCategory || s.dome || "");
       return {
         manufacturer: "TruHearing",
-        generation: "IX",
+        // Platform generation follows the MODEL, not the tier: TH7→IX,
+        // TH6→AX, TH5→X. (Was hardcoded "IX", which mislabeled every
+        // TH6/TH5 fitting saved before this fix.)
+        generation: thMod?.platform || "",
         family: thMod?.label || "TruHearing Select",
         thModel: s.thModel || "",
-        thSeries: "",
+        thSeries: thMod?.series || "",
         rechargeable: thMod?.li || false,
         liUpcharge: 0,
         variant: s.isCROS ? "CROS Transmitter" : (s.variant || ""),
@@ -2936,9 +2983,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     });
 
     if (wizardPatientId) {
+      let docRow = null;
       try {
         const isBilateral = (fittingType === 'bilateral' || fittingType === 'cros_bicros');
-        await uploadPatientDocument({
+        docRow = await uploadPatientDocument({
           patientId: wizardPatientId,
           clinicId,
           staffId,
@@ -2959,6 +3007,39 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       } catch (e) {
         console.error('Archive quote PDF (wizard):', e);
         alert('Quote downloaded, but failed to archive to chart: ' + (e.message || e));
+      }
+
+      // Mint the take-home share link (/quote/<token>) — surfaced via the
+      // copy-link toast. Non-fatal: the PDF already downloaded (and archived
+      // unless the catch above fired), so a failure here only loses the link.
+      try {
+        const payload = buildQuoteSharePayload({
+          patient: { name: [form.firstName, form.lastName].filter(Boolean).join(" ") },
+          devices: { fittingType, left: leftRec, right: rightRec },
+          pricePerAid,
+          leftPrice: leftEarP,
+          rightPrice: rightEarP,
+          selectedCarePlan: form.carePlan || "complete",
+          payType: form.payType,
+          directPurchase: form.directPurchase,
+          tpa: form.tpa,
+          carrier: form.carrier,
+          audiology: form.audiology,
+          counselingSections,
+          provider: { fullName: paProvider?.fullName || "" },
+        });
+        const share = await createQuoteShare({
+          patientId: wizardPatientId,
+          clinicId,
+          staffId,
+          documentId: docRow?.id || null,
+          payload,
+          validDays: QUOTE_SHARE_VALID_DAYS,
+        });
+        setQuoteShareCopied(false);
+        setQuoteShareUrl(share.url);
+      } catch (e) {
+        console.error('Create quote share link (wizard):', e);
       }
     }
   };
@@ -2994,16 +3075,22 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     // the table, so the patient exits as 'tnl' (not 'tns') with an annual
     // retest recall instead of a fitting/warranty record.
     const isTnl = deviceDisposition === "no_hearing_loss" && wizardMode !== "upgrade";
+    // Did Not Test: the visit ended before testing (wax removal only, patient
+    // declined, etc.) — nothing was ever recommended, so the patient STAYS a
+    // prospect. Demoting to 'tns' would poison the tested-not-sold funnel with
+    // people who were never tested.
+    const isDnt = deviceDisposition === "did_not_test" && wizardMode !== "upgrade";
     const finalizeStatus = (wizardPaSigned || deviceDisposition === "committed")
       ? "active"
       : isTnl ? "tnl"
+      : isDnt ? "prospect"
       : (wizardMode === "upgrade" ? "active" : "tns");
 
     // Incremental save path — patient already exists in DB as draft
     if (wizardPatientId) {
       try {
-        const carePlan = isTnl ? null : (form.payType === "insurance" ? form.carePlan : null);
-        const privatePay = !isTnl && form.payType === "private" && form.tierPrice != null
+        const carePlan = (isTnl || isDnt) ? null : (form.payType === "insurance" ? form.carePlan : null);
+        const privatePay = !isTnl && !isDnt && form.payType === "private" && form.tierPrice != null
           ? { tier: form.tier, tierPrice: form.tierPrice }
           : null;
         // Regimented care arc — full 4-year schedule auto-generated at finalize for a signed fitting (backlog #5).
@@ -3019,10 +3106,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         await finalizePatient(
           wizardPatientId,
           finalizeStatus,
-          // TNL never fits devices — null keeps finalizePatient away from the
-          // fitting/warranty updates AND the fitting-date campaign enrollment
-          // (it enrolls the tnl-triggered campaign off the status instead).
-          isTnl ? null : { fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null },
+          // TNL and Did Not Test never fit devices — null keeps finalizePatient
+          // away from the fitting/warranty updates AND the fitting-date campaign
+          // enrollment (TNL enrolls its campaign off the status instead).
+          (isTnl || isDnt) ? null : { fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null },
           carePlan,
           form.notes,
           finalizeAppointments,
@@ -3044,7 +3131,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           directPurchase: !!form.directPurchase,
           insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
           privatePay,
-          devices: isTnl ? null : { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null, serialLeft: genId(), serialRight: genId() },
+          devices: (isTnl || isDnt) ? null : { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null, serialLeft: genId(), serialRight: genId() },
           audiology: form.audiology,
           carePlan: carePlan,
           appointments: finalizeAppointments,
@@ -3071,10 +3158,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       payType: form.payType,
       directPurchase: !!form.directPurchase,
       insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
-      privatePay: !isTnl && form.payType === "private" && form.tierPrice != null
+      privatePay: !isTnl && !isDnt && form.payType === "private" && form.tierPrice != null
         ? { tier: form.tier, tierPrice: form.tierPrice }
         : null,
-      devices: isTnl ? null : {
+      devices: (isTnl || isDnt) ? null : {
         left: leftRec,
         right: rightRec,
         fittingType,
@@ -3090,7 +3177,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         serialRight: genId(),
       },
       audiology: form.audiology,
-      carePlan: isTnl ? null : (form.payType === "insurance" ? form.carePlan : null),
+      carePlan: (isTnl || isDnt) ? null : (form.payType === "insurance" ? form.carePlan : null),
       appointments: isTnl ? [...(form.appointments || []), buildTnlRetestAppointment()] : form.appointments,
       notes: form.notes,
       patientStatus: finalizeStatus,
@@ -4429,12 +4516,16 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     // Has receiver (RIC/RIC+BCT/SR)
     const thHasReceiver = TH_RECEIVER_STYLES.includes(sd.style);
 
+    // Can this side anchor a CROS fitting? (RIC-form TH aids only — drives
+    // the "copy as CROS transmitter" button in the TH card flow.)
+    const thHasCROS = TH_CROS_STYLES.includes(sd.style);
+
     // Pricing
     const thTierPrice = privateLabelTiers.find(t => t.label === sd.techLevel)?.price ?? 0;
     return { availMfrs, availGens, availFamilies, selectedFamily, availColors, availBatteries,
       availPowers, availDomes, selectedPower, requiresEarmold, variantRequired, hasCROSVariant,
       thAvailBodyStyles, thAvailModels, thAvailVariants, thGainOptions, thColorCategory, thBattery, thIsLi,
-      thRequiresEarmold, thHasReceiver, thTierPrice };
+      thRequiresEarmold, thHasReceiver, thHasCROS, thTierPrice };
   };
   const leftDerived = getSideDerived(form.left);
   const rightDerived = getSideDerived(form.right);
@@ -4526,6 +4617,29 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       return changed ? { ...f, left, right } : f;
     });
   }, [directPurchaseActive, form.tier, catalog]);
+
+  // Tier-first (private pay): if the tier changes after a device is picked
+  // (back-nav to the Technology Tier step), re-match each configured side's
+  // tech level to the new tier so the settled price and the device can't
+  // drift apart. Softer than the Direct Purchase relock — a family with no
+  // level seeded at the new tier's rank keeps its current level (the per-ear
+  // recompute keeps the dollars honest either way). Keyed on form.tier only,
+  // never the sides, so a manual level override sticks and nothing loops.
+  useEffect(() => {
+    if (form.payType !== "private" || !form.tier) return;
+    setForm(f => {
+      let changed = false;
+      const rematch = (sd) => {
+        if (!sd.familyId || sd.isCROS) return sd;
+        const fam = catalog.find(e => e.id === sd.familyId);
+        const matched = tierMatchedTech(fam, f.tier, productCatalogTiers);
+        if (matched && sd.techLevel !== matched) { changed = true; return { ...sd, techLevel: matched }; }
+        return sd;
+      };
+      const left = rematch(f.left), right = rematch(f.right);
+      return changed ? { ...f, left, right } : f;
+    });
+  }, [form.payType, form.tier, catalog, productCatalogTiers]);
 
   // Complex commercial/PPO benefit (coinsurance / deductible / OOP) — an
   // alternative pricing method for non-device-driven insurance patients whose
@@ -4689,7 +4803,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
 
   const isSideConfigured = (s) => {
     const d = form[s];
-    if (d.manufacturer === "TruHearing") return !!(d.style && d.techLevel && d.thModel && d.gainMatrix);
+    if (d.manufacturer === "TruHearing") {
+      // A CROS transmitter side has no receiver — no gain/matrix to pick.
+      if (d.isCROS) return !!(d.style && d.techLevel && d.thModel);
+      return !!(d.style && d.techLevel && d.thModel && d.gainMatrix);
+    }
     return !!(d.familyId && d.techLevel);
   };
 
@@ -5200,7 +5318,42 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       );
     }
     if (step === 2) {
-      return <AudiogramEntry value={form.audiology} onChange={(a)=>upd("audiology", a)} />;
+      // Did Not Test fork — the visit ended before any testing happened (e.g.
+      // the patient booked the slot just for wax removal). Offered only while
+      // the audiogram is still untouched: the moment a threshold goes in,
+      // they tested and the fork disappears. The profile is already saved
+      // (step-0 draft); the fork closes the appointment with a did_not_test
+      // disposition + reason and skips tier/device/care-plan entirely, so the
+      // patient exits as a prospect. Upgrade purchases land mid-flow and never
+      // render this step, but the guard keeps that invariant explicit.
+      const a = form.audiology || {};
+      const noTestData = Object.keys(a.rightT || {}).length === 0 && Object.keys(a.leftT || {}).length === 0
+        && Object.keys(a.rightBC || {}).length === 0 && Object.keys(a.leftBC || {}).length === 0
+        && a.unaidedR == null && a.unaidedL == null;
+      return (
+        <>
+          <AudiogramEntry value={form.audiology} onChange={(a)=>upd("audiology", a)} />
+          {wizardMode !== "upgrade" && noTestData && (
+            <div style={{background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:10,padding:"14px 20px",marginTop:16,display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+              <div style={{flex:1,minWidth:280}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#4b5563",textTransform:"uppercase",letterSpacing:"0.06em",marginBottom:4}}>
+                  No Test This Visit?
+                </div>
+                <div style={{fontSize:13,color:"#6b7280",lineHeight:1.5}}>
+                  If the appointment ended before testing — wax removal only, patient declined, medical issue —
+                  close it here with the reason. The profile is already saved, and the remaining steps are skipped.
+                </div>
+              </div>
+              <button
+                style={{background:"white",color:"#374151",border:"1px solid #d1d5db",borderRadius:8,padding:"10px 18px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",whiteSpace:"nowrap"}}
+                onClick={() => setCloseAppointment({ source: "wizard", didNotTest: true })}
+              >
+                Did Not Test — Close Visit
+              </button>
+            </div>
+          )}
+        </>
+      );
     }
     if (step === 3) {
       // Tested No Loss suggestion — auto-detected from the entered thresholds
@@ -5252,10 +5405,53 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           retailAnchors={form.payType === "private" ? retailAnchorsStandard : retailAnchors}
           intakeAnswers={wizardIntake?.answers || null}
           tierBlurbs={TH_TIER_BLURBS}
+          deviceDrivenTpa={form.payType === "insurance" && (form.tpa === "UHCH" || form.tpa === "Nations") ? form.tpa : null}
+          deviceDrivenTiers={selectedInsurancePlan?.tiers || []}
         />
       );
     }
     if (step === 5) {
+
+      // $3,997.50 → "3,997.50", $850 → "850" — whole dollars stay clean.
+      const moneyLabel = (p) => p.toLocaleString("en-US",
+        Number.isInteger(p) ? {} : { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+      // Per-level price for the tech-level pills — surfaces the price
+      // consequence of each level BEFORE it's picked, so overriding the
+      // tier-matched default is an eyes-open price decision. Flat-copay
+      // insurance (TruHearing / Direct Purchase — tierPrice fixed by the
+      // plan) returns null: the level doesn't change what the patient pays.
+      const techLevelPriceInfo = (fam, t) => {
+        if (!fam) return null;
+        if (form.payType === "insurance" && form.tpa === "UHCH") {
+          const covTier = uhchCoverageTier(fam.manufacturer, t);
+          if (!covTier) {
+            // Off-plan → the patient buys at standard retail (with the
+            // acknowledgement form) — show that price, flagged.
+            const rank = findTierRank(productCatalogTiers, fam.id, t);
+            let anchor = findAnchorForRank(retailAnchorsByClass?.[manufacturerToClass(fam.manufacturer)], rank);
+            if (!anchor) anchor = findAnchorForRank(retailAnchorsByClass?.standard, rank);
+            return anchor ? { price: parseFloat(anchor.price_per_aid), offPlan: true } : null;
+          }
+          const p = selectedInsurancePlan?.tiers?.find(x => x.label === covTier)?.price;
+          return p != null ? { price: p } : null;
+        }
+        if (isNationsPatient) {
+          const covTier = nationsCoverageTier(fam, t);
+          if (!covTier) return null; // off-plan pills are already blocked red
+          const p = selectedInsurancePlan?.tiers?.find(x => x.label === covTier)?.price;
+          return p != null ? { price: p } : null;
+        }
+        if (form.payType === "private" || (form.payType === "insurance" && form.tierPrice == null)) {
+          const rank = findTierRank(productCatalogTiers, fam.id, t);
+          if (rank == null) return null;
+          const cls = form.payType === "private" ? manufacturerToClass(fam.manufacturer) : "standard";
+          let anchor = findAnchorForRank(retailAnchorsByClass?.[cls], rank);
+          if (!anchor) anchor = findAnchorForRank(retailAnchorsByClass?.standard, rank);
+          return anchor ? { price: parseFloat(anchor.price_per_aid) } : null;
+        }
+        return null;
+      };
 
       const renderSideColumn = (side) => {
         const s = form[side];
@@ -5276,6 +5472,24 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 {isSideConfigured(side)?"Configured":"Not set"}
               </span>
             </div>
+
+            {/* ── Tier-first: the price was settled on the Technology Tier step;
+                this banner carries it into the cascade so Body Style opens with
+                the investment already framed (mirrors the TruHearing locked-tier
+                chip). Private pay only — flat-copay insurance shows its price in
+                the reveal, and device-driven TPAs price by the device below. ── */}
+            {showStd && !directPurchaseActive && form.payType === "private" && form.tier && (
+              <div style={{background:"#FBF9F3",border:"1px solid #E4E0D5",borderRadius:8,padding:"10px 14px",marginBottom:16}}>
+                <span style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>
+                  {form.tier} technology{form.tierPrice != null ? ` · $${moneyLabel(form.tierPrice)}/aid` : ""}
+                </span>
+                <span style={{fontSize:12,color:"#6b7280"}}> — chosen in Technology Tier</span>
+                <div style={{fontSize:11.5,color:"#6b7280",marginTop:5,lineHeight:1.45}}>
+                  Pick the style and brand below — each model's technology level is matched to this
+                  choice automatically, so the price stays settled while you choose the fit.
+                </div>
+              </div>
+            )}
 
             {/* ── 1. Body Style (standard catalog + Direct Purchase — TH uses its own style picker) ── */}
             {showStd && (
@@ -5346,8 +5560,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                         onClick={famOff ? undefined : ()=>{
                           const autoVar = fam.variants.length===1 ? fam.variants[0] : "";
                           const autoBat = fam.battery.length===1 ? fam.battery[0] : "";
-                          // Direct Purchase locks the tech level to the tier's rank.
-                          const lockTech = directPurchaseActive ? (directPurchaseLockedTech(fam, form.tier) || "") : "";
+                          // Direct Purchase locks the tech level to the tier's rank;
+                          // private pay pre-matches it to the tier settled on the
+                          // Technology Tier step (override stays possible below).
+                          const lockTech = directPurchaseActive
+                            ? (directPurchaseLockedTech(fam, form.tier) || "")
+                            : form.payType === "private"
+                              ? (tierMatchedTech(fam, form.tier, productCatalogTiers) || "")
+                              : "";
                           setForm(f=>({...f,[side]:{...f[side],familyId:fam.id,variant:autoVar,techLevel:lockTech,color:"",battery:autoBat}}));
                         }}>
                         <div className="plan-row-top">
@@ -5399,16 +5619,28 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       return(!isNaN(na)&&!isNaN(nb))?na-nb:a.localeCompare(b);
                     }).map(t=>{
                       const techOff = nationsTechOffPlan(selectedFamily, t);
+                      const pInfo = techOff ? null : techLevelPriceInfo(selectedFamily, t);
                       return (
                       <div key={t} className={`radio-pill ${s.techLevel===t?"active":""}`}
                         title={techOff ? "Not available on the Nations Hearing plan" : undefined}
                         style={techOff ? {opacity:0.6,cursor:"not-allowed",color:"#b91c1c",background:"#fef2f2",borderColor:"#fecaca"} : undefined}
                         onClick={techOff ? undefined : ()=>updSide(side,"techLevel",t)}>
                         <div className="radio-pill-label">{(selectedFamily.techLevelLabels?.[t] || t)}{techOff ? " *" : ""}</div>
+                        {pInfo && (
+                          <div className="radio-pill-sub">
+                            {pInfo.price === 0 ? "No Charge" : `$${moneyLabel(pInfo.price)}/aid`}{pInfo.offPlan ? " retail — off-plan" : ""}
+                          </div>
+                        )}
                       </div>
                       );
                     })}
                   </div>
+                  {form.payType === "private" && form.tier && s.techLevel
+                    && tierMatchedTech(selectedFamily, form.tier, productCatalogTiers) === s.techLevel && (
+                    <div style={{fontSize:11.5,color:"#6b7280",marginTop:8}}>
+                      Matched to your {form.tier} choice from the Technology Tier step — picking a different level changes the price.
+                    </div>
+                  )}
                   {isNationsPatient && selectedFamily.techLevels.some(t => nationsCoverageTier(selectedFamily, t) === null) && (
                     <div style={{fontSize:11.5,color:"#b91c1c",marginTop:8}}>
                       * Not available on the Nations Hearing plan.
@@ -5418,11 +5650,46 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               ))}
             </>)}
 
+            {/* ── Private-label: CROS transmitter side. The cascade collapses to
+                a summary card — the transmitter mirrors the aid it was copied
+                from (model/color) and has no receiver, gain, or dome of its
+                own. Removing it restores the blank TH cascade for this ear. ── */}
+            {showTH && s.isCROS && (
+              <div style={{background:"#eef2ff",border:"1px solid #a5b4fc",borderRadius:8,padding:"14px 16px",marginBottom:16}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#4f46e5",marginBottom:4}}>📡 CROS Transmitter</div>
+                <div style={{fontSize:12.5,color:"#374151",lineHeight:1.5}}>
+                  {(TH_MODELS.find(m=>m.id===s.thModel)?.label || "TruHearing")} CROS unit{s.color ? ` · ${s.color}` : ""} — picks up sound on this side and routes it to the aid on the other ear.
+                </div>
+                <button className="side-action-btn" style={{marginTop:10}}
+                  onClick={(e)=>{ e.stopPropagation(); resetSide(side, {manufacturer:"TruHearing", techLevel:form.tier}); }}>
+                  ✕ Remove CROS transmitter
+                </button>
+              </div>
+            )}
+
             {/* ── Private-label: TruHearing cascade (skipped for Direct Purchase) ── */}
             {/* Tier was chosen in the Technology Tier wizard step (4); this
                 cascade now starts at Body Style. The chosen tier flows into
                 each side via form.tier → s.techLevel sync (see useEffect). */}
-            {showTH && (<>
+            {showTH && !s.isCROS && (<>
+              {/* Locked technology-level chip — the tech level was decided on
+                  the Technology Tier step (form.tier → techLevel sync effect);
+                  this is context, not a picker, so the cascade below reads as
+                  "pick the model/style" rather than picking the tier again. */}
+              {s.techLevel && (
+                <div className="field" style={{marginBottom:16}}><label>Technology Level</label>
+                  <div style={{display:"inline-flex",alignItems:"center",gap:8,border:"2px solid #0B4A42",background:"#FBF9F3",borderRadius:8,padding:"8px 12px"}}>
+                    <span style={{fontSize:14,fontWeight:700,color:"#0a1628"}}>{s.techLevel} technology</span>
+                    <span style={{fontSize:12,color:"#6b7280"}}>
+                      {d.thTierPrice === 0 ? "No Charge" : `$${d.thTierPrice.toLocaleString()}/aid`} · chosen in Technology Tier
+                    </span>
+                  </div>
+                  <div style={{fontSize:11.5,color:"#6b7280",marginTop:6}}>
+                    Every model below comes with {s.techLevel}-level processing at this price. The model number is the platform generation — how recent the chip inside is — not a different technology level.
+                  </div>
+                </div>
+              )}
+
               {/* Body Style (card grid — mirrors private-pay imagery) */}
               {s.techLevel && d.thAvailBodyStyles.length > 0 && (
                 <div className="field" style={{marginBottom:16}}><label>Body Style</label>
@@ -5460,6 +5727,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                         <div key={m.id} className={`radio-pill ${s.thModel===m.id?"active":""}`}
                           onClick={()=>setForm(f=>({...f,[side]:{...f[side], thModel:m.id, style:autoStyle, color:"", faceplateColor:"", shellColor:autoShell, gainMatrix:autoGain, battery:autoBattery, receiverLength:"", receiverPower:"", dome:"", domeCategory:"", domeSize:"", familyId:"", variant:"", generation:""}}))}>
                           <div className="radio-pill-label">{m.label}</div>
+                          {/* Platform subtitle — the number is the generation,
+                              not a tier; without this it invites a false
+                              Signia-style "7 = top tier" reading. */}
+                          <div className="radio-pill-sub">{TH_PLATFORM_NOTE[m.platform] || ""}</div>
                         </div>
                       );
                     })}
@@ -5705,8 +5976,26 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
 
       const leftConfigured = isSideConfigured("left");
       const rightConfigured = isSideConfigured("right");
-      const leftHasCROS = leftDerived.hasCROSVariant;
-      const rightHasCROS = rightDerived.hasCROSVariant;
+      // TH card flow sides never carry a familyId, so hasCROSVariant (catalog-
+      // derived) is always false there — CROS availability comes from the TH
+      // config instead (RIC-form aids). A side that is itself a transmitter
+      // can't anchor another CROS.
+      const thCardFlow = isPrivateLabel && !directPurchaseActive;
+      const leftHasCROS  = thCardFlow ? (leftDerived.thHasCROS  && !form.left.isCROS)  : leftDerived.hasCROSVariant;
+      const rightHasCROS = thCardFlow ? (rightDerived.thHasCROS && !form.right.isCROS) : rightDerived.hasCROSVariant;
+      // Copy `src` onto the opposite side as a CROS transmitter. TH flow flags
+      // isCROS and strips receiver/gain/dome (transmitters have none); the
+      // standard catalog flow keeps its variant-string mechanism.
+      const copyAsCros = (src, targetSide) => {
+        if (thCardFlow) {
+          setForm(f=>({...f,[targetSide]:{...src, isCROS:true, variant:"", gainMatrix:"", receiverLength:"", receiverPower:"", dome:"", domeCategory:"", domeSize:""}}));
+        } else {
+          const crosFam = catalog.find(e => e.id === src.familyId);
+          const crosVariant = crosFam?.variants.find(v=>v.toLowerCase().includes("cros")) || "CROS";
+          setForm(f=>({...f,[targetSide]:{...src, variant:crosVariant, receiverLength:"", receiverPower:"", dome:""}}));
+        }
+        setActiveSide(targetSide);
+      };
 
       return (
         <>
@@ -5737,13 +6026,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 </button>
                 {leftHasCROS && (
                   <button className="copy-btn cros" disabled={!leftConfigured}
-                    onClick={()=>{
-                      const src = form.left;
-                      const crosFam = catalog.find(e => e.id === src.familyId);
-                      const crosVariant = crosFam?.variants.find(v=>v.toLowerCase().includes("cros")) || "CROS";
-                      setForm(f=>({...f,right:{...src, variant:crosVariant, receiverLength:"", receiverPower:"", dome:""}}));
-                      setActiveSide("right");
-                    }}
+                    onClick={()=>copyAsCros(form.left, "right")}
                     title="Copy as CROS transmitter to right ear">
                     📡 CROS →
                   </button>
@@ -5756,13 +6039,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 </button>
                 {rightHasCROS && (
                   <button className="copy-btn cros" disabled={!rightConfigured}
-                    onClick={()=>{
-                      const src = form.right;
-                      const crosFam = catalog.find(e => e.id === src.familyId);
-                      const crosVariant = crosFam?.variants.find(v=>v.toLowerCase().includes("cros")) || "CROS";
-                      setForm(f=>({...f,left:{...src, variant:crosVariant, receiverLength:"", receiverPower:"", dome:""}}));
-                      setActiveSide("left");
-                    }}
+                    onClick={()=>copyAsCros(form.right, "left")}
                     title="Copy as CROS transmitter to left ear">
                     ← CROS 📡
                   </button>
@@ -5939,7 +6216,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
 
               // Structured reflection from intake answers — "you told us the hardest
               // moments are X, Y, Z" — replaces the free-text provider-notes quote.
-              const reflectFlags = flaggedEnvironments(unwrapIntakeAnswers(wizardIntake?.answers) || null);
+              // Effort signals (drained / concentrating hard) shape the closing
+              // clause; they can also carry the reflection alone when no
+              // environments were flagged.
+              const reflectAnswers = unwrapIntakeAnswers(wizardIntake?.answers) || null;
+              const reflectFlags = flaggedEnvironments(reflectAnswers);
+              const reflectEffort = flaggedEffortSignals(reflectAnswers).length > 0;
               const reflectSits = ENVIRONMENTS.filter(e => reflectFlags.has(e.id)).map(e => (SITUATION_LABEL[e.id] || e.label).toLowerCase());
               const reflectText = reflectSits.length === 0 ? null
                 : reflectSits.length === 1 ? reflectSits[0]
@@ -5952,7 +6234,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       nothing was flagged. */}
                   {reflectText ? (
                     <div style={{fontSize:13.5,color:"#54625C",fontStyle:"italic",borderLeft:"3px solid #B5832E",paddingLeft:13,marginBottom:16,lineHeight:1.55}}>
-                      You told us the hardest moments have been {reflectText}.
+                      You told us the hardest moments have been {reflectText}{reflectEffort
+                        ? " — and that listening there leaves you drained."
+                        : " — the places where listening takes the most out of you."}
+                    </div>
+                  ) : reflectEffort ? (
+                    <div style={{fontSize:13.5,color:"#54625C",fontStyle:"italic",borderLeft:"3px solid #B5832E",paddingLeft:13,marginBottom:16,lineHeight:1.55}}>
+                      You told us listening takes real work these days — conversations leave you more tired than they should.
                     </div>
                   ) : chiefComplaint ? (
                     <div style={{fontSize:13.5,color:"#54625C",fontStyle:"italic",borderLeft:"3px solid #B5832E",paddingLeft:13,marginBottom:16,lineHeight:1.55}}>
@@ -5965,15 +6253,17 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     {tierLabel} Technology
                   </div>
 
-                  {/* Listening-effort framing — how hard the brain works at this
-                      tier (the counseling pivot away from a hobby checklist).
-                      Keyed off the tier label's rank; silent if unmapped. */}
+                  {/* Listening-effort framing — who does the work of separating
+                      speech from noise at this tier (the counseling pivot away
+                      from a hobby checklist). "Listening effort" is the one
+                      consistent label across screens. Keyed off the tier
+                      label's rank; silent if unmapped. */}
                   {(() => {
                     const effRank = rankFromTierLabel(tierLabel);
                     const eff = effRank != null ? TIER_EFFORT_COPY[effRank] : null;
                     return eff ? (
                       <div style={{fontSize:12.5,lineHeight:1.55,color:"#54625C",marginBottom:14}}>
-                        {eff}
+                        <span style={{fontWeight:700,color:"#B5832E"}}>Listening effort · </span>{eff}
                       </div>
                     ) : null;
                   })()}
@@ -6519,8 +6809,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         const thDome = isEm ? "Custom Earmold" : (d.domeCategory && d.domeSize ? `${d.domeCategory} ${d.domeSize}` : d.domeCategory || d.dome || "—");
         const styleLabel = BODY_STYLES.find(s=>s.id===d.style)?.label || d.style || "—";
         const thMod = TH_MODELS.find(m => m.id === d.thModel);
-        const thGen = fam?.generation || d.generation || "";
-        const thSeries = fam?.thSeries || "";
+        // Platform generation follows the MODEL (TH7→IX, TH6→AX, TH5→X);
+        // fam/generation fallbacks cover legacy sides saved outside the card flow.
+        const thGen = thMod?.platform || fam?.generation || d.generation || "";
         const isLi = isTH ? (thMod?.li || false) : (fam?.rechargeable || false);
         const thHasReceiver = ["ric","ric_bct","sr"].includes(d.style);
         const planTierPrice = activePlans.find(p=>p.carrier===form.carrier&&p.planGroup===form.planGroup)
@@ -6532,19 +6823,23 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             </div>
             {[
               [d.manufacturer, "Manufacturer"],
-              [isTH ? (thGen ? `${thGen} TruHearing Select` : "TruHearing Select") : d.generation, "Platform"],
+              [isTH ? (thGen ? `${thGen} platform · TruHearing Select` : "TruHearing Select") : d.generation, "Platform"],
               [isTH ? (thMod?.label || "TruHearing Select") : (fam?.family||""), "Model Family"],
               ...(isTH ? [
-                [thSeries ? `${thSeries} · ${d.techLevel}` : d.techLevel, "Series / Tier"],
                 [styleLabel, "Body Style"],
                 ...(d.variant ? [[d.variant, "Variant / Style"]] : []),
                 [d.isCROS ? "CROS Transmitter" : "Standard", "CROS"],
                 [isLi ? "Rechargeable (Li-Ion)" : (d.battery||"—"), "Battery"],
-                ...(thHasReceiver ? [
+                // A CROS transmitter has no receiver/gain/dome of its own.
+                ...(thHasReceiver && !d.isCROS ? [
                   [d.receiverLength||"—", "Receiver Length"],
                   [pwrLabel, "Receiver Power"],
                   [thDome, "Dome / Coupling"],
                 ] : []),
+                // Technology level prints ONCE, adjacent to Patient Cost —
+                // the model rows above stay tier-free (same scheme as the
+                // quote and purchase-agreement PDFs).
+                [d.techLevel, "Technology Level"],
               ] : [
                 [d.variant||"—", "Variant"],
                 [d.color||"N/A", "Color"],
@@ -6561,7 +6856,16 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             ].map(([v,k])=>(
               <div className="review-row" key={k}><span className="review-key">{k}</span><span className="review-val">{v}</span></div>
             ))}
-            {isTH && planTierPrice !== null && (
+            {isTH && d.isCROS ? (
+              // TruHearing CROS transmitter: bills at the coordinating
+              // technology-level instrument price (the tier copay), per Kurt.
+              <div className="review-row" style={{background:"#eef2ff",borderRadius:6,padding:"6px 10px",marginTop:4}}>
+                <span className="review-key">Patient Cost</span>
+                <span className="review-val" style={{fontWeight:700,color:"#4f46e5"}}>
+                  {(() => { const p = planTierPrice ?? form.tierPrice; return p == null ? "—" : p === 0 ? "No Charge" : `$${p.toLocaleString()} / CROS unit`; })()}
+                </span>
+              </div>
+            ) : isTH && planTierPrice !== null && (
               <div className="review-row" style={{background:"#f0fdf4",borderRadius:6,padding:"6px 10px",marginTop:4}}>
                 <span className="review-key">Patient Cost</span>
                 <span className="review-val" style={{fontWeight:700,color:"#15803d"}}>
@@ -7168,14 +7472,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
               Custom Quote
             </button>
-            {p.devices && (p.carePlan || p.payType === "private") && (
-              <button
-                style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
-                onClick={() => { setPaSignatureName(""); setPaDeliveryName(""); setPaDeliveryDate(""); setPaStep("sign"); setShowPurchaseAgreement(true); }}
-              >
-                <span style={{fontSize:14}}>📄</span> Generate Purchase Agreement
-              </button>
-            )}
+            <button
+              style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
+              onClick={() => { setPaPrefill(null); setShowPurchaseAgreement(true); }}
+              title="Pick devices, pricing, and care plan, sign, and save the agreed configuration to the chart"
+            >
+              <span style={{fontSize:14}}>📄</span> Generate Purchase Agreement
+            </button>
             <button
               style={{background:"#f1f5f9",color:"#475569",border:"1px solid #cbd5e1",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
               onClick={() => setShowSendNotification(true)}
@@ -7341,6 +7644,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             }}
             onClose={() => setShowCreateQuote(false)}
             onArchived={() => { refreshDocuments?.(); }}
+            onConvertToAgreement={(state) => {
+              setShowCreateQuote(false);
+              setPaPrefill(state);
+              setShowPurchaseAgreement(true);
+            }}
           />
         )}
 
@@ -7355,232 +7663,45 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         )}
 
         {/* ── PURCHASE AGREEMENT MODAL ──────────────────────────────────── */}
-        {showPurchaseAgreement && (() => {
-          const cpId = p.carePlan;
-          const hasDevices = p.devices?.left || p.devices?.right;
-          const canGenerate = paSignatureName.trim().length > 2;
-          // Private pay reads from the snapshot persisted at finalize.
-          // Legacy records (pre-migration) fall back to the historical $2,750.
-          const isPrivate = p.payType === 'private';
-          const pricePerAid = isPrivate
-            ? (p.privatePay?.tierPrice || 2750)
-            : (p.insurance?.tierPrice || 0);
-          const isBilateral = (p.devices?.fittingType === 'bilateral' || p.devices?.fittingType === 'cros_bicros');
-          const aidCount = isBilateral ? 2 : 1;
-          // Private pay bundles the care plan into the per-aid retail price.
-          const carePlanCost = isPrivate ? 0 : (cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0);
-          // CROS sides flat at $1,250; non-CROS sides use the snapshotted
-          // pricePerAid. deviceTotal becomes the true pair total under CROS.
-          const sideHasCros = (s) => !!s && /^(CROS|BICROS)/i.test(s.variant || '');
-          const leftEarP  = p.devices?.left  ? (sideHasCros(p.devices.left)  ? CROS_PRICE_PER_UNIT : pricePerAid) : null;
-          const rightEarP = p.devices?.right ? (sideHasCros(p.devices.right) ? CROS_PRICE_PER_UNIT : pricePerAid) : null;
-          const deviceTotal = (leftEarP || 0) + (rightEarP || 0) || pricePerAid * aidCount;
-          const totalPurchasePrice = deviceTotal + carePlanCost;
-
-          const handleGeneratePDF = async (includeDelivery = false) => {
-            if (closerNeedsLocation) { alert("Set your dispensing location in the sidebar before generating a purchase agreement."); setShowCloserPicker(true); return; } const { blob, fileName } = downloadPurchaseAgreement({
-              patient: { name: p.name, address: p.address, phone: p.phone, dob: p.dob },
-              devices: {
-                fittingType: p.devices?.fittingType || 'bilateral',
-                left: p.devices?.left || null,
-                right: p.devices?.right || null,
-              },
-              carePlan: cpId,
-              pricePerAid,
-              leftPrice: leftEarP,
-              rightPrice: rightEarP,
-              payType: p.payType,
-              clinic: paClinic,
-              provider: paProvider,
-              patientSignature: paSignatureName.trim(),
-              patientSignatureDate: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
-              deliverySignature: includeDelivery ? paDeliveryName.trim() || null : null,
-              deliveryDate: includeDelivery ? paDeliveryDate || null : null,
-              signatureImageBase64: paSignatureB64,
-            });
-
-            // Always archive to chart — paper trail required for compliance.
-            try {
-              await uploadPatientDocument({
-                patientId: p.id,
-                clinicId,
-                staffId,
-                kind: 'purchase_agreement',
-                blob, fileName,
-                metadata: {
-                  carePlan: cpId,
-                  pricePerAid,
-                  aidCount,
-                  deviceTotal,
-                  carePlanCost,
-                  totalPurchasePrice,
-                  fittingType: p.devices?.fittingType || 'bilateral',
-                  payType: p.payType,
-                  patientSignature: paSignatureName.trim(),
-                  includesDelivery: includeDelivery,
-                  deliverySignature: includeDelivery ? (paDeliveryName.trim() || null) : null,
-                  deliveryDate: includeDelivery ? (paDeliveryDate || null) : null,
-                  providerName: paProvider.fullName || null,
-                },
+        {showPurchaseAgreement && (
+          <PurchaseAgreementModal
+            patient={p}
+            clinic={paClinic}
+            provider={paProvider}
+            signatureImageBase64={paSignatureB64}
+            clinicId={clinicId}
+            staffId={staffId}
+            catalog={catalog}
+            insurancePlans={activePlans}
+            productCatalogTiers={productCatalogTiers}
+            anchorsByClass={retailAnchorsByClass}
+            resolveRetailPerAid={(side) => {
+              // Clinic retail anchor for a device side — same resolution the
+              // Custom Quote uses, so agreement discounts anchor to the real
+              // clinic price regardless of the patient's pay type.
+              if (!side || !side.familyId || !side.techLevel) return null;
+              const ep = deriveEarPrice(side, {
+                form: { payType: "private" },
+                catalog,
+                productCatalogTiers,
+                anchorsByClass: retailAnchorsByClass,
+                plans: activePlans,
               });
-              await refreshDocuments();
-            } catch (e) {
-              console.error('Archive purchase agreement:', e);
-              alert('Purchase agreement downloaded, but failed to archive to chart: ' + (e.message || e));
-            }
-
-            // Convert TNS patient to active when PA is signed
-            if (p.patientStatus === "tns") {
-              try {
-                const years = p.payType === "insurance" && p.carePlan === "complete" ? 4 : 3;
-                await convertTnsToActive(p.id, years);
-                const fittingDate = new Date().toISOString().split("T")[0];
-                const expiry = new Date();
-                expiry.setFullYear(expiry.getFullYear() + years);
-                const warrantyExpiry = expiry.toISOString().split("T")[0];
-                const updated = {
-                  ...p,
-                  patientStatus: "active",
-                  devices: { ...p.devices, fittingDate, warrantyExpiry },
-                };
-                setSelectedPatient(updated);
-                await refreshPatients();
-              } catch (e) { console.error("convertTnsToActive:", e); }
-            }
-            setShowPurchaseAgreement(false);
-          };
-
-          return (
-            <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(10,22,40,0.55)",backdropFilter:"blur(4px)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setShowPurchaseAgreement(false)}>
-              <div style={{background:"white",borderRadius:16,padding:32,width:520,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}} onClick={e=>e.stopPropagation()}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-                  <div>
-                    <div style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:18,color:"#0a1628"}}>Purchase Agreement</div>
-                    <div style={{fontFamily:"'Sora',sans-serif",fontSize:12,color:"#6b7280",marginTop:2}}>{p.name}</div>
-                  </div>
-                  <button onClick={()=>setShowPurchaseAgreement(false)} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#9ca3af",padding:4}}>✕</button>
-                </div>
-
-                {/* Summary */}
-                <div style={{background:"#FBF9F3",borderRadius:10,padding:16,marginBottom:20,border:"1px solid #E4E0D5"}}>
-                  <div style={{fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:11,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,marginBottom:8}}>Agreement Summary</div>
-                  {hasDevices && (
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#374151"}}>{p.devices?.left?.manufacturer || p.devices?.right?.manufacturer} {p.devices?.left?.family || p.devices?.right?.family} ({isBilateral ? 'pair' : 'single'})</span>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:600,color:"#0a1628"}}>${deviceTotal.toLocaleString('en-US',{minimumFractionDigits:2})}</span>
-                    </div>
-                  )}
-                  {cpId && cpId !== 'paygo' && (
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#374151"}}>{cpId === 'complete' ? 'Complete Care+' : 'MHC Punch Card'}</span>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,fontWeight:600,color: isPrivate ? '#15803d' : '#0a1628'}}>{isPrivate ? 'Included' : (cpId === 'complete' ? '$1,250.00' : '$575.00')}</span>
-                    </div>
-                  )}
-                  {cpId === 'paygo' && (
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#6b7280",fontStyle:"italic"}}>Standard Billing ($65 per visit)</span>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#6b7280"}}>$0.00</span>
-                    </div>
-                  )}
-                  <div style={{borderTop:"1px solid #E4E0D5",marginTop:8,paddingTop:8,display:"flex",justifyContent:"space-between"}}>
-                    <span style={{fontFamily:"'Sora',sans-serif",fontSize:14,fontWeight:700,color:"#0a1628"}}>Total</span>
-                    <span style={{fontFamily:"'Sora',sans-serif",fontSize:14,fontWeight:700,color:"#0a1628"}}>${totalPurchasePrice.toLocaleString('en-US',{minimumFractionDigits:2})}</span>
-                  </div>
-                </div>
-
-                {paStep === "sign" && (
-                  <>
-                    {/* Adopt and Sign */}
-                    <div style={{marginBottom:20}}>
-                      <div style={{fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:11,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,marginBottom:8}}>Patient Signature — Adopt and Sign</div>
-                      <div style={{fontFamily:"'Sora',sans-serif",fontSize:12,color:"#6b7280",marginBottom:10}}>Type your full legal name to electronically sign this agreement.</div>
-                      <input
-                        value={paSignatureName}
-                        onChange={e => setPaSignatureName(e.target.value)}
-                        placeholder="Full legal name"
-                        autoFocus
-                        style={{width:"100%",padding:"12px 14px",border:"1px solid #E4E0D5",borderRadius:10,fontFamily:"'Sora',sans-serif",fontSize:14,outline:"none",boxSizing:"border-box"}}
-                      />
-                      {paSignatureName.trim().length > 2 && (
-                        <div style={{marginTop:12,padding:"14px 18px",background:"#FBF9F3",borderRadius:10,border:"1px dashed #d1d5db"}}>
-                          <div style={{fontFamily:"'Georgia','Times New Roman',serif",fontSize:24,fontStyle:"italic",color:"#0a1628",letterSpacing:0.5}}>{paSignatureName}</div>
-                          <div style={{fontFamily:"'Sora',sans-serif",fontSize:10,color:"#9ca3af",marginTop:4}}>Electronic signature preview</div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div style={{display:"flex",gap:10}}>
-                      <button
-                        disabled={!canGenerate}
-                        onClick={() => handleGeneratePDF(false)}
-                        style={{flex:1,background:canGenerate?"#0a1628":"#d1d5db",color:"white",border:"none",borderRadius:10,padding:"12px 20px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,cursor:canGenerate?"pointer":"not-allowed",transition:"all 0.15s"}}
-                      >
-                        Adopt, Sign & Download
-                      </button>
-                      <button
-                        onClick={() => setPaStep("delivery")}
-                        style={{background:"none",border:"1px solid #E4E0D5",borderRadius:10,padding:"12px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",color:"#6b7280",whiteSpace:"nowrap"}}
-                      >
-                        + Delivery
-                      </button>
-                    </div>
-                  </>
-                )}
-
-                {paStep === "delivery" && (
-                  <>
-                    {/* Show patient signature as confirmed */}
-                    <div style={{background:"#ecfdf5",borderRadius:10,padding:12,marginBottom:16,border:"1px solid #a7f3d0",display:"flex",alignItems:"center",gap:8}}>
-                      <span style={{color:"#16a34a",fontSize:16}}>✓</span>
-                      <span style={{fontFamily:"'Sora',sans-serif",fontSize:13,color:"#065f46"}}>Purchase signed by {paSignatureName}</span>
-                    </div>
-
-                    <div style={{marginBottom:16}}>
-                      <div style={{fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:11,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,marginBottom:8}}>Delivery Acknowledgement</div>
-                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                        <div>
-                          <label style={{fontFamily:"'Sora',sans-serif",fontSize:11,color:"#6b7280",display:"block",marginBottom:4}}>Patient Name</label>
-                          <input
-                            value={paDeliveryName}
-                            onChange={e => setPaDeliveryName(e.target.value)}
-                            placeholder="Full legal name"
-                            autoFocus
-                            style={{width:"100%",padding:"10px 12px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}}
-                          />
-                        </div>
-                        <div>
-                          <label style={{fontFamily:"'Sora',sans-serif",fontSize:11,color:"#6b7280",display:"block",marginBottom:4}}>Delivery Date</label>
-                          <input
-                            type="date"
-                            value={paDeliveryDate}
-                            onChange={e => setPaDeliveryDate(e.target.value)}
-                            style={{width:"100%",padding:"10px 12px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}}
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{display:"flex",gap:10}}>
-                      <button
-                        onClick={() => setPaStep("sign")}
-                        style={{background:"none",border:"1px solid #E4E0D5",borderRadius:10,padding:"12px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",color:"#6b7280"}}
-                      >
-                        ← Back
-                      </button>
-                      <button
-                        onClick={() => handleGeneratePDF(true)}
-                        disabled={!paDeliveryName.trim() || !paDeliveryDate}
-                        style={{flex:1,background:(paDeliveryName.trim()&&paDeliveryDate)?"#0a1628":"#d1d5db",color:"white",border:"none",borderRadius:10,padding:"12px 20px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,cursor:(paDeliveryName.trim()&&paDeliveryDate)?"pointer":"not-allowed",transition:"all 0.15s"}}
-                      >
-                        Sign & Download with Delivery
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          );
-        })()}
+              return ep && ep.price != null ? ep.price : null;
+            }}
+            initialState={paPrefill}
+            closerNeedsLocation={closerNeedsLocation}
+            onNeedLocation={() => { alert("Set your dispensing location in the sidebar before generating a purchase agreement."); setShowCloserPicker(true); }}
+            onClose={() => { setShowPurchaseAgreement(false); setPaPrefill(null); }}
+            onArchived={() => { refreshDocuments?.(); }}
+            onChartSaved={async (patch) => {
+              // Optimistic merge so the open chart reflects the agreement
+              // immediately; the roster refresh pulls the canonical rows.
+              setSelectedPatient({ ...p, ...patch });
+              try { await refreshPatients(); } catch (e) { console.error("refreshPatients:", e); }
+            }}
+          />
+        )}
 
         <div className="content">
           {p.patientStatus === "tns" && (
@@ -9558,6 +9679,27 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         </div>
       )}
 
+      {/* ── Take-home quote link toast (wizard Generate Quote) ── */}
+      {quoteShareUrl && (
+        <div style={{position:"fixed",bottom:20,left:"50%",transform:"translateX(-50%)",zIndex:9999,background:"#0C211E",color:"white",padding:"14px 18px",borderRadius:12,boxShadow:"0 12px 32px rgba(0,0,0,0.35)",fontFamily:"'Sora',sans-serif",display:"flex",alignItems:"center",gap:14,maxWidth:"min(560px, calc(100vw - 32px))"}}>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:2}}>Take-home quote link ready</div>
+            <div style={{fontSize:11.5,color:"#9AA39B",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              Text or email it to the patient — expires in {QUOTE_SHARE_VALID_DAYS} days · {quoteShareUrl}
+            </div>
+          </div>
+          <button
+            onClick={() => { try { navigator.clipboard?.writeText(quoteShareUrl); setQuoteShareCopied(true); setTimeout(() => setQuoteShareCopied(false), 2000); } catch {} }}
+            style={{background: quoteShareCopied ? "#15803d" : "#1B8A7A",color:"white",border:"none",borderRadius:8,padding:"8px 14px",fontWeight:700,fontSize:12,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+            {quoteShareCopied ? "Copied ✓" : "Copy link"}
+          </button>
+          <button
+            onClick={() => setQuoteShareUrl(null)}
+            aria-label="Dismiss"
+            style={{background:"none",border:"none",color:"#9AA39B",fontSize:18,cursor:"pointer",padding:2,lineHeight:1,flexShrink:0}}>×</button>
+        </div>
+      )}
+
       {/* ── Intake queue modal ── */}
       {checkinSession && (
         <div className="queue-modal-overlay" onClick={() => setCheckinSession(null)}>
@@ -9799,7 +9941,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             {/* "Schedule" deliberately absent: calendaring was dropped as a product
                 decision — clinics have scheduling tools; Distil tracks
                 next_appointment_date only. */}
-            {[["dashboard","Dashboard","dashboard"],["users","Patients","patients"],["bell","Follow-up","followup"],["archive","Archive","archive"],["chart","Reports","reports"],["compare","Compare Devices","compare"],["campaign","Campaigns","campaigns"],["book","Content Library","content"],["medal","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
+            {[["dashboard","Dashboard","dashboard"],["users","Patients","patients"],["bell","Follow-up","followup"],["archive","Archive","archive"],["chart","Reports","reports"],["compare","Compare Devices","compare"],["clipboard","Market Catalog","market-catalog"],["campaign","Campaigns","campaigns"],["book","Content Library","content"],["medal","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
               const badge = id === "followup" ? countFollowUpPatients(patients) : 0;
               return (
               <div key={id} className={`nav-item ${view===id||(id==="dashboard"&&view==="new")||(id==="patients"&&(view==="dashboard"||view==="patient"))?"active":""}`}
@@ -9945,6 +10087,15 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 defaultDevice: "no_hearing_loss",
                 defaultCarePlan: "not_applicable",
               };
+            } else if (isWizard && closeAppointment.didNotTest) {
+              // Did Not Test — launched from the Testing step's fork. The
+              // reason stays unset on purpose: picking it IS the provider's
+              // one required action in this close.
+              defaults = {
+                defaultContext: "new_fit",
+                defaultDevice: "did_not_test",
+                defaultCarePlan: "not_applicable",
+              };
             } else if (isWizard) {
               // Private pay bundles Complete Care+ with a signed purchase.
               const cpSel = form.payType === "private"
@@ -10015,6 +10166,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           {view === "providers" && (checkRole(staffRole, ["admin"]) ? <ProvidersAdmin /> : renderAdminDenied())}
           {view === "insurance-plans" && (checkRole(staffRole, ["admin"]) ? renderInsurancePlans() : renderAdminDenied())}
           {view === "nations-catalog" && (checkRole(staffRole, ["admin"]) ? <NationsCatalog /> : renderAdminDenied())}
+          {view === "market-catalog" && <HearingAidCatalog />}
           {view === "team" && (checkRole(staffRole, ["admin"]) ? <TeamAdmin activeClinicId={clinicId} /> : renderAdminDenied())}
           {view === "adjustments" && <AdjustmentHistory staffId={staffId} patients={patients} />}
           {view === "rebates" && renderRebates()}
@@ -10255,12 +10407,24 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                             <tr key={label} style={{background:i%2===0?"#FBF9F3":"white"}}>
                               <td style={{padding:"6px 8px",fontWeight:600,color:"#0a1628"}}>{label}</td>
                               <td style={{padding:"6px 8px"}}>{d.manufacturer||"—"}</td>
-                              <td style={{padding:"6px 8px"}}>{[d.family,d.variant,d.techLevel].filter(Boolean).join(" ")||"—"}</td>
+                              {/* TruHearing: model alone — the tech level prints once below,
+                                  next to pricing (same scheme as the quote + agreement PDFs). */}
+                              <td style={{padding:"6px 8px"}}>{(d.manufacturer==="TruHearing" ? [d.family,d.variant] : [d.family,d.variant,d.techLevel]).filter(Boolean).join(" ")||"—"}</td>
                               <td style={{padding:"6px 8px"}}>{d.style||"—"}</td>
                               <td style={{padding:"6px 8px"}}>{d.battery||"—"}</td>
                               <td style={{padding:"6px 8px",fontWeight:700}}>${effPerAid.toLocaleString('en-US',{minimumFractionDigits:2})}</td>
                             </tr>
                           ))}
+                          {(()=>{
+                            const t = [leftRec,rightRec].find(r => r?.manufacturer==="TruHearing" && !/^(CROS|BICROS)/i.test(r?.variant||""))?.techLevel;
+                            return t ? (
+                              <tr>
+                                <td colSpan={6} style={{padding:"4px 8px",fontSize:11,color:"#6b7280"}}>
+                                  Technology level: {t} — included in the price shown for each device above.
+                                </td>
+                              </tr>
+                            ) : null;
+                          })()}
                           <tr style={{background:"#E4E0D5"}}>
                             <td colSpan={5} style={{padding:"6px 8px",fontWeight:700,color:"#0a1628"}}>Device Total ({ac===2?"pair":"single"})</td>
                             <td style={{padding:"6px 8px",fontWeight:700,color:"#0a1628"}}>${devTotal.toLocaleString('en-US',{minimumFractionDigits:2})}</td>

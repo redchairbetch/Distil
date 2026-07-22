@@ -252,6 +252,8 @@ const T = {
     hearQ_loud: "Have you been told that you speak loudly?",
     hearQ_tv: "Have you been told you turn the TV volume too loud?",
     hearQ_kids: "Do you have difficulty understanding children's voices?",
+    hearQ_fatigue: "After conversations in noisy places, do you feel unusually tired or drained?",
+    hearQ_strain: "Do you have to concentrate hard to keep up with conversation, even when you can hear the voices?",
     hearQ_other: "What else should we know about your hearing challenges? (optional)",
     otherChallengesPlaceholder: "Describe any other hearing challenges…",
     hearQ_rating: "On a scale of 1 to 10, how well do you think you hear?",
@@ -504,6 +506,8 @@ const T = {
     hearQ_loud: "¿Le han dicho que habla muy fuerte?",
     hearQ_tv: "¿Le han dicho que sube demasiado el volumen del televisor?",
     hearQ_kids: "¿Tiene dificultad para entender las voces de los niños?",
+    hearQ_fatigue: "Después de conversar en lugares ruidosos, ¿se siente inusualmente cansado/a o agotado/a?",
+    hearQ_strain: "¿Tiene que concentrarse mucho para seguir una conversación, aunque escuche las voces?",
     hearQ_other: "¿Qué más debemos saber sobre sus dificultades auditivas? (opcional)",
     otherChallengesPlaceholder: "Describa cualquier dificultad auditiva adicional…",
     hearQ_rating: "En una escala del 1 al 10, ¿qué tan bien cree que escucha?",
@@ -806,6 +810,13 @@ const STEPS = [
   { id: "hear_loud", type: "yesno", sec: "secHearing", qKey: "hearQ_loud", ansKey: "hear_loud" },
   { id: "hear_tv", type: "yesno", sec: "secHearing", qKey: "hearQ_tv", ansKey: "hear_tv" },
   { id: "hear_kids", type: "yesno", sec: "secHearing", qKey: "hearQ_kids", ansKey: "hear_kids" },
+  // Listening-effort signals (effort pivot) — fatigue is the felt cost of the
+  // brain decoding a degraded signal; strain is the effort itself. Deliberately
+  // NOT part of the engine's 7-symptom down-tier count (that rubric's
+  // thresholds are tuned to 7) — they gate the no_speech_in_noise_difficulty
+  // down-tier point and personalize rationale + reflection copy instead.
+  { id: "hear_fatigue", type: "yesno", sec: "secHearing", qKey: "hearQ_fatigue", ansKey: "hear_fatigue" },
+  { id: "hear_strain", type: "yesno", sec: "secHearing", qKey: "hearQ_strain", ansKey: "hear_strain" },
   { id: "hear_rating", type: "scale", sec: "secHearing", qKey: "hearQ_rating", ansKey: "hear_rating" },
   { id: "hear_ready", type: "yesno", sec: "secHearing", qKey: "hearQ_ready", ansKey: "hear_ready" },
   { id: "hear_prevented", type: "multiSelect", sec: "secHearing", qKey: "hearQ_prevented", ansKey: "resistancePoints",

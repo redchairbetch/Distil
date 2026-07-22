@@ -310,6 +310,74 @@ export async function getDocumentSignedUrl(storagePath, expiresIn = 3600) {
 
 
 // ============================================================
+// QUOTE SHARE LINKS (/quote/<token>)
+// ============================================================
+
+// 192-bit random token, base64url. The token IS the bearer credential for
+// the shared quote page, so it must come from crypto.getRandomValues —
+// never Math.random.
+function genQuoteShareToken() {
+  const bytes = new Uint8Array(24)
+  crypto.getRandomValues(bytes)
+  let bin = ''
+  bytes.forEach(b => { bin += String.fromCharCode(b) })
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+/**
+ * Mint a tokenized share row for a generated quote. `payload` must be the
+ * PHI-minimal snapshot from buildQuoteSharePayload (lib/quoteShare.js) —
+ * never pass raw wizard/patient state here. Expiry defaults to the quote's
+ * 30-day validity window. Returns { id, token, url, expiresAt }.
+ */
+export async function createQuoteShare({
+  patientId,
+  clinicId,
+  staffId = null,
+  documentId = null,
+  payload,
+  validDays = 30,
+}) {
+  if (!patientId || !clinicId) throw new Error('createQuoteShare: patientId and clinicId are required')
+  if (!payload) throw new Error('createQuoteShare: payload is required')
+  const token = genQuoteShareToken()
+  const expiresAt = new Date(Date.now() + validDays * 86400000).toISOString()
+  const { data, error } = await supabase
+    .from('quote_shares')
+    .insert({
+      token,
+      patient_id:  patientId,
+      clinic_id:   clinicId,
+      created_by:  staffId,
+      document_id: documentId,
+      payload,
+      expires_at:  expiresAt,
+    })
+    .select('id, token, expires_at')
+    .single()
+  if (error) throw error
+  return {
+    id: data.id,
+    token: data.token,
+    expiresAt: data.expires_at,
+    url: `${window.location.origin}/quote/${data.token}`,
+  }
+}
+
+/**
+ * Resolve a shared quote by token (anon-callable RPC — the /quote page's
+ * only data access). Returns { payload, clinic, createdAt, expiresAt } or
+ * null for unknown/expired/revoked tokens. Each successful resolve bumps
+ * the row's open tracking server-side.
+ */
+export async function fetchSharedQuote(token) {
+  const { data, error } = await supabase.rpc('get_shared_quote', { p_token: token })
+  if (error) throw error
+  return data || null
+}
+
+
+// ============================================================
 // PUSH NOTIFICATIONS
 // ============================================================
 
@@ -1448,6 +1516,44 @@ export async function updatePatientDevices(patientId, devices, staffId, visitId 
   }
 }
 
+// Record the device configuration sold on a signed purchase agreement as a
+// NEW fitting row + sides. Deliberately history-preserving — unlike
+// updatePatientDevices' replace pattern, prior fittings survive (an upgrade
+// patient's original aids stay on record), and assemblePatient's pickNewest
+// makes the just-inserted row the chart's current fitting. Stamps
+// fitting_date (the purchase date) and warranty_expiry directly. Throws on
+// failure so the caller can surface a chart-not-updated warning.
+export async function recordPurchaseFitting(patientId, devices, staffId, { fittingDate = null, warrantyExpiry = null } = {}) {
+  if (!devices) return null
+  const fittingType = (devices.fittingType || 'bilateral')
+    .toLowerCase().replace('/', '_').replace(' ', '_')
+
+  const { data: fittingRow, error: fittingError } = await supabase
+    .from('device_fittings')
+    .insert({
+      patient_id:      patientId,
+      visit_id:        null,
+      fitted_by:       staffId,
+      fitting_type:    fittingType,
+      fitting_date:    fittingDate,
+      warranty_expiry: warrantyExpiry,
+      serial_left:     devices.serialLeft  || null,
+      serial_right:    devices.serialRight || null,
+    })
+    .select()
+    .single()
+  if (fittingError) throw fittingError
+
+  const sidesToInsert = []
+  if (devices.left)  sidesToInsert.push(buildSideRow(fittingRow.id, 'left', devices.left))
+  if (devices.right) sidesToInsert.push(buildSideRow(fittingRow.id, 'right', devices.right))
+  if (sidesToInsert.length) {
+    const { error } = await supabase.from('device_sides').insert(sidesToInsert)
+    if (error) throw error
+  }
+  return fittingRow
+}
+
 // Step 4 — save care plan selection
 export async function updatePatientCarePlan(patientId, carePlan) {
   const { error } = await supabase
@@ -1609,11 +1715,17 @@ export async function finalizePatient(patientId, status, devices, carePlan, note
 // but declines a care plan.
 export const OUTCOME_CONTEXTS = ['new_fit', 'upgrade', 'care_plan_only']
 // 'no_hearing_loss' = Tested No Loss: thresholds within normal limits (≤20 dB),
-// so there was never a recommendation to accept or decline. Excluded from
-// close-rate denominators alongside not_a_candidate (see lib/reportStats.js).
-export const OUTCOME_DISPOSITIONS = ['committed', 'deferred', 'declined', 'not_a_candidate', 'no_hearing_loss', 'no_decision', 'not_applicable']
-export const OUTCOME_REASON_REQUIRED = ['deferred', 'declined']
-export const OUTCOME_REASONS = [
+// so there was never a recommendation to accept or decline. 'did_not_test' =
+// no audiometric test happened this visit (e.g. wax removal only) — the
+// wizard's Testing-step fork; the patient stays a prospect. Both are excluded
+// from close-rate denominators alongside not_a_candidate (see lib/reportStats.js).
+export const OUTCOME_DISPOSITIONS = ['committed', 'deferred', 'declined', 'not_a_candidate', 'no_hearing_loss', 'did_not_test', 'no_decision', 'not_applicable']
+export const OUTCOME_REASON_REQUIRED = ['deferred', 'declined', 'did_not_test']
+// Two reason vocabularies share the outcome_reason enum: decline reasons
+// explain a "no" to a recommendation; no-test reasons explain why no
+// recommendation could exist. validateAppointmentOutcome (and the modal's
+// pickers) keep each disposition on its own list.
+export const DECLINE_REASONS = [
   'price_budget',
   'spouse_family_consult',
   'wants_to_think',
@@ -1623,6 +1735,16 @@ export const OUTCOME_REASONS = [
   'health_life_circumstances',
   'satisfied_with_current_devices',
 ]
+export const NO_TEST_REASONS = [
+  'cerumen_management_only',
+  'patient_declined_testing',
+  'medical_contraindication',
+  'equipment_issue',
+  'ran_out_of_time',
+]
+export const OUTCOME_REASONS = [...DECLINE_REASONS, ...NO_TEST_REASONS]
+export const outcomeReasonsFor = (disposition) =>
+  disposition === 'did_not_test' ? NO_TEST_REASONS : DECLINE_REASONS
 
 // Mirrors the table's CHECK constraints so the modal gets a readable message
 // instead of a Postgres constraint error. Returns null when valid.
@@ -1631,10 +1753,10 @@ export function validateAppointmentOutcome(o) {
   if (!OUTCOME_CONTEXTS.includes(o.context)) return 'Select the appointment context.'
   if (!OUTCOME_DISPOSITIONS.includes(o.deviceDisposition)) return 'Select a device outcome.'
   if (!OUTCOME_DISPOSITIONS.includes(o.carePlanDisposition)) return 'Select a care plan outcome.'
-  if (OUTCOME_REASON_REQUIRED.includes(o.deviceDisposition) && !OUTCOME_REASONS.includes(o.deviceReason)) {
+  if (OUTCOME_REASON_REQUIRED.includes(o.deviceDisposition) && !outcomeReasonsFor(o.deviceDisposition).includes(o.deviceReason)) {
     return 'Select a reason for the device outcome.'
   }
-  if (OUTCOME_REASON_REQUIRED.includes(o.carePlanDisposition) && !OUTCOME_REASONS.includes(o.carePlanReason)) {
+  if (OUTCOME_REASON_REQUIRED.includes(o.carePlanDisposition) && !outcomeReasonsFor(o.carePlanDisposition).includes(o.carePlanReason)) {
     return 'Select a reason for the care plan outcome.'
   }
   if (o.carePlanDisposition === 'committed' && !o.carePlanSelected) {

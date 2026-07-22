@@ -63,43 +63,49 @@ export function interpolateThreshold(thresholds, freq){
 }
 
 // ── SPEECH BANANA BOUNDARY COORDINATES ───────────────────────────────────────
+// Matched to the MedRx/Avant speech area: average conversational speech spans
+// ~10–50 dB HL from 250 Hz to 6 kHz, drawn as a band with chamfered bottom
+// corners (the low-frequency vowel shelf and the high-frequency roll-off).
 const SPEECH_BANANA_UPPER=[
-  {freq:250,db:20},{freq:500,db:15},{freq:1000,db:20},{freq:2000,db:20},
-  {freq:4000,db:25},{freq:6000,db:35},{freq:8000,db:40}
+  {freq:250,db:10},{freq:6000,db:10}
 ];
 const SPEECH_BANANA_LOWER=[
-  {freq:8000,db:65},{freq:6000,db:65},{freq:4000,db:70},{freq:2000,db:65},
-  {freq:1000,db:65},{freq:500,db:60},{freq:250,db:60}
+  {freq:6000,db:38},{freq:4000,db:50},{freq:500,db:50},{freq:250,db:45}
 ];
 
 // ── PHONEME POSITIONS ────────────────────────────────────────────────────────
-// Phoneme positions — clinical freq/dB, with display offsets to prevent overlap
-// displayFreq/displayDb are used for SVG placement; freq/db for audibility math
+// Phoneme positions — clinical freq/dB matched to the MedRx/Avant speech
+// banana, with display offsets to prevent label overlap.
+// displayFreq/displayDb are used for SVG placement; freq/db for audibility math.
+// Layout: voiced consonants + vowels hug the bottom-left (250–800 Hz, 30–48 dB);
+// v/z sit high-left; unvoiced consonants climb right and QUIET — f/s/th land at
+// 15–25 dB in the 4–6 kHz region, which is why a mild high-frequency loss
+// takes out clarity first.
 export const PHONEMES=[
-  {label:'j',freq:250,db:35, displayFreq:250,displayDb:35},
-  {label:'u',freq:310,db:28, displayFreq:310,displayDb:28},
-  {label:'v',freq:500,db:22, displayFreq:420,displayDb:22},
-  {label:'z',freq:500,db:24, displayFreq:580,displayDb:24},
-  {label:'m',freq:500,db:34, displayFreq:430,displayDb:33},
-  {label:'b',freq:500,db:36, displayFreq:530,displayDb:37},
-  {label:'n',freq:500,db:38, displayFreq:440,displayDb:40},
-  {label:'g',freq:500,db:42, displayFreq:540,displayDb:43},
-  {label:'d',freq:500,db:44, displayFreq:450,displayDb:47},
-  {label:'e',freq:600,db:30, displayFreq:650,displayDb:30},
-  {label:'l',freq:750,db:40, displayFreq:750,displayDb:40},
-  {label:'i',freq:1000,db:34, displayFreq:1000,displayDb:34},
-  {label:'a',freq:1000,db:50, displayFreq:1050,displayDb:50},
-  {label:'o',freq:900,db:44, displayFreq:900,displayDb:44},
-  {label:'r',freq:1500,db:44, displayFreq:1500,displayDb:44},
-  {label:'p',freq:2000,db:34, displayFreq:1900,displayDb:34},
-  {label:'h',freq:2000,db:38, displayFreq:2100,displayDb:38},
-  {label:'ch',freq:2500,db:54, displayFreq:2400,displayDb:54},
-  {label:'sh',freq:2500,db:56, displayFreq:2650,displayDb:58},
-  {label:'k',freq:3000,db:40, displayFreq:3000,displayDb:40},
-  {label:'t',freq:4000,db:30, displayFreq:3850,displayDb:30},
-  {label:'f',freq:4000,db:44, displayFreq:4000,displayDb:44},
-  {label:'s',freq:5000,db:40, displayFreq:5000,displayDb:40},
-  {label:'th',freq:6000,db:44, displayFreq:6000,displayDb:44},
+  {label:'v',freq:290,db:15, displayFreq:290,displayDb:15},
+  {label:'z',freq:280,db:21, displayFreq:280,displayDb:21},
+  {label:'j',freq:250,db:30, displayFreq:250,displayDb:30},
+  {label:'d',freq:290,db:33, displayFreq:290,displayDb:33},
+  {label:'b',freq:330,db:35, displayFreq:330,displayDb:35},
+  {label:'m',freq:270,db:38, displayFreq:270,displayDb:38},
+  {label:'n',freq:310,db:41, displayFreq:310,displayDb:41},
+  {label:'u',freq:290,db:44, displayFreq:290,displayDb:44},
+  {label:'e',freq:350,db:44, displayFreq:355,displayDb:44},
+  {label:'l',freq:500,db:46, displayFreq:480,displayDb:46},
+  {label:'i',freq:620,db:42, displayFreq:600,displayDb:41},
+  {label:'o',freq:650,db:47, displayFreq:670,displayDb:47},
+  {label:'a',freq:760,db:44, displayFreq:770,displayDb:43},
+  {label:'r',freq:800,db:47, displayFreq:880,displayDb:48},
+  {label:'ch',freq:1050,db:35, displayFreq:1050,displayDb:35},
+  {label:'sh',freq:1300,db:42, displayFreq:1300,displayDb:42},
+  {label:'p',freq:1750,db:23, displayFreq:1650,displayDb:22},
+  {label:'h',freq:1900,db:27, displayFreq:1900,displayDb:26},
+  {label:'g',freq:2000,db:30, displayFreq:2100,displayDb:31},
+  {label:'k',freq:2700,db:31, displayFreq:2700,displayDb:31},
+  {label:'t',freq:4000,db:30, displayFreq:4000,displayDb:30},
+  {label:'f',freq:4500,db:22, displayFreq:4300,displayDb:21},
+  {label:'s',freq:4700,db:25, displayFreq:4900,displayDb:26},
+  {label:'th',freq:5500,db:15, displayFreq:5500,displayDb:15},
 ];
 
 export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={},leftMask={},rightBCMask={},leftBCMask={},ghostRightT={},ghostLeftT={},interactive=false,onSet,activeEar="right",activeTestType="AC",maskMode=false,showBanana=false,phonemeDimMode=null,dimIntensity=75}){
@@ -250,9 +256,9 @@ export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={
           <line x1={freqToSvgX(1000,ML,PW)} y1={MT} x2={freqToSvgX(1000,ML,PW)} y2={MT+PH}
             stroke="#d1d5db" strokeWidth="1" strokeDasharray="4 3"/>
           {/* Awareness / Clarity labels */}
-          <text x={(ML+freqToSvgX(1000,ML,PW))/2} y={dy(12)} fontSize="9" fill="#9ca3af"
+          <text x={(ML+freqToSvgX(1000,ML,PW))/2} y={dy(16)} fontSize="9" fill="#9ca3af"
             textAnchor="middle" fontWeight="600" fontStyle="italic">Awareness</text>
-          <text x={(freqToSvgX(1000,ML,PW)+ML+PW)/2} y={dy(12)} fontSize="9" fill="#9ca3af"
+          <text x={(freqToSvgX(1000,ML,PW)+ML+PW)/2} y={dy(16)} fontSize="9" fill="#9ca3af"
             textAnchor="middle" fontWeight="600" fontStyle="italic">Clarity</text>
         </g>
       )}

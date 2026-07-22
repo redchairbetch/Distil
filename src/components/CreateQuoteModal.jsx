@@ -12,7 +12,8 @@
 
 import { useState, useMemo } from 'react'
 import { downloadQuote } from '../generateQuote.js'
-import { uploadPatientDocument, logPriceAdjustment } from '../db.js'
+import { uploadPatientDocument, logPriceAdjustment, createQuoteShare } from '../db.js'
+import { buildQuoteSharePayload, QUOTE_SHARE_VALID_DAYS } from '../lib/quoteShare.js'
 import { ADJUST_REASON_CODES } from '../views/AdjustPriceModal.jsx'
 import { nationsCoverageTier, deriveEarPrice } from '../lib/pricing.js'
 
@@ -145,6 +146,11 @@ export default function CreateQuoteModal({
   resolveRetailPerAid,
   onClose,
   onArchived,
+  // Hand the current configuration off to the Purchase Agreement flow —
+  // the parent closes this modal and opens PurchaseAgreementModal with the
+  // same devices/pricing/care plan pre-filled, so a quote the patient says
+  // yes to becomes the agreement without re-entering anything.
+  onConvertToAgreement,
 }) {
   const patientTpa = patient?.insurance?.tpa || null
 
@@ -246,6 +252,10 @@ export default function CreateQuoteModal({
   const [note, setNote] = useState('')
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState(null)
+  // Post-generate share-link panel: { url } on success, { url: null, error }
+  // when the PDF/archive succeeded but the link mint failed.
+  const [shareResult, setShareResult] = useState(null)
+  const [copied, setCopied] = useState(false)
 
   // Cascade options derived per side from the catalog.
   const optionsFor = (sd) => {
@@ -341,7 +351,12 @@ export default function CreateQuoteModal({
   const earPricing = (active, side, disc, priceState) => {
     if (!active) return { retail: null, discountAmt: 0, net: null }
     if (side.isCROS || isCrosVariant(side.variant)) {
-      return { retail: CROS_PRICE_PER_UNIT, discountAmt: 0, net: CROS_PRICE_PER_UNIT }
+      // TruHearing CROS transmitters bill at the coordinating technology-level
+      // instrument price — fall through to the plan's tier copay below (Kurt,
+      // 2026-07-14). Every other CROS unit is a fixed $1,250 add-on, no discount.
+      if (!(side.manufacturer === 'TruHearing' && payType === 'insurance' && planMode)) {
+        return { retail: CROS_PRICE_PER_UNIT, discountAmt: 0, net: CROS_PRICE_PER_UNIT }
+      }
     }
     if (payType === 'private') {
       const resolved = resolveRetailPerAid ? resolveRetailPerAid(side) : null
@@ -430,6 +445,17 @@ export default function CreateQuoteModal({
     && planPriced
     && !generating
 
+  // Everything PurchaseAgreementModal needs to open pre-filled with this
+  // quote's exact configuration.
+  const agreementState = () => ({
+    payType, carePlan, planCarrier, planGroup, planTier,
+    hasLeft, hasRight,
+    left: { ...left }, right: { ...right },
+    leftPrice, rightPrice,
+    leftDisc: { ...leftDisc }, rightDisc: { ...rightDisc },
+    reasonCode, reasonText,
+  })
+
   const handleGenerate = async () => {
     if (!canGenerate) return
     setGenerating(true)
@@ -504,8 +530,9 @@ export default function CreateQuoteModal({
         }
       }
 
+      let docRow = null
       try {
-        await uploadPatientDocument({
+        docRow = await uploadPatientDocument({
           patientId: patient.id,
           clinicId, staffId,
           kind: 'quote',
@@ -539,7 +566,42 @@ export default function CreateQuoteModal({
         setError('Quote downloaded, but archive failed: ' + (e?.message || e))
         return
       }
-      onClose?.()
+
+      // Mint the take-home share link (/quote/<token>). Non-fatal: the PDF is
+      // already downloaded and archived, so a failure here only loses the link.
+      try {
+        const payload = buildQuoteSharePayload({
+          patient: { name: patient.name },
+          devices: {
+            fittingType,
+            left:  hasLeft  ? { ...left,  model: left.family  || left.familyId  } : null,
+            right: hasRight ? { ...right, model: right.family || right.familyId } : null,
+          },
+          pricePerAid,
+          leftPrice:  leftEarP,
+          rightPrice: rightEarP,
+          leftRetail,
+          rightRetail,
+          selectedCarePlan: carePlan || 'complete',
+          payType,
+          tpa:     quoteTpaOut,
+          carrier: quoteCarrier,
+          tierLabel,
+          audiology: patient.audiology,
+          provider: { fullName: staffProfile?.fullName || 'Provider' },
+        })
+        const share = await createQuoteShare({
+          patientId: patient.id,
+          clinicId, staffId,
+          documentId: docRow?.id || null,
+          payload,
+          validDays: QUOTE_SHARE_VALID_DAYS,
+        })
+        setShareResult({ url: share.url })
+      } catch (e) {
+        console.error('Create quote share link:', e)
+        setShareResult({ url: null, error: e?.message || String(e) })
+      }
     } catch (e) {
       console.error('Custom quote generate:', e)
       setError(e?.message || String(e))
@@ -652,7 +714,9 @@ export default function CreateQuoteModal({
             <div>
               <label style={labelStyle}>Price per unit</label>
               <div style={{ fontSize: 13, color: C.muted }}>
-                CROS unit — fixed {money(CROS_PRICE_PER_UNIT)}, no discount.
+                {side.manufacturer === 'TruHearing' && payType === 'insurance' && planMode
+                  ? <>CROS transmitter — bills at the tier instrument price{px.net != null ? ` (${money(px.net)})` : ''}.</>
+                  : <>CROS unit — fixed {money(CROS_PRICE_PER_UNIT)}, no discount.</>}
               </div>
             </div>
           ) : payType === 'private' ? (
@@ -753,6 +817,111 @@ export default function CreateQuoteModal({
               </div>
             </div>
           )}
+        </div>
+      </div>
+    )
+  }
+
+  // Post-generate: the PDF is downloaded + archived; offer the share link.
+  if (shareResult) {
+    const copyLink = async () => {
+      try {
+        await navigator.clipboard.writeText(shareResult.url)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      } catch {
+        // Clipboard can be unavailable (permissions); the link stays selectable.
+      }
+    }
+    return (
+      <div
+        onClick={onClose}
+        style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(10, 22, 40, 0.55)',
+          display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+          padding: 30, zIndex: 1000, overflowY: 'auto',
+        }}
+      >
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            background: 'white', borderRadius: 12,
+            maxWidth: 560, width: '100%',
+            boxShadow: '0 24px 60px rgba(0,0,0,0.25)',
+            fontFamily: "'Sora', sans-serif",
+            padding: 26,
+          }}
+        >
+          <div style={{ fontSize: 17, fontWeight: 700, color: C.ink, marginBottom: 4 }}>
+            ✓ Quote generated
+          </div>
+          <div style={{ fontSize: 13, color: C.muted, marginBottom: 18 }}>
+            The PDF downloaded and was archived to {patient?.name}'s chart.
+          </div>
+
+          {shareResult.url ? (
+            <div style={{
+              background: C.bgSoft, border: `1px solid ${C.line}`,
+              borderRadius: 8, padding: 14, marginBottom: 18,
+            }}>
+              <label style={labelStyle}>Take-home quote link</label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  readOnly
+                  value={shareResult.url}
+                  onFocus={e => e.target.select()}
+                  style={{ ...inputStyle, flex: 1, fontSize: 12, color: C.muted }}
+                />
+                <button
+                  type="button"
+                  onClick={copyLink}
+                  style={{
+                    padding: '8px 14px', fontSize: 13, fontWeight: 600,
+                    background: copied ? '#15803d' : C.accent, color: 'white',
+                    border: 'none', borderRadius: 6, cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >{copied ? 'Copied ✓' : 'Copy link'}</button>
+              </div>
+              <div style={{ fontSize: 12, color: C.muted, marginTop: 8, lineHeight: 1.5 }}>
+                Text or email this link to the patient — it opens their quote as an
+                interactive page (devices, care plan, results, education) on any phone.
+                Shows the patient's first name only. Expires in {QUOTE_SHARE_VALID_DAYS} days.
+              </div>
+            </div>
+          ) : (
+            <div style={{
+              background: '#fffbeb', border: '1px solid #fde68a',
+              color: '#92400e', borderRadius: 8, padding: '10px 14px',
+              fontSize: 13, marginBottom: 18,
+            }}>
+              The take-home link couldn't be created ({shareResult.error}). The PDF
+              still downloaded and archived — regenerate the quote to retry the link.
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            {onConvertToAgreement && (
+              <button
+                onClick={() => onConvertToAgreement(agreementState())}
+                title="Patient said yes — open the purchase agreement pre-filled with this quote's devices, pricing, and care plan"
+                style={{
+                  padding: '9px 18px', fontSize: 13, fontWeight: 600,
+                  background: C.ink, color: 'white',
+                  border: 'none', borderRadius: 6, cursor: 'pointer',
+                }}
+              >Purchase Agreement →</button>
+            )}
+            <button
+              onClick={onClose}
+              style={{
+                padding: '9px 18px', fontSize: 13, fontWeight: 600,
+                background: C.accent, color: 'white',
+                border: 'none', borderRadius: 6, cursor: 'pointer',
+              }}
+            >Done</button>
+          </div>
         </div>
       </div>
     )
@@ -1005,6 +1174,19 @@ export default function CreateQuoteModal({
               cursor: 'pointer',
             }}
           >Cancel</button>
+          {onConvertToAgreement && (
+            <button
+              onClick={() => canGenerate && onConvertToAgreement(agreementState())}
+              disabled={!canGenerate}
+              title="Skip the quote — take this configuration straight to a signed purchase agreement"
+              style={{
+                padding: '9px 18px', fontSize: 13, fontWeight: 600,
+                background: canGenerate ? C.ink : '#9ca3af',
+                color: 'white', border: 'none', borderRadius: 6,
+                cursor: canGenerate ? 'pointer' : 'not-allowed',
+              }}
+            >Purchase Agreement →</button>
+          )}
           <button
             onClick={handleGenerate}
             disabled={!canGenerate}

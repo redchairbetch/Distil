@@ -87,6 +87,11 @@ export function normalizeIntakeInput(answersColumn) {
     readyToAddress:    a.hear_ready === true,
     hearUnderstand:    a.hear_understand === true,
     hearNoisy:         a.hear_noisy === true,
+    // Listening-effort signals (kiosk hear_fatigue / hear_strain). Kept out
+    // of the 7-symptom count so legacy intakes and rubric thresholds are
+    // untouched; undefined (question never asked) reads as false.
+    listeningFatigue:  a.hear_fatigue === true,
+    listeningStrain:   a.hear_strain === true,
   }
 }
 
@@ -148,7 +153,11 @@ export function scoreDownTier(audio, intake) {
         detail: 'No reported significant occupational or recreational noise exposure',
       })
     }
-    if (intake.hearUnderstand === false && intake.hearNoisy === false) {
+    // A reported effort signal (drained after noise / concentrating to keep
+    // up) is speech-in-noise difficulty by another name — it blocks this
+    // down-tier point. Legacy intakes without the questions are unaffected.
+    if (intake.hearUnderstand === false && intake.hearNoisy === false &&
+        !intake.listeningFatigue && !intake.listeningStrain) {
       score += 1
       contributingInputs.push({
         input: 'no_speech_in_noise_difficulty', points: 1,
@@ -198,31 +207,55 @@ function describeIntake(intake) {
   return 'the relatively contained listening challenges you reported'
 }
 
+// Effort-signal fragment for "You told us …" personalization. Fatigue (the
+// felt cost) outranks strain (the mechanism) when both are flagged. Null when
+// neither was reported — callers fall back to the generic mechanism line.
+function describeEffort(intake) {
+  if (!intake) return null
+  if (intake.listeningFatigue) return 'conversations in noise leave you drained'
+  if (intake.listeningStrain) return 'you concentrate hard just to keep up'
+  return null
+}
+
+// Rationale copy follows the listening-effort frame (listeningSituations.js):
+// degraded signal → the brain fills the gaps → that work is felt as fatigue →
+// the tier determines who does the separating. Entry-tier rationale must never
+// read as "you'll strain, but it's cheap" — it's recommended because the
+// patient's demands center on settings where effort stays low anyway (and an
+// effort flag makes entry much less likely via scoring, so no effort clause
+// there).
 export function generateRationale(audio, intake, recommendedRank) {
   const loss = describeLoss(audio)
   const listening = describeIntake(intake)
+  const effort = describeEffort(intake)
 
   if (recommendedRank === 5) {
     if (loss && listening) {
-      return `Based on your ${loss} and ${listening}, the top-tier device is recommended — it's designed to handle the full range of environments you're likely to encounter.`
+      if (effort) {
+        return `Based on your ${loss} and ${listening}, the top-tier device is recommended. You told us ${effort} — that's your brain doing the work of filling in what your ears miss. This tier's processing separates speech from noise before it reaches you, so your energy goes to the conversation itself.`
+      }
+      return `Based on your ${loss} and ${listening}, the top-tier device is recommended. Right now your brain is filling in what your ears miss — that work is why listening can leave you drained. This tier's processing separates speech from noise before it reaches you, so your energy goes to the conversation itself.`
     }
     if (loss) {
-      return `Based on your ${loss}, the top-tier device is recommended. Its processing is built for the complex listening situations most patients encounter day to day.`
+      return `Based on your ${loss}, the top-tier device is recommended. With this degree of loss, your brain works hard to fill in what your ears miss, and that effort adds up over a day. The top tier shifts that work onto the processor, keeping listening effort low even in demanding places.`
     }
-    return `The top-tier device is recommended as the strongest foundation for your hearing care.`
+    return `The top-tier device is recommended as the strongest foundation for your hearing care — its processing takes on the work of separating speech from noise, so less of that effort lands on your brain.`
   }
 
   if (recommendedRank === 3) {
     const base = loss && listening
       ? `Given your ${loss} and ${listening}`
       : loss ? `Given your ${loss}` : `Given what we've reviewed together`
-    return `${base}, the mid-tier device offers the features that will benefit you most without paying for processing you may not use day-to-day.`
+    if (effort) {
+      return `${base}, the mid-tier device is the right fit. You told us ${effort} — this tier takes on most of the work of separating speech from noise, so that load lightens through a typical day, without paying for processing your routine may not call on.`
+    }
+    return `${base}, the mid-tier device is the right fit — it takes on most of the work of separating speech from noise, keeping listening effort modest through a typical day, without paying for processing your routine may not call on.`
   }
 
   const base = loss && listening
     ? `Based on your ${loss} and ${listening}`
     : loss ? `Based on your ${loss}` : `Based on what we've reviewed together`
-  return `${base}, the entry-tier device is well-matched to your needs — it covers the essentials without features that wouldn't meaningfully change your day-to-day experience.`
+  return `${base}, the entry-tier device is well-matched to your needs. Your listening demands center on calmer settings, and restoring what your ears are missing there keeps listening effort low — without features that wouldn't meaningfully change your day-to-day experience.`
 }
 
 // ============================================================

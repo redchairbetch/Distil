@@ -19,6 +19,7 @@ import PatientApp from './Aided.jsx'
 import Login from './Login.jsx'
 import DeviceSelection from './views/DeviceSelection.jsx'
 import ComparisonHub from './views/ComparisonHub.jsx'
+import QuoteView from './views/QuoteView.jsx'
 import { COLOR, FONT } from './theme.js'
 import { getSession, getCurrentStaff, onAuthStateChange } from './db.js'
 
@@ -27,6 +28,7 @@ import { getSession, getCurrentStaff, onAuthStateChange } from './db.js'
 //   /distil/select/:patientId     → Device Selection & Pricing (requires login)
 //   /intake                       → Patient kiosk (no login required)
 //   /aided                        → Patient app (no login required)
+//   /quote/:token                 → Shared take-home quote (no login required)
 const path = window.location.pathname.replace(/\/$/, '')
 const isKiosk = path === '/intake'
 const isAided = path === '/aided'
@@ -34,6 +36,9 @@ const selectMatch = path.match(/^\/distil\/select\/([0-9a-fA-F-]{36})$/)
 const selectPatientId = selectMatch ? selectMatch[1] : null
 // Standalone old-vs-new device comparator — usable cold, outside a visit.
 const isCompare = path === '/distil/compare'
+// Shared quote page — bearer is the (base64url) token in the path.
+const quoteMatch = path.match(/^\/quote\/([A-Za-z0-9_-]{20,})$/)
+const quoteToken = quoteMatch ? quoteMatch[1] : null
 
 // Aided runs as a PWA — installable, standalone-capable, scoped to /aided.
 // Distil and IntakeKiosk are deliberately excluded; they share the index.html
@@ -95,9 +100,10 @@ function App() {
     setStaff(staffRecord)
   }
 
-  // Patient app and kiosk never need auth
+  // Patient app, kiosk, and shared quotes never need auth
   if (isAided) return <PatientApp />
   if (isKiosk) return <IntakeKiosk />
+  if (quoteToken) return <QuoteView token={quoteToken} />
 
   // Still checking session
   if (session === undefined) return null

@@ -56,19 +56,39 @@ export const COVERAGE_BY_RANK = {
  '-1': { home: 95, tv: 70, phone: 70, religious: 40, car: 40, restaurant: 30, groups: 30, outdoors: 25, crowds: 25 }, // Level 1
 };
 
-// Listening-effort framing by tier rank. The counseling pivot away from a
-// "where do you go" hobby checklist (which backfires — a homebody self-selects
-// the entry tier and then struggles in the noise they DO hit) toward "how hard
-// does your brain work to follow speech." One patient-facing sentence per rank,
-// paired with — not replacing — the environment coverage bars. Warm, plain, no
-// jargon ("channels", "dB"), no banned terms.
+// Listening-effort framing by tier rank — the PRIMARY tier description as of
+// the effort pivot. The counseling frame: damaged ears deliver an incomplete
+// signal, the brain fills the gaps, and that gap-filling is real work the
+// patient feels as fatigue. The tier ladder is "who does the separating of
+// speech from noise in hard rooms — the processor or your brain." Anatomical
+// language ("your brain", "the processor") is deliberate; "Listening effort"
+// is the one consistent label used across every screen. Honest at the top:
+// effort is reduced, never abolished. Coverage bars stay as supporting
+// evidence underneath. Warm, plain, no jargon ("channels", "dB"), no banned
+// terms — and never Signia's trademarked cognitive branding.
 export const TIER_EFFORT_COPY = {
-  5: "The processor does the heavy lifting — separating speech from noise automatically, so you stay in the conversation without straining.",
-  3: "Adapts smoothly as the room shifts — modest effort in busier places, comfortable through most of your day.",
-  1: "Clear and reliable in calm, predictable settings; your brain works harder to keep up when noise is unexpected.",
-  0: "Solid for quiet, one-on-one listening; noisy rooms take noticeably more effort to follow.",
- '-1': "Best for quiet homes and close conversation; expect real effort anywhere background noise builds.",
+  5: "The processor separates speech from noise before the sound reaches your brain — so your energy goes into the conversation, not into decoding it. Even the hardest rooms take less out of you.",
+  3: "Handles most of the separating work for you as rooms shift; your brain pitches in during the loudest moments, and everyday listening stays comfortable.",
+  1: "Restores the clarity your ears are missing, and in calm settings that's most of the job; in background noise, your brain still does the work of picking speech apart.",
+  0: "Makes quiet, one-on-one conversation easier to follow; in noisy rooms, most of the sorting-out still falls to your brain.",
+ '-1': "Brings speech back within reach at home and up close; anywhere noise builds, your brain carries the listening work largely on its own.",
 };
+
+// Listening-effort intake signals (kiosk hear_fatigue / hear_strain) with
+// their patient-facing reflection-chip labels. Separate from INTAKE_TO_ENVS —
+// these aren't places, they're the felt cost of listening, and they render as
+// distinct chips alongside the environment ones.
+export const EFFORT_SIGNAL_LABEL = {
+  hear_fatigue: "Drained after noisy conversations",
+  hear_strain:  "Concentrating hard to keep up",
+};
+
+// The effort signals this patient flagged, in display order. Empty array if
+// no intake / nothing flagged.
+export function flaggedEffortSignals(intakeAnswers) {
+  if (!intakeAnswers) return [];
+  return Object.keys(EFFORT_SIGNAL_LABEL).filter(k => intakeAnswers[k] === true);
+}
 
 // Intake answer (true) → environment IDs the patient struggles with.
 // Multiple flags can map to the same environment; de-duplicated in

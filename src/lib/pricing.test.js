@@ -16,6 +16,7 @@ import {
   nationsCoverageTier, NATIONS_TIER_ORDER,
   findTierRank, findAnchorForRank, deriveEarPrice, pickBaselinePerAid,
   DIRECT_PURCHASE_TIER_LEVEL, directPurchaseLockedTech, resolveClassRetailPerAid,
+  TIER_LABEL_CATALOG_RANK, tierMatchedTech,
 } from "./pricing.js";
 
 // Minimal fixtures mirroring the real data shapes.
@@ -246,6 +247,36 @@ describe("deriveEarPrice", () => {
       .toEqual({ price: CROS_PRICE_PER_UNIT, source: "cros" });
   });
 
+  it("prices a TruHearing CROS transmitter at the tier instrument price (plan row), not $1,250", () => {
+    // Doctrine (Kurt, 2026-07-14): private-pay CROS is $1,250/unit; TruHearing
+    // CROS transmitters bill at the coordinating technology-level instrument
+    // price — the plan's tier copay. The TH card flow sets isCROS on the
+    // transmitter side (no variant string, no familyId).
+    const side = { manufacturer: "TruHearing", thModel: "th7li", style: "ric", techLevel: "Premium", isCROS: true };
+    const plans = [{ tpa: "TruHearing", carrier: "Anthem", planGroup: "Prefix XMM",
+      tiers: [{ label: "Advanced", price: 550 }, { label: "Premium", price: 850 }] }];
+    const form = { payType: "insurance", tpa: "TruHearing", carrier: "Anthem", planGroup: "Prefix XMM", tierPrice: 850 };
+    expect(deriveEarPrice(side, { ...baseOpts, plans, form }))
+      .toEqual({ price: 850, source: "cros", tier: "Premium" });
+  });
+
+  it("falls back to form.tierPrice for a TruHearing CROS transmitter when the plan row is missing, then to $1,250", () => {
+    const side = { manufacturer: "TruHearing", thModel: "th6", style: "ric", techLevel: "Advanced", isCROS: true };
+    expect(deriveEarPrice(side, { ...baseOpts, plans: [], form: { payType: "insurance", tpa: "TruHearing", tierPrice: 550 } }))
+      .toEqual({ price: 550, source: "cros", tier: "Advanced" });
+    // No plan row AND no tierPrice resolved yet → flat unit rate backstop.
+    expect(deriveEarPrice(side, { ...baseOpts, plans: [], form: { payType: "insurance", tpa: "TruHearing" } }))
+      .toEqual({ price: CROS_PRICE_PER_UNIT, source: "cros" });
+  });
+
+  it("keeps non-TruHearing CROS flat at $1,250 even on insurance", () => {
+    // Standard-catalog CROS variants (and Direct Purchase Signia CROS) are
+    // clinic-priced units — the tier-copay rule is TruHearing-only.
+    expect(deriveEarPrice({ manufacturer: "Signia", variant: "CROS" },
+      { ...baseOpts, form: { payType: "insurance", tpa: "TruHearing", tierPrice: 850 } }))
+      .toEqual({ price: CROS_PRICE_PER_UNIT, source: "cros" });
+  });
+
   it("uses the carrier copay for insurance patients regardless of manufacturer", () => {
     const ep = deriveEarPrice(
       { familyId: "fam-signia-pure", techLevel: "7IX" },
@@ -409,5 +440,45 @@ describe("Direct Purchase — tier locks the Signia tech level", () => {
         form: { payType: "insurance", tpa: "TruHearing", directPurchase: true, tierPrice: 999 } }
     );
     expect(ep).toEqual({ price: 999, source: "direct-purchase" }); // Signia device, TruHearing $999
+  });
+});
+
+describe("tierMatchedTech — tier-first standard cascade", () => {
+  // Rank rows for a cross-brand pool: Signia numbers and Phonak numbers both
+  // resolve through product_catalog_tier ranks, not brand-specific parsing.
+  const MATCH_TIERS = [
+    { productCatalogId: "fam-signia-pure", tierName: "7IX", tierRank: 5 },
+    { productCatalogId: "fam-signia-pure", tierName: "5IX", tierRank: 4 },
+    { productCatalogId: "fam-signia-pure", tierName: "3IX", tierRank: 3 },
+    { productCatalogId: "fam-signia-pure", tierName: "1IX", tierRank: 1 },
+    { productCatalogId: "pho-audeo-infinio", tierName: "90", tierRank: 5 },
+    { productCatalogId: "pho-audeo-infinio", tierName: "70", tierRank: 4 },
+    { productCatalogId: "pho-audeo-infinio", tierName: "50", tierRank: 3 },
+  ];
+  const sigFam = { id: "fam-signia-pure", techLevels: ["7IX", "5IX", "3IX", "1IX"] };
+  const phoFam = { id: "pho-audeo-infinio", techLevels: ["90", "70", "50"] };
+
+  it("maps both tier vocabularies onto the catalog rank scale", () => {
+    expect(TIER_LABEL_CATALOG_RANK["select"]).toBe(5);
+    expect(TIER_LABEL_CATALOG_RANK["premium"]).toBe(5);
+    expect(TIER_LABEL_CATALOG_RANK["advanced"]).toBe(4);
+    expect(TIER_LABEL_CATALOG_RANK["level 1"]).toBe(1);
+  });
+
+  it("finds the family's level at the tier's rank across brands", () => {
+    expect(tierMatchedTech(sigFam, "Select", MATCH_TIERS)).toBe("7IX");
+    expect(tierMatchedTech(sigFam, "Advanced", MATCH_TIERS)).toBe("5IX");
+    expect(tierMatchedTech(sigFam, "Level 1", MATCH_TIERS)).toBe("1IX");
+    expect(tierMatchedTech(phoFam, "Select", MATCH_TIERS)).toBe("90");
+    expect(tierMatchedTech(phoFam, "Standard", MATCH_TIERS)).toBe("50");
+  });
+
+  it("is case-insensitive on the label and null-safe on gaps", () => {
+    expect(tierMatchedTech(sigFam, "select", MATCH_TIERS)).toBe("7IX");
+    expect(tierMatchedTech(sigFam, "Level 2", MATCH_TIERS)).toBeNull(); // no rank-2 level seeded
+    expect(tierMatchedTech(phoFam, "Level 1", MATCH_TIERS)).toBeNull(); // family has no rank-1 level
+    expect(tierMatchedTech(sigFam, "Off-Plan", MATCH_TIERS)).toBeNull();
+    expect(tierMatchedTech(null, "Select", MATCH_TIERS)).toBeNull();
+    expect(tierMatchedTech(sigFam, "Select", [])).toBeNull();
   });
 });
