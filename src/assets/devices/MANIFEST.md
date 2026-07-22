@@ -33,6 +33,17 @@ normalizes them in one shot — run it on a machine with open internet (the
 Claude Code cloud sandbox blocks these CDNs), then visually vet before
 committing: a handful of sources are lifestyle photos, not packshots.
 
+**Vetting result (2026-07-22):** the fetch ran and 38 of the 55 mapped keys
+passed visual review and are committed here. The other 17 URLs were rejected —
+lifestyle/worn-on-ear shots (`th7-ric`, `th7-if`, `signia-motion`,
+`signia-insio-itc`), no device in frame (`resound-key-ric`, `starkey-g-series`,
+`rexton-motion-core`), retailer/marketing branding (`phonak-audeo-marvel`,
+`phonak-audeo-paradise`, `rexton-inox-cic`), dark hero backgrounds
+(`oticon-own`, `oticon-real`, `oticon-xceed`, `rexton-reach-ric`), a
+charger-only shot (`signia-pure-ix`), and a multi-family lineup image
+(`th7-sr`, `th-custom-cic`). Those keys need manual sourcing like the list
+below.
+
 Not covered by that map (source manually): all Widex keys (brand absent from
 the catalog), older generations (`signia-pure-nx`/`-x`/`-ux`, `oticon-opn`,
 `starkey-livio`, `resound-linx-quattro`, `rexton-my-core`), `phonak-naida-infinio`,
