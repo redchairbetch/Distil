@@ -88,6 +88,27 @@ export function rankFromTierLabel(label) {
   return null;
 }
 
+// ── Device-catalog ladder position → engine rank ─────────────────────────────
+// Maps a device_tech_tiers row onto the sparse COVERAGE_BY_RANK scale by ladder
+// POSITION (tier_position: 1 = flagship, counting down) — never by designation
+// label, because designation semantics contradict across manufacturers (Oticon
+// "1" is the flagship; Signia "1" is the entry level). Same anchoring rule as
+// catalogComparison.js. OTC devices occupy a deliberately lower band, mirroring
+// spectrumScore(): the best OTC self-fit tops out at standard-class coverage.
+const RANK_BY_POSITION = [5, 3, 1, 0, -1];
+const OTC_RANK_BY_POSITION = [1, 0, -1];
+export function catalogTierRank(tierPosition, deviceClass = "prescription") {
+  if (tierPosition == null || tierPosition < 1) return null;
+  const scale = deviceClass === "otc" ? OTC_RANK_BY_POSITION : RANK_BY_POSITION;
+  return scale[Math.min(tierPosition, scale.length) - 1];
+}
+
+// Engine rank → the plan-tier vocabulary the comparator displays ("Premium
+// when new"). Inverse of rankFromTierLabel over the sparse ranks.
+export const TIER_LABEL_BY_RANK = {
+  5: "Premium", 3: "Advanced", 1: "Standard", 0: "Level 2", "-1": "Level 1",
+};
+
 // ── Descriptor normalization ─────────────────────────────────────────────────
 // Accept a legacy_device row (snake_case), a catalog-derived new device, or a
 // manual quick-entry, and produce the minimal shape the model needs. Forgiving

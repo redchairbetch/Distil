@@ -19,8 +19,11 @@
 //   • a standalone tool (route /distil/compare) usable cold, outside a visit.
 //
 // The old side draws from the curated legacy_device reference (competitor /
-// trade-in units we never fit, e.g. a 7-yr-old Costco KS9), a prior MHC fitting,
-// or manual quick-entry. The new side draws from the live product catalog.
+// trade-in units we never fit, e.g. a 7-yr-old Costco KS9), the full device
+// catalog behind the "What's changed" tab (every platform generation and
+// technology level, searchable), a prior MHC fitting, or manual quick-entry.
+// The new side draws from the live product catalog (our sellable lineup) with a
+// "browse full catalog" escape hatch into the same device catalog.
 // Scoring lives in deviceComparison.js — an honest, provider-confirmed estimate,
 // never a measured claim about a competitor.
 import React, { useState, useEffect, useMemo } from "react";
@@ -29,8 +32,12 @@ import { coverageColor } from "../components/CoverageBars.jsx";
 import { ENVIRONMENTS } from "../listeningSituations.js";
 import {
   compareCoverage, specUpgrades, averageGain, searchLegacyDevices, rankFromTierLabel,
+  catalogTierRank, TIER_LABEL_BY_RANK,
 } from "../deviceComparison.js";
 import { loadLegacyDevices, loadProductCatalogTiers } from "../db.js";
+import { loadDeviceCatalog } from "../catalog.js";
+import { indexCatalog } from "../catalogComparison.js";
+import { DeviceCascade } from "./CapabilityComparison.jsx";
 
 // Product-catalog tier_rank (1-5) → the sparse COVERAGE_BY_RANK scale (5/3/1).
 const COVERAGE_RANK_BY_CATALOG_RANK = { 5: 5, 4: 3, 3: 1, 2: 0, 1: -1 };
@@ -120,6 +127,75 @@ function catalogTierToDevice(tierRow) {
     rechargeable: tierRow.rechargeable ?? true,
     telecoil: tierRow.telecoil ?? null,
   };
+}
+
+// Device-catalog platform + tier (device_platforms / device_tech_tiers — the
+// reference data behind the "What's changed" tab) → comparator descriptor.
+// Rank comes from ladder position (catalogTierRank). Current-generation
+// platforms take no era penalty — so a 7IX picked here scores the same as a
+// 7IX picked from the product lineup — while legacy/discontinued platforms
+// keep their release year and lose ground honestly. Spec fields fall back to
+// null (unknown), never false, so a sparsely-documented platform isn't docked
+// penalties it may not deserve; current prescription platforms get the same
+// modern-directionality default the product-catalog path uses.
+function deviceCatalogToDevice(platform, tier) {
+  if (!platform || !tier) return null;
+  const rank = catalogTierRank(tier.tierPosition, platform.deviceClass);
+  if (rank == null) return null;
+  const current = platform.status === "current";
+  const mic = normalizeMic(tier.directionality);
+  return {
+    kind: "device-catalog",
+    display: `${platform.manufacturer} ${platform.platformName}`,
+    sub: [tier.tierDesignation, platform.releaseYear, platform.deviceClass === "otc" ? "OTC" : null]
+      .filter(Boolean).join(" · "),
+    tierRank: rank,
+    // "X when new" framing only makes sense for an aged device.
+    tierLabel: current ? null : TIER_LABEL_BY_RANK[rank],
+    releaseYear: current ? null : platform.releaseYear,
+    directionalMic: mic || (current && platform.deviceClass !== "otc"
+      ? (rank >= 3 ? "beamforming" : "adaptive") : null),
+    bluetoothStreaming: (platform.bluetoothProtocol || []).length > 0 ? true : null,
+    rechargeable: platform.rechargeableOffered ?? null,
+    telecoil: null,
+  };
+}
+
+// Flatten the device catalog into rows shaped like legacy_device rows, so the
+// OldPicker's search (searchLegacyDevices) and legacyToDevice() consume them
+// unchanged. One row per platform × tier; single-level lines drop the
+// designation from the model name ("KS9", not "KS9 KS9 (single level)").
+function catalogSearchRows(catalog) {
+  if (!catalog?.platforms?.length) return [];
+  const tiersByPlatform = new Map();
+  for (const t of catalog.tiers) {
+    if (!tiersByPlatform.has(t.platformId)) tiersByPlatform.set(t.platformId, []);
+    tiersByPlatform.get(t.platformId).push(t);
+  }
+  const rows = [];
+  for (const p of catalog.platforms) {
+    const ladder = tiersByPlatform.get(p.id) || [];
+    for (const t of ladder) {
+      const rank = catalogTierRank(t.tierPosition, p.deviceClass);
+      if (rank == null) continue;
+      rows.push({
+        id: `cat-${t.id}`,
+        brand: p.manufacturer,
+        model: ladder.length > 1 ? `${p.platformName} ${t.tierDesignation}` : p.platformName,
+        platform: p.chipset || null,
+        aliases: [p.platformName, t.tierDesignation].filter(Boolean),
+        releaseYear: p.releaseYear,
+        originalTierRank: rank,
+        originalTierLabel: TIER_LABEL_BY_RANK[rank],
+        directionalMic: normalizeMic(t.directionality),
+        bluetoothStreaming: (p.bluetoothProtocol || []).length > 0 ? true : null,
+        rechargeable: p.rechargeableOffered ?? null,
+        telecoil: null,
+        formFactors: p.formFactors || [],
+      });
+    }
+  }
+  return rows;
 }
 
 function manualToDevice(m) {
@@ -317,7 +393,7 @@ function OldPicker({ legacyList, onPick, onClose }) {
   );
 }
 
-function NewPicker({ catalogTiers, onPick, onClose }) {
+function NewPicker({ catalogTiers, catIdx, onPick, onClose }) {
   // Group catalog tiers by family; each family lists its tiers (premium first).
   const families = useMemo(() => {
     const map = new Map();
@@ -332,6 +408,11 @@ function NewPicker({ catalogTiers, onPick, onClose }) {
   }, [catalogTiers]);
 
   const [familyKey, setFamilyKey] = useState("");
+  // 'lineup' = sellable product catalog; 'catalog' = full device catalog
+  // (every manufacturer, platform generation, and technology level — the same
+  // data the "What's changed" tab offers).
+  const [source, setSource] = useState("lineup");
+  const [sel, setSel] = useState({ platformId: "", tierId: "" });
   const family = families.find(f => f.label === familyKey) || families[0];
   const field = { width: "100%", padding: "8px 10px", border: `1px solid ${COLOR.line}`,
     borderRadius: 8, fontSize: 13, color: COLOR.ink, background: COLOR.card, boxSizing: "border-box" };
@@ -340,10 +421,28 @@ function NewPicker({ catalogTiers, onPick, onClose }) {
     <div style={{ background: COLOR.paper, border: `1px solid ${COLOR.line}`, borderRadius: 12, padding: 14, marginTop: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <div style={{ fontWeight: 700, color: COLOR.ink, fontSize: 14 }}>Choose the new device</div>
-        <button onClick={onClose} style={{ background: "transparent", border: "none", color: COLOR.ink3,
-          cursor: "pointer", fontSize: 12 }}>Close</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          {catIdx && (
+            <button onClick={() => setSource(source === "lineup" ? "catalog" : "lineup")}
+              style={{ background: "transparent", border: "none", color: COLOR.teal,
+                cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+              {source === "lineup" ? "Browse full catalog" : "Our lineup"}
+            </button>
+          )}
+          <button onClick={onClose} style={{ background: "transparent", border: "none", color: COLOR.ink3,
+            cursor: "pointer", fontSize: 12 }}>Close</button>
+        </div>
       </div>
-      {families.length === 0 ? (
+      {source === "catalog" && catIdx ? (
+        <DeviceCascade idx={catIdx} value={sel}
+          onChange={v => {
+            setSel(v);
+            if (!v.tierId) return;
+            const d = deviceCatalogToDevice(
+              catIdx.platformsById.get(v.platformId), catIdx.tiersById.get(v.tierId));
+            if (d) onPick(d);
+          }} />
+      ) : families.length === 0 ? (
         <div style={{ fontSize: 12, color: COLOR.ink3 }}>Catalog unavailable — the comparison uses a
           modern premium baseline. Try again once the catalog loads.</div>
       ) : (
@@ -373,6 +472,7 @@ export default function DeviceComparison({
 }) {
   const [legacyList, setLegacyList] = useState([]);
   const [catalogTiers, setCatalogTiers] = useState([]);
+  const [refCatalog, setRefCatalog] = useState(null); // device_platforms/tiers reference catalog
   const [oldDevice, setOldDevice] = useState(initialOld || fittingToDevice(patient?.devices) || null);
   const [newDevice, setNewDevice] = useState(initialNew || proposedNew || DEFAULT_NEW);
   const [picker, setPicker] = useState(null); // 'old' | 'new' | null
@@ -391,6 +491,7 @@ export default function DeviceComparison({
   useEffect(() => {
     let alive = true;
     loadLegacyDevices().then(d => alive && setLegacyList(d || [])).catch(() => {});
+    loadDeviceCatalog().then(c => alive && setRefCatalog(c)).catch(() => {});
     loadProductCatalogTiers().then(d => {
       if (!alive) return;
       const tiers = d || [];
@@ -401,6 +502,17 @@ export default function DeviceComparison({
     }).catch(() => {});
     return () => { alive = false; };
   }, []);
+
+  const catIdx = useMemo(
+    () => refCatalog?.platforms?.length ? indexCatalog(refCatalog.platforms, refCatalog.tiers) : null,
+    [refCatalog]
+  );
+  // Old-side search space: curated legacy references first (verified specs),
+  // then every platform × tier in the device catalog.
+  const oldSearchList = useMemo(
+    () => [...legacyList, ...catalogSearchRows(refCatalog)],
+    [legacyList, refCatalog]
+  );
 
   const flagged = flaggedEnvs instanceof Set ? flaggedEnvs : new Set();
   const rows = useMemo(
@@ -455,11 +567,11 @@ export default function DeviceComparison({
       </div>
 
       {picker === "old" && (
-        <OldPicker legacyList={legacyList}
+        <OldPicker legacyList={oldSearchList}
           onPick={d => { setOldDevice(d); setPicker(null); }} onClose={() => setPicker(null)} />
       )}
       {picker === "new" && (
-        <NewPicker catalogTiers={catalogTiers}
+        <NewPicker catalogTiers={catalogTiers} catIdx={catIdx}
           onPick={d => { setNewDevice(d); setPicker(null); }} onClose={() => setPicker(null)} />
       )}
 
