@@ -49,6 +49,8 @@ import logoSignia from "./assets/logos/Signia.png";
 import logoStarkey from "./assets/logos/Starkey.png";
 import logoTruHearing from "./assets/logos/TruHearing.png";
 import logoWidex from "./assets/logos/Widex.png";
+// Device product photos (keyed by product_catalog.image_key — see deviceImages.js)
+import { deviceImageUrl } from "./deviceImages.js";
 import CareJourney from "./views/CareJourney.jsx";
 import HealthHistory from "./views/HealthHistory.jsx";
 import UpgradeWizard from "./views/UpgradeWizard.jsx";
@@ -5569,11 +5571,17 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                           setForm(f=>({...f,[side]:{...f[side],familyId:fam.id,variant:autoVar,techLevel:lockTech,color:"",battery:autoBat}}));
                         }}>
                         <div className="plan-row-top">
-                          <div>
-                            <div className="plan-row-name" style={famOff ? {color:"#b91c1c"} : undefined}>
-                              {fam.family}{famOff ? " *" : ""}
+                          <div style={{display:"flex",alignItems:"center",gap:10}}>
+                            {deviceImageUrl(fam.imageKey) && (
+                              <img src={deviceImageUrl(fam.imageKey)} alt=""
+                                style={{width:44,height:44,objectFit:"contain",flexShrink:0,opacity:famOff?0.5:1}} />
+                            )}
+                            <div>
+                              <div className="plan-row-name" style={famOff ? {color:"#b91c1c"} : undefined}>
+                                {fam.family}{famOff ? " *" : ""}
+                              </div>
+                              {famOff && <div style={{fontSize:11,color:"#b91c1c",marginTop:2}}>Not available on this plan</div>}
                             </div>
-                            {famOff && <div style={{fontSize:11,color:"#b91c1c",marginTop:2}}>Not available on this plan</div>}
                           </div>
                         </div>
                       </div>

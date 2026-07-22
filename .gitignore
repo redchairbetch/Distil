@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 .claude/
+.device-images-raw/
 
 # Local-only VAPID private key — set it as the VAPID_PRIVATE_KEY Supabase
 # secret, then delete this file. Never commit it.

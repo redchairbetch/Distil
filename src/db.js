@@ -2016,6 +2016,7 @@ export async function loadProductCatalog() {
     active:       row.active,
     tpa:          row.tpa          || null,
     notes:        row.notes        || '',
+    imageKey:     row.image_key    || null,
     // Optional per-family display metadata (stored in product_catalog.metadata):
     //   techLevelLabels — rich labels for tech-level chips (e.g. Active IX)
     //   faceplate       — color choice is a faceplate; shell is fixed red/blue by side (Silk)
@@ -2449,7 +2450,7 @@ export async function loadProductCatalogTiers() {
       bundled_cc_plus_compatible,
       active,
       notes,
-      product_catalog ( manufacturer, family, generation, display_generation )
+      product_catalog ( manufacturer, family, generation, display_generation, image_key )
     `)
     .eq('active', true)
     .order('tier_rank', { ascending: false })
@@ -2479,6 +2480,7 @@ export async function loadProductCatalogTiers() {
     // where it isn't set. Rexton uses this to show "Reach"/"BiCore" instead of
     // the Signia IX/AX codes `generation` carries as a dome-resolution key (#28).
     displayGeneration:        row.product_catalog?.display_generation || row.product_catalog?.generation,
+    imageKey:                 row.product_catalog?.image_key || null,
   }))
 }
 
@@ -2598,6 +2600,7 @@ export async function loadLegacyDevices() {
     notableFeatures:   row.notable_features || [],
     sourceUrl:         row.source_url,
     confidence:        row.confidence,
+    imageKey:          row.image_key || null,
   }))
 }
 

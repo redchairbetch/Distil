@@ -31,6 +31,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { COLOR, FONT } from "../theme.js";
 import { loadDeviceCatalog, loadNewestCatalogFitting } from "../catalog.js";
+import { deviceImageUrl } from "../deviceImages.js";
 import {
   indexCatalog, compareDevices, resolveBase, ladderOf, CATEGORY_LABELS,
 } from "../catalogComparison.js";
@@ -141,6 +142,7 @@ export function DeviceCascade({ idx, value, onChange, allowEmptyTier = false }) 
 
 function DeviceCard({ side, platform, tier, freetext, provider, onChangeClick }) {
   const isRec = side === "recommended";
+  const img = deviceImageUrl(platform?.imageKey);
   const name = freetext
     || (platform ? `${platform.manufacturer} ${platform.platformName}` : null);
   const sub = platform
@@ -156,10 +158,15 @@ function DeviceCard({ side, platform, tier, freetext, provider, onChangeClick })
         color: isRec ? COLOR.tealInk : COLOR.ink3, marginBottom: 6 }}>
         {isRec ? "Recommended" : "Current devices"}
       </div>
-      <div style={{ fontFamily: FONT.display, fontSize: 19, fontWeight: 700, color: COLOR.ink, lineHeight: 1.15 }}>
-        {name || (isRec ? "Pick a device" : "No device on record")}
+      <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: FONT.display, fontSize: 19, fontWeight: 700, color: COLOR.ink, lineHeight: 1.15 }}>
+            {name || (isRec ? "Pick a device" : "No device on record")}
+          </div>
+          {sub && <div style={{ fontSize: 12, color: COLOR.ink2, marginTop: 3 }}>{sub}</div>}
+        </div>
+        {img && <img src={img} alt="" style={{ width: 56, height: 56, objectFit: "contain", flexShrink: 0 }} />}
       </div>
-      {sub && <div style={{ fontSize: 12, color: COLOR.ink2, marginTop: 3 }}>{sub}</div>}
       {provider && platform && (
         <div style={{ marginTop: 6 }}><Badge status={platform.verificationStatus} />
           {tier && <Badge status={tier.verificationStatus} />}

@@ -35,6 +35,7 @@ import {
   catalogTierRank, TIER_LABEL_BY_RANK,
 } from "../deviceComparison.js";
 import { loadLegacyDevices, loadProductCatalogTiers } from "../db.js";
+import { deviceImageUrl } from "../deviceImages.js";
 import { loadDeviceCatalog } from "../catalog.js";
 import { indexCatalog } from "../catalogComparison.js";
 import { DeviceCascade } from "./CapabilityComparison.jsx";
@@ -89,6 +90,7 @@ function legacyToDevice(row) {
     formFactors: row.formFactors,
     confidence: row.confidence,
     sourceUrl: row.sourceUrl,
+    imageKey: row.imageKey,
   };
 }
 
@@ -126,6 +128,7 @@ function catalogTierToDevice(tierRow) {
     bluetoothStreaming: true,
     rechargeable: tierRow.rechargeable ?? true,
     telecoil: tierRow.telecoil ?? null,
+    imageKey: tierRow.imageKey,
   };
 }
 
@@ -248,6 +251,7 @@ function Chip({ children, tone = "teal" }) {
 
 function DeviceCard({ side, device, onChange }) {
   const isNew = side === "new";
+  const img = deviceImageUrl(device?.imageKey);
   return (
     <div style={{ flex: 1, minWidth: 0, background: COLOR.card, border: `1px solid ${COLOR.line}`,
       borderRadius: 12, padding: 16, borderTop: `3px solid ${isNew ? COLOR.teal : COLOR.ink3}` }}>
@@ -255,13 +259,18 @@ function DeviceCard({ side, device, onChange }) {
         color: isNew ? COLOR.tealInk : COLOR.ink3, marginBottom: 6 }}>
         {isNew ? "New — proposed" : "Current — today"}
       </div>
-      <div style={{ fontFamily: FONT.display, fontSize: 19, fontWeight: 700, color: COLOR.ink,
-        lineHeight: 1.15 }}>
-        {device?.display || (isNew ? "Pick a device" : "No current device set")}
+      <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: FONT.display, fontSize: 19, fontWeight: 700, color: COLOR.ink,
+            lineHeight: 1.15 }}>
+            {device?.display || (isNew ? "Pick a device" : "No current device set")}
+          </div>
+          {device?.sub && (
+            <div style={{ fontSize: 12, color: COLOR.ink2, marginTop: 3 }}>{device.sub}</div>
+          )}
+        </div>
+        {img && <img src={img} alt="" style={{ width: 56, height: 56, objectFit: "contain", flexShrink: 0 }} />}
       </div>
-      {device?.sub && (
-        <div style={{ fontSize: 12, color: COLOR.ink2, marginTop: 3 }}>{device.sub}</div>
-      )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
         {device?.tierLabel && <Chip tone="muted">{device.tierLabel} when new</Chip>}
         {device?.rechargeable && <Chip tone="muted">Rechargeable</Chip>}
