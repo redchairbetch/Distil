@@ -41,6 +41,23 @@ export const NATIONS_TIER_PRICING = {
   Specialty:        { copayPerAid: 2000, fittingFeePerAid: 700 },
 };
 
+// Molina Medicare Complete Care (HMO D-SNP) — same table shape, keyed by
+// MOLINA's tier labels (portal screenshot, Kurt 2026-07-22). The fitting-fee
+// ladder is IDENTICAL to Aetna's rung for rung ($200…$700), which is what
+// confirms the rung-for-rung rename; only the member copays differ. Keep the
+// schedule explicit (not derived from NATIONS_TIER_PRICING via the alias map)
+// so a future NationsBenefits plan with different fees can't inherit these
+// silently. NOTE Molina's 'Advanced' fee is $550, not Aetna-'Advanced' $400 —
+// the labels collide across plans at different rungs.
+export const MOLINA_TIER_PRICING = {
+  Entry:     { copayPerAid: 0,    fittingFeePerAid: 200 },
+  Basic:     { copayPerAid: 175,  fittingFeePerAid: 215 },
+  Prime:     { copayPerAid: 475,  fittingFeePerAid: 300 },
+  Preferred: { copayPerAid: 775,  fittingFeePerAid: 400 },
+  Advanced:  { copayPerAid: 1075, fittingFeePerAid: 550 },
+  Premium:   { copayPerAid: 1475, fittingFeePerAid: 700 },
+};
+
 // [brand, model, tier] tuples — tuple array keeps 637 rows compact.
 export const NATIONS_CATALOG = [
   ['ReSound', 'GNR RSKEY3_KE377-DW', 'Standard'],

@@ -30,7 +30,7 @@
 //   visit's fitting_type; bilateral is assumed when no fitting is linked and
 //   the estimate is flagged.
 
-import { NATIONS_TIER_PRICING } from "../nations_catalog_data.js";
+import { NATIONS_TIER_PRICING, MOLINA_TIER_PRICING } from "../nations_catalog_data.js";
 
 const CLOSABLE = ["committed", "deferred", "declined", "no_decision"];
 
@@ -44,14 +44,17 @@ const CLOSABLE = ["committed", "deferred", "declined", "no_decision"];
 // pays the clinic standard retail directly and no TPA fee applies.
 export function nationsFittingFeePerAid(snap = {}) {
   if (snap?.tpa !== "Nations") return null;
-  // NATIONS_TIER_PRICING is the Aetna · Nations Hearing fee schedule. Other
-  // NationsBenefits plans (Molina Medicare Complete Care) rename the rungs —
-  // Molina's 'Advanced'/'Premium' are different rungs than Aetna's — and carry
-  // their own, still-unknown fee schedules, so only apply this table to the
-  // Aetna plan. A missing plan_group is a legacy snapshot from before Molina
-  // existed, i.e. Aetna. Molina commits report no fee until its schedule lands.
-  if (snap.plan_group && snap.plan_group !== "Nations Hearing") return null;
-  return NATIONS_TIER_PRICING[snap.tier]?.fittingFeePerAid ?? null;
+  // Each NationsBenefits plan carries its own fee schedule keyed by ITS OWN
+  // tier labels — the labels collide across plans at different rungs (Molina
+  // 'Advanced' = $550, Aetna 'Advanced' = $400), so the plan_group picks the
+  // table and an unknown NationsBenefits plan accrues no fee rather than
+  // borrowing another plan's. A missing plan_group is a legacy snapshot from
+  // before Molina existed, i.e. Aetna.
+  const table =
+    !snap.plan_group || snap.plan_group === "Nations Hearing" ? NATIONS_TIER_PRICING
+    : snap.plan_group === "Medicare Complete Care HMO D-SNP"  ? MOLINA_TIER_PRICING
+    : null;
+  return table?.[snap.tier]?.fittingFeePerAid ?? null;
 }
 
 function rate(closed, denominator) {

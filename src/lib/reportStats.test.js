@@ -426,23 +426,42 @@ describe("computeReportStats — Nations fitting fees", () => {
     expect(stats.revenue.unpricedCount).toBe(1);
   });
 
-  it("never applies the Aetna fee schedule to Molina commits — colliding tier labels", () => {
-    // Molina Medicare Complete Care is also tpa 'Nations' and its 'Advanced'
-    // rung shares a label with Aetna's (different rung, different economics).
-    // Until Molina's own fee schedule is imported, its commits accrue NO fee —
-    // silently pulling Aetna's $400 'Advanced' fee would be wrong money.
-    const molina = (tier, price, over = {}) => outcome({
-      payer_name: "Nations",
-      payer_plan_snapshot: { carrier: "Molina", plan_group: "Medicare Complete Care HMO D-SNP", tpa: "Nations", tier, tier_price_per_aid: price },
-      ...over,
-    });
+  const molina = (tier, price, over = {}) => outcome({
+    payer_name: "Nations",
+    payer_plan_snapshot: { carrier: "Molina", plan_group: "Medicare Complete Care HMO D-SNP", tpa: "Nations", tier, tier_price_per_aid: price },
+    ...over,
+  });
+
+  it("applies Molina's OWN fee schedule, not Aetna's, to colliding tier labels", () => {
+    // Molina 'Advanced' is a different rung than Aetna 'Advanced': $550/aid
+    // fee, not $400. The plan_group picks the fee table.
     const stats = computeReportStats(
       [molina("Advanced", 1075, { visit_id: "v1" }), molina("Premium", 1475, { visit_id: "v2" })],
       { v1: "bilateral", v2: "bilateral" }
     );
+    expect(stats.revenue.nationsFittingFees).toEqual({
+      revenue: 2500,      // (550 + 700) × 2 aids
+      count: 2,
+      estimatedAidCount: 0,
+      memberCopays: 5100, // (1075 + 1475) × 2 — flows to NationsBenefits
+    });
+    expect(toTransaction(molina("Advanced", 1075, { visit_id: "v1" }), { v1: "bilateral" }).nationsFittingFee).toBe(1100);
+  });
+
+  it("accrues the fee on Molina's $0 Entry tier — copay-free is not fee-free", () => {
+    const stats = computeReportStats([molina("Entry", 0, { visit_id: "v1" })], { v1: "bilateral" });
+    expect(stats.revenue.nationsFittingFees.revenue).toBe(400); // $200/aid × 2
+    expect(stats.revenue.nationsFittingFees.memberCopays).toBe(0);
+  });
+
+  it("accrues no fee for an unknown NationsBenefits plan_group — never borrows a table", () => {
+    const other = outcome({
+      payer_name: "Nations",
+      payer_plan_snapshot: { carrier: "Humana", plan_group: "Some Future NB Plan", tpa: "Nations", tier: "Advanced", tier_price_per_aid: 900 },
+      visit_id: "v1",
+    });
+    const stats = computeReportStats([other], { v1: "bilateral" });
     expect(stats.revenue.nationsFittingFees).toEqual({ revenue: 0, count: 0, estimatedAidCount: 0, memberCopays: 0 });
-    expect(stats.revenue.deviceRevenue).toBe(5100); // copays still count as device revenue
-    expect(toTransaction(molina("Advanced", 1075, { visit_id: "v1" }), { v1: "bilateral" }).nationsFittingFee).toBe(0);
   });
 
   it("treats a legacy snapshot with no plan_group as Aetna (pre-Molina rows)", () => {
