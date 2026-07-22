@@ -3659,12 +3659,14 @@ export async function resolveInsurancePlanId(carrier, planGroup, tierLabel) {
 // private-label detection (isPrivateLabelPlan) and the device-driven TPAs' pricing
 // (UHCH, Nations) key on these exact strings, so the plan editor constrains tier
 // labels to this list instead of free text. TruHearing/UHCH labels come first
-// (their historical order); Nations' own 4 unique rungs are appended so they're
-// selectable and sortable. Nations shares 'Standard'/'Advanced' with the leading
-// set, so within a Nations plan those two sort by their leading-set index — a
-// cosmetic quirk only (Nations is device-driven, so no provider tier-pick UI
-// depends on this order; deriveEarPrice matches tiers by label, not position).
-export const PLAN_TIER_LABELS = ['Standard', 'Advanced', 'Premium', 'Gold', 'Platinum', 'Select', 'Superior Plus', 'Advanced Plus', 'Specialty']
+// (their historical order); Nations' 4 unique rungs follow, then Molina's 4
+// unique rungs (Molina Medicare Complete Care reuses 'Advanced'/'Premium' at
+// DIFFERENT rungs — see NATIONS_PLAN_TIER_ALIASES in lib/pricing.js). The
+// label-index order is only used for non-Nations plans; Nations-tpa plans sort
+// their tiers by copay instead (see loadInsurancePlansGrouped), which puts both
+// Nations ladders in true rung order for the editor and the patient-facing
+// price bands.
+export const PLAN_TIER_LABELS = ['Standard', 'Advanced', 'Premium', 'Gold', 'Platinum', 'Select', 'Superior Plus', 'Advanced Plus', 'Specialty', 'Entry', 'Basic', 'Prime', 'Preferred']
 const tierOrder = (label) => {
   const i = PLAN_TIER_LABELS.indexOf(label)
   return i === -1 ? PLAN_TIER_LABELS.length : i
@@ -3711,7 +3713,17 @@ export async function loadInsurancePlansGrouped() {
     })
   }
   const plans = [...byKey.values()]
-  for (const p of plans) p.tiers.sort((a, b) => tierOrder(a.label) - tierOrder(b.label))
+  for (const p of plans) {
+    // Nations ladders (Aetna's and Molina's) share labels with the leading
+    // vocabulary at different rungs, so label-index order misorders them.
+    // Copays are monotonic in rung on every Nations plan — sort by price
+    // (nulls last) to recover true rung order.
+    if (p.tpa === 'Nations') {
+      p.tiers.sort((a, b) => (a.price ?? Number.MAX_SAFE_INTEGER) - (b.price ?? Number.MAX_SAFE_INTEGER))
+    } else {
+      p.tiers.sort((a, b) => tierOrder(a.label) - tierOrder(b.label))
+    }
+  }
   return plans
 }
 

@@ -264,7 +264,7 @@ export default function TierSelection({
     // bands frame the investment before body style comes up at all.
     if (deviceDrivenTpa) {
       const tpaName = deviceDrivenTpa === "UHCH" ? "United Healthcare Hearing"
-        : deviceDrivenTpa === "Nations" ? "Nations Hearing"
+        : deviceDrivenTpa === "Nations" ? "NationsBenefits"
         : deviceDrivenTpa;
       const processing = rankToProcessingLabel(engineResult?.recommended_tier_rank);
       return (
