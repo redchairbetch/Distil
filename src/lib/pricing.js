@@ -97,6 +97,36 @@ export const NATIONS_TIER_ORDER = [
   'Standard', 'Select', 'Superior Plus', 'Advanced', 'Advanced Plus', 'Specialty',
 ];
 
+// NationsBenefits re-skins the SAME covered-device catalog for each health
+// plan it administers, but renames the six product levels and re-prices the
+// flat copays per plan. nationsCoverageTier() below always returns the
+// CANONICAL rung labels (the Aetna · Nations Hearing ladder); this map
+// translates canonical rung → the plan's own tier label, keyed by plan_group.
+// Plans not listed keep the canonical labels. CAUTION: Molina's 'Advanced'
+// and 'Premium' are DIFFERENT rungs than canonical 'Advanced' / 'Specialty'
+// — never match a tier row by raw canonical label for an aliased plan.
+// (Renaming a plan group in the editor breaks this link — same fragility as
+// deriveEarPrice's carrier/planGroup plan lookup.)
+export const NATIONS_PLAN_TIER_ALIASES = {
+  // Molina Medicare Complete Care (HMO D-SNP), contract H5628-001-000.
+  // Rung-for-rung rename of the canonical ladder; copays live on the
+  // insurance_plans rows (Molina · Medicare Complete Care HMO D-SNP).
+  'Medicare Complete Care HMO D-SNP': {
+    'Standard':      'Entry',
+    'Select':        'Basic',
+    'Superior Plus': 'Prime',
+    'Advanced':      'Preferred',
+    'Advanced Plus': 'Advanced',
+    'Specialty':     'Premium',
+  },
+};
+
+// The tier label a canonical Nations rung carries on a given plan (identity
+// for plans without an alias ladder, i.e. Aetna · Nations Hearing).
+export function nationsPlanTierLabel(planGroup, canonicalTier) {
+  return NATIONS_PLAN_TIER_ALIASES[planGroup]?.[canonicalTier] ?? canonicalTier;
+}
+
 // (catalog family, techLevel) → Nations tier label, or null when off-plan.
 // `family` is a product_catalog entry (manufacturer, id, generation); techLevel
 // is the cascade's per-ear level string ('7IX', '90', '440', '24', …).
@@ -341,11 +371,16 @@ export function deriveEarPrice(side, opts) {
     if (covTier) {
       const plan = (plans || []).find(p => p.tpa === 'Nations'
         && p.carrier === form.carrier && p.planGroup === form.planGroup);
-      const price = plan?.tiers?.find(t => t.label === covTier)?.price ?? null;
+      // Translate the canonical rung to the plan's own tier label (Molina
+      // renames every rung) BEFORE matching the tier row — the plan's rows
+      // carry the plan's labels, and those labels are what the provider,
+      // quote, and payer snapshot should show.
+      const tierLabel = nationsPlanTierLabel(form.planGroup, covTier);
+      const price = plan?.tiers?.find(t => t.label === tierLabel)?.price ?? null;
       // On-plan but the flat tier copay is a catalog hole — flag for the reveal
       // to surface a "verify rate" input instead of a dead placeholder.
-      if (price == null) return { price: null, source: 'nations-onplan', tier: covTier, requiresVerification: true };
-      return { price, source: 'nations-onplan', tier: covTier };
+      if (price == null) return { price: null, source: 'nations-onplan', tier: tierLabel, requiresVerification: true };
+      return { price, source: 'nations-onplan', tier: tierLabel };
     }
     // Off-plan: not in Nations' catalog → standard retail (manufacturer-class
     // anchor, same resolution as private pay), flagged for the provider.

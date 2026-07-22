@@ -44,6 +44,13 @@ const CLOSABLE = ["committed", "deferred", "declined", "no_decision"];
 // pays the clinic standard retail directly and no TPA fee applies.
 export function nationsFittingFeePerAid(snap = {}) {
   if (snap?.tpa !== "Nations") return null;
+  // NATIONS_TIER_PRICING is the Aetna · Nations Hearing fee schedule. Other
+  // NationsBenefits plans (Molina Medicare Complete Care) rename the rungs —
+  // Molina's 'Advanced'/'Premium' are different rungs than Aetna's — and carry
+  // their own, still-unknown fee schedules, so only apply this table to the
+  // Aetna plan. A missing plan_group is a legacy snapshot from before Molina
+  // existed, i.e. Aetna. Molina commits report no fee until its schedule lands.
+  if (snap.plan_group && snap.plan_group !== "Nations Hearing") return null;
   return NATIONS_TIER_PRICING[snap.tier]?.fittingFeePerAid ?? null;
 }
 

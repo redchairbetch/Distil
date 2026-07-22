@@ -14,6 +14,7 @@ import { describe, it, expect } from "vitest";
 import {
   CROS_PRICE_PER_UNIT, isSideCros, manufacturerToClass, uhchCoverageTier,
   nationsCoverageTier, NATIONS_TIER_ORDER,
+  NATIONS_PLAN_TIER_ALIASES, nationsPlanTierLabel,
   findTierRank, findAnchorForRank, deriveEarPrice, pickBaselinePerAid,
   DIRECT_PURCHASE_TIER_LEVEL, directPurchaseLockedTech, resolveClassRetailPerAid,
   TIER_LABEL_CATALOG_RANK, tierMatchedTech,
@@ -71,6 +72,17 @@ const NATIONS_PLANS = [{
   ],
 }];
 const nationsForm = { payType: "insurance", tpa: "Nations", carrier: "Aetna", planGroup: "Nations Hearing" };
+// Molina Medicare Complete Care (HMO D-SNP) — same NationsBenefits catalog,
+// renamed rungs, re-priced flat copays. Tier rows carry MOLINA's labels.
+const MOLINA_PLANS = [{
+  tpa: "Nations", carrier: "Molina", planGroup: "Medicare Complete Care HMO D-SNP",
+  tiers: [
+    { label: "Entry", price: 0 }, { label: "Basic", price: 175 },
+    { label: "Prime", price: 475 }, { label: "Preferred", price: 775 },
+    { label: "Advanced", price: 1075 }, { label: "Premium", price: 1475 },
+  ],
+}];
+const molinaForm = { payType: "insurance", tpa: "Nations", carrier: "Molina", planGroup: "Medicare Complete Care HMO D-SNP" };
 const fam = (id) => CATALOG.find(e => e.id === id);
 
 describe("isSideCros", () => {
@@ -181,6 +193,29 @@ describe("nationsCoverageTier", () => {
     expect(nationsCoverageTier(null, "7IX")).toBeNull();
     expect(nationsCoverageTier(fam("sig-pure-ix"), null)).toBeNull();
     expect(nationsCoverageTier({ manufacturer: "Beltone", id: "x" }, "5")).toBeNull();
+  });
+});
+
+describe("nationsPlanTierLabel (per-plan rung aliases)", () => {
+  it("maps every canonical rung to a distinct Molina label", () => {
+    const molina = NATIONS_PLAN_TIER_ALIASES["Medicare Complete Care HMO D-SNP"];
+    expect(Object.keys(molina).sort()).toEqual([...NATIONS_TIER_ORDER].sort());
+    expect(new Set(Object.values(molina)).size).toBe(NATIONS_TIER_ORDER.length);
+    expect(molina).toEqual({
+      "Standard": "Entry", "Select": "Basic", "Superior Plus": "Prime",
+      "Advanced": "Preferred", "Advanced Plus": "Advanced", "Specialty": "Premium",
+    });
+  });
+  it("is the identity for plans without an alias ladder (Aetna · Nations Hearing)", () => {
+    expect(nationsPlanTierLabel("Nations Hearing", "Specialty")).toBe("Specialty");
+    expect(nationsPlanTierLabel("Nations Hearing", "Advanced")).toBe("Advanced");
+    expect(nationsPlanTierLabel(undefined, "Select")).toBe("Select");
+  });
+  it("translates the colliding labels to different rungs on Molina", () => {
+    const pg = "Medicare Complete Care HMO D-SNP";
+    expect(nationsPlanTierLabel(pg, "Advanced")).toBe("Preferred");      // NOT Molina's 'Advanced'
+    expect(nationsPlanTierLabel(pg, "Advanced Plus")).toBe("Advanced");
+    expect(nationsPlanTierLabel(pg, "Specialty")).toBe("Premium");
   });
 });
 
@@ -382,6 +417,55 @@ describe("deriveEarPrice", () => {
       { ...baseOpts, plans: plansWithHole, form: { payType: "insurance", tpa: "UHCH", carrier: "UnitedHealthcare", planGroup: "Medicare Supplement" } }
     );
     expect(ep).toEqual({ price: null, source: "uhch-onplan", tier: "Premium", requiresVerification: true });
+  });
+
+  it("translates canonical Nations rungs to Molina's tier labels before pricing", () => {
+    // Signia 7IX → canonical Specialty → Molina 'Premium' ($1,475), NOT the
+    // canonical 'Specialty' label (which has no row on the Molina plan).
+    expect(deriveEarPrice(
+      { familyId: "sig-pure-ix", techLevel: "7IX" },
+      { ...baseOpts, plans: MOLINA_PLANS, form: molinaForm }
+    )).toEqual({ price: 1475, source: "nations-onplan", tier: "Premium" });
+    // Signia 3IX → canonical Advanced → Molina 'Preferred' ($775). Molina ALSO
+    // has an 'Advanced' row at a different rung ($1,075) — the alias must keep
+    // the colliding label from matching.
+    expect(deriveEarPrice(
+      { familyId: "sig-pure-ix", techLevel: "3IX" },
+      { ...baseOpts, plans: MOLINA_PLANS, form: molinaForm }
+    )).toEqual({ price: 775, source: "nations-onplan", tier: "Preferred" });
+    // Signia 5IX → canonical Advanced Plus → Molina 'Advanced' ($1,075).
+    expect(deriveEarPrice(
+      { familyId: "sig-pure-ix", techLevel: "5IX" },
+      { ...baseOpts, plans: MOLINA_PLANS, form: molinaForm }
+    )).toEqual({ price: 1075, source: "nations-onplan", tier: "Advanced" });
+  });
+
+  it("treats Molina's $0 Entry copay as a real price, not a catalog hole", () => {
+    // ReSound Key 3 → canonical Standard → Molina 'Entry', $0 member cost.
+    const ep = deriveEarPrice(
+      { familyId: "res-key-ric", techLevel: "3" },
+      { ...baseOpts, plans: MOLINA_PLANS, form: molinaForm }
+    );
+    expect(ep).toEqual({ price: 0, source: "nations-onplan", tier: "Entry" });
+    expect(ep.requiresVerification).toBeUndefined();
+  });
+
+  it("reports Molina catalog holes under the MOLINA tier label", () => {
+    const plansWithHole = [{ tpa: "Nations", carrier: "Molina", planGroup: "Medicare Complete Care HMO D-SNP",
+      tiers: [{ label: "Entry", price: 0 }] }]; // Premium (canonical Specialty) missing
+    expect(deriveEarPrice(
+      { familyId: "sig-pure-ix", techLevel: "7IX" },
+      { ...baseOpts, plans: plansWithHole, form: molinaForm }
+    )).toEqual({ price: null, source: "nations-onplan", tier: "Premium", requiresVerification: true });
+  });
+
+  it("keeps Molina off-plan devices at standard retail (same catalog as Aetna)", () => {
+    const ep = deriveEarPrice(
+      { familyId: "oti-intent", techLevel: "1" },
+      { ...baseOpts, plans: MOLINA_PLANS, form: molinaForm }
+    );
+    expect(ep.source).toBe("nations-offplan");
+    expect(ep.offPlan).toBe(true);
   });
 
   it("flags Nations off-plan devices at standard retail (Oticon Intent)", () => {

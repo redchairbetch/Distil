@@ -285,6 +285,15 @@ const INSURANCE_PLANS = [
   // deriveEarPrice 'nations-offplan'). Seed/offline fallback — the live values
   // come from the insurance_plans table (Aetna · Nations Hearing · tpa=Nations).
   { carrier:"Aetna", planGroup:"Nations Hearing", tpa:"Nations", tiers:[{label:"Standard",price:600}, {label:"Select",price:800}, {label:"Superior Plus",price:1150}, {label:"Advanced",price:1450}, {label:"Advanced Plus",price:1625}, {label:"Specialty",price:2000}] },
+  // Molina Medicare Complete Care (HMO D-SNP), contract H5628-001-000 — also
+  // NationsBenefits-administered (no relation to the Complete Care+ care plan).
+  // Same covered-device catalog as the Aetna plan, but Molina renames all six
+  // rungs and re-prices the flat copays: nationsCoverageTier() still resolves
+  // the canonical rung, then NATIONS_PLAN_TIER_ALIASES (lib/pricing.js) maps it
+  // to these labels. NOTE Molina's 'Advanced'/'Premium' are DIFFERENT rungs
+  // than Aetna's 'Advanced' / TruHearing's 'Premium'. Tiers listed bottom rung
+  // first; prices in DOLLARS per aid ($0 Entry is real — no member cost).
+  { carrier:"Molina", planGroup:"Medicare Complete Care HMO D-SNP", tpa:"Nations", tiers:[{label:"Entry",price:0}, {label:"Basic",price:175}, {label:"Prime",price:475}, {label:"Preferred",price:775}, {label:"Advanced",price:1075}, {label:"Premium",price:1475}] },
 ];
 
 
@@ -5555,7 +5564,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       const famOff = nationsFamilyOffPlan(fam);
                       return (
                       <div key={fam.id} className={`plan-row ${s.familyId===fam.id?"active":""}`}
-                        title={famOff ? "Not available on the Nations Hearing plan" : undefined}
+                        title={famOff ? "Not covered by the patient's NationsBenefits plan" : undefined}
                         style={famOff ? {opacity:0.6,cursor:"not-allowed",background:"#fef2f2",borderColor:"#fecaca"} : undefined}
                         onClick={famOff ? undefined : ()=>{
                           const autoVar = fam.variants.length===1 ? fam.variants[0] : "";
@@ -5622,7 +5631,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       const pInfo = techOff ? null : techLevelPriceInfo(selectedFamily, t);
                       return (
                       <div key={t} className={`radio-pill ${s.techLevel===t?"active":""}`}
-                        title={techOff ? "Not available on the Nations Hearing plan" : undefined}
+                        title={techOff ? "Not covered by the patient's NationsBenefits plan" : undefined}
                         style={techOff ? {opacity:0.6,cursor:"not-allowed",color:"#b91c1c",background:"#fef2f2",borderColor:"#fecaca"} : undefined}
                         onClick={techOff ? undefined : ()=>updSide(side,"techLevel",t)}>
                         <div className="radio-pill-label">{(selectedFamily.techLevelLabels?.[t] || t)}{techOff ? " *" : ""}</div>
@@ -5643,7 +5652,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   )}
                   {isNationsPatient && selectedFamily.techLevels.some(t => nationsCoverageTier(selectedFamily, t) === null) && (
                     <div style={{fontSize:11.5,color:"#b91c1c",marginTop:8}}>
-                      * Not available on the Nations Hearing plan.
+                      * Not covered by the patient's NationsBenefits plan.
                     </div>
                   )}
                 </div>
@@ -6092,7 +6101,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               // no street retail to anchor against); off-plan additionally shows
               // the acknowledgement-form flag and bills standard retail.
               const isDeviceDrivenTpa = form.tpa === 'UHCH' || form.tpa === 'Nations';
-              const tpaName = form.tpa === 'Nations' ? 'Nations Hearing' : 'UHCH';
+              const tpaName = form.tpa === 'Nations' ? 'NationsBenefits' : 'UHCH';
               // Insurance selected but no plan chosen → the device is priced at
               // standard retail (deriveEarPrice 'insurance-standard'); show that
               // flat price (no plan copay/savings to anchor) rather than a blank
@@ -6127,7 +6136,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                         {isInsuranceNoPlan
                           ? 'No insurance plan selected — showing standard retail. Add the plan to apply benefits.'
                           : form.tpa === 'Nations'
-                            ? `${form.tier || 'Nations'} tier · Nations Hearing flat-rate copay.`
+                            ? `${form.tier || 'Nations'} tier · NationsBenefits flat-rate copay.`
                             : 'Relate value pricing under UHCH — no separate retail comparison applies.'}
                       </div>
                     )}
@@ -6141,7 +6150,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               const verifyEar = (leftConfigured && leftEarPrice?.requiresVerification) ? leftEarPrice
                 : (rightConfigured && rightEarPrice?.requiresVerification) ? rightEarPrice : null;
               if (verifyEar) {
-                const vTpaName = form.tpa === 'Nations' ? 'Nations Hearing' : (form.tpa === 'UHCH' ? 'UHCH' : (form.tpa || 'the plan'));
+                const vTpaName = form.tpa === 'Nations' ? 'NationsBenefits' : (form.tpa === 'UHCH' ? 'UHCH' : (form.tpa || 'the plan'));
                 return (
                   <VerifyRateCard
                     tpaName={vTpaName}
