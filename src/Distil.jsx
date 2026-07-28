@@ -134,6 +134,9 @@ import {
   recordUpgradeOutcome,
   logAnalyticsEvent,
   listMessagesForPatient,
+  listPatientNotes,
+  addPatientNote,
+  deletePatientNote,
   uploadSignatureImage,
   updateStaffSignature,
   logPriceAdjustment,
@@ -1683,6 +1686,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   const [patientDocuments, setPatientDocuments] = useState([]);
   const [patientMessages, setPatientMessages] = useState([]);
   const [expandedMessageId, setExpandedMessageId] = useState(null);
+  // Timestamped interaction log (patient_notes) — newest first.
+  const [patientNotes, setPatientNotes] = useState([]);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteSaving, setNoteSaving] = useState(false);
 
   // ── Intake queue state ────────────────────────────────────────────────
   const [pendingIntakes,  setPendingIntakes]  = useState([]);
@@ -2694,6 +2701,41 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       refreshMessages();
     }
   }, [view, selectedPatient?.id, refreshMessages]);
+
+  // Interaction log — same lifecycle as messages/documents above.
+  const refreshNotes = useCallback(async () => {
+    if (!selectedPatient?.id) return;
+    try {
+      const notes = await listPatientNotes(selectedPatient.id);
+      setPatientNotes(notes);
+    } catch (e) {
+      console.error("listPatientNotes:", e);
+    }
+  }, [selectedPatient?.id]);
+
+  useEffect(() => {
+    if (view === "patient" && selectedPatient?.id) {
+      setPatientNotes([]);
+      setNoteDraft("");
+      refreshNotes();
+    }
+  }, [view, selectedPatient?.id, refreshNotes]);
+
+  const handleAddNote = async () => {
+    const body = noteDraft.trim();
+    if (!body || !selectedPatient?.id || noteSaving) return;
+    setNoteSaving(true);
+    try {
+      await addPatientNote(selectedPatient.id, { body, staffId, clinicId });
+      setNoteDraft("");
+      await refreshNotes();
+    } catch (e) {
+      console.error("addPatientNote:", e);
+      alert("Couldn't save the note — check your connection and try again.");
+    } finally {
+      setNoteSaving(false);
+    }
+  };
 
   // Load the most recent intake for the wizard's Health History step.
   // Triggered when the provider arrives at step 1 with a wizardPatientId
@@ -8255,6 +8297,70 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 </div>
               </div>
             )}
+
+            {/* ── NOTES (interaction log) ────────────────────────────────────────── */}
+            {/* Timestamped, append-only log of interactions: call attempts,         */}
+            {/* voicemails, walk-ins, device drop-offs. Author + timestamp are       */}
+            {/* stamped server-side; entries can be deleted (active clinic only)     */}
+            {/* but never edited, so the log stays a trustworthy record.             */}
+            <div className="detail-card full">
+              <div style={{display:"flex",alignItems:"center",marginBottom:14}}>
+                <div className="detail-card-title" style={{marginBottom:0}}>Notes</div>
+                <div style={{marginLeft:"auto",fontSize:11,color:"#9ca3af"}}>
+                  {patientNotes.length} entr{patientNotes.length === 1 ? "y" : "ies"}
+                </div>
+              </div>
+              <div style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:12}}>
+                <textarea
+                  value={noteDraft}
+                  onChange={e => setNoteDraft(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); handleAddNote(); } }}
+                  placeholder="Log an interaction — call attempt, voicemail, walk-in, device drop-off…"
+                  rows={2}
+                  style={{flex:1,fontFamily:"inherit",fontSize:13,lineHeight:1.5,padding:"10px 12px",border:"1px solid #E4E0D5",borderRadius:8,resize:"vertical",background:"#FAF8F2",color:"#0a1628"}}
+                />
+                <button
+                  disabled={noteSaving || !noteDraft.trim()}
+                  onClick={handleAddNote}
+                  title="Add a timestamped note to this patient's log (Ctrl+Enter)"
+                  style={{background:"#0f766e",color:"white",border:"none",borderRadius:8,padding:"10px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:(noteSaving || !noteDraft.trim())?"default":"pointer",opacity:(noteSaving || !noteDraft.trim())?0.5:1,whiteSpace:"nowrap"}}
+                >
+                  {noteSaving ? "Saving…" : "Add Note"}
+                </button>
+              </div>
+              {patientNotes.length === 0 ? (
+                <div style={{fontSize:13,color:"#9ca3af",fontStyle:"italic",padding:"4px 0"}}>
+                  No notes yet. Entries are timestamped automatically.
+                </div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {patientNotes.map(n => (
+                    <div key={n.id} style={{padding:"10px 14px",background:"#FAF8F2",borderRadius:8,border:"1px solid #E4E0D5"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10}}>
+                        <div style={{fontSize:11,fontWeight:600,color:"#9ca3af"}}>
+                          {fmtDate(n.createdAt)} · {new Date(n.createdAt).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}
+                          {n.staffName ? <span style={{fontWeight:400}}> · {n.staffName}</span> : null}
+                        </div>
+                        <button
+                          title="Delete this note"
+                          onClick={async () => {
+                            if (!window.confirm("Delete this note? The log is append-only — deleted entries can't be recovered.")) return;
+                            try {
+                              await deletePatientNote(n.id);
+                              await refreshNotes();
+                            } catch (e) { console.error("deletePatientNote:", e); }
+                          }}
+                          style={{marginLeft:"auto",background:"none",border:"none",color:"#cbd5e1",fontSize:14,cursor:"pointer",padding:"0 2px",lineHeight:1}}
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <div style={{fontSize:13,color:"#374151",lineHeight:1.55,marginTop:4,whiteSpace:"pre-wrap"}}>{n.body}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* ── COMMUNICATION ──────────────────────────────────────────────────── */}
             {/* Inbox messages we've sent to the patient's Aided app. Each row       */}

@@ -646,6 +646,70 @@ export function subscribeToClinicMessages(clinicId, onNewMessage) {
 
 
 // ============================================================
+// PATIENT NOTES (interaction log)
+// ============================================================
+
+/**
+ * Timestamped interaction log on the patient chart, newest first. Append-only
+ * by design (no update path — see migration 20260728120000): a wrong note is
+ * deleted and re-entered, so the log stays a trustworthy record of what was
+ * written when. Author name embedded for display.
+ */
+export async function listPatientNotes(patientId) {
+  if (!patientId) return []
+  const { data, error } = await supabase
+    .from('patient_notes')
+    .select('id, body, created_at, staff_id, staff:staff_id(full_name)')
+    .eq('patient_id', patientId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return (data || []).map(n => ({
+    id:        n.id,
+    body:      n.body,
+    createdAt: n.created_at,
+    staffId:   n.staff_id,
+    staffName: n.staff?.full_name || null,
+  }))
+}
+
+/**
+ * Log a note. clinic_id is the ACTIVE clinic (not the patient's home clinic)
+ * so cross-clinic interactions — e.g. a call handled while covering another
+ * location — pass the insert policy and record where the contact happened.
+ */
+export async function addPatientNote(patientId, { body, staffId, clinicId }) {
+  if (!patientId) throw new Error('patientId required')
+  if (!body?.trim()) throw new Error('note body required')
+  if (!staffId || !clinicId) throw new Error('staffId and clinicId required')
+  const { data, error } = await supabase
+    .from('patient_notes')
+    .insert({
+      patient_id: patientId,
+      clinic_id:  clinicId,
+      staff_id:   staffId,
+      body:       body.trim(),
+    })
+    .select('id, body, created_at, staff_id')
+    .single()
+  if (error) throw error
+  return data
+}
+
+/**
+ * Remove a mistaken entry. RLS scopes deletes to notes logged by the active
+ * clinic — a delete against another clinic's note silently affects 0 rows.
+ */
+export async function deletePatientNote(noteId) {
+  if (!noteId) return
+  const { error } = await supabase
+    .from('patient_notes')
+    .delete()
+    .eq('id', noteId)
+  if (error) throw error
+}
+
+
+// ============================================================
 // HELPERS
 // ============================================================
 
