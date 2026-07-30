@@ -10,7 +10,7 @@
  * See the LICENSE file at the repository root for full terms.
  */
 
-import { getPTA } from "./audiogramAnalysis.js";
+import { getPTA4 } from "./audiogramAnalysis.js";
 
 // Reprogram-vs-upgrade decision aid (backlog #23, PR3). Pure functions, reused by
 // the upgrade consultation UI. Compares the baseline audiogram (original fit)
@@ -48,8 +48,10 @@ export function computeAudiometricDelta(baseline, current) {
   if (!baseline || !current) return null;
   const perEar = {};
   for (const ear of ["right", "left"]) {
-    const basePTA = getPTA(earThresholds(baseline, ear));
-    const curPTA = getPTA(earThresholds(current, ear));
+    // PTA4 so high-frequency progression (the common aging pattern) counts
+    // toward the reprogram-vs-upgrade delta.
+    const basePTA = getPTA4(earThresholds(baseline, ear));
+    const curPTA = getPTA4(earThresholds(current, ear));
     const baseWRS = wrsFor(baseline, ear);
     const curWRS = wrsFor(current, ear);
     perEar[ear] = {

@@ -11,7 +11,7 @@
  */
 
 import { useMemo } from "react";
-import { getPTA, severityFromPTA, severityRank } from "../audiogramAnalysis.js";
+import { getPTA4, severityFromPTA, severityRank } from "../audiogramAnalysis.js";
 
 // PrompterSidebar — provider-only support panel that runs alongside the
 // wizard. Backlog #8, PR 2. Three things on screen at all times:
@@ -163,8 +163,8 @@ function computeWorstWR(audiology) {
 
 function computeWorstSeverity(audiology) {
   if (!audiology) return null;
-  const ptaR = getPTA(audiology.rightT);
-  const ptaL = getPTA(audiology.leftT);
+  const ptaR = getPTA4(audiology.rightT);
+  const ptaL = getPTA4(audiology.leftT);
   const sR = severityFromPTA(ptaR);
   const sL = severityFromPTA(ptaL);
   if (!sR && !sL) return null;

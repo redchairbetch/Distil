@@ -16,7 +16,7 @@
 // Severity strings are the canonical allowlist used everywhere downstream
 // (db match_min_severity, personalization profile, content matcher).
 
-export const AUDIG_FREQS = [250, 500, 1000, 2000, 3000, 4000, 6000, 8000];
+export const AUDIG_FREQS = [250, 500, 750, 1000, 1500, 2000, 3000, 4000, 6000, 8000];
 
 export const SEVERITY_ORDER = ['normal', 'mild', 'moderate', 'mod-severe', 'severe', 'profound'];
 
@@ -31,8 +31,19 @@ export function severityAtLeast(a, floor) {
   return severityRank(a) >= severityRank(floor);
 }
 
-// Pure-tone average across speech frequencies.
+// Canonical clinical pure-tone average: 500/1000/2000 Hz (correlates with SRT).
+// Inter-octave frequencies (750/1500) never enter a PTA.
 export function getPTA(thresholds) {
+  if (!thresholds) return null;
+  const freqs = [500, 1000, 2000];
+  const vals = freqs.map(f => thresholds[f]).filter(v => v != null);
+  return vals.length ? Math.round(vals.reduce((a, b) => a + b) / vals.length) : null;
+}
+
+// Four-frequency PTA (500/1000/2000/4000) — includes 4 kHz so sloping
+// high-frequency loss isn't understated. Displayed alongside the canonical
+// PTA, labeled distinctly (never substituted for it).
+export function getPTA4(thresholds) {
   if (!thresholds) return null;
   const freqs = [500, 1000, 2000, 4000];
   const vals = freqs.map(f => thresholds[f]).filter(v => v != null);
@@ -40,6 +51,8 @@ export function getPTA(thresholds) {
 }
 
 // Maps a PTA to a severity bucket. Normal threshold is 20 dB per MHC clinical rules.
+// Feed this PTA4 — severity classification keys off the four-frequency average
+// (Kurt, 2026-07-30) so sloping high-frequency losses aren't understated.
 export function severityFromPTA(pta) {
   if (pta == null) return null;
   if (pta <= 20) return 'normal';
@@ -104,18 +117,19 @@ export function getConfiguration(thresholds) {
   return 'flat';
 }
 
-// Asymmetric loss: PTAs differ by >= 15 dB between ears.
+// Asymmetric loss: PTA4s differ by >= 15 dB between ears (4-freq so a
+// unilateral high-frequency drop still flags).
 export function isAsymmetric(leftThresholds, rightThresholds) {
-  const l = getPTA(leftThresholds), r = getPTA(rightThresholds);
+  const l = getPTA4(leftThresholds), r = getPTA4(rightThresholds);
   if (l == null || r == null) return false;
   return Math.abs(l - r) >= 15;
 }
 
 // Picks the worse ear's severity. The campaign matcher uses this as the
-// patient's overall severity floor for content gating.
+// patient's overall severity floor for content gating. Keys off PTA4.
 export function worseEarSeverity(leftThresholds, rightThresholds) {
-  const l = severityFromPTA(getPTA(leftThresholds));
-  const r = severityFromPTA(getPTA(rightThresholds));
+  const l = severityFromPTA(getPTA4(leftThresholds));
+  const r = severityFromPTA(getPTA4(rightThresholds));
   if (!l) return r;
   if (!r) return l;
   return severityRank(l) >= severityRank(r) ? l : r;

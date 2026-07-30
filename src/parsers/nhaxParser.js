@@ -29,7 +29,7 @@
 import pako from "pako";
 
 // Frequencies Distil tracks (must match medrxParser)
-const DISTIL_FREQS = new Set([250, 500, 1000, 2000, 3000, 4000, 6000, 8000]);
+const DISTIL_FREQS = new Set([250, 500, 750, 1000, 1500, 2000, 3000, 4000, 6000, 8000]);
 
 // Sentinel value in HIMSA binary = "no measurement"
 const NO_MEASUREMENT = 0x8001; // 32769
