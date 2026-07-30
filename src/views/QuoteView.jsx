@@ -561,8 +561,8 @@ export default function QuoteView({ token }) {
                 </div>
                 {(rPTA != null || lPTA != null) && (
                   <div style={{ fontSize: 13, color: COLOR.ink2, marginTop: 10, lineHeight: 1.6 }}>
-                    {rPTA != null && <div>Right: {rPTA} dB HL — {getDegreeName(rPTA)} hearing loss{rPTA4 != null && <span style={{ color: COLOR.ink3 }}> (PTA4: {rPTA4} dB)</span>}</div>}
-                    {lPTA != null && <div>Left: {lPTA} dB HL — {getDegreeName(lPTA)} hearing loss{lPTA4 != null && <span style={{ color: COLOR.ink3 }}> (PTA4: {lPTA4} dB)</span>}</div>}
+                    {rPTA != null && <div>Right: {rPTA} dB HL — {getDegreeName(rPTA4 ?? rPTA)} hearing loss{rPTA4 != null && <span style={{ color: COLOR.ink3 }}> (PTA4: {rPTA4} dB)</span>}</div>}
+                    {lPTA != null && <div>Left: {lPTA} dB HL — {getDegreeName(lPTA4 ?? lPTA)} hearing loss{lPTA4 != null && <span style={{ color: COLOR.ink3 }}> (PTA4: {lPTA4} dB)</span>}</div>}
                   </div>
                 )}
               </div>

@@ -1430,7 +1430,9 @@ const HEARING_SIM_TEXT = [
 // ── COUNSELING NARRATIVE GENERATOR ─────────────────────────────────────────
 function generateCounseling(aud){
   if(!aud)return null;
-  const rPTA=getPTA(aud.rightT), lPTA=getPTA(aud.leftT);
+  // PTA4 drives the counseling degrees + loudness framing so a sloping
+  // high-frequency loss reads at its true severity.
+  const rPTA=getPTA4(aud.rightT), lPTA=getPTA4(aud.leftT);
   const rDeg=getDegreeName(rPTA), lDeg=getDegreeName(lPTA);
   const rSlope=getSlope(aud.rightT), lSlope=getSlope(aud.leftT);
   const hasPT=rPTA!=null||lPTA!=null;
@@ -8154,7 +8156,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                           <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"10px 12px"}}>
                             <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:2}}>Right PTA</div>
                             <div style={{fontSize:20,fontWeight:800,color:"#0a1628",lineHeight:1}}>{rPTA} <span style={{fontSize:10,fontWeight:400,color:"#9ca3af"}}>dB HL</span></div>
-                            <div style={{fontSize:10,color:"#dc2626",fontWeight:600,marginTop:2}}>{getDegreeName(rPTA)}</div>
+                            <div style={{fontSize:10,color:"#dc2626",fontWeight:600,marginTop:2}}>{getDegreeName(rPTA4)}</div>
                             {rPTA4!=null&&<div style={{fontSize:9,color:"#9ca3af",marginTop:2}}>PTA4 {rPTA4} dB</div>}
                           </div>
                         )}
@@ -8162,7 +8164,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                           <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 12px"}}>
                             <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:2}}>Left PTA</div>
                             <div style={{fontSize:20,fontWeight:800,color:"#0a1628",lineHeight:1}}>{lPTA} <span style={{fontSize:10,fontWeight:400,color:"#9ca3af"}}>dB HL</span></div>
-                            <div style={{fontSize:10,color:"#2563eb",fontWeight:600,marginTop:2}}>{getDegreeName(lPTA)}</div>
+                            <div style={{fontSize:10,color:"#2563eb",fontWeight:600,marginTop:2}}>{getDegreeName(lPTA4)}</div>
                             {lPTA4!=null&&<div style={{fontSize:9,color:"#9ca3af",marginTop:2}}>PTA4 {lPTA4} dB</div>}
                           </div>
                         )}

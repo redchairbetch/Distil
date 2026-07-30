@@ -158,8 +158,10 @@ export default function AudiogramEntry({ value, onChange, ghost = null, hideUnai
   const lPTA = getPTA(value.leftT);
   const rPTA4 = getPTA4(value.rightT);
   const lPTA4 = getPTA4(value.leftT);
-  const rDeg = getDegreeName(rPTA);
-  const lDeg = getDegreeName(lPTA);
+  // Degree-of-loss labels key off PTA4 so sloping high-frequency losses
+  // aren't understated (MHC rule, 2026-07-30).
+  const rDeg = getDegreeName(rPTA4);
+  const lDeg = getDegreeName(lPTA4);
   const gRPTA = getPTA(ghost?.rightT);
   const gLPTA = getPTA(ghost?.leftT);
   const importHighlight = (field) => pdfImport?.fields?.has(field)

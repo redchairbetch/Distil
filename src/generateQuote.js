@@ -825,13 +825,13 @@ export function generateQuote({
       doc.setFontSize(9)
       doc.setTextColor(...BLACK)
       if (rPTA != null) {
-        const rDeg = getDegreeName(rPTA)
+        const rDeg = getDegreeName(rPTA4 ?? rPTA)
         const rSuffix = rPTA4 != null ? ` (PTA4: ${rPTA4} dB)` : ''
         doc.text(`Right: ${rPTA} dB HL — ${rDeg} hearing loss${rSuffix}`, MARGIN + 8, y)
         y += 14
       }
       if (lPTA != null) {
-        const lDeg = getDegreeName(lPTA)
+        const lDeg = getDegreeName(lPTA4 ?? lPTA)
         const lSuffix = lPTA4 != null ? ` (PTA4: ${lPTA4} dB)` : ''
         doc.text(`Left: ${lPTA} dB HL — ${lDeg} hearing loss${lSuffix}`, MARGIN + 8, y)
         y += 14
