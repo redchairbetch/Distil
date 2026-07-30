@@ -1284,8 +1284,15 @@ function genId() { return crypto.randomUUID(); }
 
 
 // ── AUDIOGRAM CONSTANTS ───────────────────────────────────────────────────────
-const AUDIG_FREQS = [250,500,1000,2000,3000,4000,6000,8000];
+const AUDIG_FREQS = [250,500,750,1000,1500,2000,3000,4000,6000,8000];
+// Canonical clinical PTA: 500/1k/2k. Inter-octaves (750/1500) never enter it.
 function getPTA(t){
+  const fs=[500,1000,2000];
+  const v=fs.map(f=>t?.[f]).filter(x=>x!=null);
+  return v.length?Math.round(v.reduce((a,b)=>a+b)/v.length):null;
+}
+// Four-frequency PTA (adds 4k) — shown alongside canonical PTA, labeled PTA4.
+function getPTA4(t){
   const fs=[500,1000,2000,4000];
   const v=fs.map(f=>t?.[f]).filter(x=>x!=null);
   return v.length?Math.round(v.reduce((a,b)=>a+b)/v.length):null;
@@ -8133,6 +8140,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               const sections = generateCounseling(aud);
               const rPTA = getPTA(aud.rightT);
               const lPTA = getPTA(aud.leftT);
+              const rPTA4 = getPTA4(aud.rightT);
+              const lPTA4 = getPTA4(aud.leftT);
               return (
                 <>
                   {/* Audiogram display — two-column: scores left, chart right */}
@@ -8146,6 +8155,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                             <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:2}}>Right PTA</div>
                             <div style={{fontSize:20,fontWeight:800,color:"#0a1628",lineHeight:1}}>{rPTA} <span style={{fontSize:10,fontWeight:400,color:"#9ca3af"}}>dB HL</span></div>
                             <div style={{fontSize:10,color:"#dc2626",fontWeight:600,marginTop:2}}>{getDegreeName(rPTA)}</div>
+                            {rPTA4!=null&&<div style={{fontSize:9,color:"#9ca3af",marginTop:2}}>PTA4 {rPTA4} dB</div>}
                           </div>
                         )}
                         {lPTA!=null&&(
@@ -8153,6 +8163,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                             <div style={{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:2}}>Left PTA</div>
                             <div style={{fontSize:20,fontWeight:800,color:"#0a1628",lineHeight:1}}>{lPTA} <span style={{fontSize:10,fontWeight:400,color:"#9ca3af"}}>dB HL</span></div>
                             <div style={{fontSize:10,color:"#2563eb",fontWeight:600,marginTop:2}}>{getDegreeName(lPTA)}</div>
+                            {lPTA4!=null&&<div style={{fontSize:9,color:"#9ca3af",marginTop:2}}>PTA4 {lPTA4} dB</div>}
                           </div>
                         )}
                         {(aud.unaidedR!=null||aud.unaidedL!=null)&&(

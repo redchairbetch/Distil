@@ -13,7 +13,7 @@
 import React, { useState, useRef } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import { AudigramSVG, getDegreeName } from "./AudiogramSVG.jsx";
-import { getPTA } from "../audiogramAnalysis.js";
+import { getPTA, getPTA4 } from "../audiogramAnalysis.js";
 import { parseMedRxPdf } from "../parsers/medrxParser.js";
 import { parseNHAX } from "../parsers/nhaxParser.js";
 
@@ -156,6 +156,8 @@ export default function AudiogramEntry({ value, onChange, ghost = null, hideUnai
 
   const rPTA = getPTA(value.rightT);
   const lPTA = getPTA(value.leftT);
+  const rPTA4 = getPTA4(value.rightT);
+  const lPTA4 = getPTA4(value.leftT);
   const rDeg = getDegreeName(rPTA);
   const lDeg = getDegreeName(lPTA);
   const gRPTA = getPTA(ghost?.rightT);
@@ -243,7 +245,7 @@ export default function AudiogramEntry({ value, onChange, ghost = null, hideUnai
         <div style={{fontSize:12,color:"#6b7280",marginBottom:14,lineHeight:1.6}}>
           Click directly on the audiogram to plot thresholds. Click an existing symbol to clear it.
           Switch ears, test type (AC/BC), and masking mode using the controls below.
-          PTA calculates automatically from 500, 1000, and 2000 Hz.
+          PTA calculates automatically from 500, 1000, and 2000 Hz; PTA4 adds 4000 Hz.
         </div>
         {/* Ear toggle + Copy button */}
         <div style={{display:"flex",alignItems:"stretch",gap:8,marginBottom:10}}>
@@ -331,6 +333,7 @@ export default function AudiogramEntry({ value, onChange, ghost = null, hideUnai
               <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"8px 14px",fontSize:12}}>
                 <span style={{color:"#dc2626",fontWeight:700}}>Right PTA: {rPTA} dB HL</span>
                 {rDeg&&<span style={{color:"#9ca3af",marginLeft:6}}>({rDeg})</span>}
+                {rPTA4!=null&&<span style={{color:"#9ca3af",marginLeft:6}}>· PTA4 {rPTA4}</span>}
                 {ghostOn&&gRPTA!=null&&<span style={{color:"#9ca3af",marginLeft:6}}>· was {gRPTA} ({gRPTA>rPTA?`−${gRPTA-rPTA}`:gRPTA<rPTA?`+${rPTA-gRPTA}`:"±0"} dB)</span>}
               </div>
             )}
@@ -338,6 +341,7 @@ export default function AudiogramEntry({ value, onChange, ghost = null, hideUnai
               <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"8px 14px",fontSize:12}}>
                 <span style={{color:"#2563eb",fontWeight:700}}>Left PTA: {lPTA} dB HL</span>
                 {lDeg&&<span style={{color:"#9ca3af",marginLeft:6}}>({lDeg})</span>}
+                {lPTA4!=null&&<span style={{color:"#9ca3af",marginLeft:6}}>· PTA4 {lPTA4}</span>}
                 {ghostOn&&gLPTA!=null&&<span style={{color:"#9ca3af",marginLeft:6}}>· was {gLPTA} ({gLPTA>lPTA?`−${gLPTA-lPTA}`:gLPTA<lPTA?`+${lPTA-gLPTA}`:"±0"} dB)</span>}
               </div>
             )}

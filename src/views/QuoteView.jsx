@@ -30,7 +30,7 @@ import { fetchSharedQuote } from '../db.js'
 import { COLOR, FONT, SHADOW, RADIUS } from '../theme.js'
 import {
   CARE_PLAN_META, PLAN_COMPARE, WHY_IT_MATTERS,
-  FREQS, DEGREE_REGIONS, getPTA, getDegreeName,
+  FREQS, FREQ_POS, FREQ_POS_MAX, INTER_OCTAVES, DEGREE_REGIONS, getPTA, getPTA4, getDegreeName,
 } from '../generateQuote.js'
 
 const money = (n) =>
@@ -180,10 +180,10 @@ function Audiogram({ rightT, leftT }) {
   const chartX = 44, chartW = 420, chartY = 16, chartH = 300
   const dbMin = -10, dbMax = 120, dbRange = dbMax - dbMin
   const yOf = (db) => chartY + ((db - dbMin) / dbRange) * chartH
-  const xOf = (i) => chartX + (i / (FREQS.length - 1)) * chartW
+  const xOf = (f) => chartX + (FREQ_POS[f] / FREQ_POS_MAX) * chartW
 
   const seriesPoints = (t) => FREQS
-    .map((f, i) => (t?.[f] != null ? { x: xOf(i), y: yOf(t[f]) } : null))
+    .map(f => (t?.[f] != null ? { x: xOf(f), y: yOf(t[f]) } : null))
     .filter(Boolean)
   const rPts = seriesPoints(rightT)
   const lPts = seriesPoints(leftT)
@@ -203,12 +203,13 @@ function Audiogram({ rightT, leftT }) {
         <line key={`g${db}`} x1={chartX} y1={yOf(db)} x2={chartX + chartW} y2={yOf(db)}
           stroke={COLOR.line} strokeWidth="0.75" />
       ))}
-      {FREQS.map((f, i) => (
-        <line key={`f${f}`} x1={xOf(i)} y1={chartY} x2={xOf(i)} y2={chartY + chartH}
-          stroke={COLOR.line} strokeWidth="0.75" />
+      {FREQS.map(f => (
+        <line key={`f${f}`} x1={xOf(f)} y1={chartY} x2={xOf(f)} y2={chartY + chartH}
+          stroke={COLOR.line} strokeWidth="0.75" strokeDasharray={INTER_OCTAVES.has(f) ? '3 3' : undefined} />
       ))}
-      {FREQS.map((f, i) => (
-        <text key={`ft${f}`} x={xOf(i)} y={chartY + chartH + 16} fontSize="10" fill={COLOR.ink2}
+      {FREQS.map(f => (
+        <text key={`ft${f}`} x={xOf(f)} y={chartY + chartH + 16} fontSize={INTER_OCTAVES.has(f) ? 8 : 10}
+          fill={INTER_OCTAVES.has(f) ? COLOR.ink3 : COLOR.ink2}
           textAnchor="middle" fontFamily={FONT.ui}>{f >= 1000 ? `${f / 1000}k` : f}</text>
       ))}
       {[0, 20, 40, 60, 80, 100, 120].map(db => (
@@ -377,6 +378,8 @@ export default function QuoteView({ token }) {
   const hasAudiogram = !!(aud && ((aud.rightT && Object.keys(aud.rightT).length) || (aud.leftT && Object.keys(aud.leftT).length)))
   const rPTA = hasAudiogram ? getPTA(aud.rightT) : null
   const lPTA = hasAudiogram ? getPTA(aud.leftT) : null
+  const rPTA4 = hasAudiogram ? getPTA4(aud.rightT) : null
+  const lPTA4 = hasAudiogram ? getPTA4(aud.leftT) : null
   const hasSpeech = !!(aud && (aud.unaidedR != null || aud.unaidedL != null || aud.aidedR != null || aud.aidedL != null || aud.sinBin != null))
   const sinLabel = aud?.sinBin == null ? null
     : aud.sinBin <= 2 ? 'Near-normal' : aud.sinBin <= 7 ? 'Mild' : aud.sinBin <= 15 ? 'Moderate' : 'Severe'
@@ -558,8 +561,8 @@ export default function QuoteView({ token }) {
                 </div>
                 {(rPTA != null || lPTA != null) && (
                   <div style={{ fontSize: 13, color: COLOR.ink2, marginTop: 10, lineHeight: 1.6 }}>
-                    {rPTA != null && <div>Right: {rPTA} dB HL — {getDegreeName(rPTA)} hearing loss</div>}
-                    {lPTA != null && <div>Left: {lPTA} dB HL — {getDegreeName(lPTA)} hearing loss</div>}
+                    {rPTA != null && <div>Right: {rPTA} dB HL — {getDegreeName(rPTA)} hearing loss{rPTA4 != null && <span style={{ color: COLOR.ink3 }}> (PTA4: {rPTA4} dB)</span>}</div>}
+                    {lPTA != null && <div>Left: {lPTA} dB HL — {getDegreeName(lPTA)} hearing loss{lPTA4 != null && <span style={{ color: COLOR.ink3 }}> (PTA4: {lPTA4} dB)</span>}</div>}
                   </div>
                 )}
               </div>

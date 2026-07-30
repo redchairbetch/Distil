@@ -36,14 +36,27 @@ export function getDegreeName(pta){
   if(pta<=90)return"Severe"; return"Profound";
 }
 
+// ── FREQUENCY COLUMN POSITIONS ───────────────────────────────────────────────
+// Standard clinical audiogram layout: octaves get evenly spaced full columns,
+// inter-octave frequencies (750/1500/3000/6000) sit midway between neighbors.
+const FREQ_POS = {250:0, 500:1, 750:1.5, 1000:2, 1500:2.5, 2000:3, 3000:3.5, 4000:4, 6000:4.5, 8000:5};
+const FREQ_POS_MAX = 5;
+const INTER_OCTAVES = new Set([750, 1500, 3000, 6000]);
+
 // ── CONTINUOUS FREQUENCY → X MAPPER ──────────────────────────────────────────
-// Maps any Hz value to SVG x using log-interpolation across AUDIG_FREQS
+// Maps any Hz value to SVG x — piecewise log-interpolation between the two
+// surrounding FREQ_POS columns, so arbitrary frequencies (phonemes, banana
+// vertices) stay aligned with the plotted gridlines.
 export function freqToSvgX(hz, ML, PW){
-  const logFreqs=AUDIG_FREQS.map(f=>Math.log2(f));
-  const logHz=Math.log2(hz);
-  const logMin=logFreqs[0], logMax=logFreqs[logFreqs.length-1];
-  const frac=(logHz-logMin)/(logMax-logMin);
-  return ML+frac*PW;
+  const posX=p=>ML+(p/FREQ_POS_MAX)*PW;
+  if(FREQ_POS[hz]!=null)return posX(FREQ_POS[hz]);
+  if(hz<=AUDIG_FREQS[0])return posX(0);
+  const last=AUDIG_FREQS[AUDIG_FREQS.length-1];
+  if(hz>=last)return posX(FREQ_POS_MAX);
+  let lo=AUDIG_FREQS[0], hi=last;
+  for(const f of AUDIG_FREQS){ if(f<=hz)lo=f; if(f>=hz&&f<hi)hi=f; }
+  const frac=(Math.log2(hz)-Math.log2(lo))/(Math.log2(hi)-Math.log2(lo));
+  return posX(FREQ_POS[lo]+frac*(FREQ_POS[hi]-FREQ_POS[lo]));
 }
 
 // ── THRESHOLD INTERPOLATION ──────────────────────────────────────────────────
@@ -111,7 +124,7 @@ export const PHONEMES=[
 export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={},leftMask={},rightBCMask={},leftBCMask={},ghostRightT={},ghostLeftT={},interactive=false,onSet,activeEar="right",activeTestType="AC",maskMode=false,showBanana=false,phonemeDimMode=null,dimIntensity=75}){
   const W=600,H=340,ML=52,MT=42,MR=88,MB=24;
   const PW=W-ML-MR, PH=H-MT-MB;
-  const fx=i=>ML+i*(PW/(AUDIG_FREQS.length-1));
+  const fx=f=>ML+(FREQ_POS[f]/FREQ_POS_MAX)*PW;
   const dy=db=>MT+(db-(-10))/130*PH;
 
   const handleClick=e=>{
@@ -119,25 +132,30 @@ export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={
     const rect=e.currentTarget.getBoundingClientRect();
     const svgX=(e.clientX-rect.left)*(W/rect.width);
     const svgY=(e.clientY-rect.top)*(H/rect.height);
-    const fi=Math.round((svgX-ML)/(PW/(AUDIG_FREQS.length-1)));
-    if(fi<0||fi>=AUDIG_FREQS.length)return;
+    // Snap to the nearest frequency column; ignore clicks outside the plot
+    // (columns are no longer index-even, so nearest-by-x replaces rounding).
+    if(svgX<ML-10||svgX>ML+PW+10)return;
+    let freq=null, best=Infinity;
+    for(const f of AUDIG_FREQS){
+      const d=Math.abs(svgX-fx(f));
+      if(d<best){ best=d; freq=f; }
+    }
     const db=Math.round(((svgY-MT)/PH*130+(-10))/5)*5;
     const clamped=Math.max(-10,Math.min(120,db));
-    const freq=AUDIG_FREQS[fi];
     const curMap=activeTestType==="BC"
       ?(activeEar==="right"?rightBC:leftBC)
       :(activeEar==="right"?rightT:leftT);
     onSet?.(activeEar,freq,curMap[freq]===clamped?null:clamped,activeTestType,maskMode);
   };
 
-  const pts=thr=>AUDIG_FREQS.map((f,i)=>thr[f]!=null?`${fx(i)},${dy(thr[f])}`:null).filter(Boolean);
+  const pts=thr=>AUDIG_FREQS.map(f=>thr[f]!=null?`${fx(f)},${dy(thr[f])}`:null).filter(Boolean);
   const rPts=pts(rightT), lPts=pts(leftT);
   const rBCPts=pts(rightBC), lBCPts=pts(leftBC);
   const ghostRPts=pts(ghostRightT), ghostLPts=pts(ghostLeftT);
 
   // Symbol renderers
-  const acRightSymbol=(f,i)=>{
-    const cx_=fx(i), cy_=dy(rightT[f]), s=interactive&&activeEar==="right"&&activeTestType==="AC"?7:6;
+  const acRightSymbol=f=>{
+    const cx_=fx(f), cy_=dy(rightT[f]), s=interactive&&activeEar==="right"&&activeTestType==="AC"?7:6;
     const masked=rightMask[f];
     if(masked) return(
       <g key={"r"+f}>
@@ -148,8 +166,8 @@ export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={
     return <circle key={"r"+f} cx={cx_} cy={cy_} r={s} fill="white" stroke="#dc2626" strokeWidth="2.5"/>;
   };
 
-  const acLeftSymbol=(f,i)=>{
-    const cx_=fx(i), cy_=dy(leftT[f]), s=interactive&&activeEar==="left"&&activeTestType==="AC"?7:6;
+  const acLeftSymbol=f=>{
+    const cx_=fx(f), cy_=dy(leftT[f]), s=interactive&&activeEar==="left"&&activeTestType==="AC"?7:6;
     const masked=leftMask[f];
     if(masked) return(
       <g key={"l"+f}>
@@ -165,8 +183,8 @@ export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={
     );
   };
 
-  const bcRightSymbol=(f,i)=>{
-    const cx_=fx(i), cy_=dy(rightBC[f]), s=6;
+  const bcRightSymbol=f=>{
+    const cx_=fx(f), cy_=dy(rightBC[f]), s=6;
     const masked=rightBCMask[f];
     if(masked) return(
       <g key={"rb"+f}>
@@ -182,8 +200,8 @@ export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={
     );
   };
 
-  const bcLeftSymbol=(f,i)=>{
-    const cx_=fx(i), cy_=dy(leftBC[f]), s=6;
+  const bcLeftSymbol=f=>{
+    const cx_=fx(f), cy_=dy(leftBC[f]), s=6;
     const masked=leftBCMask[f];
     if(masked) return(
       <g key={"lb"+f}>
@@ -201,12 +219,12 @@ export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={
 
   // Greyscale "previous test" overlay — circles for right, X for left, drawn
   // behind the live plot so the change between tests reads at a glance.
-  const ghostRightSymbol=(f,i)=>(
-    <circle key={"gr"+f} cx={fx(i)} cy={dy(ghostRightT[f])} r="5"
+  const ghostRightSymbol=f=>(
+    <circle key={"gr"+f} cx={fx(f)} cy={dy(ghostRightT[f])} r="5"
       fill="none" stroke="#9ca3af" strokeWidth="1.5" opacity="0.6"/>
   );
-  const ghostLeftSymbol=(f,i)=>{
-    const cx_=fx(i), cy_=dy(ghostLeftT[f]), s=5;
+  const ghostLeftSymbol=f=>{
+    const cx_=fx(f), cy_=dy(ghostLeftT[f]), s=5;
     return(
       <g key={"gl"+f} opacity="0.6">
         <line x1={cx_-s} y1={cy_-s} x2={cx_+s} y2={cy_+s} stroke="#9ca3af" strokeWidth="1.5"/>
@@ -227,15 +245,20 @@ export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={
         <text key={r.label+"t"} x={ML+PW+5} y={dy((r.from+Math.min(r.to,120))/2)+4}
           fontSize="9" fill={r.color} fontWeight="700">{r.label}</text>
       ))}
-      {AUDIG_FREQS.map((f,i)=>(
-        <g key={f}>
-          <line x1={fx(i)} y1={MT} x2={fx(i)} y2={MT+PH} stroke="#e5e7eb" strokeWidth="1"/>
-          <text x={fx(i)} y={MT-12} fontSize="10" fill="#374151" textAnchor="middle" fontWeight="600">
-            {f>=1000?f/1000+"k":f}
-          </text>
-          <text x={fx(i)} y={MT-2} fontSize="8" fill="#9ca3af" textAnchor="middle">Hz</text>
-        </g>
-      ))}
+      {AUDIG_FREQS.map(f=>{
+        const inter=INTER_OCTAVES.has(f);
+        return(
+          <g key={f}>
+            <line x1={fx(f)} y1={MT} x2={fx(f)} y2={MT+PH}
+              stroke={inter?"#f3f4f6":"#e5e7eb"} strokeWidth="1" strokeDasharray={inter?"3 3":undefined}/>
+            <text x={fx(f)} y={MT-12} fontSize={inter?8:10} fill={inter?"#9ca3af":"#374151"}
+              textAnchor="middle" fontWeight="600">
+              {f>=1000?f/1000+"k":f}
+            </text>
+            {!inter&&<text x={fx(f)} y={MT-2} fontSize="8" fill="#9ca3af" textAnchor="middle">Hz</text>}
+          </g>
+        );
+      })}
       {[-10,0,10,20,30,40,50,60,70,80,90,100,110,120].map(db=>(
         <g key={db}>
           <line x1={ML} y1={dy(db)} x2={ML+PW} y2={dy(db)}
@@ -303,8 +326,8 @@ export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={
       {/* Ghost (previous test) overlay — greyscale, behind live data */}
       {ghostRPts.length>1&&<polyline points={ghostRPts.join(" ")} fill="none" stroke="#9ca3af" strokeWidth="1.25" strokeOpacity="0.5" strokeDasharray="3 3"/>}
       {ghostLPts.length>1&&<polyline points={ghostLPts.join(" ")} fill="none" stroke="#9ca3af" strokeWidth="1.25" strokeOpacity="0.5" strokeDasharray="3 3"/>}
-      {AUDIG_FREQS.map((f,i)=>ghostRightT[f]!=null&&ghostRightSymbol(f,i))}
-      {AUDIG_FREQS.map((f,i)=>ghostLeftT[f]!=null&&ghostLeftSymbol(f,i))}
+      {AUDIG_FREQS.map(f=>ghostRightT[f]!=null&&ghostRightSymbol(f))}
+      {AUDIG_FREQS.map(f=>ghostLeftT[f]!=null&&ghostLeftSymbol(f))}
       {/* AC polylines */}
       {rPts.length>1&&<polyline points={rPts.join(" ")} fill="none" stroke="#dc2626" strokeWidth="1.5" strokeOpacity="0.7"/>}
       {lPts.length>1&&<polyline points={lPts.join(" ")} fill="none" stroke="#2563eb" strokeWidth="1.5" strokeOpacity="0.7"/>}
@@ -312,11 +335,11 @@ export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={
       {rBCPts.length>1&&<polyline points={rBCPts.join(" ")} fill="none" stroke="#dc2626" strokeWidth="1.5" strokeOpacity="0.5" strokeDasharray="4 3"/>}
       {lBCPts.length>1&&<polyline points={lBCPts.join(" ")} fill="none" stroke="#2563eb" strokeWidth="1.5" strokeOpacity="0.5" strokeDasharray="4 3"/>}
       {/* AC symbols */}
-      {AUDIG_FREQS.map((f,i)=>rightT[f]!=null&&acRightSymbol(f,i))}
-      {AUDIG_FREQS.map((f,i)=>leftT[f]!=null&&acLeftSymbol(f,i))}
+      {AUDIG_FREQS.map(f=>rightT[f]!=null&&acRightSymbol(f))}
+      {AUDIG_FREQS.map(f=>leftT[f]!=null&&acLeftSymbol(f))}
       {/* BC symbols */}
-      {AUDIG_FREQS.map((f,i)=>rightBC[f]!=null&&bcRightSymbol(f,i))}
-      {AUDIG_FREQS.map((f,i)=>leftBC[f]!=null&&bcLeftSymbol(f,i))}
+      {AUDIG_FREQS.map(f=>rightBC[f]!=null&&bcRightSymbol(f))}
+      {AUDIG_FREQS.map(f=>leftBC[f]!=null&&bcLeftSymbol(f))}
       {/* Legend */}
       <circle cx={ML+4} cy={MT-26} r="4" fill="white" stroke="#dc2626" strokeWidth="2"/>
       <text x={ML+12} y={MT-22} fontSize="9" fill="#dc2626" fontWeight="600">R AC</text>

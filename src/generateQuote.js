@@ -72,7 +72,11 @@ const COV_COLORS = {
 }
 
 // Audiogram constants
-export const FREQS = [250, 500, 1000, 2000, 3000, 4000, 6000, 8000]
+export const FREQS = [250, 500, 750, 1000, 1500, 2000, 3000, 4000, 6000, 8000]
+// Standard clinical chart layout: octaves evenly spaced, inter-octaves midway.
+export const FREQ_POS = { 250: 0, 500: 1, 750: 1.5, 1000: 2, 1500: 2.5, 2000: 3, 3000: 3.5, 4000: 4, 6000: 4.5, 8000: 5 }
+export const FREQ_POS_MAX = 5
+export const INTER_OCTAVES = new Set([750, 1500, 3000, 6000])
 export const DEGREE_REGIONS = [
   { label: 'Normal',     from: -10, to: 20,  fill: [220, 252, 231] },
   { label: 'Mild',       from: 25,  to: 40,  fill: [254, 249, 195] },
@@ -135,7 +139,15 @@ function checkPage(doc, y, needed = 80) {
   return y
 }
 
+// Canonical clinical PTA: 500/1k/2k. Inter-octaves (750/1500) never enter it.
 export function getPTA(t) {
+  const fs = [500, 1000, 2000]
+  const v = fs.map(f => t?.[f]).filter(x => x != null)
+  return v.length ? Math.round(v.reduce((a, b) => a + b) / v.length) : null
+}
+
+// Four-frequency PTA (adds 4k) — shown alongside canonical PTA, labeled PTA4.
+export function getPTA4(t) {
   const fs = [500, 1000, 2000, 4000]
   const v = fs.map(f => t?.[f]).filter(x => x != null)
   return v.length ? Math.round(v.reduce((a, b) => a + b) / v.length) : null
@@ -701,20 +713,21 @@ export function generateQuote({
       doc.line(chartX, gy, chartX + chartW, gy)
     }
 
-    // Frequency columns
-    const freqXPositions = FREQS.map((f, i) => chartX + (i / (FREQS.length - 1)) * chartW)
+    // Frequency columns — octaves evenly spaced, inter-octaves midway
+    const freqXPositions = FREQS.map(f => chartX + (FREQ_POS[f] / FREQ_POS_MAX) * chartW)
     freqXPositions.forEach(fx => {
       doc.line(fx, chartY, fx, chartY + chartH)
     })
 
     // Axis labels
     doc.setFont('helvetica', 'normal')
-    doc.setFontSize(7)
     doc.setTextColor(...GRAY)
     FREQS.forEach((f, i) => {
       const label = f >= 1000 ? `${f / 1000}k` : String(f)
+      doc.setFontSize(INTER_OCTAVES.has(f) ? 5.5 : 7)
       doc.text(label, freqXPositions[i], chartY + chartH + 12, { align: 'center' })
     })
+    doc.setFontSize(7)
     doc.text('Frequency (Hz)', chartX + chartW / 2, chartY + chartH + 24, { align: 'center' })
 
     // dB labels
@@ -797,9 +810,11 @@ export function generateQuote({
 
     y += 18
 
-    // PTA values
+    // PTA values — canonical 3-frequency, with the 4-frequency average labeled
     const rPTA = getPTA(audiology.rightT)
     const lPTA = getPTA(audiology.leftT)
+    const rPTA4 = getPTA4(audiology.rightT)
+    const lPTA4 = getPTA4(audiology.leftT)
     if (rPTA != null || lPTA != null) {
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(9)
@@ -811,12 +826,14 @@ export function generateQuote({
       doc.setTextColor(...BLACK)
       if (rPTA != null) {
         const rDeg = getDegreeName(rPTA)
-        doc.text(`Right: ${rPTA} dB HL — ${rDeg} hearing loss`, MARGIN + 8, y)
+        const rSuffix = rPTA4 != null ? ` (PTA4: ${rPTA4} dB)` : ''
+        doc.text(`Right: ${rPTA} dB HL — ${rDeg} hearing loss${rSuffix}`, MARGIN + 8, y)
         y += 14
       }
       if (lPTA != null) {
         const lDeg = getDegreeName(lPTA)
-        doc.text(`Left: ${lPTA} dB HL — ${lDeg} hearing loss`, MARGIN + 8, y)
+        const lSuffix = lPTA4 != null ? ` (PTA4: ${lPTA4} dB)` : ''
+        doc.text(`Left: ${lPTA} dB HL — ${lDeg} hearing loss${lSuffix}`, MARGIN + 8, y)
         y += 14
       }
       y += 6

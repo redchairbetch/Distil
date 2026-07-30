@@ -16,7 +16,7 @@
 // Severity strings are the canonical allowlist used everywhere downstream
 // (db match_min_severity, personalization profile, content matcher).
 
-export const AUDIG_FREQS = [250, 500, 1000, 2000, 3000, 4000, 6000, 8000];
+export const AUDIG_FREQS = [250, 500, 750, 1000, 1500, 2000, 3000, 4000, 6000, 8000];
 
 export const SEVERITY_ORDER = ['normal', 'mild', 'moderate', 'mod-severe', 'severe', 'profound'];
 
@@ -31,8 +31,19 @@ export function severityAtLeast(a, floor) {
   return severityRank(a) >= severityRank(floor);
 }
 
-// Pure-tone average across speech frequencies.
+// Canonical clinical pure-tone average: 500/1000/2000 Hz (correlates with SRT).
+// Inter-octave frequencies (750/1500) never enter a PTA.
 export function getPTA(thresholds) {
+  if (!thresholds) return null;
+  const freqs = [500, 1000, 2000];
+  const vals = freqs.map(f => thresholds[f]).filter(v => v != null);
+  return vals.length ? Math.round(vals.reduce((a, b) => a + b) / vals.length) : null;
+}
+
+// Four-frequency PTA (500/1000/2000/4000) — includes 4 kHz so sloping
+// high-frequency loss isn't understated. Displayed alongside the canonical
+// PTA, labeled distinctly (never substituted for it).
+export function getPTA4(thresholds) {
   if (!thresholds) return null;
   const freqs = [500, 1000, 2000, 4000];
   const vals = freqs.map(f => thresholds[f]).filter(v => v != null);
