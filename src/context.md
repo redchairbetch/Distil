@@ -44,6 +44,7 @@ Companion patient-facing app.
 - Calendar feature: **deliberately dropped** — clinics have existing scheduling tools; Distil adds a simple `next_appointment_date` field only
 - Patient communications: two-way `patient_messages` (Aided compose ↔ dashboard `CommsInbox` card with unread badge + reply); email-reply ingestion schema-ready, blocked on the Resend sending domain (see Critical Architecture Rules)
 - Interactive take-home quotes (shipped 2026-07-15): generating a quote (wizard or Custom Quote modal) also mints a tokenized share link — `/quote/<token>` renders the quote as an anonymous mobile page (`views/QuoteView.jsx`): devices w/ style silhouettes, patient-cost-first pricing, selected care plan with the 3-plan comparison collapsed behind one tap, spec drill-down accordions, SVG audiogram, education cards, tap-to-call CTA. Deliberately NOT a configurator — drill-down only, no device/tier comparison (Kurt, 2026-07-15: reduce friction). Data: `quote_shares` row (192-bit token, **PHI-minimal jsonb snapshot — patient FIRST NAME only**, expires with the 30-day quote validity, `revoked_at` kill switch) resolved via anon SECURITY DEFINER RPC `get_shared_quote` which also bumps open tracking (`view_count`, first/last viewed — future follow-up-queue signal, not yet surfaced). Snapshot built by `lib/quoteShare.js:buildQuoteSharePayload` (totals frozen at generation so the page always matches the PDF). Provider surfaces: success panel w/ copy-link in `CreateQuoteModal`, bottom toast in the wizard.
+- Audiogram presentation mode (2026-08-04): `AudigramSVG` grew a `presentation` prop (used by the wizard Results step / Consultation Mode render). Presentation-only changes: two patient-facing band boxes over the plot — **"Volume & Vowels" (250 Hz–1 kHz)** and **"Consonants & Clarity" (1–8 kHz)**, big labels, replacing the small italic Awareness/Clarity captions — plus **50% color desaturation** (degree regions, R/L plot colors, legend via an HSL `desat()` helper) and **50%-smaller threshold symbols** (X/O and BC, stroke scaled proportionally). Clinical entry (`AudiogramEntry`) keeps the full-strength clinical look.
 - Patient chart notes (shipped 2026-07-28): timestamped, append-only interaction log on the patient profile (`patient_notes` table, migration `20260728120000`; Notes card between Documents and Communication). Author + timestamp stamped server-side (`staff_id = auth.uid()`, `created_at` default). Org-wide authenticated reads; inserts scoped to the active clinic via `my_clinic_id()` — a note logged while covering another location records the clinic that made the contact, and cross-clinic charts stay note-writable. Deletes allowed for mistakes (active clinic only); edits deliberately impossible so the log stays a trustworthy record. `db.js`: `listPatientNotes` / `addPatientNote` / `deletePatientNote`.
 
 ---
@@ -101,20 +102,23 @@ Companion patient-facing app.
 
 ## Narrative Thread — UX Architecture
 
-The patient education / device selection / care plan flow is structured as five sequential chapters. Each chapter opens with a one-line carry-forward from the previous, keeping the patient's story continuous from intake through close. The intake kiosk pre-loads Chapter 1 before the provider enters the room.
+The patient education / care plan / device selection flow is structured as five sequential chapters. Each chapter opens with a one-line carry-forward from the previous, keeping the patient's story continuous from intake through close. The intake kiosk pre-loads Chapter 1 before the provider enters the room.
+
+**Care plan leads (Kurt, 2026-08-04):** the Investment chapter now comes BEFORE the Recommendation chapter. The provider presents the ongoing care relationship first — how success actually works — so the hearing aids arrive as a foregone conclusion; the devices are what we pick together *after* the patient understands the path to success. Wizard step order: Patient → Health History → Testing → Results → **Care Plan** → Technology Tier → Device Selection → Commitment. The total-investment summary and the Sign PA / Generate Quote fork live at the end of Device Selection (the last stop before Review), since device totals don't exist until then.
 
 | Chapter | Moment | Thread contribution |
 |---|---|---|
 | 1 — Patient story | Intake kiosk | Chief complaint · motivation score · soft commitment status |
 | 2 — Evidence | Post-testing | Diagnosis · WR gap · SNR loss · auto-mapped to stated complaints |
-| 3 — Recommendation | Device selection | Device rec · lifestyle rationale · insurance applied · patient cost only |
-| 4 — Investment | Care plan selection | Selected care plan · total investment · Complete Care+ pre-selected by default |
+| 3 — Investment | Care plan selection | Selected care plan · the ongoing-relationship conversation · Complete Care+ pre-selected by default |
+| 4 — Recommendation | Device selection | Device rec · lifestyle rationale · insurance applied · patient cost only · total investment + PA/quote fork |
 | 5 — Commitment | Close | Treatment plan document · adaptation notes · provider checklist · day-2 call prompt |
 
 **Key design rules:**
 - Patient cost shown first, always. Retail price shown as "full retail value" for anchoring only.
 - Never show retail price without the insurance savings alongside it.
 - Care plan default = Complete Care+ (opt-out, not opt-in).
+- Care plan is presented before tier/devices; private pay still skips the step (Complete Care+ bundled) and enters at Technology Tier.
 - Provider-facing "prompter" sidebar shows talking points, soft commitment status, and close-readiness signal derived from motivation score + WR gap + severity.
 - The complaint carry-forward quote (patient's own words from intake) appears at the top of the pricing reveal.
 

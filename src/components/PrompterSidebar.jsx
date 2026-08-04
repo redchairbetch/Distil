@@ -73,7 +73,23 @@ const PROMPTER_CONTENT = {
         text: "Moderate-severe or worse — be direct. Anchor to what they're missing today, not five years from now." },
     ],
   },
+  // Chapter 3 — Investment (Care Plan). Leads the treatment conversation:
+  // the ongoing care relationship comes first, so the devices that follow
+  // arrive as a foregone conclusion.
   3: {
+    base: [
+      "Lead with the relationship: success comes from ongoing care, and the devices are the tool we pick once that's understood.",
+      "Complete Care+ is the recommendation. Default is opt-out, not opt-in.",
+      "Reframe the price: 'Over five years, that's $X/month for unlimited care.'",
+      "Address the investment question: 'What's it worth to hear your grandkids on the phone?'",
+    ],
+    conditional: [
+      { when: (ctx) => ctx.payType === "private",
+        text: "Private pay — Complete Care+ is bundled. The patient cost they're seeing already includes it." },
+    ],
+  },
+  // Chapter 4 — Recommendation (Technology Tier + Device Selection).
+  4: {
     base: [
       "Lead with what they'll experience, not the technology.",
       "Frame tiers by listening effort, not hobbies: it's not whether they go out, it's how hard their brain works when they do.",
@@ -85,17 +101,6 @@ const PROMPTER_CONTENT = {
         text: "Close-ready — make a clear recommendation. Don't hedge with 'or you could…'." },
       { when: (ctx) => ctx.readiness === "not_yet",
         text: "Not ready — frame options as 'when you're ready' rather than 'today'. Plant seeds." },
-    ],
-  },
-  4: {
-    base: [
-      "Complete Care+ is the recommendation. Default is opt-out, not opt-in.",
-      "Reframe the price: 'Over five years, that's $X/month for unlimited care.'",
-      "Address the investment question: 'What's it worth to hear your grandkids on the phone?'",
-    ],
-    conditional: [
-      { when: (ctx) => ctx.payType === "private",
-        text: "Private pay — Complete Care+ is bundled. The patient cost they're seeing already includes it." },
     ],
   },
   5: {
@@ -112,8 +117,8 @@ const PROMPTER_CONTENT = {
 const CHAPTER_NAMES = {
   1: "Patient story",
   2: "Evidence",
-  3: "Recommendation",
-  4: "Investment",
+  3: "Investment",
+  4: "Recommendation",
   5: "Commitment",
 };
 

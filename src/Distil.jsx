@@ -1511,12 +1511,16 @@ function generateCounseling(aud){
 
 
 // ── WIZARD STEPS ──────────────────────────────────────────────────────────────
-const STEPS = ["Patient","Health History","Testing","Results","Technology Tier","Device Selection","Care Plan","Commitment"];
+// Care Plan leads the treatment conversation: the ongoing care relationship is
+// presented first, so the hearing aids arrive as a foregone conclusion once the
+// patient understands how success works. Devices are chosen after the plan.
+const STEPS = ["Patient","Health History","Testing","Results","Care Plan","Technology Tier","Device Selection","Commitment"];
 
 // Narrative Thread (backlog #8) — each wizard step belongs to one of five
 // chapters. Used to key the provider prompter sidebar to the current chapter.
-const STEP_TO_CHAPTER = [1, 1, 2, 2, 3, 3, 4, 5];
-const CHAPTER_TITLES = ["Patient story", "Evidence", "Recommendation", "Investment", "Commitment"];
+// Investment (care plan) now precedes Recommendation (tier + devices).
+const STEP_TO_CHAPTER = [1, 1, 2, 2, 3, 4, 4, 5];
+const CHAPTER_TITLES = ["Patient story", "Evidence", "Investment", "Recommendation", "Commitment"];
 
 
 // ── ROLE CHECK UTILITY ─────────────────────────────────────────────────────────
@@ -2863,8 +2867,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   };
 
   // Care plan analytics — fire care_plan_viewed once per (patient, step)
-  // when step 6 mounts. Reset trackers when the patient changes so each
-  // session gets fresh view/change events.
+  // when step 4 (Care Plan) mounts. Reset trackers when the patient changes
+  // so each session gets fresh view/change events.
   const carePlanViewedRef = useRef(null);
   const carePlanChangeCountRef = useRef(0);
   useEffect(() => {
@@ -2872,8 +2876,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     carePlanChangeCountRef.current = 0;
   }, [wizardPatientId]);
   useEffect(() => {
-    if (step !== 6 || !wizardPatientId) return;
-    const key = `${wizardPatientId}:6`;
+    if (step !== 4 || !wizardPatientId) return;
+    const key = `${wizardPatientId}:4`;
     if (carePlanViewedRef.current === key) return;
     carePlanViewedRef.current = key;
     logAnalyticsEvent("care_plan_viewed", {
@@ -2883,10 +2887,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     });
   }, [step, wizardPatientId, staffId, clinicId]);
 
-  // .main keeps its scroll offset across step swaps — reset it when Care Plan (6) loads.
+  // .main keeps its scroll offset across step swaps — reset it on every step
+  // change so long steps (Results, Device Selection) never leave the next step
+  // scrolled partway down.
   const mainRef = useRef(null);
   useLayoutEffect(() => {
-    if (step === 6) mainRef.current?.scrollTo(0, 0);
+    mainRef.current?.scrollTo(0, 0);
   }, [step]);
 
   // A private-label plan runs one of two device cascades: the TruHearing card
@@ -3424,16 +3430,17 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     setShowWizardPaModal(false); setWizardPaSigned(false); setWizardPaSignatureDate(null);
     setActiveSide("left"); setSaved(false); setSaveError(null); setSaveToast(false);
     setShowWizardCompare(false);
-    // Load the patient's latest linked intake so step 5's reflection flags and
+    // Load the patient's latest linked intake so step 6's reflection flags and
     // the Then-vs-Now comparison have real data (the step-1 loader won't run —
     // we land past it).
     setWizardIntake(null);
     loadIntakesForPatient(p.id)
       .then(intakes => setWizardIntake(normalizeWizardIntake(intakes[0])))
       .catch(() => {});
-    // Technology Tier only applies to private-label + private-pay flows;
-    // regular insurance renders that step empty, so land on Device Selection.
-    setStep((privLabel || payType === "private") ? 4 : 5);
+    // Care Plan (4) leads the purchase conversation for insurance flows.
+    // Private pay bundles Complete Care+ (no Care Plan step) — land on
+    // Technology Tier (5) instead.
+    setStep(payType === "private" ? 5 : 4);
     setView("new");
   };
 
@@ -4620,7 +4627,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     return l.manufacturer !== r.manufacturer;
   }, [form.left, form.right, catalog]);
 
-  // Auto-recompute form.tierPrice when the patient picks a device on step 5.
+  // Auto-recompute form.tierPrice when the patient picks a device on step 6.
   // Only fires in private-pay mode — insurance copays are fixed by the
   // carrier, manufacturer doesn't change the patient's out-of-pocket. Picks
   // the higher of the two real-aid ears (matched bilateral case: both equal
@@ -4877,11 +4884,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     true, // Health History — review-only, always proceedable
     true, // Testing — always skippable
     true, // Results — always skippable
+    // Care Plan — leads the treatment conversation; required unless private
+    // pay (Complete Care+ is bundled and the step is hidden).
+    form.payType === "private" || !!form.carePlan,
     // Technology Tier — required for plans where it applies (private-label
     // TruHearing or private-pay). Other insurance flows skip the choice.
     (isPrivateLabel || form.payType === "private") ? !!form.tier : true,
     (isSideConfigured("left") || isSideConfigured("right")),
-    form.payType === "private" || !!form.carePlan,
     true, // Review — always valid
   ][step];
 
@@ -4996,7 +5005,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               </div>
             </div>
             <div style={{position:"relative",background:"#fafafa",border:"1px solid #E4E0D5",borderRadius:10,padding:"12px 8px",marginBottom:14}}>
-              <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false} showBanana={true} phonemeDimMode={phonemeDimMode} dimIntensity={dimIntensity}/>
+              <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false} showBanana={true} presentation={true} phonemeDimMode={phonemeDimMode} dimIntensity={dimIntensity}/>
               {drawingEnabled && (
                 <canvas
                   ref={drawCanvasRef}
@@ -5448,7 +5457,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         </>
       );
     }
-    if (step === 4) {
+    if (step === 5) {
       // Technology Tier — patient picks Standard / Advanced / Premium
       // (or whatever subset the plan covers) BEFORE Device Selection.
       // Engine recommendation auto-selects on entry; provider override
@@ -5470,7 +5479,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         />
       );
     }
-    if (step === 5) {
+    if (step === 6) {
 
       // $3,997.50 → "3,997.50", $850 → "850" — whole dollars stay clean.
       const moneyLabel = (p) => p.toLocaleString("en-US",
@@ -6490,121 +6499,113 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               </div>
             );
           })()}
-          {/* Private-pay skips the step-6 Care Plan fork — surface PA + Quote here instead. */}
-          {form.payType === "private" && (isSideConfigured("left") || isSideConfigured("right")) && (
-            <div style={{marginTop:24,display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
-              <div style={{display:"flex",gap:12,width:"100%",justifyContent:"center",flexWrap:"wrap"}}>
-                <button
-                  style={{background:"#0B4A42",color:"white",border:"none",borderRadius:9,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",boxShadow:"0 8px 18px -8px rgba(11,74,66,0.7)"}}
-                  onClick={()=>{ setPaSignatureName(""); setPaStep("review"); setShowWizardPaModal(true); }}
-                >
-                  Sign Purchase Agreement
-                </button>
-                <button
-                  style={{background:"#fff",color:"#54625C",border:"1px solid #E4E0D5",borderRadius:9,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}
-                  onClick={handleGenerateQuote}
-                >
-                  Generate Quote
-                </button>
-                <button
-                  style={{background: form.priceOverridePerAid != null ? "#F4EAD4" : "#fff", color: form.priceOverridePerAid != null ? "#6E4E16" : "#54625C", border:`1px solid ${form.priceOverridePerAid != null ? "#EADFC7" : "#E4E0D5"}`, borderRadius:9, padding:"12px 24px", fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:13, cursor:"pointer"}}
-                  onClick={()=>setShowAdjustModal(true)}
-                >
-                  {form.priceOverridePerAid != null ? "Price Adjusted" : "Adjust Price"}
-                </button>
+          {/* ── Investment summary + close fork ──────────────────────────
+              Care Plan (step 4) now precedes devices, so Device Selection is
+              the last stop before Review: the total investment and the
+              PA/quote fork surface here once a side is configured. */}
+          {(isSideConfigured("left") || isSideConfigured("right")) && (() => {
+            const leftOk  = isSideConfigured("left");
+            const rightOk = isSideConfigured("right");
+            const aidCount = (leftOk ? 1 : 0) + (rightOk ? 1 : 0);
+            // CROS-aware per-aid + pair totals. Falls back to tierPrice * aidCount
+            // when per-ear pricing hasn't resolved. Effective per-aid honors a
+            // confirmed Price Adjustment (§6); CROS sides keep their unit price.
+            const ovr = form.priceOverridePerAid;
+            const effPerAid = ovr ?? form.tierPrice;
+            const leftEarP  = leftOk  ? ((ovr != null && leftEarPrice?.source  !== 'cros') ? ovr : (leftEarPrice?.price  ?? effPerAid)) : null;
+            const rightEarP = rightOk ? ((ovr != null && rightEarPrice?.source !== 'cros') ? ovr : (rightEarPrice?.price ?? effPerAid)) : null;
+            const perEarSum = (leftEarP || 0) + (rightEarP || 0);
+            const aidTotal = perEarSum > 0 ? perEarSum : (effPerAid != null ? effPerAid * aidCount : null);
+            // Standard Billing has no upfront commitment — $65/visit billed as
+            // care is delivered, so grand total = device total only.
+            const cpCostFor = (id) => id === "paygo" ? 0 : id === "punch" ? 575 : 1250;
+            const selectedPlan = CARE_PLANS.find(c => c.id === form.carePlan);
+            const cpCost = form.carePlan ? cpCostFor(form.carePlan) : null;
+            const grandTotal = aidTotal != null && cpCost != null
+              ? aidTotal + cpCost
+              : aidTotal != null ? aidTotal
+              : cpCost != null ? cpCost
+              : null;
+            return (
+              <div className="card" style={{marginTop:24}}>
+                <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:10}}>Total Patient Investment</div>
+                <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
+                  {aidTotal != null && (
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
+                      <span>Hearing aids ({aidCount} aid{aidCount!==1?"s":""}{form.tier ? ` · ${form.tier}` : form.payType === "private" ? " · Private Pay" : ""})</span>
+                      <span style={{fontWeight:600}}>{aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}</span>
+                    </div>
+                  )}
+                  {form.carePlan && (
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
+                      <span>{selectedPlan?.label}</span>
+                      <span style={{fontWeight:600}}>
+                        {form.carePlan==="paygo" ? "$65 per visit" : `$${cpCost.toLocaleString()}`}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div style={{background:"linear-gradient(135deg,#0a1628,#1a3050)",borderRadius:12,padding:"18px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"rgba(255,255,255,0.45)"}}>Total Investment</div>
+                    {aidCount===1 && <div style={{fontSize:10,color:"rgba(255,255,255,0.3)",marginTop:2}}>One ear · configure second to update</div>}
+                    {form.carePlan==="paygo" && (
+                      <div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginTop:2}}>
+                        care plan billed per visit
+                      </div>
+                    )}
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{fontSize:32,fontWeight:800,color:"#1B8A7A",lineHeight:1}}>
+                      {grandTotal===0?"No Charge":`$${grandTotal.toLocaleString()}`}
+                    </div>
+                  </div>
+                </div>
+                <div style={{marginTop:20,display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
+                  <div style={{display:"flex",gap:12,width:"100%",justifyContent:"center",flexWrap:"wrap"}}>
+                    <button
+                      style={{background:"#0B4A42",color:"white",border:"none",borderRadius:9,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",boxShadow:"0 8px 18px -8px rgba(11,74,66,0.7)"}}
+                      onClick={()=>{ setPaSignatureName(""); setPaStep("review"); setShowWizardPaModal(true); }}
+                    >
+                      Sign Purchase Agreement
+                    </button>
+                    <button
+                      style={{background:"#fff",color:"#54625C",border:"1px solid #E4E0D5",borderRadius:9,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}
+                      onClick={handleGenerateQuote}
+                    >
+                      Generate Quote
+                    </button>
+                    <button
+                      style={{background: form.priceOverridePerAid != null ? "#F4EAD4" : "#fff", color: form.priceOverridePerAid != null ? "#6E4E16" : "#54625C", border:`1px solid ${form.priceOverridePerAid != null ? "#EADFC7" : "#E4E0D5"}`, borderRadius:9, padding:"12px 24px", fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:13, cursor:"pointer"}}
+                      onClick={()=>setShowAdjustModal(true)}
+                    >
+                      {form.priceOverridePerAid != null ? "Price Adjusted" : "Adjust Price"}
+                    </button>
+                  </div>
+                  {form.tpa === "TruHearing" && (
+                    <a
+                      href="https://echo.truhearing.com/#/auth/login"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{display:"flex",alignItems:"center",gap:8,background:"#7c3aed",color:"white",border:"none",borderRadius:8,padding:"10px 22px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",textDecoration:"none"}}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                      TruHearing Provider Login
+                    </a>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
         </>
       );
     }
-    if (step === 6) {
-      const leftOk  = isSideConfigured("left");
-      const rightOk = isSideConfigured("right");
-      const aidCount = (leftOk ? 1 : 0) + (rightOk ? 1 : 0);
-      // CROS-aware per-aid + pair totals. Falls back to tierPrice * aidCount
-      // when per-ear pricing hasn't resolved (rare — happens when device
-      // info isn't enough to pick an anchor row).
-      // Effective per-aid honors a confirmed Price Adjustment (§6); CROS sides keep their unit price.
-      const ovr = form.priceOverridePerAid;
-      const effPerAid = ovr ?? form.tierPrice;
-      const leftEarP  = leftOk  ? ((ovr != null && leftEarPrice?.source  !== 'cros') ? ovr : (leftEarPrice?.price  ?? effPerAid)) : null;
-      const rightEarP = rightOk ? ((ovr != null && rightEarPrice?.source !== 'cros') ? ovr : (rightEarPrice?.price ?? effPerAid)) : null;
-      const perEarSum = (leftEarP || 0) + (rightEarP || 0);
-      const aidBase = perEarSum > 0
-        ? perEarSum
-        : (effPerAid != null ? effPerAid * aidCount : null);
-      const aidTotal = aidBase;
-      const perAidFor = (side) => side === 'left' ? leftEarP : side === 'right' ? rightEarP : effPerAid;
-      const isTruHearing = form.tpa === "TruHearing";
-      const isTruHearingTPA = isTruHearing;
-
-      // Standard Billing has no upfront commitment — $65/visit billed as
-      // care is delivered, so grand total = device total only.
-      const cpCostFor = (id) =>
-        id === "paygo"    ? 0
-        : id === "punch"  ? 575
-        : 1250;
-
-      const DeviceSummary = () => {
-        if (!leftOk && !rightOk) return null;
-        const renderSide = (side, label) => {
-          const d = form[side];
-          if (!isSideConfigured(side)) return null;
-          const fam = catalog.find(e => e.id === d.familyId);
-          const name = d.manufacturer === "TruHearing"
-            ? `TruHearing Select · ${d.techLevel}`
-            : `${fam?.family || ""} · ${d.techLevel}`;
-          const sidePrice = perAidFor(side);
-          return (
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #F0EDE3"}}>
-              <div>
-                <div style={{fontSize:13,fontWeight:600,color:"#0a1628"}}>{label}</div>
-                <div style={{fontSize:11,color:"#6b7280",marginTop:1}}>{name}</div>
-              </div>
-              {sidePrice != null && (
-                <div style={{textAlign:"right"}}>
-                  <div style={{fontSize:15,fontWeight:700,color:"#0a1628"}}>
-                    {sidePrice===0?"No Charge":`$${sidePrice.toLocaleString()}`}
-                  </div>
-                  <div style={{fontSize:10,color:"#9ca3af"}}>per aid</div>
-                </div>
-              )}
-            </div>
-          );
-        };
-        return (
-          <div style={{background:"#FBF9F3",border:"1px solid #E4E0D5",borderRadius:10,padding:"14px 16px",marginBottom:20}}>
-            <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:8}}>Selected Devices</div>
-            {renderSide("left","👂 Left Ear")}
-            {renderSide("right","Right Ear 👂")}
-            {aidBase != null && (
-              <>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12,paddingTop:10,borderTop:"2px solid #E4E0D5"}}>
-                  <div>
-                    <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>Device Total</div>
-                    <div style={{fontSize:11,color:"#6b7280"}}>{aidCount} aid{aidCount!==1?"s":""}{form.tier ? ` · ${form.tier} tier` : form.payType === "private" ? " · Private Pay" : ""}</div>
-                  </div>
-                  <div style={{background:"#0a1628",color:"white",borderRadius:8,padding:"8px 16px",textAlign:"right"}}>
-                    <div style={{fontSize:20,fontWeight:800,lineHeight:1}}>
-                      {aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}
-                    </div>
-                    {aidCount===1 && <div style={{fontSize:10,opacity:0.6,marginTop:2}}>one ear · add second to update</div>}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        );
-      };
-
-      const selectedPlan = CARE_PLANS.find(c => c.id === form.carePlan);
-      const cpCost = form.carePlan ? cpCostFor(form.carePlan) : null;
-      const grandTotal = aidTotal != null && cpCost != null
-        ? aidTotal + cpCost
-        : aidTotal != null ? aidTotal
-        : cpCost != null ? cpCost
-        : null;
+    if (step === 4) {
+      // Care Plan leads the treatment conversation (before tier or devices):
+      // the patient commits to how success works — the ongoing care
+      // relationship — and the hearing aids follow as a foregone conclusion.
+      // Device totals and the PA/quote fork live at the end of Device
+      // Selection (step 6), once devices actually exist.
 
       // Three peer options. Internal ids ('paygo' | 'punch' | 'complete')
       // are preserved for downstream code; only the patient-facing labels
@@ -6664,22 +6665,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         upd("carePlan", newId);
       };
 
-      const fireCarePlanSelected = () => {
-        if (!form.carePlan) return;
-        logAnalyticsEvent("care_plan_selected", {
-          patient_id: wizardPatientId,
-          provider_id: staffId,
-          clinic_id: clinicId,
-          selection: form.carePlan,
-          change_count: carePlanChangeCountRef.current,
-        });
-      };
-
       return (
         <>
-          {/* Device summary */}
-          <DeviceSummary />
-
           {/* Care journey visualization */}
           <CareJourney />
 
@@ -6688,7 +6675,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             {form.payType !== "private" && (<>
             <div style={{marginBottom:20,fontFamily:"'DM Sans',sans-serif"}}>
               <h2 style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:24,fontWeight:700,color:"#111827",margin:0,letterSpacing:"-0.02em"}}>Choose your care plan</h2>
-              <p style={{color:"#6b7280",fontSize:13,margin:"6px 0 0",lineHeight:1.5}}>Three options. Pick the one that fits how you want to receive ongoing care.</p>
+              <p style={{color:"#6b7280",fontSize:13,margin:"6px 0 0",lineHeight:1.5}}>Success with hearing aids comes from ongoing care. Pick the option that fits how you want to receive it — then we'll choose your technology together.</p>
             </div>
 
             <div style={{display:"flex",gap:14,flexWrap:"wrap",alignItems:"stretch"}}>
@@ -6755,96 +6742,6 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               })}
             </div>
             </>)}
-
-            {/* Total investment */}
-            {(aidTotal != null || form.carePlan) && (
-              <div style={{marginTop:20,borderTop:"2px solid #E4E0D5",paddingTop:16}}>
-                <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af",marginBottom:10}}>Total Patient Investment</div>
-                <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:14}}>
-                  {aidTotal != null && (
-                    <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
-                      <span>Hearing aids ({aidCount} aid{aidCount!==1?"s":""}{form.tier ? ` · ${form.tier}` : form.payType === "private" ? " · Private Pay" : ""})</span>
-                      <span style={{fontWeight:600}}>{aidTotal===0?"No Charge":`$${aidTotal.toLocaleString()}`}</span>
-                    </div>
-                  )}
-                  {form.carePlan && (
-                    <div style={{display:"flex",justifyContent:"space-between",fontSize:13,color:"#374151"}}>
-                      <span>{selectedPlan?.label}</span>
-                      <span style={{fontWeight:600}}>
-                        {form.carePlan==="paygo"
-                          ? "$65 per visit"
-                          : `$${cpCost.toLocaleString()}`}
-                      </span>
-                    </div>
-                  )}
-                </div>
-                <div style={{background:"linear-gradient(135deg,#0a1628,#1a3050)",borderRadius:12,padding:"18px 20px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                  <div>
-                    <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"rgba(255,255,255,0.45)"}}>Total Investment</div>
-                    {aidCount===1 && <div style={{fontSize:10,color:"rgba(255,255,255,0.3)",marginTop:2}}>One ear · configure second to update</div>}
-                    {form.carePlan==="paygo" && (
-                      <div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginTop:2}}>
-                        care plan billed per visit
-                      </div>
-                    )}
-                  </div>
-                  <div style={{textAlign:"right"}}>
-                    <div style={{fontSize:32,fontWeight:800,color:"#1B8A7A",lineHeight:1}}>
-                      {grandTotal===0?"No Charge":`$${grandTotal.toLocaleString()}`}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── Fork: Sign PA / Generate Quote / Continue ────────── */}
-            <div style={{marginTop:24,display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
-              <div style={{display:"flex",gap:12,width:"100%",justifyContent:"center",flexWrap:"wrap"}}>
-                <button
-                  disabled={!(form.payType === "private" || !!form.carePlan)}
-                  style={{background:"#15803d",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",opacity:(form.payType === "private" || !!form.carePlan)?1:0.4,display:"flex",alignItems:"center",gap:8}}
-                  onClick={()=>{ fireCarePlanSelected(); setPaSignatureName(""); setPaStep("review"); setShowWizardPaModal(true); }}
-                >
-                  <span style={{fontSize:16}}>📝</span> Sign Purchase Agreement
-                </button>
-                <button
-                  disabled={!(form.payType === "private" || !!form.carePlan)}
-                  style={{background:"#1e40af",color:"white",border:"none",borderRadius:8,padding:"12px 24px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",opacity:(form.payType === "private" || !!form.carePlan)?1:0.4,display:"flex",alignItems:"center",gap:8}}
-                  onClick={()=>{ fireCarePlanSelected(); handleGenerateQuote(); }}
-                >
-                  <span style={{fontSize:16}}>📄</span> Generate Quote
-                </button>
-                <button
-                  disabled={!(form.payType === "private" || !!form.carePlan)}
-                  style={{background: form.priceOverridePerAid != null ? "#f0fdf4" : "#fff", color: form.priceOverridePerAid != null ? "#15803d" : "#374151", border:`1px solid ${form.priceOverridePerAid != null ? "#bbf7d0" : "#d1d5db"}`, borderRadius:8, padding:"12px 24px", fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:13, cursor:"pointer", opacity:(form.payType === "private" || !!form.carePlan)?1:0.4, display:"flex", alignItems:"center", gap:8}}
-                  onClick={()=>setShowAdjustModal(true)}
-                >
-                  <span style={{fontSize:16}}>🏷️</span> {form.priceOverridePerAid != null ? "Price Adjusted" : "Adjust Price"}
-                </button>
-              </div>
-              {isTruHearingTPA && (
-                <a
-                  href="https://echo.truhearing.com/#/auth/login"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{display:"flex",alignItems:"center",gap:8,background:"#7c3aed",color:"white",border:"none",borderRadius:8,padding:"10px 22px",fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",textDecoration:"none"}}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                  TruHearing Provider Login
-                </a>
-              )}
-              <button
-                disabled={!(form.payType === "private" || !!form.carePlan)}
-                style={{background:"none",border:"none",color:"#9ca3af",fontFamily:"'Sora',sans-serif",fontSize:12,cursor:"pointer",padding:"4px 12px",opacity:(form.payType === "private" || !!form.carePlan)?1:0.4}}
-                onClick={async()=>{
-                  fireCarePlanSelected();
-                  if (wizardPatientId && form.carePlan) { try { await updatePatientCarePlan(wizardPatientId, form.carePlan); setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000); } catch(e) { console.error("care plan save:", e); } }
-                  setStep(7);
-                }}
-              >
-                Continue to review →
-              </button>
-            </div>
           </div>
         </>
       );
@@ -10333,22 +10230,25 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           )}
           {view === "new" && (() => {
             // Private-pay bundles Complete Care+ — no separate Care Plan step.
-            // We hide step index 6 from the stepper and skip it in nav. The
+            // We hide step index 4 from the stepper and skip it in nav. The
             // underlying STEPS indexes are unchanged; everything else still
-            // references step === 6 etc. by absolute index.
+            // references step === 4 etc. by absolute index.
             const skipCarePlan = form.payType === "private";
             const visibleSteps = skipCarePlan
-              ? STEPS.map((s, i) => ({ s, i })).filter(({ i }) => i !== 6)
+              ? STEPS.map((s, i) => ({ s, i })).filter(({ i }) => i !== 4)
               : STEPS.map((s, i) => ({ s, i }));
             const visiblePos = visibleSteps.findIndex(({ i }) => i === step);
+            // Upgrade purchases start mid-flow on an established patient: Care
+            // Plan (4) for insurance, Technology Tier (5) for private pay (Care
+            // Plan is bundled/hidden). Steps at or before that entry point
+            // aren't valid targets — bail to the profile instead.
+            const upgradeEntry = skipCarePlan ? 5 : 4;
             // Click a completed step in the header to jump back to it (forward
-            // navigation stays gated by Next / canProceed). Upgrade purchases
-            // start mid-flow on an established patient, so the earlier new-patient
-            // steps (≤4) aren't jump targets — mirror the Back button and bail to
-            // the profile rather than entering them.
+            // navigation stays gated by Next / canProceed). Mirror the Back
+            // button for upgrade mode.
             const jumpToStep = (target) => {
               if (target >= step) return;
-              if (wizardMode === "upgrade" && target <= 4) { setView("patient"); return; }
+              if (wizardMode === "upgrade" && target <= upgradeEntry) { setView("patient"); return; }
               setStep(target);
             };
             return (
@@ -10364,7 +10264,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 <div className="wizard-wrap">
                   <div className="wizard-steps">
                     {visibleSteps.map(({ s, i }, pos)=>{
-                      const clickable = pos < visiblePos && !(wizardMode === "upgrade" && i <= 4);
+                      const clickable = pos < visiblePos && !(wizardMode === "upgrade" && i <= upgradeEntry);
                       return (
                       <div key={s} className={`wizard-step ${pos<visiblePos?"done":""}`}
                         onClick={clickable ? () => jumpToStep(i) : undefined}
@@ -10411,16 +10311,15 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       // would NOT persist to the saved coverage. Back exits
                       // to the profile instead of walking into that trap;
                       // coverage edits belong in the profile's Coverage card.
-                      if (wizardMode === "upgrade" && step <= 4) { setView("patient"); return; }
-                      // Private-pay skips Care Plan (step 6) — going Back from
-                      // Review (step 7) lands on Device Selection (step 5).
-                      if (skipCarePlan && step === 7) { setStep(5); return; }
+                      if (wizardMode === "upgrade" && step <= upgradeEntry) { setView("patient"); return; }
+                      // Private-pay skips Care Plan (step 4) — going Back from
+                      // Technology Tier (step 5) lands on Results (step 3).
+                      if (skipCarePlan && step === 5) { setStep(3); return; }
                       setStep(s=>s-1);
                     }}>
-                      {step===0?"Cancel":(wizardMode==="upgrade" && step<=4 ? "← Back to Profile" : "← Back")}
+                      {step===0?"Cancel":(wizardMode==="upgrade" && step<=upgradeEntry ? "← Back to Profile" : "← Back")}
                     </button>
                     {step < STEPS.length-1 ? (
-                      step === 6 ? null : (
                         <button className="btn-primary" disabled={!canProceed} style={{opacity:canProceed?1:0.4}} onClick={async()=>{
                           // Step 0 persists the patient profile before advancing
                           // so an abandoned wizard never loses the patient — a
@@ -10449,7 +10348,17 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                               if (step === 2 && wizardPatientId) {
                                 await updatePatientAudiology(wizardPatientId, form.audiology, staffId, wizardVisitId);
                                 setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
-                              } else if (step === 5 && wizardPatientId) {
+                              } else if (step === 4 && wizardPatientId && form.carePlan) {
+                                logAnalyticsEvent("care_plan_selected", {
+                                  patient_id: wizardPatientId,
+                                  provider_id: staffId,
+                                  clinic_id: clinicId,
+                                  selection: form.carePlan,
+                                  change_count: carePlanChangeCountRef.current,
+                                });
+                                await updatePatientCarePlan(wizardPatientId, form.carePlan);
+                                setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
+                              } else if (step === 6 && wizardPatientId) {
                                 const leftRec = buildSideRecord(form.left);
                                 const rightRec = buildSideRecord(form.right);
                                 const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
@@ -10459,13 +10368,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                               }
                             } catch(e) { console.error("incremental save:", e); }
                           }
-                          // Private-pay skips Care Plan — Continue from Device
-                          // Selection (step 5) jumps straight to Review (step 7).
-                          setStep(s => (skipCarePlan && s === 5) ? 7 : s + 1);
+                          // Private-pay skips Care Plan — Continue from Results
+                          // (step 3) jumps straight to Technology Tier (step 5).
+                          setStep(s => (skipCarePlan && s === 3) ? 5 : s + 1);
                         }}>
                           Continue →
                         </button>
-                      )
                     ) : (
                       <button className="btn-primary green" onClick={()=>setCloseAppointment({ source: "wizard" })}>
                         ✓ Close Appointment
