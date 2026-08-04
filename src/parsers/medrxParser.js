@@ -25,6 +25,11 @@ const FREQ_MAP = {
 // Only keep frequencies Distil tracks
 const DISTIL_FREQS = new Set([250, 500, 750, 1000, 1500, 2000, 3000, 4000, 6000, 8000]);
 
+// Bone conduction is only measured 500–4000 Hz, so BC values align to this
+// window rather than the full AC frequency header.
+const BC_MIN_FREQ = 500;
+const BC_MAX_FREQ = 4000;
+
 /**
  * Parse a frequency header line like "Right 125 250 500 750 1k 1.5k 2k 3k 4k 6k 8k"
  * Returns array of mapped frequency numbers in order.
@@ -63,6 +68,29 @@ function buildThresholdMap(freqs, values) {
     if (fi < freqs.length && freqs[fi] != null && values[i] != null && DISTIL_FREQS.has(freqs[fi])) {
       map[freqs[fi]] = values[i];
     }
+  }
+  return map;
+}
+
+/**
+ * Build a frequency→threshold map for a BC row. BC is missing columns at BOTH
+ * ends of the AC header (125/250 below, 6k/8k above), so right-aligning like
+ * AC shifts every value up in frequency. Instead, align values left-anchored
+ * at 500 Hz within the 500–4000 Hz BC window.
+ */
+function buildBcThresholdMap(freqs, values, warnings) {
+  const window = freqs.filter(f => f != null && f >= BC_MIN_FREQ && f <= BC_MAX_FREQ);
+  const map = {};
+  for (let i = 0; i < values.length && i < window.length; i++) {
+    if (values[i] != null && DISTIL_FREQS.has(window[i])) {
+      map[window[i]] = values[i];
+    }
+  }
+  if (values.length !== window.length && values.length > 0) {
+    const msg =
+      `BC row had ${values.length} values for ${window.length} frequencies (500–4000 Hz). ` +
+      'Values were aligned starting at 500 Hz — verify BC thresholds against the original report.';
+    if (!warnings.includes(msg)) warnings.push(msg);
   }
   return map;
 }
@@ -188,7 +216,7 @@ export function parseMedRxPdf(text) {
         Object.assign(tMap, buildThresholdMap(freqs, values));
       } else if (/^BC\b/i.test(nextLine)) {
         const values = parseThresholdRow(nextLine);
-        Object.assign(bcMap, buildThresholdMap(freqs, values));
+        Object.assign(bcMap, buildBcThresholdMap(freqs, values, warnings));
       }
     }
   }
