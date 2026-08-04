@@ -168,7 +168,9 @@ export const PHONEMES=[
 ];
 
 export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={},leftMask={},rightBCMask={},leftBCMask={},ghostRightT={},ghostLeftT={},interactive=false,onSet,activeEar="right",activeTestType="AC",maskMode=false,showBanana=false,phonemeDimMode=null,dimIntensity=75,presentation=false}){
-  const W=600,H=340,ML=52,MT=42,MR=88,MB=24;
+  // H=395 (was 340) stretches the plot area ~20% vertically — deliberate
+  // exaggeration so threshold drops read steeper during counseling.
+  const W=600,H=395,ML=52,MT=42,MR=88,MB=24;
   const PW=W-ML-MR, PH=H-MT-MB;
   const fx=f=>ML+(FREQ_POS[f]/FREQ_POS_MAX)*PW;
   const dy=db=>MT+(db-(-10))/130*PH;
