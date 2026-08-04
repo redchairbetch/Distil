@@ -5283,7 +5283,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                           upd("directPurchase",false); // re-confirm per plan
                         }}>
                         <div className="plan-row-name">{plan.planGroup}</div>
-                        <div className="plan-row-tpa">{plan.carrier} · via {plan.tpa}</div>
+                        <div className="plan-row-tpa">{plan.carrier}{plan.tpa ? ` · via ${plan.tpa}` : " · direct"}</div>
                       </div>
                     ))
                   }
@@ -5291,7 +5291,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 {form.planGroup && (
                   <div style={{marginTop:12,paddingTop:12,borderTop:"1px solid #E4E0D5",display:"flex",alignItems:"center",gap:10}}>
                     <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>TPA</span>
-                    <span style={{fontSize:13,fontWeight:600,color:"#374151",background:"#F0EDE3",borderRadius:6,padding:"3px 10px"}}>{form.tpa}</span>
+                    <span style={{fontSize:13,fontWeight:600,color:"#374151",background:"#F0EDE3",borderRadius:6,padding:"3px 10px"}}>{form.tpa || "None — direct"}</span>
                     <button style={{marginLeft:"auto",fontSize:11,color:"#9ca3af",background:"none",border:"none",cursor:"pointer",padding:0}}
                       onClick={()=>{upd("planGroup","");upd("carrier","");upd("tpa","");upd("tier","");upd("tierPrice",null);upd("directPurchase",false);}}>
                       ✕ Clear
@@ -7763,14 +7763,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                             className={`plan-row ${editDraft.planGroup===plan.planGroup&&editDraft.carrier===plan.carrier?"active":""}`}
                             onClick={()=>setEditDraft(d=>({...d,carrier:plan.carrier,planGroup:plan.planGroup,tpa:plan.tpa||"",tier:"",tierPrice:null}))}>
                             <div className="plan-row-name">{plan.planGroup}</div>
-                            <div className="plan-row-tpa">{plan.carrier} · via {plan.tpa}</div>
+                            <div className="plan-row-tpa">{plan.carrier}{plan.tpa ? ` · via ${plan.tpa}` : " · direct"}</div>
                           </div>
                         ))}
                     </div>
                     {editDraft.planGroup && (
                       <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid #E4E0D5",display:"flex",alignItems:"center",gap:8}}>
                         <span style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>TPA</span>
-                        <span style={{fontSize:13,fontWeight:600,color:"#374151",background:"#F0EDE3",borderRadius:6,padding:"3px 10px"}}>{editDraft.tpa}</span>
+                        <span style={{fontSize:13,fontWeight:600,color:"#374151",background:"#F0EDE3",borderRadius:6,padding:"3px 10px"}}>{editDraft.tpa || "None — direct"}</span>
                         <button style={{marginLeft:"auto",fontSize:11,color:"#9ca3af",background:"none",border:"none",cursor:"pointer",padding:0}}
                           onClick={()=>setEditDraft(d=>({...d,carrier:"",planGroup:"",tpa:"",tier:"",tierPrice:null}))}>✕ Clear</button>
                       </div>

@@ -3765,8 +3765,11 @@ export async function resolveInsurancePlanId(carrier, planGroup, tierLabel) {
 // label-index order is only used for non-Nations plans; Nations-tpa plans sort
 // their tiers by copay instead (see loadInsurancePlansGrouped), which puts both
 // Nations ladders in true rung order for the editor and the patient-facing
-// price bands.
-export const PLAN_TIER_LABELS = ['Standard', 'Advanced', 'Premium', 'Gold', 'Platinum', 'Select', 'Superior Plus', 'Advanced Plus', 'Specialty', 'Entry', 'Basic', 'Prime', 'Preferred']
+// price bands. 'Allowance' is the placeholder row label for allowance-style
+// plans with no copay tiers (BCBS FEP: $2,500 toward any purchase / 3 yrs) —
+// it must stay outside {Standard, Advanced, Premium} so isPrivateLabelPlan
+// never routes those plans into the TruHearing card flow.
+export const PLAN_TIER_LABELS = ['Standard', 'Advanced', 'Premium', 'Gold', 'Platinum', 'Select', 'Superior Plus', 'Advanced Plus', 'Specialty', 'Entry', 'Basic', 'Prime', 'Preferred', 'Allowance']
 const tierOrder = (label) => {
   const i = PLAN_TIER_LABELS.indexOf(label)
   return i === -1 ? PLAN_TIER_LABELS.length : i
