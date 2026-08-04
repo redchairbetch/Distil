@@ -29,6 +29,52 @@ const DEGREE_REGIONS = [
   {label:"Profound",     from:90,  to:120, fill:"rgba(239,68,68,0.18)",   color:"#7f1d1d"},
 ];
 
+// ── PRESENTATION-MODE DESATURATION ───────────────────────────────────────────
+// Patient-facing presentation halves the saturation of every clinical color so
+// the chart reads calmer and the counseling overlays (speech banana, band
+// boxes) carry the story. Clinical entry keeps full-strength colors.
+// Accepts "#rrggbb", "rgb(...)" or "rgba(...)"; alpha is preserved.
+function desat(color, amount=0.5){
+  let r,g,b,a=null;
+  if(color.startsWith("#")){
+    r=parseInt(color.slice(1,3),16); g=parseInt(color.slice(3,5),16); b=parseInt(color.slice(5,7),16);
+  }else{
+    const m=color.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)/);
+    if(!m)return color;
+    r=Number(m[1]); g=Number(m[2]); b=Number(m[3]); a=m[4]!=null?Number(m[4]):null;
+  }
+  const rn=r/255,gn=g/255,bn=b/255;
+  const max=Math.max(rn,gn,bn),min=Math.min(rn,gn,bn);
+  const l=(max+min)/2;
+  let h=0,s=0;
+  if(max!==min){
+    const d=max-min;
+    s=d/(1-Math.abs(2*l-1));
+    if(max===rn)h=60*(((gn-bn)/d+6)%6);
+    else if(max===gn)h=60*((bn-rn)/d+2);
+    else h=60*((rn-gn)/d+4);
+  }
+  s*=amount;
+  const c=(1-Math.abs(2*l-1))*s;
+  const x=c*(1-Math.abs((h/60)%2-1));
+  const m0=l-c/2;
+  const [r1,g1,b1]=h<60?[c,x,0]:h<120?[x,c,0]:h<180?[0,c,x]:h<240?[0,x,c]:h<300?[x,0,c]:[c,0,x];
+  const R=Math.round((r1+m0)*255),G=Math.round((g1+m0)*255),B=Math.round((b1+m0)*255);
+  return a==null?`rgb(${R},${G},${B})`:`rgba(${R},${G},${B},${a})`;
+}
+
+const DEGREE_REGIONS_SOFT = DEGREE_REGIONS.map(r=>({...r, fill:desat(r.fill), color:desat(r.color)}));
+const RED_AC="#dc2626", BLUE_AC="#2563eb";
+const RED_SOFT=desat(RED_AC), BLUE_SOFT=desat(BLUE_AC);
+
+// ── FREQUENCY BAND BOXES (presentation mode) ─────────────────────────────────
+// Two patient-facing bands drawn over the plot: low frequencies carry loudness
+// and vowel energy; highs carry the consonants that make speech distinct.
+const BAND_BOXES=[
+  {from:250, to:1000, label:"Volume & Vowels",      stroke:desat("#4f46e5"), fill:desat("#4f46e5"), text:desat("#4338ca")},
+  {from:1000, to:8000, label:"Consonants & Clarity", stroke:desat("#d97706"), fill:desat("#d97706"), text:desat("#b45309")},
+];
+
 export function getDegreeName(pta){
   if(pta==null)return null;
   if(pta<=20)return"Normal"; if(pta<=40)return"Mild";
@@ -121,11 +167,17 @@ export const PHONEMES=[
   {label:'th',freq:5500,db:15, displayFreq:5500,displayDb:15},
 ];
 
-export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={},leftMask={},rightBCMask={},leftBCMask={},ghostRightT={},ghostLeftT={},interactive=false,onSet,activeEar="right",activeTestType="AC",maskMode=false,showBanana=false,phonemeDimMode=null,dimIntensity=75}){
+export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={},leftMask={},rightBCMask={},leftBCMask={},ghostRightT={},ghostLeftT={},interactive=false,onSet,activeEar="right",activeTestType="AC",maskMode=false,showBanana=false,phonemeDimMode=null,dimIntensity=75,presentation=false}){
   const W=600,H=340,ML=52,MT=42,MR=88,MB=24;
   const PW=W-ML-MR, PH=H-MT-MB;
   const fx=f=>ML+(FREQ_POS[f]/FREQ_POS_MAX)*PW;
   const dy=db=>MT+(db-(-10))/130*PH;
+  // Presentation mode: 50%-desaturated palette, half-size threshold symbols.
+  const regions=presentation?DEGREE_REGIONS_SOFT:DEGREE_REGIONS;
+  const redC=presentation?RED_SOFT:RED_AC;
+  const blueC=presentation?BLUE_SOFT:BLUE_AC;
+  const symK=presentation?0.5:1;
+  const symSW=2.5*symK;
 
   const handleClick=e=>{
     if(!interactive)return;
@@ -155,64 +207,64 @@ export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={
 
   // Symbol renderers
   const acRightSymbol=f=>{
-    const cx_=fx(f), cy_=dy(rightT[f]), s=interactive&&activeEar==="right"&&activeTestType==="AC"?7:6;
+    const cx_=fx(f), cy_=dy(rightT[f]), s=(interactive&&activeEar==="right"&&activeTestType==="AC"?7:6)*symK;
     const masked=rightMask[f];
     if(masked) return(
       <g key={"r"+f}>
         <polygon points={`${cx_},${cy_-s} ${cx_+s},${cy_+s} ${cx_-s},${cy_+s}`}
-          fill="white" stroke="#dc2626" strokeWidth="2.5"/>
+          fill="white" stroke={redC} strokeWidth={symSW}/>
       </g>
     );
-    return <circle key={"r"+f} cx={cx_} cy={cy_} r={s} fill="white" stroke="#dc2626" strokeWidth="2.5"/>;
+    return <circle key={"r"+f} cx={cx_} cy={cy_} r={s} fill="white" stroke={redC} strokeWidth={symSW}/>;
   };
 
   const acLeftSymbol=f=>{
-    const cx_=fx(f), cy_=dy(leftT[f]), s=interactive&&activeEar==="left"&&activeTestType==="AC"?7:6;
+    const cx_=fx(f), cy_=dy(leftT[f]), s=(interactive&&activeEar==="left"&&activeTestType==="AC"?7:6)*symK;
     const masked=leftMask[f];
     if(masked) return(
       <g key={"l"+f}>
         <rect x={cx_-s} y={cy_-s} width={s*2} height={s*2}
-          fill="white" stroke="#2563eb" strokeWidth="2.5"/>
+          fill="white" stroke={blueC} strokeWidth={symSW}/>
       </g>
     );
     return(
       <g key={"l"+f}>
-        <line x1={cx_-s} y1={cy_-s} x2={cx_+s} y2={cy_+s} stroke="#2563eb" strokeWidth="2.5"/>
-        <line x1={cx_+s} y1={cy_-s} x2={cx_-s} y2={cy_+s} stroke="#2563eb" strokeWidth="2.5"/>
+        <line x1={cx_-s} y1={cy_-s} x2={cx_+s} y2={cy_+s} stroke={blueC} strokeWidth={symSW}/>
+        <line x1={cx_+s} y1={cy_-s} x2={cx_-s} y2={cy_+s} stroke={blueC} strokeWidth={symSW}/>
       </g>
     );
   };
 
   const bcRightSymbol=f=>{
-    const cx_=fx(f), cy_=dy(rightBC[f]), s=6;
+    const cx_=fx(f), cy_=dy(rightBC[f]), s=6*symK, i2=2*symK, i3=3*symK;
     const masked=rightBCMask[f];
     if(masked) return(
       <g key={"rb"+f}>
-        <path d={`M${cx_+s},${cy_-s} L${cx_-s+2},${cy_-s} L${cx_-s+2},${cy_+s} L${cx_+s},${cy_+s}`}
-          fill="none" stroke="#dc2626" strokeWidth="2.5"/>
+        <path d={`M${cx_+s},${cy_-s} L${cx_-s+i2},${cy_-s} L${cx_-s+i2},${cy_+s} L${cx_+s},${cy_+s}`}
+          fill="none" stroke={redC} strokeWidth={symSW}/>
       </g>
     );
     return(
       <g key={"rb"+f}>
-        <path d={`M${cx_+3},${cy_-s} L${cx_-s+2},${cy_} L${cx_+3},${cy_+s}`}
-          fill="none" stroke="#dc2626" strokeWidth="2.5"/>
+        <path d={`M${cx_+i3},${cy_-s} L${cx_-s+i2},${cy_} L${cx_+i3},${cy_+s}`}
+          fill="none" stroke={redC} strokeWidth={symSW}/>
       </g>
     );
   };
 
   const bcLeftSymbol=f=>{
-    const cx_=fx(f), cy_=dy(leftBC[f]), s=6;
+    const cx_=fx(f), cy_=dy(leftBC[f]), s=6*symK, i2=2*symK, i3=3*symK;
     const masked=leftBCMask[f];
     if(masked) return(
       <g key={"lb"+f}>
-        <path d={`M${cx_-s},${cy_-s} L${cx_+s-2},${cy_-s} L${cx_+s-2},${cy_+s} L${cx_-s},${cy_+s}`}
-          fill="none" stroke="#2563eb" strokeWidth="2.5"/>
+        <path d={`M${cx_-s},${cy_-s} L${cx_+s-i2},${cy_-s} L${cx_+s-i2},${cy_+s} L${cx_-s},${cy_+s}`}
+          fill="none" stroke={blueC} strokeWidth={symSW}/>
       </g>
     );
     return(
       <g key={"lb"+f}>
-        <path d={`M${cx_-3},${cy_-s} L${cx_+s-2},${cy_} L${cx_-3},${cy_+s}`}
-          fill="none" stroke="#2563eb" strokeWidth="2.5"/>
+        <path d={`M${cx_-i3},${cy_-s} L${cx_+s-i2},${cy_} L${cx_-i3},${cy_+s}`}
+          fill="none" stroke={blueC} strokeWidth={symSW}/>
       </g>
     );
   };
@@ -237,11 +289,11 @@ export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={
     <svg width="100%" viewBox={`0 0 ${W} ${H}`}
       style={{cursor:interactive?"crosshair":"default",fontFamily:"Sora,sans-serif",display:"block"}}
       onClick={handleClick}>
-      {DEGREE_REGIONS.map(r=>(
+      {regions.map(r=>(
         <rect key={r.label} x={ML} y={dy(r.from)} width={PW}
           height={Math.max(0,dy(Math.min(r.to,120))-dy(r.from))} fill={r.fill}/>
       ))}
-      {DEGREE_REGIONS.map(r=>(
+      {regions.map(r=>(
         <text key={r.label+"t"} x={ML+PW+5} y={dy((r.from+Math.min(r.to,120))/2)+4}
           fontSize="9" fill={r.color} fontWeight="700">{r.label}</text>
       ))}
@@ -275,16 +327,30 @@ export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={
           <polygon
             points={[...SPEECH_BANANA_UPPER,...SPEECH_BANANA_LOWER].map(p=>`${freqToSvgX(p.freq,ML,PW)},${dy(p.db)}`).join(" ")}
             fill="#ffffff" fillOpacity="0.75" stroke="#f59e0b" strokeWidth="1" strokeOpacity="0.4"/>
-          {/* 1000 Hz dashed vertical divider */}
-          <line x1={freqToSvgX(1000,ML,PW)} y1={MT} x2={freqToSvgX(1000,ML,PW)} y2={MT+PH}
-            stroke="#d1d5db" strokeWidth="1" strokeDasharray="4 3"/>
-          {/* Awareness / Clarity labels */}
-          <text x={(ML+freqToSvgX(1000,ML,PW))/2} y={dy(16)} fontSize="9" fill="#9ca3af"
-            textAnchor="middle" fontWeight="600" fontStyle="italic">Awareness</text>
-          <text x={(freqToSvgX(1000,ML,PW)+ML+PW)/2} y={dy(16)} fontSize="9" fill="#9ca3af"
-            textAnchor="middle" fontWeight="600" fontStyle="italic">Clarity</text>
+          {!presentation&&<>
+            {/* 1000 Hz dashed vertical divider */}
+            <line x1={freqToSvgX(1000,ML,PW)} y1={MT} x2={freqToSvgX(1000,ML,PW)} y2={MT+PH}
+              stroke="#d1d5db" strokeWidth="1" strokeDasharray="4 3"/>
+            {/* Awareness / Clarity labels */}
+            <text x={(ML+freqToSvgX(1000,ML,PW))/2} y={dy(16)} fontSize="9" fill="#9ca3af"
+              textAnchor="middle" fontWeight="600" fontStyle="italic">Awareness</text>
+            <text x={(freqToSvgX(1000,ML,PW)+ML+PW)/2} y={dy(16)} fontSize="9" fill="#9ca3af"
+              textAnchor="middle" fontWeight="600" fontStyle="italic">Clarity</text>
+          </>}
         </g>
       )}
+      {/* Frequency band boxes — patient-facing framing of lows vs. highs */}
+      {presentation&&BAND_BOXES.map(b=>{
+        const x0=freqToSvgX(b.from,ML,PW)+2, x1=freqToSvgX(b.to,ML,PW)-2;
+        return(
+          <g key={b.label}>
+            <rect x={x0} y={MT+2} width={x1-x0} height={PH-4} rx="9"
+              fill={b.fill} fillOpacity="0.05" stroke={b.stroke} strokeWidth="2" strokeOpacity="0.75"/>
+            <text x={(x0+x1)/2} y={MT+20} fontSize="15" fill={b.text}
+              textAnchor="middle" fontWeight="800" letterSpacing="0.2">{b.label}</text>
+          </g>
+        );
+      })}
       {/* Phoneme labels with dimming */}
       {showBanana&&phonemeDimMode&&PHONEMES.map((ph,pi)=>{
         const px=freqToSvgX(ph.displayFreq,ML,PW);
@@ -329,29 +395,29 @@ export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={
       {AUDIG_FREQS.map(f=>ghostRightT[f]!=null&&ghostRightSymbol(f))}
       {AUDIG_FREQS.map(f=>ghostLeftT[f]!=null&&ghostLeftSymbol(f))}
       {/* AC polylines */}
-      {rPts.length>1&&<polyline points={rPts.join(" ")} fill="none" stroke="#dc2626" strokeWidth="1.5" strokeOpacity="0.7"/>}
-      {lPts.length>1&&<polyline points={lPts.join(" ")} fill="none" stroke="#2563eb" strokeWidth="1.5" strokeOpacity="0.7"/>}
+      {rPts.length>1&&<polyline points={rPts.join(" ")} fill="none" stroke={redC} strokeWidth="1.5" strokeOpacity="0.7"/>}
+      {lPts.length>1&&<polyline points={lPts.join(" ")} fill="none" stroke={blueC} strokeWidth="1.5" strokeOpacity="0.7"/>}
       {/* BC polylines (dashed) */}
-      {rBCPts.length>1&&<polyline points={rBCPts.join(" ")} fill="none" stroke="#dc2626" strokeWidth="1.5" strokeOpacity="0.5" strokeDasharray="4 3"/>}
-      {lBCPts.length>1&&<polyline points={lBCPts.join(" ")} fill="none" stroke="#2563eb" strokeWidth="1.5" strokeOpacity="0.5" strokeDasharray="4 3"/>}
+      {rBCPts.length>1&&<polyline points={rBCPts.join(" ")} fill="none" stroke={redC} strokeWidth="1.5" strokeOpacity="0.5" strokeDasharray="4 3"/>}
+      {lBCPts.length>1&&<polyline points={lBCPts.join(" ")} fill="none" stroke={blueC} strokeWidth="1.5" strokeOpacity="0.5" strokeDasharray="4 3"/>}
       {/* AC symbols */}
       {AUDIG_FREQS.map(f=>rightT[f]!=null&&acRightSymbol(f))}
       {AUDIG_FREQS.map(f=>leftT[f]!=null&&acLeftSymbol(f))}
       {/* BC symbols */}
       {AUDIG_FREQS.map(f=>rightBC[f]!=null&&bcRightSymbol(f))}
       {AUDIG_FREQS.map(f=>leftBC[f]!=null&&bcLeftSymbol(f))}
-      {/* Legend */}
-      <circle cx={ML+4} cy={MT-26} r="4" fill="white" stroke="#dc2626" strokeWidth="2"/>
-      <text x={ML+12} y={MT-22} fontSize="9" fill="#dc2626" fontWeight="600">R AC</text>
+      {/* Legend — full-size symbols even in presentation so it stays readable */}
+      <circle cx={ML+4} cy={MT-26} r="4" fill="white" stroke={redC} strokeWidth="2"/>
+      <text x={ML+12} y={MT-22} fontSize="9" fill={redC} fontWeight="600">R AC</text>
       <g transform={`translate(${ML+44},${MT-26})`}>
-        <line x1={-4} y1={-4} x2={4} y2={4} stroke="#2563eb" strokeWidth="2"/>
-        <line x1={4} y1={-4} x2={-4} y2={4} stroke="#2563eb" strokeWidth="2"/>
+        <line x1={-4} y1={-4} x2={4} y2={4} stroke={blueC} strokeWidth="2"/>
+        <line x1={4} y1={-4} x2={-4} y2={4} stroke={blueC} strokeWidth="2"/>
       </g>
-      <text x={ML+52} y={MT-22} fontSize="9" fill="#2563eb" fontWeight="600">L AC</text>
-      <path d={`M${ML+92},${MT-31} L${ML+84},${MT-26} L${ML+92},${MT-21}`} fill="none" stroke="#dc2626" strokeWidth="2"/>
-      <text x={ML+96} y={MT-22} fontSize="9" fill="#dc2626" fontWeight="600">R BC</text>
-      <path d={`M${ML+128},${MT-31} L${ML+136},${MT-26} L${ML+128},${MT-21}`} fill="none" stroke="#2563eb" strokeWidth="2"/>
-      <text x={ML+140} y={MT-22} fontSize="9" fill="#2563eb" fontWeight="600">L BC</text>
+      <text x={ML+52} y={MT-22} fontSize="9" fill={blueC} fontWeight="600">L AC</text>
+      <path d={`M${ML+92},${MT-31} L${ML+84},${MT-26} L${ML+92},${MT-21}`} fill="none" stroke={redC} strokeWidth="2"/>
+      <text x={ML+96} y={MT-22} fontSize="9" fill={redC} fontWeight="600">R BC</text>
+      <path d={`M${ML+128},${MT-31} L${ML+136},${MT-26} L${ML+128},${MT-21}`} fill="none" stroke={blueC} strokeWidth="2"/>
+      <text x={ML+140} y={MT-22} fontSize="9" fill={blueC} fontWeight="600">L BC</text>
     </svg>
   );
 }

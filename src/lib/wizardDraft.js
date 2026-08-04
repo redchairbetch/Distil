@@ -19,12 +19,14 @@
 // localStorage rather than Supabase for the same reason as the kiosk intake
 // draft (PR #119) and the pending-outcome stash: this is device-local UI
 // residue — everything durable already writes incrementally to the DB (draft
-// patient at step 0, audiogram at step 2, devices at step 5). Drafts expire
-// after WIZARD_DRAFT_TTL_MS and are cleared on close/discard so patient data
-// doesn't sit on the machine indefinitely.
+// patient at step 0, audiogram at step 2, care plan at step 4, devices at
+// step 6). Drafts expire after WIZARD_DRAFT_TTL_MS and are cleared on
+// close/discard so patient data doesn't sit on the machine indefinitely.
 
 const KEY = 'distil_wizard_draft'
-const VERSION = 1
+// v2: Care Plan moved to step 4 (before Technology Tier / Device Selection) —
+// v1 drafts carry step indexes from the old order, so they don't resume.
+const VERSION = 2
 
 // Roughly a clinic day. Older than this, resuming mid-appointment would be
 // clinically stale anyway; it also bounds how long the snapshot's patient
