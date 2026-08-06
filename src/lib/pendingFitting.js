@@ -45,3 +45,15 @@ export function estimateFitDate(signedDate, leadDays = ESTIMATED_FIT_LEAD_DAYS) 
 export function warrantyYearsFor(payType, carePlan) {
   return (payType === "private" || carePlan === "complete") ? 4 : 3;
 }
+
+// Why a pending sale was cancelled before the fitting. Keys mirror the
+// device_fittings_cancel_reason_check DB constraint — change both together.
+export const CANCEL_REASONS = [
+  { id: "changed_mind",           label: "Patient changed their mind" },
+  { id: "financing_fell_through", label: "Financing fell through" },
+  { id: "insurance_issue",        label: "Insurance issue / benefit denied" },
+  { id: "medical",                label: "Medical reason" },
+  { id: "moved_relocated",        label: "Moved / transferred care" },
+  { id: "deceased",               label: "Patient deceased" },
+  { id: "other",                  label: "Other" },
+];

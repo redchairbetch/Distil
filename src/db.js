@@ -737,7 +737,12 @@ function assemblePatient(row) {
   const coverage = row.insurance_coverage?.[0] || null
   // Current fitting/audiogram = the newest. Baseline + full history load on
   // demand (loadBaselineAudiology / loadVisitHistory) for the upgrade flow.
-  const fitting  = pickNewest(row.device_fittings)
+  // Cancelled sales are skipped — a rescinded upgrade must not mask the
+  // patient's real current aids. If EVERY row is cancelled (a first-time
+  // purchaser who rescinded), fall back to the newest so the quoted devices
+  // still show on their TNS chart.
+  const liveFittings = (row.device_fittings || []).filter(f => f.fitting_status !== 'cancelled')
+  const fitting  = pickNewest(liveFittings) || pickNewest(row.device_fittings)
   const sides    = fitting?.device_sides || []
   const leftSide  = sides.find(s => s.ear === 'left')  || null
   const rightSide = sides.find(s => s.ear === 'right') || null
@@ -815,11 +820,15 @@ function assemblePatient(row) {
       fittingDate:    fitting.fitting_date,
       warrantyExpiry: fitting.warranty_expiry,
       // Pending Fittings queue: 'pending' = PA signed, devices not yet
-      // delivered/fit. fittingDate is an ESTIMATE until confirmation.
+      // delivered/fit (fittingDate is an ESTIMATE until confirmation);
+      // 'cancelled' = the sale was unwound before delivery (only surfaces
+      // here when it's the patient's sole fitting — see liveFittings above).
       fittingStatus:  fitting.fitting_status || 'fitted',
       pendingFitting: fitting.fitting_status === 'pending',
       warrantyYears:  fitting.warranty_years ?? null,
       recordedAt:     fitting.created_at || null,
+      cancelledAt:    fitting.cancelled_at || null,
+      cancelReason:   fitting.cancel_reason || null,
       serialLeft:     fitting.serial_left,
       serialRight:    fitting.serial_right,
       manufacturer:   primary?.manufacturer || '',
@@ -1676,7 +1685,10 @@ export async function recordPurchaseFitting(patientId, devices, staffId, { fitti
 // patient's quoted recommendation becomes a signed agreement) creates no new
 // fitting row — instead the existing row is parked in the Pending Fittings
 // queue. Clears any previously stamped warranty so the clock restarts from
-// the confirmed fit date. Throws on failure.
+// the confirmed fit date, and clears cancellation stamps so a patient who
+// rescinded and later re-signs the same config re-enters the queue cleanly
+// (the cancellation itself stays on record in the chart notes). Throws on
+// failure.
 export async function markFittingPending(fittingId, { estimatedFitDate = null, warrantyYears = null } = {}) {
   if (!fittingId) throw new Error('markFittingPending: fittingId required')
   const update = {
@@ -1685,6 +1697,10 @@ export async function markFittingPending(fittingId, { estimatedFitDate = null, w
     warranty_expiry:  null,
     fit_confirmed_at: null,
     fit_confirmed_by: null,
+    cancelled_at:     null,
+    cancelled_by:     null,
+    cancel_reason:    null,
+    cancel_note:      null,
   }
   if (estimatedFitDate) update.fitting_date = estimatedFitDate
   const { error } = await supabase
@@ -2032,6 +2048,126 @@ export async function confirmDeviceFitting({ fittingId, patientId, fitDate, staf
   }
 
   return { warrantyExpiry, warrantyYears: years, warnings }
+}
+
+// Cancel a pending sale — the patient signed a purchase agreement but
+// rescinded before the devices were delivered/fit. The fitting row is never
+// deleted (it's the record that the sale happened and was unwound): it flips
+// to fitting_status='cancelled' with who/when/why, leaves the queue, and
+// stops being the chart's current fitting (assemblePatient prefers the
+// newest non-cancelled row, so an upgrade patient's real aids resurface).
+//
+// Patient status: a new patient whose ONLY sale this was reverts to 'tns' —
+// they're back in the tested-not-sold funnel. An established patient with a
+// real prior fitting on file (confirmed, or carrying a warranty from the
+// pre-queue era) stays 'active'; only the new sale is unwound.
+//
+// Throws if the row isn't pending (already fitted → this is a return/refund
+// conversation, not a queue action; already cancelled → no-op protection).
+// Downstream failures are collected as warnings, like confirmDeviceFitting.
+export async function cancelPendingFitting({ fittingId, patientId, reason, note = null, staffId, clinicId }) {
+  if (!fittingId || !patientId || !reason) {
+    throw new Error('cancelPendingFitting: fittingId, patientId, and reason are required')
+  }
+  const warnings = []
+
+  const { data: fitting, error: loadErr } = await supabase
+    .from('device_fittings')
+    .select('id, fitting_status, created_at')
+    .eq('id', fittingId)
+    .single()
+  if (loadErr) throw loadErr
+  if (fitting.fitting_status !== 'pending') {
+    throw new Error(
+      fitting.fitting_status === 'fitted'
+        ? 'This fitting is already confirmed — a delivered sale is a return, not a cancellation. Handle it from the chart.'
+        : 'This sale is already cancelled.'
+    )
+  }
+
+  const { error: cancelErr } = await supabase
+    .from('device_fittings')
+    .update({
+      fitting_status: 'cancelled',
+      cancelled_at:   new Date().toISOString(),
+      cancelled_by:   staffId || null,
+      cancel_reason:  reason,
+      cancel_note:    note?.trim() || null,
+    })
+    .eq('id', fittingId)
+  if (cancelErr) throw cancelErr
+
+  // The estimated Fitting & Orientation placeholder scheduled at signing is
+  // no longer happening. Date-gated to this sale, same as confirm.
+  try {
+    let phQuery = supabase
+      .from('appointments')
+      .select('id')
+      .eq('patient_id', patientId)
+      .eq('appointment_type', 'Fitting & Orientation')
+      .eq('status', 'scheduled')
+    if (fitting.created_at) phQuery = phQuery.gte('appointment_date', fitting.created_at)
+    const { data: placeholders } = await phQuery
+    if (placeholders?.length) {
+      const { error } = await supabase
+        .from('appointments')
+        .update({ status: 'cancelled' })
+        .in('id', placeholders.map(r => r.id))
+      if (error) throw error
+    }
+  } catch (e) {
+    console.error('cancelPendingFitting placeholder appointment:', e)
+    warnings.push('cancelling the scheduled fitting appointment')
+  }
+
+  // Revert a first-time purchaser to TNS. "Real prior fitting" = any OTHER
+  // fitting row that was queue-confirmed or carries a warranty (pre-queue
+  // fittings always stamped one); plain recommendation rows have neither.
+  let revertedToTns = false
+  try {
+    const { data: others } = await supabase
+      .from('device_fittings')
+      .select('id, fit_confirmed_at, warranty_expiry')
+      .eq('patient_id', patientId)
+      .neq('id', fittingId)
+    const hasPriorRealFit = (others || []).some(r => r.fit_confirmed_at || r.warranty_expiry)
+    if (!hasPriorRealFit) {
+      const { data: pat } = await supabase
+        .from('patients')
+        .select('patient_status')
+        .eq('id', patientId)
+        .maybeSingle()
+      if (pat?.patient_status === 'active') {
+        const { error } = await supabase
+          .from('patients')
+          .update({ patient_status: 'tns', status_updated_at: new Date().toISOString() })
+          .eq('id', patientId)
+        if (error) throw error
+        revertedToTns = true
+      }
+    }
+  } catch (e) {
+    console.error('cancelPendingFitting status revert:', e)
+    warnings.push('reverting the patient to tested-not-sold')
+  }
+
+  // Append-only audit note on the chart.
+  if (staffId && clinicId) {
+    try {
+      const reasonLabel = reason.replace(/_/g, ' ')
+      await addPatientNote(patientId, {
+        body: `Purchase agreement cancelled before fitting — ${reasonLabel}${note?.trim() ? `: ${note.trim()}` : ''}.`
+          + (revertedToTns ? ' Patient returned to tested-not-sold.' : ''),
+        staffId,
+        clinicId,
+      })
+    } catch (e) {
+      console.error('cancelPendingFitting chart note:', e)
+      warnings.push('logging the cancellation note')
+    }
+  }
+
+  return { revertedToTns, warnings }
 }
 
 

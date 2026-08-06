@@ -7873,6 +7873,18 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   </button>
                 </div>
               )}
+              {/* Only surfaces when the cancelled sale is the chart's sole fitting
+                  (assemblePatient prefers live rows) — i.e. a first-time purchaser
+                  who rescinded before delivery. */}
+              {p.devices?.fittingStatus === "cancelled" && (
+                <div style={{display:"flex",alignItems:"center",gap:10,background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:10,padding:"10px 14px",marginBottom:12}}>
+                  <div style={{fontSize:12,color:"#6b7280",lineHeight:1.5,flex:1}}>
+                    <strong>Sale cancelled before fitting</strong>{p.devices.cancelledAt ? ` on ${fmtDate(p.devices.cancelledAt)}` : ""}
+                    {p.devices.cancelReason ? ` — ${p.devices.cancelReason.replace(/_/g," ")}` : ""}. The devices below are the
+                    configuration from the cancelled agreement; no warranty applies. See the Notes card for details.
+                  </div>
+                </div>
+              )}
               {editSection === "devices" ? (
                 <div>
                   {/* Fitting-level fields */}

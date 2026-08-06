@@ -11,9 +11,9 @@
  */
 
 import React, { useMemo, useState } from "react";
-import { confirmDeviceFitting } from "../db.js";
+import { confirmDeviceFitting, cancelPendingFitting } from "../db.js";
 import { buildCareArc } from "../lib/careArc.js";
-import { FITTING_OVERDUE_DAYS } from "../lib/pendingFitting.js";
+import { FITTING_OVERDUE_DAYS, CANCEL_REASONS } from "../lib/pendingFitting.js";
 
 // Patients whose purchase agreement is signed but whose devices haven't been
 // delivered/fit yet. Confirming the fitting here is what officially starts
@@ -79,6 +79,9 @@ export default function PendingFittings({ patients, staffId, clinicId, onSelectP
   const [busyId, setBusyId] = useState(null);
   const [fitDates, setFitDates] = useState({});   // patientId -> chosen fit date
   const [notice, setNotice] = useState(null);      // { kind: 'ok'|'warn'|'error', text }
+  const [cancelingId, setCancelingId] = useState(null);  // patientId with the cancel panel open
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelNote, setCancelNote] = useState("");
 
   const rows = useMemo(() => {
     return (patients || [])
@@ -131,6 +134,45 @@ export default function PendingFittings({ patients, staffId, clinicId, onSelectP
     }
   };
 
+  const openCancel = (p) => {
+    setCancelingId(p.id);
+    setCancelReason("");
+    setCancelNote("");
+    setNotice(null);
+  };
+
+  const handleCancel = async (p) => {
+    if (!cancelReason) return;
+    if (!p._ids?.fittingId) {
+      setNotice({ kind: "error", text: `${p.name}: no fitting record id on the chart — refresh and try again.` });
+      return;
+    }
+    setBusyId(p.id);
+    setNotice(null);
+    try {
+      const res = await cancelPendingFitting({
+        fittingId: p._ids.fittingId,
+        patientId: p.id,
+        reason: cancelReason,
+        note: cancelNote,
+        staffId,
+        clinicId,
+      });
+      const reasonLabel = CANCEL_REASONS.find(r => r.id === cancelReason)?.label || cancelReason;
+      let text = `${p.name}: sale cancelled (${reasonLabel}).`
+        + (res.revertedToTns ? " Patient returned to tested-not-sold." : " Patient keeps their current devices on record.");
+      if (res.warnings?.length) text += ` These didn't save — ${res.warnings.join("; ")}. Check the chart.`;
+      setNotice({ kind: res.warnings?.length ? "warn" : "ok", text });
+      setCancelingId(null);
+      if (onRefresh) await onRefresh();
+    } catch (e) {
+      console.error("cancelPendingFitting:", e);
+      setNotice({ kind: "error", text: `${p.name}: cancelling the sale failed — ${e?.message || e}` });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <div style={{ padding: "24px 32px", maxWidth: 1200 }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 4 }}>
@@ -175,11 +217,13 @@ export default function PendingFittings({ patients, staffId, clinicId, onSelectP
           const planLabel = carePlanLabel(p);
           const chosenDate = fitDates[p.id] || today;
           const futureDate = chosenDate > today;
+          const canceling = cancelingId === p.id;
           return (
             <div key={p.id} style={{
-              display: "flex", alignItems: "center", gap: 14, padding: "14px 16px",
+              padding: "14px 16px",
               background: "white", border: `1px solid ${overdue ? "#fca5a5" : "#e5e7eb"}`, borderRadius: 10,
             }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
               <div style={{ flex: 1, minWidth: 0, cursor: onSelectPatient ? "pointer" : "default" }}
                 onClick={() => onSelectPatient && onSelectPatient(p)}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -232,7 +276,69 @@ export default function PendingFittings({ patients, staffId, clinicId, onSelectP
                   }}>
                   {busyId === p.id ? "Confirming…" : "Confirm Fitting"}
                 </button>
+                <button
+                  disabled={busyId === p.id}
+                  onClick={() => canceling ? setCancelingId(null) : openCancel(p)}
+                  style={{
+                    alignSelf: "flex-end",
+                    fontSize: 12, fontWeight: 600, padding: "9px 12px", marginTop: 16,
+                    background: "white", color: "#6b7280", border: "1px solid #e5e7eb",
+                    borderRadius: 8, cursor: "pointer", fontFamily: "'Sora',sans-serif",
+                  }}>
+                  {canceling ? "Keep Sale" : "Cancel Sale"}
+                </button>
               </div>
+            </div>
+
+            {canceling && (
+              <div style={{
+                marginTop: 12, paddingTop: 12, borderTop: "1px solid #f3f4f6",
+                display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap",
+              }}>
+                <div style={{ flex: "0 0 auto" }}>
+                  <label style={{
+                    fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6,
+                    color: "#9ca3af", display: "block", marginBottom: 3,
+                  }}>Reason</label>
+                  <select value={cancelReason} onChange={e => setCancelReason(e.target.value)}
+                    style={{
+                      padding: "8px 10px", border: "1px solid #E4E0D5", borderRadius: 8,
+                      fontFamily: "'Sora',sans-serif", fontSize: 13, outline: "none", background: "white",
+                    }}>
+                    <option value="">Select a reason…</option>
+                    {CANCEL_REASONS.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+                  </select>
+                </div>
+                <div style={{ flex: 1, minWidth: 220 }}>
+                  <label style={{
+                    fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6,
+                    color: "#9ca3af", display: "block", marginBottom: 3,
+                  }}>Note (optional)</label>
+                  <input value={cancelNote} onChange={e => setCancelNote(e.target.value)}
+                    placeholder="Anything worth remembering about why"
+                    style={{
+                      width: "100%", padding: "8px 10px", border: "1px solid #E4E0D5", borderRadius: 8,
+                      fontFamily: "'Sora',sans-serif", fontSize: 13, outline: "none", boxSizing: "border-box",
+                    }} />
+                </div>
+                <button
+                  disabled={busyId === p.id || !cancelReason}
+                  onClick={() => handleCancel(p)}
+                  style={{
+                    fontSize: 12, fontWeight: 700, padding: "9px 16px",
+                    background: busyId === p.id || !cancelReason ? "#9ca3af" : "#dc2626",
+                    color: "white", border: "none", borderRadius: 8,
+                    cursor: busyId === p.id || !cancelReason ? "not-allowed" : "pointer",
+                    fontFamily: "'Sora',sans-serif",
+                  }}>
+                  {busyId === p.id ? "Cancelling…" : "Cancel This Sale"}
+                </button>
+                <div style={{ flexBasis: "100%", fontSize: 11, color: "#9ca3af", lineHeight: 1.5 }}>
+                  The signed agreement stays on the chart as a record. A first-time purchaser returns to
+                  tested-not-sold; an established patient keeps their current devices. A note is logged automatically.
+                </div>
+              </div>
+            )}
             </div>
           );
         })}

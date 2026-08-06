@@ -4,6 +4,7 @@ import {
   FITTING_OVERDUE_DAYS,
   estimateFitDate,
   warrantyYearsFor,
+  CANCEL_REASONS,
 } from "./pendingFitting.js";
 
 describe("estimateFitDate", () => {
@@ -62,5 +63,29 @@ describe("warrantyYearsFor", () => {
 describe("FITTING_OVERDUE_DAYS", () => {
   it("is longer than the estimated lead time", () => {
     expect(FITTING_OVERDUE_DAYS).toBeGreaterThan(ESTIMATED_FIT_LEAD_DAYS);
+  });
+});
+
+describe("CANCEL_REASONS", () => {
+  // Keys must stay in lockstep with the device_fittings_cancel_reason_check
+  // DB constraint (migration 20260805130000).
+  it("matches the DB constraint vocabulary", () => {
+    expect(CANCEL_REASONS.map(r => r.id)).toEqual([
+      "changed_mind",
+      "financing_fell_through",
+      "insurance_issue",
+      "medical",
+      "moved_relocated",
+      "deceased",
+      "other",
+    ]);
+  });
+
+  it("every reason has a patient-neutral label", () => {
+    for (const r of CANCEL_REASONS) {
+      expect(r.label).toBeTruthy();
+      // banned patient-facing vocabulary (see CLAUDE.md)
+      expect(r.label.toLowerCase()).not.toMatch(/trial|demo/);
+    }
   });
 });
