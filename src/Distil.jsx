@@ -160,6 +160,8 @@ import NurturePreview from "./views/NurturePreview.jsx";
 import CampaignManager from "./views/CampaignManager.jsx";
 import LimaCharlie from "./views/LimaCharlie.jsx";
 import FollowUpQueue, { countFollowUpPatients } from "./views/FollowUpQueue.jsx";
+import PendingFittings, { countPendingFittings } from "./views/PendingFittings.jsx";
+import { warrantyYearsFor, estimateFitDate } from "./lib/pendingFitting.js";
 import CommsInbox from "./views/CommsInbox.jsx";
 import ProvidersAdmin from "./views/ProvidersAdmin.jsx";
 import NationsCatalog from "./views/NationsCatalog.jsx";
@@ -3127,10 +3129,23 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     // ('bilateral' | 'cros_bicros' | 'monaural_left' | 'monaural_right'),
     // so the locally-built selectedPatient agrees with the next loadAllPatients.
     const fittingType = leftRec && rightRec ? (isCROS ? "cros_bicros" : "bilateral") : leftRec ? "monaural_left" : "monaural_right";
-    const years = form.payType === "insurance" && form.carePlan === "complete" ? 4 : 3;
+    // Warranty term captured at signing; the clock starts at fit confirmation.
+    // (Private pay bundles Complete Care+, so it gets the 4-year term too —
+    // matches the printed agreement's CARE_PLAN_META.)
+    const years = warrantyYearsFor(form.payType, form.carePlan);
+    // An in-app signed PA and a 'committed' close (provider attesting the
+    // patient signed today, e.g. on paper) both mean the sale closed — either
+    // way the fitting is PENDING until confirmed from the queue.
+    const paCommitted = wizardPaSigned || deviceDisposition === "committed";
+    // For a closed sale, warrantyStart is only an ESTIMATE of the fit date
+    // (signature + 14 days) shown in the Pending Fittings queue. The
+    // authoritative fitting date — and every clock keyed to it — lands when
+    // the fitting is confirmed from the queue.
     const warrantyStart = wizardPaSignatureDate
       ? new Date(new Date(wizardPaSignatureDate).getTime() + 14 * 86400000).toISOString().split("T")[0]
-      : new Date().toISOString().split("T")[0];
+      : paCommitted
+        ? estimateFitDate(new Date().toISOString().split("T")[0])
+        : new Date().toISOString().split("T")[0];
 
     // Upgrade mode operates on an already-active patient — finalizing without
     // a signed PA (e.g. they took a quote home) must not demote them to TNS.
@@ -3159,10 +3174,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         const privatePay = !isTnl && !isDnt && form.payType === "private" && form.tierPrice != null
           ? { tier: form.tier, tierPrice: form.tierPrice }
           : null;
-        // Regimented care arc — full 4-year schedule auto-generated at finalize for a signed fitting (backlog #5).
+        // A signed fitting now schedules ONLY the estimated Fitting &
+        // Orientation visit — the full 4-year care arc (backlog #5) is
+        // generated at fit confirmation from the REAL fitting date, so the
+        // whole schedule anchors to the day the devices went on the ears.
         const existingApptKeys = new Set((form.appointments || []).map(a => `${a.type}|${a.date}`));
-        const careArc = wizardPaSigned
-          ? buildCareArc(warrantyStart).filter(a => !existingApptKeys.has(`${a.type}|${a.date}`))
+        const careArc = paCommitted
+          ? [{ date: warrantyStart, type: CARE_ARC[0].type, note: CARE_ARC[0].note }]
+              .filter(a => !existingApptKeys.has(`${a.type}|${a.date}`))
           : [];
         // TNL path: the annual retest recall IS the follow-up plan (no care
         // arc, no fitting). finalizePatient's type+date guard dedupes a
@@ -3175,14 +3194,16 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           // TNL and Did Not Test never fit devices — null keeps finalizePatient
           // away from the fitting/warranty updates AND the fitting-date campaign
           // enrollment (TNL enrolls its campaign off the status instead).
-          (isTnl || isDnt) ? null : { fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null },
+          // A signed PA finalizes as a PENDING fitting: no warranty expiry yet —
+          // it's computed from the confirmed fit date in the queue.
+          (isTnl || isDnt) ? null : { fittingDate: warrantyStart, warrantyExpiry: null },
           carePlan,
           form.notes,
           finalizeAppointments,
           staffId, clinicId,
           privatePay,
           wizardVisitId,
-          { directPurchase: !!form.directPurchase }
+          { directPurchase: !!form.directPurchase, pendingFitting: paCommitted, warrantyYears: paCommitted ? years : null }
         );
         setSaved(true);
         await refreshPatients();
@@ -3197,7 +3218,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           directPurchase: !!form.directPurchase,
           insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
           privatePay,
-          devices: (isTnl || isDnt) ? null : { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null, serialLeft: genId(), serialRight: genId() },
+          devices: (isTnl || isDnt) ? null : { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: null, pendingFitting: paCommitted, warrantyYears: paCommitted ? years : null, recordedAt: new Date().toISOString(), serialLeft: genId(), serialRight: genId() },
           audiology: form.audiology,
           carePlan: carePlan,
           appointments: finalizeAppointments,
@@ -3238,13 +3259,19 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         color: primary?.color || "",
         battery: primary?.battery || "",
         fittingDate: warrantyStart,
-        warrantyExpiry: wizardPaSigned ? warrantyDate(warrantyStart, years) : null,
+        warrantyExpiry: null,
+        pendingFitting: paCommitted,
+        warrantyYears: paCommitted ? years : null,
         serialLeft: genId(),
         serialRight: genId(),
       },
       audiology: form.audiology,
       carePlan: (isTnl || isDnt) ? null : (form.payType === "insurance" ? form.carePlan : null),
-      appointments: isTnl ? [...(form.appointments || []), buildTnlRetestAppointment()] : form.appointments,
+      appointments: isTnl
+        ? [...(form.appointments || []), buildTnlRetestAppointment()]
+        : paCommitted
+          ? [...(form.appointments || []), { date: warrantyStart, type: CARE_ARC[0].type, note: CARE_ARC[0].note }]
+          : form.appointments,
       notes: form.notes,
       patientStatus: finalizeStatus,
     };
@@ -4465,6 +4492,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                           <div style={{fontSize:12,color:"#d97706",fontWeight:600}}>Quoted</div>
                         ) : isTnl ? (
                           <div style={{fontSize:12,color:"#1d4ed8",fontWeight:600}}>No loss</div>
+                        ) : p.devices?.pendingFitting ? (
+                          <div style={{fontSize:12,color:"#1B8A7A",fontWeight:600}}>Awaiting fitting</div>
                         ) : (
                           <>
                             <div style={{fontSize:12,color: days<90?"#ef4444":days<360?"#f59e0b":"#16a34a",fontWeight:600}}>
@@ -4479,6 +4508,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                           ? <span style={{color:"#d97706"}}>Quote {fmtDate(p.createdAt)}</span>
                           : isTnl
                           ? <span style={{color:"#1d4ed8"}}>Tested {fmtDate(p.createdAt)}</span>
+                          : p.devices?.pendingFitting
+                          ? <span style={{color:"#1B8A7A"}}>Est. fit {fmtDate(p.devices?.fittingDate)}</span>
                           : fmtDate(p.devices?.fittingDate||p.createdAt)
                         }
                       </td>
@@ -7830,6 +7861,30 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={startEditDevices}>Edit</button>
                 )}
               </div>
+              {p.devices?.pendingFitting && (
+                <div style={{display:"flex",alignItems:"center",gap:10,background:"#fffbeb",border:"1px solid #fde68a",borderRadius:10,padding:"10px 14px",marginBottom:12}}>
+                  <Icon name="clock" size={16}/>
+                  <div style={{fontSize:12,color:"#92400e",lineHeight:1.5,flex:1}}>
+                    <strong>Fitting pending.</strong> Agreement signed {p.devices.recordedAt ? fmtDate(p.devices.recordedAt) : "—"} · estimated fitting {fmtDate(p.devices.fittingDate)}.
+                    The warranty, care schedule, and nurture campaigns start when the fitting is confirmed.
+                  </div>
+                  <button className="btn-ghost" style={{fontSize:11,padding:"5px 12px",whiteSpace:"nowrap"}} onClick={()=>setView("pending-fittings")}>
+                    Open Pending Fittings
+                  </button>
+                </div>
+              )}
+              {/* Only surfaces when the cancelled sale is the chart's sole fitting
+                  (assemblePatient prefers live rows) — i.e. a first-time purchaser
+                  who rescinded before delivery. */}
+              {p.devices?.fittingStatus === "cancelled" && (
+                <div style={{display:"flex",alignItems:"center",gap:10,background:"#f9fafb",border:"1px solid #e5e7eb",borderRadius:10,padding:"10px 14px",marginBottom:12}}>
+                  <div style={{fontSize:12,color:"#6b7280",lineHeight:1.5,flex:1}}>
+                    <strong>Sale cancelled before fitting</strong>{p.devices.cancelledAt ? ` on ${fmtDate(p.devices.cancelledAt)}` : ""}
+                    {p.devices.cancelReason ? ` — ${p.devices.cancelReason.replace(/_/g," ")}` : ""}. The devices below are the
+                    configuration from the cancelled agreement; no warranty applies. See the Notes card for details.
+                  </div>
+                </div>
+              )}
               {editSection === "devices" ? (
                 <div>
                   {/* Fitting-level fields */}
@@ -8024,8 +8079,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   })}
                   </div>
                   <div style={{borderTop:"1px solid #F0EDE3",paddingTop:12,display:"grid",gridTemplateColumns:"1fr 1fr"}}>
-                    {[["Serial (L)",p.devices?.serialLeft],["Serial (R)",p.devices?.serialRight],["Fitting Date",fmtDate(p.devices?.fittingDate||p.createdAt)],["Warranty Expires",fmtDate(p.devices?.warrantyExpiry)],["Warranty Status",days<0?"Expired":`${days} days remaining`]].map(([k,v])=>(
-                      <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val" style={k==="Warranty Status"?{color:days<0?"#ef4444":days<90?"#f59e0b":"#16a34a"}:{}}>{v||"—"}</span></div>
+                    {[["Serial (L)",p.devices?.serialLeft],["Serial (R)",p.devices?.serialRight],
+                      ["Fitting Date",p.devices?.pendingFitting ? `Est. ${fmtDate(p.devices?.fittingDate)} — not yet fit` : fmtDate(p.devices?.fittingDate||p.createdAt)],
+                      ["Warranty Expires",p.devices?.warrantyExpiry ? fmtDate(p.devices.warrantyExpiry) : (p.devices?.pendingFitting ? `${p.devices?.warrantyYears||3} years from fit date` : null)],
+                      ["Warranty Status",p.devices?.warrantyExpiry ? (days<0?"Expired":`${days} days remaining`) : (p.devices?.pendingFitting ? "Starts at fitting" : null)]].map(([k,v])=>(
+                      <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val" style={k==="Warranty Status"&&p.devices?.warrantyExpiry?{color:days<0?"#ef4444":days<90?"#f59e0b":"#16a34a"}:{}}>{v||"—"}</span></div>
                     ))}
                   </div>
                 </>
@@ -9966,8 +10024,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             {/* "Schedule" deliberately absent: calendaring was dropped as a product
                 decision — clinics have scheduling tools; Distil tracks
                 next_appointment_date only. */}
-            {[["dashboard","Dashboard","dashboard"],["users","Patients","patients"],["bell","Follow-up","followup"],["archive","Archive","archive"],["chart","Reports","reports"],["compare","Compare Devices","compare"],["clipboard","Market Catalog","market-catalog"],["campaign","Campaigns","campaigns"],["book","Content Library","content"],["medal","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
-              const badge = id === "followup" ? countFollowUpPatients(patients) : 0;
+            {[["dashboard","Dashboard","dashboard"],["users","Patients","patients"],["clock","Pending Fittings","pending-fittings"],["bell","Follow-up","followup"],["archive","Archive","archive"],["chart","Reports","reports"],["compare","Compare Devices","compare"],["clipboard","Market Catalog","market-catalog"],["campaign","Campaigns","campaigns"],["book","Content Library","content"],["medal","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
+              const badge = id === "followup" ? countFollowUpPatients(patients)
+                : id === "pending-fittings" ? countPendingFittings(patients)
+                : 0;
               return (
               <div key={id} className={`nav-item ${view===id||(id==="dashboard"&&view==="new")||(id==="patients"&&(view==="dashboard"||view==="patient"))?"active":""}`}
                 onClick={()=>{
@@ -9976,7 +10036,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 }}>
                 <span className="nav-icon"><Icon name={icon} size={17}/></span>{label}
                 {badge > 0 && (
-                  <span style={{marginLeft:"auto",background:"#ef4444",color:"white",borderRadius:20,padding:"1px 7px",fontSize:10,fontWeight:700}}>{badge}</span>
+                  // Teal for pending fittings — sold devices awaiting delivery is
+                  // work waiting, not an overdue alarm like the follow-up red.
+                  <span style={{marginLeft:"auto",background:id==="pending-fittings"?"#1B8A7A":"#ef4444",color:"white",borderRadius:20,padding:"1px 7px",fontSize:10,fontWeight:700}}>{badge}</span>
                 )}
               </div>
             )})}
@@ -10208,6 +10270,15 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           {view === "followup" && (
             <FollowUpQueue
               patients={patients}
+              onSelectPatient={(p) => { setSelectedPatient(p); setView("patient"); }}
+              onRefresh={refreshPatients}
+            />
+          )}
+          {view === "pending-fittings" && (
+            <PendingFittings
+              patients={patients}
+              staffId={staffId}
+              clinicId={clinicId}
               onSelectPatient={(p) => { setSelectedPatient(p); setView("patient"); }}
               onRefresh={refreshPatients}
             />

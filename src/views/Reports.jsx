@@ -11,7 +11,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from "react";
-import { loadAppointmentOutcomes, loadFittingTypesForVisits, loadPriceAdjustmentHistory } from "../db.js";
+import { loadAppointmentOutcomes, loadFittingInfoForVisits, loadPriceAdjustmentHistory } from "../db.js";
 import {
   computeReportStats, computeAdjustmentStats, computeFollowUpStats,
   selectOutcomeDrill, selectFollowUpDrill, selectAdjustmentDrill,
@@ -116,7 +116,7 @@ function slug(s) {
 // formatted) so they're spreadsheet-ready; labels match the on-screen tables.
 function buildCsv(shape, rows, { patientName } = {}) {
   if (shape === "transactions") {
-    const headers = ["Patient", "Closed", "Context", "Device outcome", "Device reason", "Care plan", "Payer", "Payer name", "Tier", "Device revenue", "Care plan revenue", "Total revenue", "Bilateral assumed"];
+    const headers = ["Patient", "Closed", "Context", "Device outcome", "Device reason", "Care plan", "Payer", "Payer name", "Tier", "Device revenue", "Care plan revenue", "Total revenue", "Bilateral assumed", "Sale cancelled"];
     const records = rows.map(r => [
       displayName(r.patientName, r.patientId),
       fmtDate(r.closedAt),
@@ -133,6 +133,7 @@ function buildCsv(shape, rows, { patientName } = {}) {
       r.carePlanRevenue || 0,
       r.revenue || 0,
       r.aidsEstimated ? "yes" : "",
+      r.saleCancelled ? "yes" : "",
     ]);
     return toCsv(headers, records);
   }
@@ -374,10 +375,19 @@ function TransactionsTable({ rows, scope, onOpenPatient, patientOpenable }) {
                 </td>
                 <td style={td}>{r.tier || "—"}</td>
                 <td style={{ ...td, textAlign: "right", fontWeight: 700, color: "#111827" }}>
-                  {r.revenue > 0 ? usd.format(r.revenue) : "—"}
-                  {r.aidsEstimated && <span title="Bilateral assumed — no fitting linked" style={{ color: "#b45309", fontWeight: 500 }}> *</span>}
-                  {r.carePlanRevenue > 0 && (
-                    <div style={{ fontSize: 11, fontWeight: 600, color: "#7c3aed" }}>incl. {usd.format(r.carePlanRevenue)} care plan</div>
+                  {r.saleCancelled ? (
+                    <>
+                      <span style={{ color: "#9ca3af", textDecoration: "line-through" }}>{r.cancelledRevenue > 0 ? usd.format(r.cancelledRevenue) : "—"}</span>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#dc2626" }}>Sale cancelled — excluded</div>
+                    </>
+                  ) : (
+                    <>
+                      {r.revenue > 0 ? usd.format(r.revenue) : "—"}
+                      {r.aidsEstimated && <span title="Bilateral assumed — no fitting linked" style={{ color: "#b45309", fontWeight: 500 }}> *</span>}
+                      {r.carePlanRevenue > 0 && (
+                        <div style={{ fontSize: 11, fontWeight: 600, color: "#7c3aed" }}>incl. {usd.format(r.carePlanRevenue)} care plan</div>
+                      )}
+                    </>
                   )}
                 </td>
                 <td style={{ ...td, whiteSpace: "normal", minWidth: 150 }}>{reason}</td>
@@ -567,6 +577,9 @@ function ReportDetail({ drill, selection, rangeLabel, scopeLabel, scope, onBack,
         <AdjustmentsTable rows={selection.rows} patientName={patientName} onOpenPatient={onOpenPatient} patientOpenable={patientOpenable} />
       )}
 
+      {shape === "transactions" && selection.rows.some(r => r.saleCancelled) && (
+        <div style={{ fontSize: 11.5, color: "#9ca3af" }}>Cancelled sales stay listed as commits but contribute $0 — the purchase was unwound before fitting (Pending Fittings queue).</div>
+      )}
       {shape === "transactions" && selection.rows.some(r => r.aidsEstimated) && (
         <div style={{ fontSize: 11.5, color: "#9ca3af" }}>* Revenue assumes a bilateral fitting — no device fitting was linked to this outcome.</div>
       )}
@@ -579,6 +592,9 @@ export default function Reports({ clinicId, clinicName, staffId, patients = [], 
   const [scope, setScope] = useState("clinic"); // 'clinic' | 'org'
   const [outcomes, setOutcomes] = useState(null);
   const [fittingTypes, setFittingTypes] = useState({});
+  // Visits whose sale was cancelled from the Pending Fittings queue —
+  // committed revenue excludes them (lib/reportStats.js).
+  const [cancelledVisits, setCancelledVisits] = useState({});
   const [adjustments, setAdjustments] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -595,10 +611,11 @@ export default function Reports({ clinicId, clinicName, staffId, patients = [], 
           clinicId: scope === "clinic" ? clinicId : null,
           from: from ? from.toISOString() : null,
         });
-        const ftMap = await loadFittingTypesForVisits(rows.map(r => r.visit_id));
+        const fitInfo = await loadFittingInfoForVisits(rows.map(r => r.visit_id));
         if (cancelled) return;
         setOutcomes(rows);
-        setFittingTypes(ftMap);
+        setFittingTypes(fitInfo.types);
+        setCancelledVisits(fitInfo.cancelledVisits);
       } catch (e) {
         console.error("Reports load failed:", e);
         if (!cancelled) setError(e?.message || "Failed to load report data.");
@@ -621,8 +638,8 @@ export default function Reports({ clinicId, clinicName, staffId, patients = [], 
   useEffect(() => { setDrill(null); }, [range, scope]);
 
   const stats = useMemo(
-    () => (outcomes ? computeReportStats(outcomes, fittingTypes) : null),
-    [outcomes, fittingTypes]
+    () => (outcomes ? computeReportStats(outcomes, fittingTypes, { cancelledVisits }) : null),
+    [outcomes, fittingTypes, cancelledVisits]
   );
   const adjInRange = useMemo(() => {
     const from = rangeToFrom(range);
@@ -664,11 +681,11 @@ export default function Reports({ clinicId, clinicName, staffId, patients = [], 
   // The computed selection behind the open drill.
   const selection = useMemo(() => {
     if (!drill) return null;
-    if (drill.source === "outcomes")     return selectOutcomeDrill(outcomes || [], drill, fittingTypes);
+    if (drill.source === "outcomes")     return selectOutcomeDrill(outcomes || [], drill, fittingTypes, { cancelledVisits });
     if (drill.source === "followup")     return selectFollowUpDrill(patients, drill, { classify, from: rangeToFrom(range), outcomes: outcomes || [] });
     if (drill.source === "adjustments")  return selectAdjustmentDrill(adjInRange, drill, {});
     return null;
-  }, [drill, outcomes, fittingTypes, patients, range, adjInRange]);
+  }, [drill, outcomes, fittingTypes, cancelledVisits, patients, range, adjInRange]);
 
   const tpa = stats?.carePlan.byPayer.tpa;
   const seg = (active) => ({
@@ -744,6 +761,9 @@ export default function Reports({ clinicId, clinicName, staffId, patients = [], 
               onClick={() => open("outcomes", "tpa_attach")} />
             <StatCard label="Committed revenue" value={usd.format(stats.revenue.committedRevenue)}
               sub={`${usd.format(stats.revenue.deviceRevenue)} devices · ${usd.format(stats.revenue.carePlanRevenue)} care plans` +
+                (stats.revenue.cancelled.count
+                  ? ` · −${usd.format(stats.revenue.cancelled.total)} from ${stats.revenue.cancelled.count} cancelled sale${stats.revenue.cancelled.count === 1 ? "" : "s"} (excluded)`
+                  : "") +
                 (stats.revenue.unpricedCount ? ` · ${stats.revenue.unpricedCount} unpriced` : "")}
               accent="#0369a1"
               onClick={() => open("outcomes", "revenue")} />

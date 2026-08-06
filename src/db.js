@@ -22,6 +22,7 @@ import { CONTENT_LIBRARY, CAMPAIGN_TIMELINE } from './nurture_seed_data.js'
 import { runRecommendationEngine } from './recommendationEngine.js'
 import { LEGACY_DEVICES_DEFAULT } from './legacyDevices.js'
 import { messagePreview } from './lib/comms.js'
+import { warrantyDate } from './lib/dates.js'
 
 
 // ============================================================
@@ -736,7 +737,12 @@ function assemblePatient(row) {
   const coverage = row.insurance_coverage?.[0] || null
   // Current fitting/audiogram = the newest. Baseline + full history load on
   // demand (loadBaselineAudiology / loadVisitHistory) for the upgrade flow.
-  const fitting  = pickNewest(row.device_fittings)
+  // Cancelled sales are skipped — a rescinded upgrade must not mask the
+  // patient's real current aids. If EVERY row is cancelled (a first-time
+  // purchaser who rescinded), fall back to the newest so the quoted devices
+  // still show on their TNS chart.
+  const liveFittings = (row.device_fittings || []).filter(f => f.fitting_status !== 'cancelled')
+  const fitting  = pickNewest(liveFittings) || pickNewest(row.device_fittings)
   const sides    = fitting?.device_sides || []
   const leftSide  = sides.find(s => s.ear === 'left')  || null
   const rightSide = sides.find(s => s.ear === 'right') || null
@@ -813,6 +819,16 @@ function assemblePatient(row) {
       fittingType:    fitting.fitting_type,
       fittingDate:    fitting.fitting_date,
       warrantyExpiry: fitting.warranty_expiry,
+      // Pending Fittings queue: 'pending' = PA signed, devices not yet
+      // delivered/fit (fittingDate is an ESTIMATE until confirmation);
+      // 'cancelled' = the sale was unwound before delivery (only surfaces
+      // here when it's the patient's sole fitting — see liveFittings above).
+      fittingStatus:  fitting.fitting_status || 'fitted',
+      pendingFitting: fitting.fitting_status === 'pending',
+      warrantyYears:  fitting.warranty_years ?? null,
+      recordedAt:     fitting.created_at || null,
+      cancelledAt:    fitting.cancelled_at || null,
+      cancelReason:   fitting.cancel_reason || null,
       serialLeft:     fitting.serial_left,
       serialRight:    fitting.serial_right,
       manufacturer:   primary?.manufacturer || '',
@@ -1123,7 +1139,11 @@ export async function savePatient(patient, staffId, clinicId) {
         fitted_by:       staffId,
         fitting_date:    patient.devices.fittingDate    || null,
         fitting_type:    fittingType,
-        warranty_expiry: patient.devices.warrantyExpiry || null,
+        // Signed PA whose fitting hasn't happened yet: parks in the Pending
+        // Fittings queue; warranty clock starts at fit confirmation.
+        fitting_status:  patient.devices.pendingFitting ? 'pending' : 'fitted',
+        warranty_years:  patient.devices.warrantyYears  || null,
+        warranty_expiry: patient.devices.pendingFitting ? null : (patient.devices.warrantyExpiry || null),
         serial_left:     patient.devices.serialLeft     || null,
         serial_right:    patient.devices.serialRight    || null,
       })
@@ -1239,8 +1259,10 @@ export async function savePatient(patient, staffId, clinicId) {
     if (error) recordFailure('appointments', error)
   }
 
-  // 6. Auto-enroll in default campaign (if patient has a fitting date)
-  if (patient.devices?.fittingDate) {
+  // 6. Auto-enroll in default campaign (if patient has a fitting date).
+  // Pending fittings enroll at fit confirmation instead — the nurture clock
+  // must start from the real fitting date, not the signing-time estimate.
+  if (patient.devices?.fittingDate && !patient.devices.pendingFitting) {
     try {
       const { data: defaultTemplate } = await supabase
         .from('campaign_templates')
@@ -1623,7 +1645,10 @@ export async function updatePatientDevices(patientId, devices, staffId, visitId 
 // makes the just-inserted row the chart's current fitting. Stamps
 // fitting_date (the purchase date) and warranty_expiry directly. Throws on
 // failure so the caller can surface a chart-not-updated warning.
-export async function recordPurchaseFitting(patientId, devices, staffId, { fittingDate = null, warrantyExpiry = null } = {}) {
+// pending:true parks the row in the Pending Fittings queue — fittingDate is
+// then the ESTIMATED fit date, warranty_expiry stays NULL, and warrantyYears
+// records the term to apply when the fitting is confirmed.
+export async function recordPurchaseFitting(patientId, devices, staffId, { fittingDate = null, warrantyExpiry = null, pending = false, warrantyYears = null } = {}) {
   if (!devices) return null
   const fittingType = (devices.fittingType || 'bilateral')
     .toLowerCase().replace('/', '_').replace(' ', '_')
@@ -1636,7 +1661,9 @@ export async function recordPurchaseFitting(patientId, devices, staffId, { fitti
       fitted_by:       staffId,
       fitting_type:    fittingType,
       fitting_date:    fittingDate,
-      warranty_expiry: warrantyExpiry,
+      fitting_status:  pending ? 'pending' : 'fitted',
+      warranty_years:  warrantyYears,
+      warranty_expiry: pending ? null : warrantyExpiry,
       serial_left:     devices.serialLeft  || null,
       serial_right:    devices.serialRight || null,
     })
@@ -1652,6 +1679,35 @@ export async function recordPurchaseFitting(patientId, devices, staffId, { fitti
     if (error) throw error
   }
   return fittingRow
+}
+
+// Re-signing the SAME device configuration already on the chart (e.g. a TNS
+// patient's quoted recommendation becomes a signed agreement) creates no new
+// fitting row — instead the existing row is parked in the Pending Fittings
+// queue. Clears any previously stamped warranty so the clock restarts from
+// the confirmed fit date, and clears cancellation stamps so a patient who
+// rescinded and later re-signs the same config re-enters the queue cleanly
+// (the cancellation itself stays on record in the chart notes). Throws on
+// failure.
+export async function markFittingPending(fittingId, { estimatedFitDate = null, warrantyYears = null } = {}) {
+  if (!fittingId) throw new Error('markFittingPending: fittingId required')
+  const update = {
+    fitting_status:   'pending',
+    warranty_years:   warrantyYears,
+    warranty_expiry:  null,
+    fit_confirmed_at: null,
+    fit_confirmed_by: null,
+    cancelled_at:     null,
+    cancelled_by:     null,
+    cancel_reason:    null,
+    cancel_note:      null,
+  }
+  if (estimatedFitDate) update.fitting_date = estimatedFitDate
+  const { error } = await supabase
+    .from('device_fittings')
+    .update(update)
+    .eq('id', fittingId)
+  if (error) throw error
 }
 
 // Step 4 — save care plan selection
@@ -1694,7 +1750,9 @@ export async function finalizePatient(patientId, status, devices, carePlan, note
   // Direct Purchase can be toggled mid-wizard (after createPatientDraft ran),
   // so re-stamp it at finalize as the canonical write moment.
   if (opts.directPurchase != null) updates.direct_purchase = opts.directPurchase === true
-  if (carePlan && devices?.fittingDate) {
+  // Pending fittings defer the Year-0 stamp to fit confirmation — the care
+  // journey starts when the devices go on the ears, not when the PA is signed.
+  if (carePlan && devices?.fittingDate && !opts.pendingFitting) {
     // Set-once: care_plan_start_date is the "Year 0" of the patient's original
     // journey. An upgrade re-finalize must not reset it (current-aids age is
     // derived from the latest fitting's date instead).
@@ -1717,22 +1775,39 @@ export async function finalizePatient(patientId, status, devices, carePlan, note
     .eq('id', patientId)
   if (patErr) console.error('finalizePatient status:', patErr)
 
-  // Update warranty/fitting dates on device_fittings
-  if (devices?.fittingDate || devices?.warrantyExpiry) {
+  // Update warranty/fitting dates on device_fittings. A signed PA finalizes
+  // as a PENDING fitting (opts.pendingFitting): fitting_date holds the
+  // estimated fit date, the warranty term is captured as warranty_years, and
+  // warranty_expiry stays NULL until the fitting is confirmed from the
+  // Pending Fittings queue.
+  if (devices?.fittingDate || devices?.warrantyExpiry || opts.pendingFitting) {
     const devUpdate = {}
-    if (devices.fittingDate)    devUpdate.fitting_date    = devices.fittingDate
-    if (devices.warrantyExpiry) devUpdate.warranty_expiry = devices.warrantyExpiry
+    if (devices?.fittingDate) devUpdate.fitting_date = devices.fittingDate
+    if (opts.pendingFitting) {
+      devUpdate.fitting_status  = 'pending'
+      devUpdate.warranty_years  = opts.warrantyYears || null
+      devUpdate.warranty_expiry = null
+    } else if (devices?.warrantyExpiry) {
+      devUpdate.warranty_expiry = devices.warrantyExpiry
+    }
     let updQ = supabase.from('device_fittings').update(devUpdate).eq('patient_id', patientId)
     if (visitId) updQ = updQ.eq('visit_id', visitId)   // target only this visit's fitting
     const { error } = await updQ
     if (error) console.error('finalizePatient fittings:', error)
   }
 
-  // Update warranty on insurance_coverage
-  if (devices?.warrantyExpiry) {
+  // Update warranty on insurance_coverage. Pending fittings record the care
+  // plan now but leave the warranty for fit confirmation.
+  if (devices?.warrantyExpiry && !opts.pendingFitting) {
     const { error } = await supabase
       .from('insurance_coverage')
       .update({ warranty_expiry: devices.warrantyExpiry, care_plan_type: carePlan || null })
+      .eq('patient_id', patientId)
+    if (error) console.error('finalizePatient coverage:', error)
+  } else if (opts.pendingFitting && carePlan) {
+    const { error } = await supabase
+      .from('insurance_coverage')
+      .update({ care_plan_type: carePlan })
       .eq('patient_id', patientId)
     if (error) console.error('finalizePatient coverage:', error)
   }
@@ -1763,8 +1838,10 @@ export async function finalizePatient(patientId, status, devices, carePlan, note
     }
   }
 
-  // Auto-enroll in default campaign
-  if (devices?.fittingDate) {
+  // Auto-enroll in default campaign. Pending fittings enroll at fit
+  // confirmation instead — the nurture clock officially starts when the
+  // devices are delivered, not at signing.
+  if (devices?.fittingDate && !opts.pendingFitting) {
     try {
       const { data: defaultTemplate } = await supabase
         .from('campaign_templates')
@@ -1802,6 +1879,295 @@ export async function finalizePatient(patientId, status, devices, carePlan, note
       console.error('auto-enroll tnl campaign:', e)
     }
   }
+}
+
+// ============================================================
+// PENDING FITTINGS QUEUE
+// ============================================================
+
+// Confirm a pending fitting — the moment the devices are physically delivered
+// and fit. This is the single clock-start event for everything downstream:
+//   - authoritative fitting_date + warranty_expiry (fit date + the
+//     warranty_years captured at signing) on device_fittings
+//   - warranty_expiry mirrored to insurance_coverage
+//   - care_plan_start_date (set-once "Year 0") + last_visit_date on patients
+//   - the estimated "Fitting & Orientation" placeholder appointment becomes
+//     the completed record of today's visit
+//   - the caller-built care arc (buildCareArc(fitDate)) is inserted with the
+//     same type+date dedupe guard finalizePatient uses
+//   - the default nurture campaign enrolls with the REAL trigger date
+// Throws if the fitting row itself can't be updated (the load-bearing write);
+// downstream failures are collected and returned as warnings so the caller
+// can surface partial success without un-confirming the fitting.
+export async function confirmDeviceFitting({ fittingId, patientId, fitDate, staffId, clinicId, appointments = [] }) {
+  if (!fittingId || !patientId || !fitDate) {
+    throw new Error('confirmDeviceFitting: fittingId, patientId, and fitDate are required')
+  }
+  const warnings = []
+
+  const { data: fitting, error: loadErr } = await supabase
+    .from('device_fittings')
+    .select('id, fitting_status, warranty_years, created_at')
+    .eq('id', fittingId)
+    .single()
+  if (loadErr) throw loadErr
+
+  const years = fitting.warranty_years || 3
+  const warrantyExpiry = warrantyDate(fitDate, years)
+
+  const { error: fitErr } = await supabase
+    .from('device_fittings')
+    .update({
+      fitting_status:   'fitted',
+      fitting_date:     fitDate,
+      warranty_expiry:  warrantyExpiry,
+      fit_confirmed_at: new Date().toISOString(),
+      fit_confirmed_by: staffId || null,
+    })
+    .eq('id', fittingId)
+  if (fitErr) throw fitErr
+
+  // Mirror the warranty onto the coverage record (same write finalizePatient
+  // used to make at signing).
+  {
+    const { error } = await supabase
+      .from('insurance_coverage')
+      .update({ warranty_expiry: warrantyExpiry })
+      .eq('patient_id', patientId)
+    if (error) {
+      console.error('confirmDeviceFitting coverage:', error)
+      warnings.push('warranty on the insurance coverage record')
+    }
+  }
+
+  // Year-0 stamp (set-once — an upgrade fitting must not reset the original
+  // journey anchor) and last-visit mirror (only ever advances).
+  try {
+    const { data: pat } = await supabase
+      .from('patients')
+      .select('care_plan_start_date, last_visit_date')
+      .eq('id', patientId)
+      .maybeSingle()
+    const patUpdates = {}
+    if (!pat?.care_plan_start_date) patUpdates.care_plan_start_date = fitDate
+    if (!pat?.last_visit_date || new Date(fitDate) > new Date(pat.last_visit_date)) {
+      patUpdates.last_visit_date = fitDate
+    }
+    if (Object.keys(patUpdates).length) {
+      const { error } = await supabase.from('patients').update(patUpdates).eq('id', patientId)
+      if (error) throw error
+    }
+  } catch (e) {
+    console.error('confirmDeviceFitting patient stamps:', e)
+    warnings.push('care-plan start / last-visit dates on the patient record')
+  }
+
+  // The estimated Fitting & Orientation placeholder (scheduled at signing)
+  // becomes the completed record of the visit that just happened. Date-gated
+  // to this sale: an upgrade patient's stale F&O row from the ORIGINAL fit
+  // (years back, still 'scheduled') must not be re-dated into the new arc.
+  try {
+    let phQuery = supabase
+      .from('appointments')
+      .select('id')
+      .eq('patient_id', patientId)
+      .eq('appointment_type', 'Fitting & Orientation')
+      .eq('status', 'scheduled')
+    if (fitting.created_at) phQuery = phQuery.gte('appointment_date', fitting.created_at)
+    const { data: placeholders } = await phQuery
+    if (placeholders?.length) {
+      const { error } = await supabase
+        .from('appointments')
+        .update({ appointment_date: fitDate, status: 'completed' })
+        .in('id', placeholders.map(r => r.id))
+      if (error) throw error
+    }
+  } catch (e) {
+    console.error('confirmDeviceFitting placeholder appointment:', e)
+    warnings.push('the scheduled fitting appointment')
+  }
+
+  // Insert the care arc, deduped by type+date against everything already on
+  // the chart (including the placeholder just re-dated above, which absorbs
+  // the arc's offset-0 entry).
+  if (appointments.length) {
+    try {
+      const dateKey = d => (d || '').split('T')[0]
+      const { data: existingAppts } = await supabase
+        .from('appointments')
+        .select('appointment_type, appointment_date')
+        .eq('patient_id', patientId)
+      const existingKeys = new Set((existingAppts || []).map(r => `${r.appointment_type}|${dateKey(r.appointment_date)}`))
+      const apptRows = appointments
+        .filter(appt => !existingKeys.has(`${appt.type || null}|${dateKey(appt.date)}`))
+        .map(appt => ({
+          patient_id:       patientId,
+          clinic_id:        clinicId,
+          staff_id:         staffId,
+          appointment_date: appt.date,
+          appointment_type: appt.type || null,
+          notes:            appt.note || null,
+          status:           appt.status || 'scheduled',
+        }))
+      if (apptRows.length) {
+        const { error } = await supabase.from('appointments').insert(apptRows)
+        if (error) throw error
+      }
+    } catch (e) {
+      console.error('confirmDeviceFitting care arc:', e)
+      warnings.push('the care schedule')
+    }
+  }
+
+  // Start the nurture clock with the real fitting date. Exact-duplicate guard
+  // (same template + same trigger date) so a double-confirm can't
+  // double-enroll; an upgrade fitting years later still gets a fresh journey.
+  try {
+    const { data: defaultTemplate } = await supabase
+      .from('campaign_templates')
+      .select('id')
+      .eq('name', 'Standard Hearing Care Journey')
+      .eq('active', true)
+      .limit(1)
+      .maybeSingle()
+    if (defaultTemplate) {
+      const { data: existing } = await supabase
+        .from('patient_campaigns')
+        .select('id')
+        .eq('patient_id', patientId)
+        .eq('template_id', defaultTemplate.id)
+        .eq('trigger_date', fitDate)
+        .limit(1)
+      if (!existing?.length) {
+        await enrollPatientInCampaign(patientId, defaultTemplate.id, fitDate, staffId)
+      }
+    }
+  } catch (e) {
+    console.error('confirmDeviceFitting campaign enrollment:', e)
+    warnings.push('nurture campaign enrollment')
+  }
+
+  return { warrantyExpiry, warrantyYears: years, warnings }
+}
+
+// Cancel a pending sale — the patient signed a purchase agreement but
+// rescinded before the devices were delivered/fit. The fitting row is never
+// deleted (it's the record that the sale happened and was unwound): it flips
+// to fitting_status='cancelled' with who/when/why, leaves the queue, and
+// stops being the chart's current fitting (assemblePatient prefers the
+// newest non-cancelled row, so an upgrade patient's real aids resurface).
+//
+// Patient status: a new patient whose ONLY sale this was reverts to 'tns' —
+// they're back in the tested-not-sold funnel. An established patient with a
+// real prior fitting on file (confirmed, or carrying a warranty from the
+// pre-queue era) stays 'active'; only the new sale is unwound.
+//
+// Throws if the row isn't pending (already fitted → this is a return/refund
+// conversation, not a queue action; already cancelled → no-op protection).
+// Downstream failures are collected as warnings, like confirmDeviceFitting.
+export async function cancelPendingFitting({ fittingId, patientId, reason, note = null, staffId, clinicId }) {
+  if (!fittingId || !patientId || !reason) {
+    throw new Error('cancelPendingFitting: fittingId, patientId, and reason are required')
+  }
+  const warnings = []
+
+  const { data: fitting, error: loadErr } = await supabase
+    .from('device_fittings')
+    .select('id, fitting_status, created_at')
+    .eq('id', fittingId)
+    .single()
+  if (loadErr) throw loadErr
+  if (fitting.fitting_status !== 'pending') {
+    throw new Error(
+      fitting.fitting_status === 'fitted'
+        ? 'This fitting is already confirmed — a delivered sale is a return, not a cancellation. Handle it from the chart.'
+        : 'This sale is already cancelled.'
+    )
+  }
+
+  const { error: cancelErr } = await supabase
+    .from('device_fittings')
+    .update({
+      fitting_status: 'cancelled',
+      cancelled_at:   new Date().toISOString(),
+      cancelled_by:   staffId || null,
+      cancel_reason:  reason,
+      cancel_note:    note?.trim() || null,
+    })
+    .eq('id', fittingId)
+  if (cancelErr) throw cancelErr
+
+  // The estimated Fitting & Orientation placeholder scheduled at signing is
+  // no longer happening. Date-gated to this sale, same as confirm.
+  try {
+    let phQuery = supabase
+      .from('appointments')
+      .select('id')
+      .eq('patient_id', patientId)
+      .eq('appointment_type', 'Fitting & Orientation')
+      .eq('status', 'scheduled')
+    if (fitting.created_at) phQuery = phQuery.gte('appointment_date', fitting.created_at)
+    const { data: placeholders } = await phQuery
+    if (placeholders?.length) {
+      const { error } = await supabase
+        .from('appointments')
+        .update({ status: 'cancelled' })
+        .in('id', placeholders.map(r => r.id))
+      if (error) throw error
+    }
+  } catch (e) {
+    console.error('cancelPendingFitting placeholder appointment:', e)
+    warnings.push('cancelling the scheduled fitting appointment')
+  }
+
+  // Revert a first-time purchaser to TNS. "Real prior fitting" = any OTHER
+  // fitting row that was queue-confirmed or carries a warranty (pre-queue
+  // fittings always stamped one); plain recommendation rows have neither.
+  let revertedToTns = false
+  try {
+    const { data: others } = await supabase
+      .from('device_fittings')
+      .select('id, fit_confirmed_at, warranty_expiry')
+      .eq('patient_id', patientId)
+      .neq('id', fittingId)
+    const hasPriorRealFit = (others || []).some(r => r.fit_confirmed_at || r.warranty_expiry)
+    if (!hasPriorRealFit) {
+      const { data: pat } = await supabase
+        .from('patients')
+        .select('patient_status')
+        .eq('id', patientId)
+        .maybeSingle()
+      if (pat?.patient_status === 'active') {
+        const { error } = await supabase
+          .from('patients')
+          .update({ patient_status: 'tns', status_updated_at: new Date().toISOString() })
+          .eq('id', patientId)
+        if (error) throw error
+        revertedToTns = true
+      }
+    }
+  } catch (e) {
+    console.error('cancelPendingFitting status revert:', e)
+    warnings.push('reverting the patient to tested-not-sold')
+  }
+
+  // Append-only audit note on the chart.
+  if (staffId && clinicId) {
+    try {
+      const reasonLabel = reason.replace(/_/g, ' ')
+      await addPatientNote(patientId, {
+        body: `Purchase agreement cancelled before fitting — ${reasonLabel}${note?.trim() ? `: ${note.trim()}` : ''}.`
+          + (revertedToTns ? ' Patient returned to tested-not-sold.' : ''),
+        staffId,
+        clinicId,
+      })
+    } catch (e) {
+      console.error('cancelPendingFitting chart note:', e)
+      warnings.push('logging the cancellation note')
+    }
+  }
+
+  return { revertedToTns, warnings }
 }
 
 
@@ -1927,24 +2293,36 @@ export async function loadAppointmentOutcomes({ clinicId = null, from = null, to
   return data || []
 }
 
-// fitting_type per visit for the outcomes' linked visits, so committed
-// revenue can count real fitted ears instead of assuming bilateral.
-// Returns { [visit_id]: fitting_type }. Best-effort: an error here only
-// degrades the revenue figure to the bilateral assumption, so it logs
-// and returns {} rather than failing the whole report.
-export async function loadFittingTypesForVisits(visitIds = []) {
+// Fitting info per visit for the outcomes' linked visits, so committed
+// revenue can count real fitted ears instead of assuming bilateral — and
+// exclude sales cancelled from the Pending Fittings queue. Returns
+// { types: { [visit_id]: fitting_type }, cancelledVisits: { [visit_id]: true } }.
+// A visit counts as cancelled only when it has a cancelled fitting and NO
+// live (pending/fitted) one. Best-effort: an error here only degrades the
+// revenue figure to the bilateral assumption with no cancellation exclusion,
+// so it logs and returns empty maps rather than failing the whole report.
+export async function loadFittingInfoForVisits(visitIds = []) {
   const ids = visitIds.filter(Boolean)
-  if (!ids.length) return {}
+  if (!ids.length) return { types: {}, cancelledVisits: {} }
   const { data, error } = await supabase
     .from('device_fittings')
-    .select('visit_id, fitting_type')
+    .select('visit_id, fitting_type, fitting_status')
     .in('visit_id', ids)
-  if (error) { console.error('loadFittingTypesForVisits:', error); return {} }
-  const map = {}
+  if (error) { console.error('loadFittingInfoForVisits:', error); return { types: {}, cancelledVisits: {} } }
+  const types = {}
+  const hasLive = {}
+  const hasCancelled = {}
   for (const row of data || []) {
-    if (row.visit_id) map[row.visit_id] = row.fitting_type
+    if (!row.visit_id) continue
+    types[row.visit_id] = row.fitting_type
+    if (row.fitting_status === 'cancelled') hasCancelled[row.visit_id] = true
+    else hasLive[row.visit_id] = true
   }
-  return map
+  const cancelledVisits = {}
+  for (const vid of Object.keys(hasCancelled)) {
+    if (!hasLive[vid]) cancelledVisits[vid] = true
+  }
+  return { types, cancelledVisits }
 }
 
 // Post-close seam: everything that should eventually fire after a disposition
@@ -3694,7 +4072,7 @@ export async function backfillCampaignEnrollment(clinicId, staffId) {
 
   const { data: patients } = await supabase
     .from('patients')
-    .select('id, device_fittings(fitting_date)')
+    .select('id, device_fittings(fitting_date, fitting_status)')
     .eq('clinic_id', clinicId)
 
   const { data: existingEnrollments } = await supabase
@@ -3709,8 +4087,10 @@ export async function backfillCampaignEnrollment(clinicId, staffId) {
   for (const p of (patients || [])) {
     // Earliest fitting = the original fit, which anchors the care-journey
     // cadence (a patient may now have multiple fittings across visits).
+    // Pending fittings are excluded — their date is an estimate; they enroll
+    // at fit confirmation instead.
     const fitting = (p.device_fittings || [])
-      .filter(f => f.fitting_date)
+      .filter(f => f.fitting_date && f.fitting_status !== 'pending')
       .sort((a, b) => new Date(a.fitting_date) - new Date(b.fitting_date))[0]
     if (!fitting?.fitting_date) { skipped++; continue }
     if (enrolledSet.has(p.id)) { skipped++; continue }
@@ -4200,17 +4580,22 @@ export async function saveTnsOutcome(patientId, clinicId, staffId, reasons, note
   if (error) throw error
 }
 
-export async function convertTnsToActive(patientId, warrantyYears = 3) {
-  const fittingDate = new Date().toISOString().split('T')[0]
-  const expiry = new Date()
-  expiry.setFullYear(expiry.getFullYear() + warrantyYears)
-  const warrantyExpiry = expiry.toISOString().split('T')[0]
-
+// stampFittings:false skips the blanket fitting-date/warranty stamp — used by
+// the pending-fittings flow, where the signed agreement's fitting row is
+// parked as 'pending' and the warranty clock starts at fit confirmation.
+export async function convertTnsToActive(patientId, warrantyYears = 3, { stampFittings = true } = {}) {
   const { error: pErr } = await supabase.from('patients').update({
     patient_status: 'active',
     status_updated_at: new Date().toISOString(),
   }).eq('id', patientId)
   if (pErr) throw pErr
+
+  if (!stampFittings) return
+
+  const fittingDate = new Date().toISOString().split('T')[0]
+  const expiry = new Date()
+  expiry.setFullYear(expiry.getFullYear() + warrantyYears)
+  const warrantyExpiry = expiry.toISOString().split('T')[0]
 
   const { error: fErr } = await supabase.from('device_fittings').update({
     fitting_date: fittingDate,

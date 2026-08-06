@@ -34,6 +34,7 @@ const PATHS = {
   pin: <><path d="M12 21.5S5.5 15.8 5.5 10.8a6.5 6.5 0 0 1 13 0c0 5-6.5 10.7-6.5 10.7Z"/><circle cx="12" cy="10.6" r="2.3"/></>,
   archive: <><rect x="3.5" y="4" width="17" height="4" rx="1"/><path d="M5 8v10.5a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5V8"/><path d="M9.6 12h4.8"/></>,
   verify: <><circle cx="12" cy="12" r="8.5"/><path d="m8.4 12 2.4 2.4 4.8-5"/></>,
+  clock: <><circle cx="12" cy="12" r="8.5"/><path d="M12 7.2V12l3.2 2.2"/></>,
 };
 
 export default function Icon({ name, size = 18, strokeWidth = 1.75, style }) {

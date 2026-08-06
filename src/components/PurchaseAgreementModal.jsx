@@ -16,12 +16,14 @@ import {
   uploadPatientDocument,
   logPriceAdjustment,
   recordPurchaseFitting,
+  markFittingPending,
   updateInsuranceCoverage,
   updatePatientContact,
   convertTnsToActive,
 } from '../db.js'
 import { ADJUST_REASON_CODES } from '../views/AdjustPriceModal.jsx'
 import { nationsCoverageTier, deriveEarPrice, CROS_PRICE_PER_UNIT } from '../lib/pricing.js'
+import { estimateFitDate, warrantyYearsFor } from '../lib/pendingFitting.js'
 
 // Full purchase-agreement flow launched from the patient profile (or handed
 // off from the Custom Quote via `initialState`). Replaces the old read-only
@@ -450,12 +452,12 @@ export default function PurchaseAgreementModal({
       const sigDate = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
       const carePlanId = carePlan || 'complete'
       // Warranty follows the printed agreement (CARE_PLAN_META): Complete
-      // Care+ extends to 4 years; private pay bundles Complete Care+.
-      const warrantyYears = (payType === 'private' || carePlanId === 'complete') ? 4 : 3
-      const fittingDate = todayISO()
-      const expiry = new Date()
-      expiry.setFullYear(expiry.getFullYear() + warrantyYears)
-      const warrantyExpiry = expiry.toISOString().split('T')[0]
+      // Care+ extends to 4 years; private pay bundles Complete Care+. The
+      // term is captured now, but the clock starts at fit confirmation — the
+      // signed agreement parks the patient in the Pending Fittings queue with
+      // an ESTIMATED fit date; warranty expiry is computed from the real one.
+      const warrantyYears = warrantyYearsFor(payType, carePlanId)
+      const estFitDate = estimateFitDate(todayISO())
 
       const leftOut  = hasLeft  ? { ...left,  model: left.family  || left.familyId  } : null
       const rightOut = hasRight ? { ...right, model: right.family || right.familyId } : null
@@ -567,13 +569,15 @@ export default function PurchaseAgreementModal({
             // with their own; enter them on the chart at delivery.
             { fittingType, left: hasLeft ? left : null, right: hasRight ? right : null },
             staffId,
-            { fittingDate, warrantyExpiry }
+            { fittingDate: estFitDate, pending: true, warrantyYears }
           )
           const primary = (hasLeft ? left : null) || (hasRight ? right : null)
           chartPatch.devices = {
             fittingType,
-            fittingDate,
-            warrantyExpiry,
+            fittingDate: estFitDate,
+            warrantyExpiry: null,
+            pendingFitting: true,
+            warrantyYears,
             serialLeft: null,
             serialRight: null,
             manufacturer: primary?.manufacturer || '',
@@ -588,6 +592,24 @@ export default function PurchaseAgreementModal({
         } catch (e) {
           console.error('Save agreement devices:', e)
           warnings.push('Saving the updated devices to the chart failed: ' + (e?.message || e))
+        }
+      } else if (p._ids?.fittingId && (p.patientStatus === 'tns' || p.patientStatus === 'prospect')) {
+        // Same configuration the chart already carries as a quoted
+        // recommendation (no new fitting row) — park that row in the Pending
+        // Fittings queue. An established ACTIVE patient re-signing an
+        // unchanged config keeps their fitted history untouched, as before.
+        try {
+          await markFittingPending(p._ids.fittingId, { estimatedFitDate: estFitDate, warrantyYears })
+          chartPatch.devices = {
+            ...(p.devices || {}),
+            fittingDate: estFitDate,
+            warrantyExpiry: null,
+            pendingFitting: true,
+            warrantyYears,
+          }
+        } catch (e) {
+          console.error('Mark fitting pending:', e)
+          warnings.push('Adding the patient to the Pending Fittings queue failed: ' + (e?.message || e))
         }
       }
 
@@ -610,9 +632,10 @@ export default function PurchaseAgreementModal({
         warnings.push('Saving the pricing snapshot failed: ' + (e?.message || e))
       }
 
-      // Care plan + insurance snapshot on insurance_coverage.
+      // Care plan + insurance snapshot on insurance_coverage. Warranty is
+      // deliberately NOT stamped here anymore — it lands at fit confirmation.
       try {
-        const covFields = { warranty_expiry: warrantyExpiry }
+        const covFields = {}
         if (carePlanId !== p.carePlan) covFields.care_plan_type = carePlanId
         if (payType === 'insurance') {
           covFields.tier_price_per_aid = Math.round(pricePerAid * 100)
@@ -625,7 +648,7 @@ export default function PurchaseAgreementModal({
               : (planTier || null)
           }
         }
-        if (p._ids?.coverageId || payType === 'insurance' || carePlanId !== p.carePlan) {
+        if (Object.keys(covFields).length && (p._ids?.coverageId || payType === 'insurance' || carePlanId !== p.carePlan)) {
           await updateInsuranceCoverage(p.id, covFields, p._ids?.coverageId || null)
           if (covFields.care_plan_type) chartPatch.carePlan = carePlanId
           if (payType === 'insurance') {
@@ -646,14 +669,13 @@ export default function PurchaseAgreementModal({
         warnings.push('Saving the care plan / coverage snapshot failed: ' + (e?.message || e))
       }
 
-      // Quote-only patient signed — convert to active.
+      // Quote-only patient signed — convert to active. stampFittings:false —
+      // the pending-fittings flow above owns the fitting row now, and the
+      // warranty clock starts at fit confirmation.
       if (p.patientStatus === 'tns') {
         try {
-          await convertTnsToActive(p.id, warrantyYears)
+          await convertTnsToActive(p.id, warrantyYears, { stampFittings: false })
           chartPatch.patientStatus = 'active'
-          if (!chartPatch.devices && p.devices) {
-            chartPatch.devices = { ...p.devices, fittingDate, warrantyExpiry }
-          }
         } catch (e) {
           console.error('convertTnsToActive:', e)
           warnings.push('Converting the patient from TNS to active failed: ' + (e?.message || e))
@@ -664,7 +686,12 @@ export default function PurchaseAgreementModal({
         try { await onChartSaved?.(chartPatch) } catch (e) { console.error('onChartSaved:', e) }
       }
 
-      setDoneInfo({ warnings, chartUpdated: Object.keys(chartPatch).length > 0, devicesChanged })
+      setDoneInfo({
+        warnings,
+        chartUpdated: Object.keys(chartPatch).length > 0,
+        devicesChanged,
+        pendingQueued: !!chartPatch.devices?.pendingFitting,
+      })
       setStep('done')
     } catch (e) {
       console.error('Purchase agreement generate:', e)
@@ -957,6 +984,10 @@ export default function PurchaseAgreementModal({
               <> The chart now reflects this agreement{doneInfo.devicesChanged
                 ? ' — devices, pricing, and care plan updated. Enter the new serial numbers on the chart when the devices arrive.'
                 : ' — pricing and care plan updated.'}</>
+            )}
+            {doneInfo.pendingQueued && (
+              <> The patient is in the <strong>Pending Fittings</strong> queue — confirm the fitting there when the
+              devices are delivered to start the warranty, care schedule, and nurture campaigns.</>
             )}
           </div>
           {doneInfo.warnings.length > 0 && (

@@ -89,7 +89,12 @@ export function classify(p) {
 
   const matched = [];
   const warrantyExpiry = p.devices?.warrantyExpiry || null;
-  const fittingDate    = p.devices?.fittingDate    || null;
+  // Only a CONFIRMED fitting's date counts as "fit": pending sales carry an
+  // estimated date (they live in the Pending Fittings queue, not here) and
+  // cancelled sales were never fit at all.
+  const fittingDate = (p.devices?.fittingStatus ?? "fitted") === "fitted"
+    ? (p.devices?.fittingDate || null)
+    : null;
 
   // Warranty expiring within 90 days (and not already expired)
   if (warrantyExpiry) {
