@@ -169,6 +169,82 @@ describe("computeReportStats — revenue & tier mix", () => {
   });
 });
 
+describe("computeReportStats — cancelled sales excluded from revenue", () => {
+  it("subtracts device + care-plan dollars for a cancelled visit and reports them separately", () => {
+    const stats = computeReportStats(
+      [
+        outcome({ visit_id: "v1" }),   // live: 999 × 2 devices + 1250 CC+
+        outcome({ visit_id: "v2" }),   // cancelled: would have been 999 × 2 + 1250
+      ],
+      { v1: "bilateral", v2: "bilateral" },
+      { cancelledVisits: { v2: true } }
+    );
+    expect(stats.revenue.deviceRevenue).toBe(999 * 2);
+    expect(stats.revenue.carePlanRevenue).toBe(1250);
+    expect(stats.revenue.committedRevenue).toBe(999 * 2 + 1250);
+    expect(stats.revenue.revenueCount).toBe(1);
+    expect(stats.revenue.cancelled).toEqual({
+      count: 1, deviceRevenue: 999 * 2, carePlanRevenue: 1250, total: 999 * 2 + 1250,
+    });
+  });
+
+  it("keeps cancelled commits in the close rate and tier mix — only the money is unwound", () => {
+    const stats = computeReportStats(
+      [outcome({ visit_id: "v1" }), outcome({ visit_id: "v2" })],
+      { v1: "bilateral", v2: "bilateral" },
+      { cancelledVisits: { v2: true } }
+    );
+    expect(stats.closeRate).toEqual({ closed: 2, denominator: 2, rate: 1 });
+    expect(stats.revenue.tierMix).toEqual({ Premium: 2 });
+  });
+
+  it("cancellation of an unlinked outcome is undetectable and counts normally", () => {
+    // No visit_id → nothing to join the cancelled fitting on; the bilateral
+    // estimate stands (already flagged via estimatedAidCount).
+    const stats = computeReportStats([outcome()], {}, { cancelledVisits: { v9: true } });
+    expect(stats.revenue.deviceRevenue).toBe(999 * 2);
+    expect(stats.revenue.cancelled.count).toBe(0);
+  });
+
+  it("excludes the Nations fitting fee for a cancelled sale (never fit → no fee earned)", () => {
+    const nations = (over = {}) => outcome({
+      payer_name: "Aetna",
+      payer_plan_snapshot: { tpa: "Nations", plan_group: "Nations Hearing", tier: "Advanced", tier_price_per_aid: 1450 },
+      care_plan_disposition: "not_applicable", care_plan_selected: null,
+      ...over,
+    });
+    const stats = computeReportStats(
+      [nations({ visit_id: "v1" }), nations({ visit_id: "v2" })],
+      { v1: "bilateral", v2: "bilateral" },
+      { cancelledVisits: { v2: true } }
+    );
+    expect(stats.revenue.nationsFittingFees.count).toBe(1);
+    expect(stats.revenue.nationsFittingFees.revenue).toBe(400 * 2); // Aetna Advanced fee, one live sale
+    expect(stats.revenue.cancelled.deviceRevenue).toBe(1450 * 2);
+  });
+
+  it("toTransaction zeros a cancelled row and carries the would-have-been dollars", () => {
+    const t = toTransaction(outcome({ visit_id: "v2" }), { v2: "bilateral" }, { cancelledVisits: { v2: true } });
+    expect(t.saleCancelled).toBe(true);
+    expect(t.revenue).toBe(0);
+    expect(t.deviceRevenue).toBe(0);
+    expect(t.carePlanRevenue).toBe(0);
+    expect(t.nationsFittingFee).toBe(0);
+    expect(t.cancelledRevenue).toBe(999 * 2 + 1250);
+    expect(t.deviceDisposition).toBe("committed");
+  });
+
+  it("drill revenue sums back to the card with cancelled rows contributing $0", () => {
+    const rows = [outcome({ visit_id: "v1" }), outcome({ visit_id: "v2" })];
+    const maps = { v1: "bilateral", v2: "bilateral" };
+    const cancelledVisits = { v2: true };
+    const stats = computeReportStats(rows, maps, { cancelledVisits });
+    const sel = selectOutcomeDrill(rows, { kind: "revenue" }, maps, { cancelledVisits });
+    expect(sel.count).toBe(2); // the cancelled commit stays listed
+    expect(sel.revenue).toBe(stats.revenue.committedRevenue);
+  });
+});
+
 describe("computeFollowUpStats", () => {
   // Stub classify: bucket comes straight off the patient fixture.
   const classify = (p) => ({ primary: p.flag || null });

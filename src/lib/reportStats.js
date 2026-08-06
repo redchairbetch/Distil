@@ -29,6 +29,13 @@
 //   snapshot (never the live patient record) × fitted ears from the linked
 //   visit's fitting_type; bilateral is assumed when no fitting is linked and
 //   the estimate is flagged.
+// - Cancelled sales (Pending Fittings queue → Cancel Sale, i.e. the linked
+//   visit's fitting is fitting_status='cancelled') are EXCLUDED from every
+//   dollar figure — device revenue, care-plan revenue, Nations fees — and
+//   reported separately under revenue.cancelled so the view can show what
+//   was subtracted. Close rate and the outcome/tier mixes deliberately still
+//   count them: the visit really did close as committed, and the tier they
+//   chose is still signal; only the money was unwound.
 
 import { NATIONS_TIER_PRICING, MOLINA_TIER_PRICING } from "../nations_catalog_data.js";
 
@@ -66,7 +73,7 @@ function tally(map, key) {
   map[key] = (map[key] || 0) + 1;
 }
 
-export function computeReportStats(outcomes = [], fittingTypeByVisit = {}) {
+export function computeReportStats(outcomes = [], fittingTypeByVisit = {}, { cancelledVisits = {} } = {}) {
   const deviceMix = {};
   const deviceReasons = {};
   const byContext = {};
@@ -93,8 +100,12 @@ export function computeReportStats(outcomes = [], fittingTypeByVisit = {}) {
   // memberCopays = the Nations on-plan copay dollars inside deviceRevenue,
   // so the view can say how much of the headline flows to the TPA instead.
   const nationsFees = { revenue: 0, count: 0, estimatedAidCount: 0, memberCopays: 0 };
+  // Sales cancelled before fitting: dollars subtracted from the headline,
+  // tracked so the revenue card can show what was excluded and why.
+  const cancelled = { count: 0, deviceRevenue: 0, carePlanRevenue: 0 };
 
   for (const o of outcomes) {
+    const saleCancelled = !!(o.visit_id && cancelledVisits[o.visit_id]);
     tally(deviceMix, o.device_disposition);
     tally(payerMix, o.payer_type);
     if (o.device_reason) tally(deviceReasons, o.device_reason);
@@ -125,7 +136,12 @@ export function computeReportStats(outcomes = [], fittingTypeByVisit = {}) {
       tally(tierMix, snap.tier ?? snap.private_pay_tier ?? "(no tier)");
       const fittingType = o.visit_id ? fittingTypeByVisit[o.visit_id] : null;
       const aids = fittingType ? (fittingType === "bilateral" ? 2 : 1) : 2;
-      if (perAid != null) {
+      if (saleCancelled) {
+        // Sale unwound before fitting — subtract from the headline; the
+        // would-have-been dollars land in the cancelled block instead.
+        cancelled.count++;
+        if (perAid != null) cancelled.deviceRevenue += perAid * aids;
+      } else if (perAid != null) {
         if (!fittingType) estimatedAidCount++;
         deviceRevenue += perAid * aids;
         revenueCount++;
@@ -133,8 +149,9 @@ export function computeReportStats(outcomes = [], fittingTypeByVisit = {}) {
         unpricedCount++;
       }
       // Nations fitting fees accrue independently of the copay being priced —
-      // the fee schedule is keyed on the snapshot tier alone.
-      const fee = nationsFittingFeePerAid(snap);
+      // the fee schedule is keyed on the snapshot tier alone. A cancelled
+      // sale never gets fit, so no fee is earned either.
+      const fee = saleCancelled ? null : nationsFittingFeePerAid(snap);
       if (fee != null) {
         nationsFees.revenue += fee * aids;
         nationsFees.count++;
@@ -144,9 +161,14 @@ export function computeReportStats(outcomes = [], fittingTypeByVisit = {}) {
     }
 
     // Care-plan revenue — a committed care plan is its own purchase, counted
-    // regardless of device disposition (care-plan-only visits included).
+    // regardless of device disposition (care-plan-only visits included). A
+    // cancelled sale takes its care plan down with it — the plan was part of
+    // the unwound agreement.
     const cpr = carePlanRevenueOf(o);
-    if (cpr > 0) { carePlanRevenue += cpr; carePlanCount++; }
+    if (cpr > 0) {
+      if (saleCancelled) cancelled.carePlanRevenue += cpr;
+      else { carePlanRevenue += cpr; carePlanCount++; }
+    }
   }
 
   const overallCandidates = Object.values(carePlanByPayer).reduce((a, p) => a + p.candidates, 0);
@@ -169,13 +191,16 @@ export function computeReportStats(outcomes = [], fittingTypeByVisit = {}) {
       reasons: carePlanReasons,
     },
     revenue: {
-      committedRevenue: deviceRevenue + carePlanRevenue, // headline = devices + care plans
+      committedRevenue: deviceRevenue + carePlanRevenue, // headline = devices + care plans, cancelled sales excluded
       deviceRevenue,
       carePlanRevenue,
       carePlanCount,
       revenueCount,
       estimatedAidCount,
       unpricedCount,
+      // Sales cancelled from the Pending Fittings queue: how many committed
+      // outcomes were unwound and the dollars kept OUT of the figures above.
+      cancelled: { ...cancelled, total: cancelled.deviceRevenue + cancelled.carePlanRevenue },
       nationsFittingFees: nationsFees,
       tierMix,
       payerMix,
@@ -250,12 +275,15 @@ export function carePlanRevenueOf(o = {}) {
 
 // One appointment_outcomes row → a flat display transaction. The revenue math
 // mirrors computeReportStats exactly (snapshot per-aid price × fitted ears,
-// bilateral assumed when no fitting is linked) so a drilled row's revenue
-// sums back to the committed-revenue card. patient/outcome_clinic are the
-// embeds added by loadAppointmentOutcomes.
-export function toTransaction(o = {}, fittingTypeByVisit = {}) {
+// bilateral assumed when no fitting is linked, cancelled sales zeroed) so a
+// drilled row's revenue sums back to the committed-revenue card. A cancelled
+// sale keeps its row (the commit happened) but carries $0 revenue, a
+// saleCancelled flag, and the would-have-been dollars in cancelledRevenue.
+// patient/outcome_clinic are the embeds added by loadAppointmentOutcomes.
+export function toTransaction(o = {}, fittingTypeByVisit = {}, { cancelledVisits = {} } = {}) {
   const perAid = snapPerAid(o);
   const committed = o.device_disposition === "committed";
+  const saleCancelled = !!(o.visit_id && cancelledVisits[o.visit_id]);
   let aids = null, aidsEstimated = false, deviceRevenue = 0, nationsFittingFee = 0;
   if (committed && perAid != null) {
     const ft = o.visit_id ? fittingTypeByVisit[o.visit_id] : null;
@@ -264,7 +292,7 @@ export function toTransaction(o = {}, fittingTypeByVisit = {}) {
     deviceRevenue = perAid * aids;
   }
   // Clinic-side Nations economics (fitting fee × aids); 0 for everything else.
-  if (committed) {
+  if (committed && !saleCancelled) {
     const fee = nationsFittingFeePerAid(o.payer_plan_snapshot || {});
     if (fee != null) {
       const ft = o.visit_id ? fittingTypeByVisit[o.visit_id] : null;
@@ -272,6 +300,8 @@ export function toTransaction(o = {}, fittingTypeByVisit = {}) {
     }
   }
   const carePlanRevenue = carePlanRevenueOf(o);
+  const cancelledRevenue = saleCancelled ? deviceRevenue + carePlanRevenue : 0;
+  if (saleCancelled) deviceRevenue = 0;
   const pt = o.patient || null;
   const patientName = pt ? [pt.first_name, pt.last_name].filter(Boolean).join(" ") : null;
   return {
@@ -292,10 +322,12 @@ export function toTransaction(o = {}, fittingTypeByVisit = {}) {
     perAid,
     aids,
     aidsEstimated,
+    saleCancelled,
+    cancelledRevenue,
     deviceRevenue,
-    carePlanRevenue,
+    carePlanRevenue: saleCancelled ? 0 : carePlanRevenue,
     nationsFittingFee,
-    revenue: deviceRevenue + carePlanRevenue,
+    revenue: saleCancelled ? 0 : deviceRevenue + carePlanRevenue,
   };
 }
 
@@ -322,11 +354,11 @@ export function outcomePredicate({ kind, value } = {}) {
 // `committed`/`attached`/`revenue` cover every headline a caller might front:
 // close-rate uses committed÷count, TPA attach uses attached÷count, revenue
 // uses the sum.
-export function selectOutcomeDrill(outcomes = [], drill = {}, fittingTypeByVisit = {}) {
+export function selectOutcomeDrill(outcomes = [], drill = {}, fittingTypeByVisit = {}, { cancelledVisits = {} } = {}) {
   const pred = outcomePredicate(drill);
   const rows = outcomes
     .filter(pred)
-    .map((o) => toTransaction(o, fittingTypeByVisit))
+    .map((o) => toTransaction(o, fittingTypeByVisit, { cancelledVisits }))
     .sort((a, b) => new Date(b.closedAt || 0) - new Date(a.closedAt || 0));
   const committed = rows.filter((r) => r.deviceDisposition === "committed").length;
   const attached  = rows.filter((r) => r.carePlanDisposition === "committed").length;

@@ -2293,24 +2293,36 @@ export async function loadAppointmentOutcomes({ clinicId = null, from = null, to
   return data || []
 }
 
-// fitting_type per visit for the outcomes' linked visits, so committed
-// revenue can count real fitted ears instead of assuming bilateral.
-// Returns { [visit_id]: fitting_type }. Best-effort: an error here only
-// degrades the revenue figure to the bilateral assumption, so it logs
-// and returns {} rather than failing the whole report.
-export async function loadFittingTypesForVisits(visitIds = []) {
+// Fitting info per visit for the outcomes' linked visits, so committed
+// revenue can count real fitted ears instead of assuming bilateral — and
+// exclude sales cancelled from the Pending Fittings queue. Returns
+// { types: { [visit_id]: fitting_type }, cancelledVisits: { [visit_id]: true } }.
+// A visit counts as cancelled only when it has a cancelled fitting and NO
+// live (pending/fitted) one. Best-effort: an error here only degrades the
+// revenue figure to the bilateral assumption with no cancellation exclusion,
+// so it logs and returns empty maps rather than failing the whole report.
+export async function loadFittingInfoForVisits(visitIds = []) {
   const ids = visitIds.filter(Boolean)
-  if (!ids.length) return {}
+  if (!ids.length) return { types: {}, cancelledVisits: {} }
   const { data, error } = await supabase
     .from('device_fittings')
-    .select('visit_id, fitting_type')
+    .select('visit_id, fitting_type, fitting_status')
     .in('visit_id', ids)
-  if (error) { console.error('loadFittingTypesForVisits:', error); return {} }
-  const map = {}
+  if (error) { console.error('loadFittingInfoForVisits:', error); return { types: {}, cancelledVisits: {} } }
+  const types = {}
+  const hasLive = {}
+  const hasCancelled = {}
   for (const row of data || []) {
-    if (row.visit_id) map[row.visit_id] = row.fitting_type
+    if (!row.visit_id) continue
+    types[row.visit_id] = row.fitting_type
+    if (row.fitting_status === 'cancelled') hasCancelled[row.visit_id] = true
+    else hasLive[row.visit_id] = true
   }
-  return map
+  const cancelledVisits = {}
+  for (const vid of Object.keys(hasCancelled)) {
+    if (!hasLive[vid]) cancelledVisits[vid] = true
+  }
+  return { types, cancelledVisits }
 }
 
 // Post-close seam: everything that should eventually fire after a disposition
