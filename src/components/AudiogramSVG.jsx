@@ -180,6 +180,14 @@ export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={
   const blueC=presentation?BLUE_SOFT:BLUE_AC;
   const symK=presentation?0.5:1;
   const symSW=2.5*symK;
+  // Connecting lines stay at full clinical saturation even in presentation —
+  // with the regions/symbols desaturated, the threshold contour is the one
+  // element that pops. Slightly heavier and more opaque there for the same
+  // reason.
+  const lineRed=RED_AC, lineBlue=BLUE_AC;
+  const lineW=presentation?2.25:1.5;
+  const lineOp=presentation?0.95:0.7;
+  const bcLineOp=presentation?0.7:0.5;
 
   const handleClick=e=>{
     if(!interactive)return;
@@ -396,12 +404,15 @@ export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={
       {ghostLPts.length>1&&<polyline points={ghostLPts.join(" ")} fill="none" stroke="#9ca3af" strokeWidth="1.25" strokeOpacity="0.5" strokeDasharray="3 3"/>}
       {AUDIG_FREQS.map(f=>ghostRightT[f]!=null&&ghostRightSymbol(f))}
       {AUDIG_FREQS.map(f=>ghostLeftT[f]!=null&&ghostLeftSymbol(f))}
-      {/* AC polylines */}
-      {rPts.length>1&&<polyline points={rPts.join(" ")} fill="none" stroke={redC} strokeWidth="1.5" strokeOpacity="0.7"/>}
-      {lPts.length>1&&<polyline points={lPts.join(" ")} fill="none" stroke={blueC} strokeWidth="1.5" strokeOpacity="0.7"/>}
+      {/* AC polylines — white halo underneath in presentation so the saturated
+          line reads crisply over the shaded regions and band boxes */}
+      {presentation&&rPts.length>1&&<polyline points={rPts.join(" ")} fill="none" stroke="#ffffff" strokeWidth={lineW+3} strokeOpacity="0.55" strokeLinejoin="round" strokeLinecap="round"/>}
+      {presentation&&lPts.length>1&&<polyline points={lPts.join(" ")} fill="none" stroke="#ffffff" strokeWidth={lineW+3} strokeOpacity="0.55" strokeLinejoin="round" strokeLinecap="round"/>}
+      {rPts.length>1&&<polyline points={rPts.join(" ")} fill="none" stroke={lineRed} strokeWidth={lineW} strokeOpacity={lineOp} strokeLinejoin="round" strokeLinecap="round"/>}
+      {lPts.length>1&&<polyline points={lPts.join(" ")} fill="none" stroke={lineBlue} strokeWidth={lineW} strokeOpacity={lineOp} strokeLinejoin="round" strokeLinecap="round"/>}
       {/* BC polylines (dashed) */}
-      {rBCPts.length>1&&<polyline points={rBCPts.join(" ")} fill="none" stroke={redC} strokeWidth="1.5" strokeOpacity="0.5" strokeDasharray="4 3"/>}
-      {lBCPts.length>1&&<polyline points={lBCPts.join(" ")} fill="none" stroke={blueC} strokeWidth="1.5" strokeOpacity="0.5" strokeDasharray="4 3"/>}
+      {rBCPts.length>1&&<polyline points={rBCPts.join(" ")} fill="none" stroke={lineRed} strokeWidth={lineW} strokeOpacity={bcLineOp} strokeDasharray="4 3"/>}
+      {lBCPts.length>1&&<polyline points={lBCPts.join(" ")} fill="none" stroke={lineBlue} strokeWidth={lineW} strokeOpacity={bcLineOp} strokeDasharray="4 3"/>}
       {/* AC symbols */}
       {AUDIG_FREQS.map(f=>rightT[f]!=null&&acRightSymbol(f))}
       {AUDIG_FREQS.map(f=>leftT[f]!=null&&acLeftSymbol(f))}
