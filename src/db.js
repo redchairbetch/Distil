@@ -2672,6 +2672,68 @@ export async function saveClinicAdmin(c) {
 }
 
 // ============================================================
+// EVIDENCE REVIEW (admin-only sign-off via RLS evidence_*_write:
+// my_role()='admin'). Reads are open to any authed user; writes are
+// admin-gated at the database. Integrity (citation gate, review
+// provenance, banned-term lint, severity/imprecision) is enforced by
+// CHECK constraints, so a bad write throws rather than corrupting a row.
+// ============================================================
+
+// Every evidence source and claim, all statuses, for the review queue.
+// Claims embed their parent source so the reviewer sees the citation inline.
+// Ordered by status enum (draft, pending_review, verified, rejected) so
+// unreviewed items surface first. Throws on error.
+export async function loadEvidenceReview() {
+  const [srcRes, claimRes] = await Promise.all([
+    supabase.from('evidence_source')
+      .select('*')
+      .order('status')
+      .order('pub_year', { ascending: false }),
+    supabase.from('evidence_claim')
+      .select('*, source:evidence_source(id, authors, title, journal, pub_year, doi, pmid, status)')
+      .order('status')
+      .order('claim_key'),
+  ])
+  if (srcRes.error)   { console.error('loadEvidenceReview sources:', srcRes.error); throw srcRes.error }
+  if (claimRes.error) { console.error('loadEvidenceReview claims:', claimRes.error); throw claimRes.error }
+  return { sources: srcRes.data || [], claims: claimRes.data || [] }
+}
+
+// Build the status patch shared by source and claim sign-off. 'verified' and
+// 'rejected' stamp the reviewer (the review_provenance CHECK requires both);
+// 'pending_review'/'draft' clear the stamp (the CHECK permits null there).
+function evidenceStatusPatch(status, staffId, reviewNotes) {
+  const signed = status === 'verified' || status === 'rejected'
+  return {
+    status,
+    reviewed_by: signed ? staffId : null,
+    reviewed_at: signed ? new Date().toISOString() : null,
+    ...(reviewNotes != null ? { review_notes: reviewNotes } : {}),
+  }
+}
+
+// Set an evidence_source status (verify / reject / reopen). Admin only (RLS).
+// The citation-gate CHECK rejects a verify with no DOI or PMID. Throws on error.
+export async function setEvidenceSourceStatus(id, status, staffId, reviewNotes = null) {
+  const { error } = await supabase
+    .from('evidence_source')
+    .update(evidenceStatusPatch(status, staffId, reviewNotes))
+    .eq('id', id)
+  if (error) { console.error('setEvidenceSourceStatus:', error); throw error }
+}
+
+// Set an evidence_claim status (verify / reject / reopen). Admin only (RLS).
+// A verified claim only reaches evidence_claim_patient_safe once its source is
+// also verified and imprecise=false. Throws on error.
+export async function setEvidenceClaimStatus(id, status, staffId, reviewNotes = null) {
+  const { error } = await supabase
+    .from('evidence_claim')
+    .update({ ...evidenceStatusPatch(status, staffId, reviewNotes), updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) { console.error('setEvidenceClaimStatus:', error); throw error }
+}
+
+// ============================================================
 // TEAM ADMIN (admin-only via RLS: staff_admin_* / staff_clinics_admin_all)
 // ============================================================
 

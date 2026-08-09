@@ -164,6 +164,7 @@ import PendingFittings, { countPendingFittings } from "./views/PendingFittings.j
 import { warrantyYearsFor, estimateFitDate } from "./lib/pendingFitting.js";
 import CommsInbox from "./views/CommsInbox.jsx";
 import ProvidersAdmin from "./views/ProvidersAdmin.jsx";
+import EvidenceReview from "./views/EvidenceReview.jsx";
 import NationsCatalog from "./views/NationsCatalog.jsx";
 import HearingAidCatalog from "./views/HearingAidCatalog.jsx";
 import AdjustmentHistory from "./views/AdjustmentHistory.jsx";
@@ -10054,7 +10055,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 were separately added and produced two Admin sections on merge. */}
             {checkRole(staffRole, ["admin"]) && <>
               <div className="nav-section-label">Admin</div>
-              {[["users","Team","team"],["badge","Providers","providers"],["shield","Insurance Plans","insurance-plans"],["verify","Rate Verifications","rate-verifications"],["percent","Rebates","rebates"],["clipboard","Product Catalog","catalog"],["book","Nations Catalog","nations-catalog"],["settings","Settings","settings"]].map(([icon,label,id])=>(
+              {[["users","Team","team"],["badge","Providers","providers"],["shield","Insurance Plans","insurance-plans"],["verify","Rate Verifications","rate-verifications"],["percent","Rebates","rebates"],["clipboard","Product Catalog","catalog"],["book","Nations Catalog","nations-catalog"],["book","Evidence Review","evidence"],["settings","Settings","settings"]].map(([icon,label,id])=>(
                 <div key={id} className={`nav-item ${view===id?"active":""}`} onClick={()=>setView(id)}>
                   <span className="nav-icon"><Icon name={icon} size={17}/></span>{label}
                 </div>
@@ -10253,6 +10254,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           {view === "providers" && (checkRole(staffRole, ["admin"]) ? <ProvidersAdmin /> : renderAdminDenied())}
           {view === "insurance-plans" && (checkRole(staffRole, ["admin"]) ? renderInsurancePlans() : renderAdminDenied())}
           {view === "nations-catalog" && (checkRole(staffRole, ["admin"]) ? <NationsCatalog /> : renderAdminDenied())}
+          {view === "evidence" && (checkRole(staffRole, ["admin"]) ? <EvidenceReview staffId={staffId} /> : renderAdminDenied())}
           {view === "market-catalog" && <HearingAidCatalog />}
           {view === "team" && (checkRole(staffRole, ["admin"]) ? <TeamAdmin activeClinicId={clinicId} /> : renderAdminDenied())}
           {view === "adjustments" && <AdjustmentHistory staffId={staffId} patients={patients} />}
