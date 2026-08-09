@@ -65,7 +65,6 @@ function desat(color, amount=0.5){
 
 const DEGREE_REGIONS_SOFT = DEGREE_REGIONS.map(r=>({...r, fill:desat(r.fill), color:desat(r.color)}));
 const RED_AC="#dc2626", BLUE_AC="#2563eb";
-const RED_SOFT=desat(RED_AC), BLUE_SOFT=desat(BLUE_AC);
 
 // ── FREQUENCY BAND BOXES (presentation mode) ─────────────────────────────────
 // Two patient-facing bands drawn over the plot: low frequencies carry loudness
@@ -167,19 +166,27 @@ export const PHONEMES=[
   {label:'th',freq:5500,db:15, displayFreq:5500,displayDb:15},
 ];
 
-export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={},leftMask={},rightBCMask={},leftBCMask={},ghostRightT={},ghostLeftT={},interactive=false,onSet,activeEar="right",activeTestType="AC",maskMode=false,showBanana=false,phonemeDimMode=null,dimIntensity=75,presentation=false}){
+export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={},leftMask={},rightBCMask={},leftBCMask={},ghostRightT={},ghostLeftT={},interactive=false,onSet,activeEar="right",activeTestType="AC",maskMode=false,showBanana=false,phonemeDimMode=null,dimIntensity=75,presentation=false,earFocus=null}){
   // H=395 (was 340) stretches the plot area ~20% vertically — deliberate
   // exaggeration so threshold drops read steeper during counseling.
   const W=600,H=395,ML=52,MT=42,MR=88,MB=24;
   const PW=W-ML-MR, PH=H-MT-MB;
   const fx=f=>ML+(FREQ_POS[f]/FREQ_POS_MAX)*PW;
   const dy=db=>MT+(db-(-10))/130*PH;
-  // Presentation mode: 50%-desaturated palette, half-size threshold symbols.
+  // Presentation mode: desaturated regions/band boxes, half-size threshold
+  // symbols — but symbols and connecting lines keep full clinical red/blue so
+  // the plot itself pops against the softened background.
   const regions=presentation?DEGREE_REGIONS_SOFT:DEGREE_REGIONS;
-  const redC=presentation?RED_SOFT:RED_AC;
-  const blueC=presentation?BLUE_SOFT:BLUE_AC;
+  const redC=RED_AC, blueC=BLUE_AC;
   const symK=presentation?0.5:1;
   const symSW=2.5*symK;
+  const lineW=presentation?2.25:1.5;
+  const lineOp=presentation?0.95:0.7;
+  const bcLineOp=presentation?0.7:0.5;
+  // Single-ear focus: fade the non-focused ear's plot so counseling one ear
+  // reads clean. "both"/null shows both ears at full strength.
+  const rEarOp=earFocus==="left"?0.25:1;
+  const lEarOp=earFocus==="right"?0.25:1;
 
   const handleClick=e=>{
     if(!interactive)return;
@@ -206,6 +213,17 @@ export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={
   const rPts=pts(rightT), lPts=pts(leftT);
   const rBCPts=pts(rightBC), lBCPts=pts(leftBC);
   const ghostRPts=pts(ghostRightT), ghostLPts=pts(ghostLeftT);
+
+  // Change-over-time fill: polygon between the previous (ghost) and current AC
+  // lines, built from frequencies present in both tests so the shift between
+  // visits reads as a shaded area, not two lines to compare.
+  const deltaPoly=(cur,ghost)=>{
+    const fs=AUDIG_FREQS.filter(f=>cur[f]!=null&&ghost[f]!=null);
+    if(fs.length<2)return null;
+    return fs.map(f=>`${fx(f)},${dy(cur[f])}`)
+      .concat([...fs].reverse().map(f=>`${fx(f)},${dy(ghost[f])}`)).join(" ");
+  };
+  const rDelta=deltaPoly(rightT,ghostRightT), lDelta=deltaPoly(leftT,ghostLeftT);
 
   // Symbol renderers
   const acRightSymbol=f=>{
@@ -391,23 +409,32 @@ export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={
           </g>
         );
       })}
+      {/* Change-over-time fill — shaded area between previous and current AC
+          lines, behind the ghost overlay */}
+      {rDelta&&<polygon points={rDelta} fill={redC} fillOpacity="0.08" stroke="none"/>}
+      {lDelta&&<polygon points={lDelta} fill={blueC} fillOpacity="0.08" stroke="none"/>}
       {/* Ghost (previous test) overlay — greyscale, behind live data */}
       {ghostRPts.length>1&&<polyline points={ghostRPts.join(" ")} fill="none" stroke="#9ca3af" strokeWidth="1.25" strokeOpacity="0.5" strokeDasharray="3 3"/>}
       {ghostLPts.length>1&&<polyline points={ghostLPts.join(" ")} fill="none" stroke="#9ca3af" strokeWidth="1.25" strokeOpacity="0.5" strokeDasharray="3 3"/>}
       {AUDIG_FREQS.map(f=>ghostRightT[f]!=null&&ghostRightSymbol(f))}
       {AUDIG_FREQS.map(f=>ghostLeftT[f]!=null&&ghostLeftSymbol(f))}
-      {/* AC polylines */}
-      {rPts.length>1&&<polyline points={rPts.join(" ")} fill="none" stroke={redC} strokeWidth="1.5" strokeOpacity="0.7"/>}
-      {lPts.length>1&&<polyline points={lPts.join(" ")} fill="none" stroke={blueC} strokeWidth="1.5" strokeOpacity="0.7"/>}
-      {/* BC polylines (dashed) */}
-      {rBCPts.length>1&&<polyline points={rBCPts.join(" ")} fill="none" stroke={redC} strokeWidth="1.5" strokeOpacity="0.5" strokeDasharray="4 3"/>}
-      {lBCPts.length>1&&<polyline points={lBCPts.join(" ")} fill="none" stroke={blueC} strokeWidth="1.5" strokeOpacity="0.5" strokeDasharray="4 3"/>}
-      {/* AC symbols */}
-      {AUDIG_FREQS.map(f=>rightT[f]!=null&&acRightSymbol(f))}
-      {AUDIG_FREQS.map(f=>leftT[f]!=null&&acLeftSymbol(f))}
-      {/* BC symbols */}
-      {AUDIG_FREQS.map(f=>rightBC[f]!=null&&bcRightSymbol(f))}
-      {AUDIG_FREQS.map(f=>leftBC[f]!=null&&bcLeftSymbol(f))}
+      {/* Live plot, grouped per ear so single-ear focus can fade the other.
+          AC lines get a white halo in presentation so the saturated line reads
+          crisply over the shaded regions and band boxes. */}
+      <g opacity={rEarOp}>
+        {presentation&&rPts.length>1&&<polyline points={rPts.join(" ")} fill="none" stroke="#ffffff" strokeWidth={lineW+3} strokeOpacity="0.55" strokeLinejoin="round" strokeLinecap="round"/>}
+        {rPts.length>1&&<polyline points={rPts.join(" ")} fill="none" stroke={redC} strokeWidth={lineW} strokeOpacity={lineOp} strokeLinejoin="round" strokeLinecap="round"/>}
+        {rBCPts.length>1&&<polyline points={rBCPts.join(" ")} fill="none" stroke={redC} strokeWidth={lineW} strokeOpacity={bcLineOp} strokeDasharray="4 3"/>}
+        {AUDIG_FREQS.map(f=>rightT[f]!=null&&acRightSymbol(f))}
+        {AUDIG_FREQS.map(f=>rightBC[f]!=null&&bcRightSymbol(f))}
+      </g>
+      <g opacity={lEarOp}>
+        {presentation&&lPts.length>1&&<polyline points={lPts.join(" ")} fill="none" stroke="#ffffff" strokeWidth={lineW+3} strokeOpacity="0.55" strokeLinejoin="round" strokeLinecap="round"/>}
+        {lPts.length>1&&<polyline points={lPts.join(" ")} fill="none" stroke={blueC} strokeWidth={lineW} strokeOpacity={lineOp} strokeLinejoin="round" strokeLinecap="round"/>}
+        {lBCPts.length>1&&<polyline points={lBCPts.join(" ")} fill="none" stroke={blueC} strokeWidth={lineW} strokeOpacity={bcLineOp} strokeDasharray="4 3"/>}
+        {AUDIG_FREQS.map(f=>leftT[f]!=null&&acLeftSymbol(f))}
+        {AUDIG_FREQS.map(f=>leftBC[f]!=null&&bcLeftSymbol(f))}
+      </g>
       {/* Legend — full-size symbols even in presentation so it stays readable */}
       <circle cx={ML+4} cy={MT-26} r="4" fill="white" stroke={redC} strokeWidth="2"/>
       <text x={ML+12} y={MT-22} fontSize="9" fill={redC} fontWeight="600">R AC</text>

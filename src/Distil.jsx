@@ -5008,7 +5008,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   {mode==="left"?"Left":mode==="right"?"Right":"Both"}
                 </button>
               ))}
-              <span style={{fontSize:11,color:"#9ca3af",alignSelf:"center",marginLeft:4}}>Phoneme dimming ear</span>
+              <span style={{fontSize:11,color:"#9ca3af",alignSelf:"center",marginLeft:4}}>Focus ear</span>
 
               <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center"}}>
                 <button onClick={()=>setDrawingEnabled(!drawingEnabled)}
@@ -5036,7 +5036,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               </div>
             </div>
             <div style={{position:"relative",background:"#fafafa",border:"1px solid #E4E0D5",borderRadius:10,padding:"12px 8px",marginBottom:14}}>
-              <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false} showBanana={true} presentation={true} phonemeDimMode={phonemeDimMode} dimIntensity={dimIntensity}/>
+              <AudigramSVG rightT={aud.rightT||{}} leftT={aud.leftT||{}} rightBC={aud.rightBC||{}} leftBC={aud.leftBC||{}} rightMask={aud.rightMask||{}} leftMask={aud.leftMask||{}} rightBCMask={aud.rightBCMask||{}} leftBCMask={aud.leftBCMask||{}} interactive={false} showBanana={true} presentation={true} phonemeDimMode={phonemeDimMode} dimIntensity={dimIntensity} earFocus={phonemeDimMode}/>
               {drawingEnabled && (
                 <canvas
                   ref={drawCanvasRef}
