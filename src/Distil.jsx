@@ -61,6 +61,7 @@ import CommitmentChecklist from "./components/CommitmentChecklist.jsx";
 import Reports from "./views/Reports.jsx";
 import { AudigramSVG, getDegreeName, PHONEMES, interpolateThreshold } from "./components/AudiogramSVG.jsx";
 import AudiogramEntry from "./components/AudiogramEntry.jsx";
+import { mapComplaintsToFindings } from "./lib/intakeReview.js";
 
 import TeamAdmin from "./views/TeamAdmin.jsx";
 import {
@@ -4931,8 +4932,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // Used by both wizard Step 2 and Consultation Mode. Accepts audiology data
   // and chief complaint text; renders audiogram + speech banana + phoneme
   // dimming + drawing overlay + hearing sim paragraph + severity/CCT/WRS +
-  // dynamic counseling copy.
-  const renderResultsContent = (aud, chiefComplaint) => {
+  // dynamic counseling copy. When intake answers are provided (wizard only —
+  // Consultation Mode doesn't load the intake), the endorsed hearing
+  // complaints re-surface as a carry-forward card, each mapped to the
+  // audiometric finding that explains it.
+  const renderResultsContent = (aud, chiefComplaint, intakeAnswers = null) => {
     if (!aud) return null;
     const rPTA = getPTA(aud.rightT);
     const lPTA = getPTA(aud.leftT);
@@ -4993,6 +4997,19 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       if(n >= 1) return "A small number of high-frequency sounds fall just outside your hearing range \u2014 likely subtle, but present.";
       return null;
     })();
+
+    // Intake carry-forward: what the patient told us at intake, explained
+    // by what we just measured. Empty when there's no intake, nothing was
+    // endorsed, or no test data to explain anything with.
+    const complaintRows = (intakeAnswers && hasAnyData)
+      ? mapComplaintsToFindings(intakeAnswers, {
+          overallSeverity,
+          worseCCT,
+          highFreqCount: highFreqInaudible.length,
+          hasThresholds,
+        })
+      : [];
+    const intakeVisitReason = (intakeAnswers?.visitReason || "").trim();
 
     return (
       <>
@@ -5191,6 +5208,42 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Intake carry-forward — their words from intake, explained by the
+            measurements. Rows come pre-filtered to endorsed complaints only;
+            `supported:false` rows render the honest "test doesn't explain
+            this" state rather than an invented mechanism. */}
+        {complaintRows.length > 0 && (
+          <div className="card">
+            <div className="card-title">What You Told Us — Explained</div>
+            {intakeVisitReason && (
+              <div style={{fontSize:14,fontStyle:"italic",color:"#374151",lineHeight:1.6,padding:"10px 16px",background:"#F0F9FA",borderLeft:"3px solid #0A7B8C",borderRadius:"0 8px 8px 0",marginBottom:16}}>
+                “{intakeVisitReason}”
+                <span style={{display:"block",fontSize:11,fontStyle:"normal",color:"#6b7280",marginTop:4}}>— your reason for today's visit</span>
+              </div>
+            )}
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {complaintRows.map(row => (
+                <div key={row.key} style={{
+                  display:"flex",gap:14,alignItems:"flex-start",
+                  padding:"12px 14px",borderRadius:10,
+                  background: row.supported ? "#fafafa" : "#f8fafc",
+                  border: `1px solid ${row.supported ? "#E4E0D5" : "#e2e8f0"}`,
+                }}>
+                  <div style={{fontSize:22,lineHeight:1.2,flexShrink:0}}>{row.icon}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:700,color:"#0a1628",marginBottom:3}}>
+                      You told us: {row.restatement.toLowerCase()}
+                    </div>
+                    <div style={{fontSize:13,color: row.supported ? "#374151" : "#64748b",lineHeight:1.6}}>
+                      {row.explanation}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -5485,7 +5538,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               </button>
             </div>
           )}
-          {renderResultsContent(form.audiology, form.notes || "")}
+          {renderResultsContent(form.audiology, form.notes || "", wizardIntake?.answers || null)}
         </>
       );
     }
