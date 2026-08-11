@@ -11,12 +11,23 @@
  */
 
 import { useState, useEffect, useRef } from "react";
+import IntakePresentation from "./IntakePresentation.jsx";
 
-// Health History — provider clinical-review surface for an accepted intake.
-// Renders the patient's intake responses as editable inputs, with a "+"
-// affordance on each row that reveals a provider-note textarea. Used as
-// step 1 of the wizard (between Patient and Testing) so the provider can
-// walk through responses with the patient before testing begins.
+// Health History — the intake-review surface for step 1 of the wizard
+// (between Patient and Testing). Two faces of the same data:
+//
+//   Presentation (default) — patient-and-provider-together view: the
+//   four narrative beats (their words → medical safety check → endorsed
+//   situations → where they stand), rendered patient-safe with provider
+//   prompts hidden behind a discreet reveal. See IntakePresentation.jsx.
+//
+//   Clinical detail — the original editable field grid, with a "+"
+//   affordance on each row that reveals a provider-note textarea, plus
+//   the Provider Assessment (motivation / soft commitment). Assessment
+//   NEVER renders in presentation mode — the patient is watching.
+//
+// Both faces read and write the same answers + providerNotes maps, so
+// a note captured mid-presentation shows up in the clinical grid.
 //
 // Save model: per-field on blur (no Save button — keeps the clinical
 // flow frictionless). The parent owns the persistence write via the two
@@ -222,6 +233,9 @@ export default function HealthHistory({ intake, onUpdateAnswer, onUpdateNote, on
       .map(([k]) => k)
   ));
   const [starting, setStarting] = useState(false);
+  // Presentation leads: this step IS the review conversation, and the
+  // clinical grid is the correction surface one tap away.
+  const [mode, setMode] = useState("presentation");
 
   if (!intake) {
     return (
@@ -270,28 +284,66 @@ export default function HealthHistory({ intake, onUpdateAnswer, onUpdateNote, on
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:24 }}>
-      <Header intake={intake} />
-      {onUpdateAssessment && (
-        <ProviderAssessment
-          motivationScore={intake.motivationScore ?? null}
-          softCommitment={intake.softCommitment ?? null}
-          onUpdate={onUpdateAssessment}
+      <ModeToggle mode={mode} onChange={setMode} />
+      {mode === "presentation" ? (
+        <IntakePresentation
+          intake={intake}
+          onUpdateAnswer={onUpdateAnswer}
+          onUpdateNote={onUpdateNote}
         />
+      ) : (
+        <>
+          <Header intake={intake} />
+          {onUpdateAssessment && (
+            <ProviderAssessment
+              motivationScore={intake.motivationScore ?? null}
+              softCommitment={intake.softCommitment ?? null}
+              onUpdate={onUpdateAssessment}
+            />
+          )}
+          {SECTIONS
+            .filter(sec => !sec.showWhen || sec.showWhen(answers))
+            .map(sec => (
+              <Section
+                key={sec.id}
+                section={sec}
+                answers={answers}
+                notes={notes}
+                expandedNotes={expandedNotes}
+                onToggleNote={toggleNote}
+                onUpdateAnswer={onUpdateAnswer}
+                onUpdateNote={onUpdateNote}
+              />
+            ))}
+        </>
       )}
-      {SECTIONS
-        .filter(sec => !sec.showWhen || sec.showWhen(answers))
-        .map(sec => (
-          <Section
-            key={sec.id}
-            section={sec}
-            answers={answers}
-            notes={notes}
-            expandedNotes={expandedNotes}
-            onToggleNote={toggleNote}
-            onUpdateAnswer={onUpdateAnswer}
-            onUpdateNote={onUpdateNote}
-          />
+    </div>
+  );
+}
+
+// Small segmented toggle, kept visually quiet — it's chrome for the
+// provider, not content for the patient. "Clinical detail" is where
+// corrections, the full grid, and the Provider Assessment live.
+function ModeToggle({ mode, onChange }) {
+  return (
+    <div style={{ display:"flex", justifyContent:"flex-end" }}>
+      <div style={{ display:"inline-flex", border:`1px solid ${BORDER}`, borderRadius:8, overflow:"hidden" }}>
+        {[["presentation","Presentation"],["clinical","Clinical detail"]].map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => onChange(k)}
+            style={{
+              padding:"6px 14px", fontSize:12, fontWeight:600, border:"none",
+              background: mode === k ? TEAL_BG : "#fff",
+              color: mode === k ? TEAL : MUTED,
+              cursor:"pointer", fontFamily:"inherit",
+            }}
+          >
+            {label}
+          </button>
         ))}
+      </div>
     </div>
   );
 }
