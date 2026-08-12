@@ -2821,6 +2821,16 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
 
   const discardWizardDraft = () => { clearWizardDraft(); setWizardDraft(null); };
 
+  // "saved 2:41 PM" today / "saved Aug 11, 2:41 PM" otherwise — shared by the
+  // dashboard and patient-chart resume banners.
+  const wizardDraftSavedLabel = (d) => {
+    const savedAtDate = d.savedAt ? new Date(d.savedAt) : null;
+    if (!savedAtDate) return "moments ago";
+    return savedAtDate.toDateString() === new Date().toDateString()
+      ? savedAtDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+      : savedAtDate.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  };
+
   // Gate for every wizard entry point: seeding a new session overwrites the
   // snapshot, so an unfinished appointment must be explicitly discarded first.
   // Returns true when it's safe to proceed.
@@ -4225,11 +4235,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         {/* ── In-progress appointment (resume/discard) ─────────────────── */}
         {wizardDraft && (() => {
           const dName = [wizardDraft.form?.firstName, wizardDraft.form?.lastName].filter(Boolean).join(" ") || "Unnamed patient";
-          const savedAtDate = wizardDraft.savedAt ? new Date(wizardDraft.savedAt) : null;
-          const savedLabel = !savedAtDate ? "moments ago"
-            : savedAtDate.toDateString() === new Date().toDateString()
-              ? savedAtDate.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
-              : savedAtDate.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+          const savedLabel = wizardDraftSavedLabel(wizardDraft);
           return (
             <div className="table-card" style={{ marginBottom: 16, borderLeft: "4px solid #2563eb", padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
               <div>
@@ -7563,6 +7569,30 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               onClick={() => handleRestorePatient(p)}>
               {archiveBusy ? "Restoring\u2026" : "Restore to active list"}
             </button>
+          </div>
+        )}
+
+        {/* In-progress appointment for THIS patient — the same snapshot the
+            dashboard offers (lib/wizardDraft.js), surfaced on the chart so
+            navigating away mid-visit always has a way back in from here. */}
+        {wizardDraft?.wizardPatientId === p.id && (
+          <div style={{ margin: "12px 24px 0" }}>
+            <div className="table-card" style={{ borderLeft: "4px solid #2563eb", padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: "#0a1628" }}>
+                  {"⏸"} Appointment in progress
+                </div>
+                <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                  {wizardDraft.wizardMode === "upgrade" ? "Upgrade purchase" : "New patient"} · {STEPS[wizardDraft.step] || "Patient"} step · saved {wizardDraftSavedLabel(wizardDraft)}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn-ghost" onClick={() => {
+                  if (window.confirm(`Discard the in-progress appointment with ${p.name}? Anything already saved stays on this chart.`)) discardWizardDraft();
+                }}>Discard</button>
+                <button className="btn-primary" onClick={resumeAppointment}>Resume appointment →</button>
+              </div>
+            </div>
           </div>
         )}
 
