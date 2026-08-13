@@ -14,7 +14,8 @@
 // its session (form, step, wizardPatientId/VisitId, mode) in React state only,
 // so navigating away or refreshing mid-visit used to lose everything not yet
 // incrementally saved. While the provider is in the wizard, the session
-// snapshots here so the dashboard can offer a Resume path.
+// snapshots here so the dashboard — and the patient's chart, once the draft
+// carries a wizardPatientId — can offer a Resume path.
 //
 // localStorage rather than Supabase for the same reason as the kiosk intake
 // draft (PR #119) and the pending-outcome stash: this is device-local UI
