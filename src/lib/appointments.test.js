@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { apptDay, apptDaysUntil, partitionAppointments, dueAppointments } from "./appointments.js";
+import { apptDay, apptDaysUntil, partitionAppointments, dueAppointments, dueCareVisit } from "./appointments.js";
 
 // Build a bare YYYY-MM-DD string offset from today in *local* time, matching
 // how the wizard's <input type="date"> produces values.
@@ -65,5 +65,23 @@ describe("dueAppointments", () => {
       { id: "done", date: dayFromToday(2), status: "completed" },
     ];
     expect(dueAppointments(appts, 7).map(a => a.id)).toEqual(["over", "soon"]);
+  });
+});
+
+describe("dueCareVisit", () => {
+  it("prefers the oldest recent-overdue visit, ignores stale overdue rows", () => {
+    expect(dueCareVisit([
+      { id: "stale", date: dayFromToday(-90), status: "scheduled" },
+      { id: "recent", date: dayFromToday(-4), status: "scheduled" },
+      { id: "soon", date: dayFromToday(3), status: "scheduled" },
+    ]).id).toBe("recent");
+  });
+
+  it("falls back to the earliest upcoming visit inside the window", () => {
+    expect(dueCareVisit([
+      { id: "soon", date: dayFromToday(6), status: "scheduled" },
+      { id: "far", date: dayFromToday(45), status: "scheduled" },
+    ]).id).toBe("soon");
+    expect(dueCareVisit([{ id: "far", date: dayFromToday(45), status: "scheduled" }])).toBe(null);
   });
 });

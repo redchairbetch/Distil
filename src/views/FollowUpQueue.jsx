@@ -12,6 +12,8 @@
 
 import React, { useMemo, useState } from "react";
 import { markFollowUpContacted, clearFollowUp } from "../db.js";
+import { parseDateOnly, daysUntil as libDaysUntil } from "../lib/dates.js";
+import { dueCareVisit, apptDay, apptDaysUntil } from "../lib/appointments.js";
 
 // Cooldown after a "Mark contacted" action: patient stays out of the queue
 // for this many days even if they still match a bucket. Tuned long enough
@@ -23,6 +25,14 @@ const CONTACTED_COOLDOWN_DAYS = 14;
 // Exported (with classify) so Reports counts the queue with the SAME rules
 // this view renders — one source of truth for what "needs follow-up" means.
 export const BUCKETS = [
+  {
+    key: "care_visit_due",
+    label: "Care visit due (this week)",
+    color: "#0f766e",
+    bg: "#ccfbf1",
+    icon: "📅",
+    blurb: "A scheduled care visit is due within 7 days or recently overdue. Confirm they're coming in — then mark the visit completed on their chart. (Visits more than 30 days overdue are left to chart cleanup, not chased here.)",
+  },
   {
     key: "warranty_expiring",
     label: "Warranty expiring (< 90 days)",
@@ -57,23 +67,22 @@ export const BUCKETS = [
   },
 ];
 
-const DAY = 24 * 60 * 60 * 1000;
-
+// Day math routes through lib/dates so bare 'YYYY-MM-DD' values (warranty
+// expiry, fitting dates — Postgres `date` columns) are read in local time.
+// The previous local helpers parsed them as UTC midnight, skewing counts and
+// rendering dates a day early in negative-offset timezones.
 function daysFromNow(iso) {
   if (!iso) return null;
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return null;
-  return Math.round((t - Date.now()) / DAY);
+  const d = libDaysUntil(iso);
+  return Number.isNaN(d) ? null : d;
 }
 function daysSince(iso) {
-  if (!iso) return null;
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return null;
-  return Math.round((Date.now() - t) / DAY);
+  const d = daysFromNow(iso);
+  return d == null ? null : -d;
 }
 function fmtShort(iso) {
   if (!iso) return "—";
-  const d = new Date(iso);
+  const d = parseDateOnly(iso) || new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
@@ -95,6 +104,10 @@ export function classify(p) {
   const fittingDate = (p.devices?.fittingStatus ?? "fitted") === "fitted"
     ? (p.devices?.fittingDate || null)
     : null;
+
+  // A scheduled care-arc visit due within 7 days or overdue ≤30 days.
+  // Completion tracking on the chart is what clears this bucket.
+  if (dueCareVisit(p.appointments)) matched.push("care_visit_due");
 
   // Warranty expiring within 90 days (and not already expired)
   if (warrantyExpiry) {
@@ -128,6 +141,10 @@ export function classify(p) {
 // Within a bucket, sort by the most urgent timestamp for that bucket.
 function sortKeyFor(bucketKey, p) {
   switch (bucketKey) {
+    case "care_visit_due": {
+      const a = dueCareVisit(p.appointments);
+      return a ? apptDaysUntil(a.date) : 0; // most overdue first
+    }
     case "warranty_expiring":       return new Date(p.devices?.warrantyExpiry || 0).getTime();
     case "off_warranty_no_upgrade": return new Date(p.devices?.warrantyExpiry || 0).getTime();
     case "fit_no_return":           return new Date(p.devices?.fittingDate || 0).getTime();
@@ -316,6 +333,15 @@ function chipBtn(color) {
 
 function bucketDetail(key, p) {
   switch (key) {
+    case "care_visit_due": {
+      const a = dueCareVisit(p.appointments);
+      if (!a) return "";
+      const dn = apptDaysUntil(a.date);
+      const when = dn < 0 ? `was ${fmtShort(apptDay(a.date))} (${-dn}d overdue)`
+        : dn === 0 ? "due today"
+        : `due ${fmtShort(apptDay(a.date))} (in ${dn}d)`;
+      return `${a.type || "Care visit"} · ${when}`;
+    }
     case "warranty_expiring": {
       const dn = daysFromNow(p.devices?.warrantyExpiry);
       return `Warranty expires ${fmtShort(p.devices?.warrantyExpiry)} (${dn} ${dn === 1 ? "day" : "days"})`;

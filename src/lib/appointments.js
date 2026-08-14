@@ -52,3 +52,13 @@ export function dueAppointments(appts = [], days = 7) {
   const { overdue, upcoming } = partitionAppointments(appts);
   return [...overdue, ...upcoming.filter(a => apptDaysUntil(a.date) <= days)];
 }
+
+// The single most actionable due visit for a patient, or null. Overdue rows
+// older than maxOverdueDays are ignored: scheduled rows that predate
+// completion tracking (or were simply never checked off) would otherwise
+// flood the follow-up queue with months-stale arc visits — those get tidied
+// on the chart, not chased as outreach.
+export function dueCareVisit(appts = [], { days = 7, maxOverdueDays = 30 } = {}) {
+  const due = dueAppointments(appts, days).filter(a => apptDaysUntil(a.date) >= -maxOverdueDays);
+  return due[0] || null;
+}

@@ -168,6 +168,7 @@ import FollowUpQueue, { countFollowUpPatients } from "./views/FollowUpQueue.jsx"
 import PendingFittings, { countPendingFittings } from "./views/PendingFittings.jsx";
 import { warrantyYearsFor, estimateFitDate } from "./lib/pendingFitting.js";
 import CommsInbox from "./views/CommsInbox.jsx";
+import DueThisWeek from "./views/DueThisWeek.jsx";
 import ProvidersAdmin from "./views/ProvidersAdmin.jsx";
 import EvidenceReview from "./views/EvidenceReview.jsx";
 import NationsCatalog from "./views/NationsCatalog.jsx";
@@ -4231,6 +4232,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             <div className="stat-label">Warranties Expiring (90d)</div>
           </div>
         </div>
+
+        {/* ── Care visits due this week (care-arc work list) ───────────── */}
+        <DueThisWeek
+          patients={patients}
+          onSelectPatient={(p) => { setSelectedPatient(p); setView("patient"); }}
+          onOpenQueue={() => setView("followup")}
+        />
 
         {/* ── Patient Messages (two-way comms inbox) ───────────────────── */}
         {/* Aided replies (and, later, ingested email replies) awaiting a   */}
