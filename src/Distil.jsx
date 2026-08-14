@@ -23,6 +23,7 @@ import ComparisonHub from "./views/ComparisonHub.jsx";
 import { LegacyDevicePanel } from "./views/LegacyFastPath.jsx";
 import { rankFromTierLabel } from "./deviceComparison.js";
 import { parseDateOnly, fmtDate, warrantyDate, daysUntil } from "./lib/dates.js";
+import { patientMatchesSearch, sortPatients } from "./lib/patientSearch.js";
 import { CARE_ARC, buildCareArc } from "./lib/careArc.js";
 import { isTestedNoLoss, buildTnlRetestAppointment, TNL_RETEST_TYPE } from "./lib/audiogram.js";
 import {
@@ -4082,6 +4083,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   const [searchScope, setSearchScope] = useState("local"); // "local" | "global"
   const [globalResults, setGlobalResults] = useState([]);
   const [globalSearching, setGlobalSearching] = useState(false);
+  // Roster column sort — null key keeps the load order (newest patient first).
+  const [rosterSort, setRosterSort] = useState({ key: null, dir: "asc" });
+  const toggleRosterSort = (key) =>
+    setRosterSort(s => s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" });
 
   useEffect(() => {
     if (searchScope !== "global") return;
@@ -4098,17 +4103,17 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     return () => { cancelled = true; clearTimeout(t); };
   }, [tableSearch, searchScope]);
 
-  const filteredPatients = (searchScope === "global"
-    ? globalResults // server already matched name/phone across all locations
-    : patients.filter(p =>
-        p.name?.toLowerCase().includes(tableSearch.toLowerCase()) ||
-        p.devices?.manufacturer?.toLowerCase().includes(tableSearch.toLowerCase()))
-  ).filter(p => {
-    if (statusFilter === "active") return p.patientStatus !== "tns" && p.patientStatus !== "tnl";
-    if (statusFilter === "tns") return p.patientStatus === "tns";
-    if (statusFilter === "tnl") return p.patientStatus === "tnl";
-    return true;
-  });
+  const filteredPatients = sortPatients(
+    (searchScope === "global"
+      ? globalResults // server already matched name/phone across all locations
+      : patients.filter(p => patientMatchesSearch(p, tableSearch))
+    ).filter(p => {
+      if (statusFilter === "active") return p.patientStatus !== "tns" && p.patientStatus !== "tnl";
+      if (statusFilter === "tns") return p.patientStatus === "tns";
+      if (statusFilter === "tnl") return p.patientStatus === "tnl";
+      return true;
+    }),
+    rosterSort.key, rosterSort.dir);
 
 
   // ── ARCHIVE VIEW ──────────────────────────────────────────────────────────
@@ -4116,13 +4121,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // restorable back into the roster. Archived patients are excluded from the
   // dashboard + global search, so this is the only place they surface.
   const archivedFiltered = (() => {
-    const t = archivedSearch.trim().toLowerCase();
-    if (!t) return archivedPatients;
-    return archivedPatients.filter(p =>
-      p.name?.toLowerCase().includes(t) ||
-      p.phone?.toLowerCase().includes(t) ||
-      p.devices?.manufacturer?.toLowerCase().includes(t)
-    );
+    if (!archivedSearch.trim()) return archivedPatients;
+    return archivedPatients.filter(p => patientMatchesSearch(p, archivedSearch));
   })();
 
   const renderArchive = () => (
@@ -4430,7 +4430,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   }}>{label}</button>
                 ))}
               </div>
-              <input className="search-input" placeholder={searchScope==="global" ? "Search all locations\u2026" : "Search patients\u2026"} value={tableSearch} onChange={e => setTableSearch(e.target.value)} />
+              <input className="search-input" placeholder={searchScope==="global" ? "Search all locations\u2026" : "Name, phone, or device\u2026"} value={tableSearch} onChange={e => setTableSearch(e.target.value)} />
             </div>
           </div>
           {filteredPatients.length === 0 ? (
@@ -4452,7 +4452,15 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             <table>
               <thead>
                 <tr>
-                  <th>Patient</th><th>Device</th><th>Coverage</th><th>Care Plan</th><th>Warranty</th><th>Fitting Date</th>
+                  {[["name","Patient"],["device","Device"],["coverage","Coverage"],["carePlan","Care Plan"],["warranty","Warranty"],["fitting","Fitting Date"]].map(([key,label])=>(
+                    <th key={key} onClick={()=>toggleRosterSort(key)} style={{cursor:"pointer",userSelect:"none",whiteSpace:"nowrap"}}
+                        title={`Sort by ${label.toLowerCase()}`}>
+                      {label}
+                      <span style={{marginLeft:4,fontSize:9,color:rosterSort.key===key?"#0a1628":"#d1d5db"}}>
+                        {rosterSort.key===key ? (rosterSort.dir==="asc"?"▲":"▼") : "▲▼"}
+                      </span>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
