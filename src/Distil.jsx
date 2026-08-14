@@ -10315,6 +10315,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           {view === "followup" && (
             <FollowUpQueue
               patients={patients}
+              staffId={staffId}
+              clinicId={clinicId}
               onSelectPatient={(p) => { setSelectedPatient(p); setView("patient"); }}
               onRefresh={refreshPatients}
             />

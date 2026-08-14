@@ -916,6 +916,7 @@ function assemblePatient(row) {
     lastVisitDate:        row.last_visit_date         || null,
     followUpStatus:       row.follow_up_status        || 'none',
     followUpContactedAt:  row.follow_up_contacted_date || null,
+    followUpOutcome:      row.follow_up_outcome       || '',
     followUpNotes:        row.follow_up_notes         || '',
 
     // Year-4 / off-warranty upgrade tracking.
@@ -2421,16 +2422,42 @@ export async function savePunch(patientId, punchData) {
 // Mark a patient as contacted from the follow-up queue. The queue UI
 // uses this to push a patient out of the "needs outreach" buckets for
 // a cooldown period without losing the audit trail of when/what.
-export async function markFollowUpContacted(patientId, notes) {
+// Follow-up contact outcome vocabulary. The outcome drives the queue's
+// per-outcome cooldown (a voicemail deserves a retry in days; a decline
+// shouldn't resurface for months) and gives Reports a conversion signal.
+export const FOLLOW_UP_OUTCOMES = [
+  { id: 'reached',   label: 'Reached — spoke with patient' },
+  { id: 'voicemail', label: 'Left voicemail' },
+  { id: 'no_answer', label: 'No answer' },
+  { id: 'scheduled', label: 'Visit scheduled' },
+  { id: 'declined',  label: 'Declined / do not contact' },
+]
+
+// Record a follow-up contact attempt. Throws on failure so the queue can
+// show it. When staffId+clinicId are provided the attempt is also appended
+// to the patient_notes interaction log (best-effort — the log entry never
+// blocks the queue update).
+export async function markFollowUpContacted(patientId, { outcome, note, staffId, clinicId } = {}) {
   const { error } = await supabase
     .from('patients')
     .update({
       follow_up_status:         'contacted',
       follow_up_contacted_date: new Date().toISOString(),
-      follow_up_notes:          notes || null,
+      follow_up_outcome:        outcome || null,
+      follow_up_notes:          note || null,
     })
     .eq('id', patientId)
-  if (error) console.error('markFollowUpContacted:', error)
+  if (error) { console.error('markFollowUpContacted:', error); throw error }
+  if (staffId && clinicId) {
+    const label = FOLLOW_UP_OUTCOMES.find(o => o.id === outcome)?.label || 'Contacted'
+    try {
+      await addPatientNote(patientId, {
+        body: `Follow-up outreach — ${label}${note ? `. ${note}` : ''}`,
+        staffId,
+        clinicId,
+      })
+    } catch (e) { console.error('markFollowUpContacted note:', e) }
+  }
 }
 
 // Reset a patient's follow-up tracking — used when a buckets-they-fell-into
@@ -2442,10 +2469,11 @@ export async function clearFollowUp(patientId) {
     .update({
       follow_up_status:         'none',
       follow_up_contacted_date: null,
+      follow_up_outcome:        null,
       follow_up_notes:          null,
     })
     .eq('id', patientId)
-  if (error) console.error('clearFollowUp:', error)
+  if (error) { console.error('clearFollowUp:', error); throw error }
 }
 
 // Record the outcome of a year-4 / off-warranty upgrade conversation.

@@ -11,15 +11,23 @@
  */
 
 import React, { useMemo, useState } from "react";
-import { markFollowUpContacted, clearFollowUp } from "../db.js";
+import { markFollowUpContacted, clearFollowUp, FOLLOW_UP_OUTCOMES } from "../db.js";
 import { parseDateOnly, daysUntil as libDaysUntil } from "../lib/dates.js";
 import { dueCareVisit, apptDay, apptDaysUntil } from "../lib/appointments.js";
 
-// Cooldown after a "Mark contacted" action: patient stays out of the queue
-// for this many days even if they still match a bucket. Tuned long enough
-// that a one-off touch silences the nag, short enough that real follow-up
-// gaps re-surface within the same care cycle.
+// Cooldown after a contact attempt: patient stays out of the queue for this
+// many days even if they still match a bucket. Now varies by what the
+// attempt produced — a voicemail deserves a retry within days, while a
+// decline shouldn't nag for months. Default covers legacy rows contacted
+// before outcomes existed.
 const CONTACTED_COOLDOWN_DAYS = 14;
+const OUTCOME_COOLDOWN_DAYS = {
+  reached:   14,
+  voicemail: 3,
+  no_answer: 3,
+  scheduled: 30, // the booked visit resurfaces via the care-visit bucket
+  declined:  90,
+};
 
 // Priority order is also display order. Higher-urgency buckets sort first.
 // Exported (with classify) so Reports counts the queue with the SAME rules
@@ -93,7 +101,8 @@ function fmtShort(iso) {
 export function classify(p) {
   if (p.followUpStatus === "contacted" && p.followUpContactedAt) {
     const since = daysSince(p.followUpContactedAt);
-    if (since != null && since < CONTACTED_COOLDOWN_DAYS) return { matched: [], primary: null };
+    const cooldown = OUTCOME_COOLDOWN_DAYS[p.followUpOutcome] ?? CONTACTED_COOLDOWN_DAYS;
+    if (since != null && since < cooldown) return { matched: [], primary: null };
   }
 
   const matched = [];
@@ -164,9 +173,14 @@ export function countFollowUpPatients(patients) {
   return n;
 }
 
-export default function FollowUpQueue({ patients, onSelectPatient, onRefresh }) {
+export default function FollowUpQueue({ patients, staffId, clinicId, onSelectPatient, onRefresh }) {
   const [busyId, setBusyId] = useState(null);
   const [filter,  setFilter]  = useState("all"); // "all" or a bucket key
+  // Outcome picker state — which patient row is being logged, and the draft.
+  const [loggingId, setLoggingId] = useState(null);
+  const [outcomeDraft, setOutcomeDraft] = useState("reached");
+  const [noteDraft, setNoteDraft] = useState("");
+  const [errorMsg, setErrorMsg] = useState(null);
 
   const grouped = useMemo(() => {
     const out = Object.fromEntries(BUCKETS.map(b => [b.key, []]));
@@ -185,17 +199,30 @@ export default function FollowUpQueue({ patients, onSelectPatient, onRefresh }) 
 
   const handleContacted = async (patientId) => {
     setBusyId(patientId);
+    setErrorMsg(null);
     try {
-      await markFollowUpContacted(patientId);
+      await markFollowUpContacted(patientId, {
+        outcome: outcomeDraft,
+        note: noteDraft.trim() || null,
+        staffId,
+        clinicId,
+      });
+      setLoggingId(null);
+      setNoteDraft("");
       if (onRefresh) await onRefresh();
+    } catch (err) {
+      setErrorMsg(err?.message || "Save failed — the contact was NOT recorded.");
     } finally { setBusyId(null); }
   };
 
   const handleClear = async (patientId) => {
     setBusyId(patientId);
+    setErrorMsg(null);
     try {
       await clearFollowUp(patientId);
       if (onRefresh) await onRefresh();
+    } catch (err) {
+      setErrorMsg(err?.message || "Reset failed.");
     } finally { setBusyId(null); }
   };
 
@@ -214,7 +241,9 @@ export default function FollowUpQueue({ patients, onSelectPatient, onRefresh }) 
         </span>
       </div>
       <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 20 }}>
-        Patients are silenced for {CONTACTED_COOLDOWN_DAYS} days after you mark them contacted.
+        Logging a contact silences the patient for a stretch that matches the outcome —
+        voicemail/no-answer resurface in {OUTCOME_COOLDOWN_DAYS.voicemail} days, reached in {OUTCOME_COOLDOWN_DAYS.reached},
+        scheduled in {OUTCOME_COOLDOWN_DAYS.scheduled}, declined in {OUTCOME_COOLDOWN_DAYS.declined}.
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 24 }}>
@@ -272,46 +301,80 @@ export default function FollowUpQueue({ patients, onSelectPatient, onRefresh }) 
               {rows.map(p => {
                 const detail = bucketDetail(bucket.key, p);
                 const others = (p._matched || []).filter(k => k !== bucket.key);
+                const lastContact = p.followUpContactedAt ? daysSince(p.followUpContactedAt) : null;
+                const lastOutcomeLabel = FOLLOW_UP_OUTCOMES.find(o => o.id === p.followUpOutcome)?.label;
                 return (
                   <div key={p.id} style={{
-                    display: "flex", alignItems: "center", gap: 14, padding: "12px 16px",
+                    padding: "12px 16px",
                     background: "white", border: "1px solid #e5e7eb", borderRadius: 10,
                   }}>
-                    <div style={{
-                      flex: 1, minWidth: 0, cursor: onSelectPatient ? "pointer" : "default",
-                    }} onClick={() => onSelectPatient && onSelectPatient(p)}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: "#0a1628" }}>{p.name || "—"}</div>
-                      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
-                        {detail}
-                        {p.phone ? ` · ${p.phone}` : ""}
-                      </div>
-                      {others.length > 0 && (
-                        <div style={{ marginTop: 4, display: "flex", gap: 4, flexWrap: "wrap" }}>
-                          {others.map(k => {
-                            const b = BUCKETS.find(x => x.key === k);
-                            return (
-                              <span key={k} style={{
-                                fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 12,
-                                background: b.bg, color: b.color,
-                              }}>also: {b.label.replace(/ \(.+\)/, "")}</span>
-                            );
-                          })}
+                    <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                      <div style={{
+                        flex: 1, minWidth: 0, cursor: onSelectPatient ? "pointer" : "default",
+                      }} onClick={() => onSelectPatient && onSelectPatient(p)}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#0a1628" }}>{p.name || "—"}</div>
+                        <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                          {detail}
+                          {p.phone ? ` · ${p.phone}` : ""}
                         </div>
-                      )}
+                        {lastContact != null && (
+                          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
+                            Last outreach {lastContact === 0 ? "today" : `${lastContact}d ago`}
+                            {lastOutcomeLabel ? ` — ${lastOutcomeLabel.toLowerCase()}` : ""}
+                            {p.followUpNotes ? ` · “${p.followUpNotes}”` : ""}
+                          </div>
+                        )}
+                        {others.length > 0 && (
+                          <div style={{ marginTop: 4, display: "flex", gap: 4, flexWrap: "wrap" }}>
+                            {others.map(k => {
+                              const b = BUCKETS.find(x => x.key === k);
+                              return (
+                                <span key={k} style={{
+                                  fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 12,
+                                  background: b.bg, color: b.color,
+                                }}>also: {b.label.replace(/ \(.+\)/, "")}</span>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                        {p.followUpStatus === "contacted" && (
+                          <button disabled={busyId === p.id} onClick={() => handleClear(p.id)}
+                            style={chipBtn("#6b7280")}>
+                            Reset
+                          </button>
+                        )}
+                        {loggingId === p.id ? (
+                          <button onClick={() => { setLoggingId(null); setErrorMsg(null); }}
+                            style={chipBtn("#6b7280")}>
+                            Close
+                          </button>
+                        ) : (
+                          <button disabled={busyId === p.id}
+                            onClick={() => { setLoggingId(p.id); setOutcomeDraft("reached"); setNoteDraft(""); setErrorMsg(null); }}
+                            style={chipBtn("#0a1628")}>
+                            Log contact
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                      {p.followUpStatus === "contacted" ? (
-                        <button disabled={busyId === p.id} onClick={() => handleClear(p.id)}
-                          style={chipBtn("#6b7280")}>
-                          Reset
-                        </button>
-                      ) : (
+                    {loggingId === p.id && (
+                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #f3f4f6", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                        <select value={outcomeDraft} onChange={e => setOutcomeDraft(e.target.value)}
+                          style={{ padding: "6px 10px", border: "1px solid #e5e7eb", borderRadius: 6, fontSize: 12, fontFamily: "'Sora',sans-serif", background: "white" }}>
+                          {FOLLOW_UP_OUTCOMES.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                        </select>
+                        <input type="text" placeholder="Note (optional)" value={noteDraft}
+                          onChange={e => setNoteDraft(e.target.value)}
+                          style={{ flex: 1, minWidth: 160, padding: "6px 10px", border: "1px solid #e5e7eb", borderRadius: 6, fontSize: 12, fontFamily: "'Sora',sans-serif" }} />
                         <button disabled={busyId === p.id} onClick={() => handleContacted(p.id)}
-                          style={chipBtn("#0a1628")}>
-                          Mark contacted
+                          style={{ ...chipBtn("white"), background: "#0a1628", borderColor: "#0a1628" }}>
+                          {busyId === p.id ? "Saving…" : "Save"}
                         </button>
-                      )}
-                    </div>
+                        {errorMsg && <span style={{ fontSize: 12, color: "#ef4444", fontWeight: 600 }}>{errorMsg}</span>}
+                      </div>
+                    )}
                   </div>
                 );
               })}
