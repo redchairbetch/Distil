@@ -23,6 +23,7 @@ import ComparisonHub from "./views/ComparisonHub.jsx";
 import { LegacyDevicePanel } from "./views/LegacyFastPath.jsx";
 import { rankFromTierLabel } from "./deviceComparison.js";
 import { parseDateOnly, fmtDate, warrantyDate, daysUntil } from "./lib/dates.js";
+import { patientMatchesSearch, sortPatients } from "./lib/patientSearch.js";
 import { CARE_ARC, buildCareArc } from "./lib/careArc.js";
 import { isTestedNoLoss, buildTnlRetestAppointment, TNL_RETEST_TYPE } from "./lib/audiogram.js";
 import {
@@ -133,6 +134,10 @@ import {
   getDocumentSignedUrl,
   createQuoteShare,
   recordUpgradeOutcome,
+  addAppointment,
+  updateAppointment,
+  setAppointmentStatus,
+  loadQuoteViewSignals,
   logAnalyticsEvent,
   listMessagesForPatient,
   listPatientNotes,
@@ -164,6 +169,7 @@ import FollowUpQueue, { countFollowUpPatients } from "./views/FollowUpQueue.jsx"
 import PendingFittings, { countPendingFittings } from "./views/PendingFittings.jsx";
 import { warrantyYearsFor, estimateFitDate } from "./lib/pendingFitting.js";
 import CommsInbox from "./views/CommsInbox.jsx";
+import DueThisWeek from "./views/DueThisWeek.jsx";
 import ProvidersAdmin from "./views/ProvidersAdmin.jsx";
 import EvidenceReview from "./views/EvidenceReview.jsx";
 import NationsCatalog from "./views/NationsCatalog.jsx";
@@ -177,6 +183,8 @@ import CloseAppointmentModal, {
   clearPendingOutcome,
 } from "./views/CloseAppointmentModal.jsx";
 import { stashWizardDraft, readWizardDraft, clearWizardDraft } from "./lib/wizardDraft.js";
+import UpgradeTrackingCard from "./components/UpgradeTrackingCard.jsx";
+import AppointmentSchedule from "./components/AppointmentSchedule.jsx";
 
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
@@ -1580,68 +1588,9 @@ function pickLicenseForClinic(licenses, address) {
 // pickBaselinePerAid) now lives in lib/pricing.js (imported above) so the
 // money math is unit-testable.
 
-// Patient-detail appointment list — collapsed to the next visit by default; expands to the full arc (backlog #5).
-function AppointmentSchedule({ appointments }) {
-  const [expanded, setExpanded] = useState(false);
-  if (!appointments?.length) return null;
-  const sorted = [...appointments].sort((a, b) => new Date(a.date) - new Date(b.date));
-  const upcoming = sorted.filter(a => daysUntil(a.date) >= 0);
-  const past = sorted.filter(a => daysUntil(a.date) < 0).reverse();
-  const next = upcoming[0] || null;
-  const restUpcoming = upcoming.slice(1);
-  const hiddenCount = restUpcoming.length + past.length;
-  const relHint = (dateStr) => {
-    const d = daysUntil(dateStr);
-    return d <= 0 ? "today" : d === 1 ? "tomorrow" : `in ${d} days`;
-  };
-  const row = (a, key, muted) => (
-    <div className="detail-row" key={key}>
-      <span className="detail-key" style={muted ? { color: "#9ca3af" } : undefined}>{a.type}</span>
-      <span className="detail-val" style={muted ? { color: "#9ca3af" } : undefined}>{fmtDate(a.date)}</span>
-    </div>
-  );
-  return (
-    <div className="detail-card full">
-      <div className="detail-card-title">
-        Appointment Schedule{upcoming.length > 0 ? ` · ${upcoming.length} upcoming` : ""}
-      </div>
-      {next ? (
-        <div style={{ background: "#eff6ff", borderLeft: "3px solid #1d4ed8", borderRadius: 4, padding: "6px 8px", margin: "3px 0" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: "#0a1628" }}>
-              {next.type}
-              <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, color: "#1d4ed8", background: "#dbeafe", borderRadius: 4, padding: "1px 5px", letterSpacing: 0.5 }}>NEXT</span>
-            </span>
-            <span style={{ fontSize: 13, color: "#374151", whiteSpace: "nowrap" }}>
-              {fmtDate(next.date)}
-              <span style={{ marginLeft: 6, fontSize: 11, color: "#6b7280" }}>({relHint(next.date)})</span>
-            </span>
-          </div>
-          {next.note && <div style={{ fontSize: 11, color: "#6b7280", marginTop: 3, lineHeight: 1.4 }}>{next.note}</div>}
-        </div>
-      ) : (
-        <div style={{ fontSize: 12, color: "#9ca3af", padding: "4px 0" }}>No upcoming appointments.</div>
-      )}
-      {expanded && (
-        <>
-          {restUpcoming.map((a, i) => row(a, `u${i}`, false))}
-          {past.length > 0 && (
-            <>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: "#9ca3af", margin: "10px 0 2px" }}>Past</div>
-              {past.map((a, i) => row(a, `p${i}`, true))}
-            </>
-          )}
-        </>
-      )}
-      {hiddenCount > 0 && (
-        <button onClick={() => setExpanded(e => !e)}
-          style={{ background: "none", border: "none", color: "#1d4ed8", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer", padding: "6px 0 0" }}>
-          {expanded ? "Show less" : `Show full schedule (${hiddenCount} more)`}
-        </button>
-      )}
-    </div>
-  );
-}
+// AppointmentSchedule (patient-detail appointment list) now lives in
+// components/AppointmentSchedule.jsx — collapsed to the next visit, with
+// per-row complete/edit/cancel actions (backlog #5 / follow-up loop).
 
 export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = [], onClinicSwitched }) {
   const [clinic, setClinic] = useState(DEFAULT_CLINIC);
@@ -2244,8 +2193,15 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     isNationsPatient && nationsCoverageTier(famEntry, t) === null;
 
 
+  // Quote-open hot-lead signal: { patientId: { viewCount, lastViewedAt } }.
+  // Loaded alongside the roster; refreshed with it.
+  const [quoteViewSignals, setQuoteViewSignals] = useState({});
+  const refreshQuoteSignals = () =>
+    loadQuoteViewSignals(clinicId).then(setQuoteViewSignals).catch(() => {});
+
   useEffect(() => {
     loadAllPatients(clinicId).then(p => { setPatients(p); setLoading(false); });
+    refreshQuoteSignals();
     (async () => {
       try {
         if (clinicId) {
@@ -2307,6 +2263,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   const refreshPatients = async () => {
     const p = await loadAllPatients(clinicId);
     setPatients(p);
+    refreshQuoteSignals(); // fire-and-forget; badge freshness only
   };
 
   // ── Patient archive ───────────────────────────────────────────────────────
@@ -2474,7 +2431,6 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       tier:           p.insurance?.tier       || "",
       tierPrice:      p.insurance?.tierPrice  ?? null,
       carePlanType:   p.carePlan              || "",
-      warrantyExpiry: p.devices?.warrantyExpiry || "",
     });
     setEditPlanSearch("");
     setEditSection("coverage");
@@ -2498,7 +2454,6 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           tier_price_per_aid: editDraft.tierPrice != null ? Math.round(editDraft.tierPrice * 100) : null,
           insurance_plan_id:  planId,
           care_plan_type:     editDraft.carePlanType   || null,
-          warranty_expiry:    editDraft.warrantyExpiry || null,
         },
         selectedPatient._ids?.coverageId || null
       );
@@ -2506,7 +2461,6 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         ...p,
         carePlan: editDraft.carePlanType,
         insurance: { ...p.insurance, carrier: editDraft.carrier, planGroup: editDraft.planGroup, tpa: editDraft.tpa, tier: editDraft.tier, tierPrice: editDraft.tierPrice },
-        devices: p.devices ? { ...p.devices, warrantyExpiry: editDraft.warrantyExpiry } : p.devices,
         _ids: { ...p._ids, coverageId: p._ids?.coverageId || "pending" },
       }));
       setEditSuccess("Saved");
@@ -2572,6 +2526,17 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           warranty_expiry: editDraft.warrantyExpiry || null,
           fitting_type:    editDraft.fittingType    || null,
         });
+        // The fitting owns the warranty; keep the insurance_coverage mirror in
+        // step (same pattern as confirmDeviceFitting) so coverage-driven reads
+        // never see a stale date. Mirror only — never create a coverage row
+        // just to hold a warranty date.
+        if (selectedPatient._ids?.coverageId && selectedPatient._ids.coverageId !== "pending") {
+          await updateInsuranceCoverage(
+            selectedPatient.id,
+            { warranty_expiry: editDraft.warrantyExpiry || null },
+            selectedPatient._ids.coverageId
+          );
+        }
       }
       const buildSideFields = (s) => ({
         manufacturer:    s.manufacturer    || null,
@@ -4082,6 +4047,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   const [searchScope, setSearchScope] = useState("local"); // "local" | "global"
   const [globalResults, setGlobalResults] = useState([]);
   const [globalSearching, setGlobalSearching] = useState(false);
+  // Roster column sort — null key keeps the load order (newest patient first).
+  const [rosterSort, setRosterSort] = useState({ key: null, dir: "asc" });
+  const toggleRosterSort = (key) =>
+    setRosterSort(s => s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" });
 
   useEffect(() => {
     if (searchScope !== "global") return;
@@ -4098,17 +4067,31 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     return () => { cancelled = true; clearTimeout(t); };
   }, [tableSearch, searchScope]);
 
-  const filteredPatients = (searchScope === "global"
-    ? globalResults // server already matched name/phone across all locations
-    : patients.filter(p =>
-        p.name?.toLowerCase().includes(tableSearch.toLowerCase()) ||
-        p.devices?.manufacturer?.toLowerCase().includes(tableSearch.toLowerCase()))
-  ).filter(p => {
-    if (statusFilter === "active") return p.patientStatus !== "tns" && p.patientStatus !== "tnl";
-    if (statusFilter === "tns") return p.patientStatus === "tns";
-    if (statusFilter === "tnl") return p.patientStatus === "tnl";
-    return true;
-  });
+  // "Viewed their quote" hot-lead badge — a TNS patient re-reading their
+  // share-link quote is the warmest name on the follow-up list.
+  const quoteViewBadge = (patientId) => {
+    const s = quoteViewSignals[patientId];
+    if (!s?.viewCount) return null;
+    return (
+      <span
+        title={`Patient opened their quote link ${s.viewCount} time${s.viewCount === 1 ? "" : "s"} — last ${fmtDate(s.lastViewedAt)}`}
+        style={{ background: "#fce7f3", color: "#be185d", borderRadius: 99, padding: "1px 7px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>
+        👀 Viewed quote{s.viewCount > 1 ? ` ×${s.viewCount}` : ""}
+      </span>
+    );
+  };
+
+  const filteredPatients = sortPatients(
+    (searchScope === "global"
+      ? globalResults // server already matched name/phone across all locations
+      : patients.filter(p => patientMatchesSearch(p, tableSearch))
+    ).filter(p => {
+      if (statusFilter === "active") return p.patientStatus !== "tns" && p.patientStatus !== "tnl";
+      if (statusFilter === "tns") return p.patientStatus === "tns";
+      if (statusFilter === "tnl") return p.patientStatus === "tnl";
+      return true;
+    }),
+    rosterSort.key, rosterSort.dir);
 
 
   // ── ARCHIVE VIEW ──────────────────────────────────────────────────────────
@@ -4116,13 +4099,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // restorable back into the roster. Archived patients are excluded from the
   // dashboard + global search, so this is the only place they surface.
   const archivedFiltered = (() => {
-    const t = archivedSearch.trim().toLowerCase();
-    if (!t) return archivedPatients;
-    return archivedPatients.filter(p =>
-      p.name?.toLowerCase().includes(t) ||
-      p.phone?.toLowerCase().includes(t) ||
-      p.devices?.manufacturer?.toLowerCase().includes(t)
-    );
+    if (!archivedSearch.trim()) return archivedPatients;
+    return archivedPatients.filter(p => patientMatchesSearch(p, archivedSearch));
   })();
 
   const renderArchive = () => (
@@ -4278,6 +4256,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           </div>
         </div>
 
+        {/* ── Care visits due this week (care-arc work list) ───────────── */}
+        <DueThisWeek
+          patients={patients}
+          onSelectPatient={(p) => { setSelectedPatient(p); setView("patient"); }}
+          onOpenQueue={() => setView("followup")}
+        />
+
         {/* ── Patient Messages (two-way comms inbox) ───────────────────── */}
         {/* Aided replies (and, later, ingested email replies) awaiting a   */}
         {/* response. Front desk or provider replies via SendMessageModal.  */}
@@ -4336,7 +4321,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                           style={{ cursor: "pointer", background: isTagging ? "#fffbeb" : "white" }}
                         >
                           <td>
-                            <div className="patient-name">{p.name}</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <div className="patient-name">{p.name}</div>
+                              {quoteViewBadge(p.id)}
+                            </div>
                             <div style={{ fontSize: 11, color: "#9ca3af" }}>{p.phone}</div>
                           </td>
                           <td>
@@ -4430,7 +4418,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   }}>{label}</button>
                 ))}
               </div>
-              <input className="search-input" placeholder={searchScope==="global" ? "Search all locations\u2026" : "Search patients\u2026"} value={tableSearch} onChange={e => setTableSearch(e.target.value)} />
+              <input className="search-input" placeholder={searchScope==="global" ? "Search all locations\u2026" : "Name, phone, or device\u2026"} value={tableSearch} onChange={e => setTableSearch(e.target.value)} />
             </div>
           </div>
           {filteredPatients.length === 0 ? (
@@ -4452,7 +4440,15 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             <table>
               <thead>
                 <tr>
-                  <th>Patient</th><th>Device</th><th>Coverage</th><th>Care Plan</th><th>Warranty</th><th>Fitting Date</th>
+                  {[["name","Patient"],["device","Device"],["coverage","Coverage"],["carePlan","Care Plan"],["warranty","Warranty"],["fitting","Fitting Date"]].map(([key,label])=>(
+                    <th key={key} onClick={()=>toggleRosterSort(key)} style={{cursor:"pointer",userSelect:"none",whiteSpace:"nowrap"}}
+                        title={`Sort by ${label.toLowerCase()}`}>
+                      {label}
+                      <span style={{marginLeft:4,fontSize:9,color:rosterSort.key===key?"#0a1628":"#d1d5db"}}>
+                        {rosterSort.key===key ? (rosterSort.dir==="asc"?"▲":"▼") : "▲▼"}
+                      </span>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -4470,6 +4466,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                           <div className="patient-name">{p.name}</div>
                           {isTns && <span style={{background:"#fef3c7",color:"#92400e",borderRadius:99,padding:"1px 7px",fontSize:10,fontWeight:700}}>TNS</span>}
                           {isTnl && <span style={{background:"#dbeafe",color:"#1d4ed8",borderRadius:99,padding:"1px 7px",fontSize:10,fontWeight:700}}>TNL</span>}
+                          {quoteViewBadge(p.id)}
                           {searchScope === "global" && p.location && (
                             <span style={{background:p.clinicId===clinicId?"#dcfce7":"#e0e7ff",color:p.clinicId===clinicId?"#15803d":"#3730a3",borderRadius:99,padding:"1px 7px",fontSize:10,fontWeight:700}}>
                               {p.location.replace(/^My Hearing Centers\s*[–-]\s*/,"")}
@@ -7340,7 +7337,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
 
           <div className="settings-section">
             <div className="settings-title">About Distil</div>
-            {[["Version","1.0 Prototype"],["Patient App","Aided"],["Noah Integration","Coming soon — Noah ES API"],["HIPAA","Data stored locally in this session"]].map(([k,v])=>(
+            {[["Version","1.0 Prototype"],["Patient App","Aided"],["Noah Integration","Coming soon — Noah ES API"],["Data & Privacy","Encrypted cloud database (Supabase) · row-level security scoped per clinic"]].map(([k,v])=>(
               <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #F0EDE3",fontSize:13}}>
                 <span style={{color:"#9ca3af"}}>{k}</span>
                 <span style={{fontWeight:500,color:"#374151"}}>{v}</span>
@@ -7897,7 +7894,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>TPA</label><input value={editDraft.tpa} onChange={e=>setEditDraft(d=>({...d,tpa:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
                     <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Tier</label><input value={editDraft.tier} onChange={e=>setEditDraft(d=>({...d,tier:e.target.value}))} placeholder="e.g. Level 3" style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
                     <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Copay ($/aid)</label><input type="number" value={editDraft.tierPrice??""} onChange={e=>setEditDraft(d=>({...d,tierPrice:e.target.value?Number(e.target.value):null}))} placeholder="e.g. 999" style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
-                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Warranty Expiry</label><input type="date" value={editDraft.warrantyExpiry} onChange={e=>setEditDraft(d=>({...d,warrantyExpiry:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    {/* Warranty is owned by the fitting — edit it in Device Specifications.
+                        Editing it here too used to write insurance_coverage only, silently
+                        diverging from the device_fittings value the chart displays. */}
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Warranty Expiry</label>
+                      <div style={{padding:"8px 10px",border:"1px dashed #E4E0D5",borderRadius:8,fontSize:13,color:"#6b7280",background:"#FBF9F3"}}>
+                        {p.devices?.warrantyExpiry ? fmtDate(p.devices.warrantyExpiry) : "—"} <span style={{fontSize:11,color:"#9ca3af"}}>· edit under Device Specifications</span>
+                      </div>
+                    </div>
                     <div>
                       <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Care Plan</label>
                       <select value={editDraft.carePlanType} onChange={e=>setEditDraft(d=>({...d,carePlanType:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",background:"white",boxSizing:"border-box"}}>
@@ -8275,7 +8279,25 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             })()}
 
 
-            <AppointmentSchedule appointments={p.appointments} />
+            <AppointmentSchedule
+              appointments={p.appointments}
+              visitTypes={VISIT_TYPES}
+              onAdd={async (fields) => {
+                const row = await addAppointment(selectedPatient.id, clinicId, fields, staffId);
+                setSelectedPatient(sp => ({ ...sp, appointments: [...(sp.appointments || []), row] }));
+                await refreshPatients();
+              }}
+              onUpdate={async (id, fields) => {
+                await updateAppointment(id, fields);
+                setSelectedPatient(sp => ({ ...sp, appointments: sp.appointments.map(a => a.id === id ? { ...a, ...fields } : a) }));
+                await refreshPatients();
+              }}
+              onSetStatus={async (id, status) => {
+                await setAppointmentStatus(id, status);
+                setSelectedPatient(sp => ({ ...sp, appointments: sp.appointments.map(a => a.id === id ? { ...a, status } : a) }));
+                await refreshPatients();
+              }}
+            />
 
 
             {/* ── PERSONALIZATION PREVIEW (read-only) ──────────────────────────────── */}
@@ -8485,81 +8507,19 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             {/* follow-up queue's "off warranty · no upgrade conversation" bucket;    */}
             {/* logging an outcome here removes the patient from that bucket.        */}
             {selectedPatient.devices && (
-              <div className="detail-card full">
-                <div className="detail-card-title">Upgrade Tracking</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14}}>
-                  <div>
-                    <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#9ca3af",display:"block",marginBottom:6}}>Care plan start</label>
-                    <div style={{fontSize:13,fontWeight:600,color:"#0a1628",padding:"8px 0"}}>
-                      {selectedPatient.carePlanStartDate ? fmtDate(selectedPatient.carePlanStartDate) : <span style={{color:"#9ca3af",fontWeight:400}}>—</span>}
-                    </div>
-                  </div>
-                  <div>
-                    <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#9ca3af",display:"block",marginBottom:6}}>Tier offered</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Premium IX"
-                      defaultValue={selectedPatient.upgradeTierOffered || ""}
-                      onBlur={async (e) => {
-                        const v = e.target.value.trim();
-                        if (v === (selectedPatient.upgradeTierOffered || "")) return;
-                        try {
-                          await recordUpgradeOutcome(selectedPatient.id, { tierOffered: v });
-                          await refreshPatients();
-                          setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
-                        } catch (err) { console.error("recordUpgradeOutcome tier:", err); }
-                      }}
-                      style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:6,fontSize:13,fontFamily:"'Sora',sans-serif"}}
-                    />
-                  </div>
-                  <div>
-                    <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#9ca3af",display:"block",marginBottom:6}}>Outcome</label>
-                    <select
-                      value={selectedPatient.upgradeOutcome || ""}
-                      onChange={async (e) => {
-                        const v = e.target.value;
-                        try {
-                          await recordUpgradeOutcome(selectedPatient.id, {
-                            outcome: v,
-                            // Wipe donation recipient if outcome moves off "donated"
-                            ...(v !== "donated" ? { donationRecipient: "" } : {}),
-                          });
-                          await refreshPatients();
-                          setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
-                        } catch (err) { console.error("recordUpgradeOutcome outcome:", err); }
-                      }}
-                      style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:6,fontSize:13,fontFamily:"'Sora',sans-serif",background:"white"}}
-                    >
-                      <option value="">— not yet discussed —</option>
-                      <option value="pending">Pending — conversation started</option>
-                      <option value="declined">Declined upgrade</option>
-                      <option value="upgraded">Upgraded</option>
-                      <option value="reprogrammed">Reprogrammed (kept devices)</option>
-                      <option value="donated">Donated old aids</option>
-                    </select>
-                  </div>
-                </div>
-                {(selectedPatient.upgradeOutcome === "donated" || selectedPatient.donationRecipient) && (
-                  <div style={{marginTop:14}}>
-                    <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#9ca3af",display:"block",marginBottom:6}}>Donation recipient</label>
-                    <input
-                      type="text"
-                      placeholder="Recipient name or organization"
-                      defaultValue={selectedPatient.donationRecipient || ""}
-                      onBlur={async (e) => {
-                        const v = e.target.value.trim();
-                        if (v === (selectedPatient.donationRecipient || "")) return;
-                        try {
-                          await recordUpgradeOutcome(selectedPatient.id, { donationRecipient: v });
-                          await refreshPatients();
-                          setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
-                        } catch (err) { console.error("recordUpgradeOutcome donation:", err); }
-                      }}
-                      style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:6,fontSize:13,fontFamily:"'Sora',sans-serif"}}
-                    />
-                  </div>
-                )}
-              </div>
+              <UpgradeTrackingCard
+                patient={selectedPatient}
+                onSave={async (fields) => {
+                  await recordUpgradeOutcome(selectedPatient.id, fields);
+                  setSelectedPatient(p => ({
+                    ...p,
+                    ...(fields.tierOffered !== undefined ? { upgradeTierOffered: fields.tierOffered } : {}),
+                    ...(fields.outcome !== undefined ? { upgradeOutcome: fields.outcome } : {}),
+                    ...(fields.donationRecipient !== undefined ? { donationRecipient: fields.donationRecipient } : {}),
+                  }));
+                  await refreshPatients();
+                }}
+              />
             )}
 
 
@@ -10355,6 +10315,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           {view === "followup" && (
             <FollowUpQueue
               patients={patients}
+              staffId={staffId}
+              clinicId={clinicId}
               onSelectPatient={(p) => { setSelectedPatient(p); setView("patient"); }}
               onRefresh={refreshPatients}
             />

@@ -366,6 +366,37 @@ export async function createQuoteShare({
 }
 
 /**
+ * Quote-open signals for the hot-lead badge: get_shared_quote bumps
+ * view_count / first_viewed_at / last_viewed_at every time a patient opens
+ * their share link, and until now nothing read them back. Returns
+ * { [patientId]: { viewCount, lastViewedAt } } aggregated across that
+ * patient's viewed shares from the last `sinceDays` days — a patient
+ * re-reading their quote is the warmest follow-up signal we have.
+ */
+export async function loadQuoteViewSignals(clinicId, sinceDays = 60) {
+  if (!clinicId) return {}
+  const since = new Date(Date.now() - sinceDays * 86400000).toISOString()
+  const { data, error } = await supabase
+    .from('quote_shares')
+    .select('patient_id, view_count, last_viewed_at')
+    .eq('clinic_id', clinicId)
+    .gt('view_count', 0)
+    .gte('created_at', since)
+  if (error) { console.error('loadQuoteViewSignals:', error); return {} }
+  const map = {}
+  for (const r of data || []) {
+    if (!r.patient_id) continue
+    const cur = map[r.patient_id] || { viewCount: 0, lastViewedAt: null }
+    cur.viewCount += r.view_count || 0
+    if (r.last_viewed_at && (!cur.lastViewedAt || r.last_viewed_at > cur.lastViewedAt)) {
+      cur.lastViewedAt = r.last_viewed_at
+    }
+    map[r.patient_id] = cur
+  }
+  return map
+}
+
+/**
  * Resolve a shared quote by token (anon-callable RPC — the /quote page's
  * only data access). Returns { payload, clinic, createdAt, expiresAt } or
  * null for unknown/expired/revoked tokens. Each successful resolve bumps
@@ -885,6 +916,7 @@ function assemblePatient(row) {
     lastVisitDate:        row.last_visit_date         || null,
     followUpStatus:       row.follow_up_status        || 'none',
     followUpContactedAt:  row.follow_up_contacted_date || null,
+    followUpOutcome:      row.follow_up_outcome       || '',
     followUpNotes:        row.follow_up_notes         || '',
 
     // Year-4 / off-warranty upgrade tracking.
@@ -894,6 +926,7 @@ function assemblePatient(row) {
     donationRecipient:    row.donation_recipient      || '',
 
     appointments: appts.map(a => ({
+      id: a.id,
       date: a.appointment_date,
       type: a.appointment_type,
       note: a.notes,
@@ -2389,16 +2422,42 @@ export async function savePunch(patientId, punchData) {
 // Mark a patient as contacted from the follow-up queue. The queue UI
 // uses this to push a patient out of the "needs outreach" buckets for
 // a cooldown period without losing the audit trail of when/what.
-export async function markFollowUpContacted(patientId, notes) {
+// Follow-up contact outcome vocabulary. The outcome drives the queue's
+// per-outcome cooldown (a voicemail deserves a retry in days; a decline
+// shouldn't resurface for months) and gives Reports a conversion signal.
+export const FOLLOW_UP_OUTCOMES = [
+  { id: 'reached',   label: 'Reached — spoke with patient' },
+  { id: 'voicemail', label: 'Left voicemail' },
+  { id: 'no_answer', label: 'No answer' },
+  { id: 'scheduled', label: 'Visit scheduled' },
+  { id: 'declined',  label: 'Declined / do not contact' },
+]
+
+// Record a follow-up contact attempt. Throws on failure so the queue can
+// show it. When staffId+clinicId are provided the attempt is also appended
+// to the patient_notes interaction log (best-effort — the log entry never
+// blocks the queue update).
+export async function markFollowUpContacted(patientId, { outcome, note, staffId, clinicId } = {}) {
   const { error } = await supabase
     .from('patients')
     .update({
       follow_up_status:         'contacted',
       follow_up_contacted_date: new Date().toISOString(),
-      follow_up_notes:          notes || null,
+      follow_up_outcome:        outcome || null,
+      follow_up_notes:          note || null,
     })
     .eq('id', patientId)
-  if (error) console.error('markFollowUpContacted:', error)
+  if (error) { console.error('markFollowUpContacted:', error); throw error }
+  if (staffId && clinicId) {
+    const label = FOLLOW_UP_OUTCOMES.find(o => o.id === outcome)?.label || 'Contacted'
+    try {
+      await addPatientNote(patientId, {
+        body: `Follow-up outreach — ${label}${note ? `. ${note}` : ''}`,
+        staffId,
+        clinicId,
+      })
+    } catch (e) { console.error('markFollowUpContacted note:', e) }
+  }
 }
 
 // Reset a patient's follow-up tracking — used when a buckets-they-fell-into
@@ -2410,10 +2469,11 @@ export async function clearFollowUp(patientId) {
     .update({
       follow_up_status:         'none',
       follow_up_contacted_date: null,
+      follow_up_outcome:        null,
       follow_up_notes:          null,
     })
     .eq('id', patientId)
-  if (error) console.error('clearFollowUp:', error)
+  if (error) { console.error('clearFollowUp:', error); throw error }
 }
 
 // Record the outcome of a year-4 / off-warranty upgrade conversation.
@@ -3547,6 +3607,53 @@ export async function updateDeviceSide(sideId, fields) {
     .from('device_sides')
     .update(fields)
     .eq('id', sideId)
+  if (error) throw error
+}
+
+
+// ============================================================
+// APPOINTMENTS (chart-side management)
+// ============================================================
+// The wizard and care arc insert appointments in bulk; these let the chart
+// correct individual rows afterward. Status vocabulary matches the arc/
+// pending-fitting writers: 'scheduled' | 'completed' | 'cancelled'.
+// Writes are clinic-scoped by RLS (staff_see_own_clinic_appointments).
+
+export async function addAppointment(patientId, clinicId, { date, type, note }, staffId = null) {
+  const { data, error } = await supabase
+    .from('appointments')
+    .insert({
+      patient_id: patientId,
+      clinic_id: clinicId,
+      staff_id: staffId,
+      appointment_date: date,
+      appointment_type: type || null,
+      notes: note || null,
+      status: 'scheduled',
+    })
+    .select('id, appointment_date, appointment_type, notes, status')
+    .single()
+  if (error) throw error
+  return { id: data.id, date: data.appointment_date, type: data.appointment_type, note: data.notes, status: data.status }
+}
+
+export async function updateAppointment(apptId, { date, type, note }) {
+  const fields = {}
+  if (date !== undefined) fields.appointment_date = date
+  if (type !== undefined) fields.appointment_type = type || null
+  if (note !== undefined) fields.notes = note || null
+  const { error } = await supabase
+    .from('appointments')
+    .update(fields)
+    .eq('id', apptId)
+  if (error) throw error
+}
+
+export async function setAppointmentStatus(apptId, status) {
+  const { error } = await supabase
+    .from('appointments')
+    .update({ status })
+    .eq('id', apptId)
   if (error) throw error
 }
 
