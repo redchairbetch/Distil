@@ -178,6 +178,7 @@ import CloseAppointmentModal, {
   clearPendingOutcome,
 } from "./views/CloseAppointmentModal.jsx";
 import { stashWizardDraft, readWizardDraft, clearWizardDraft } from "./lib/wizardDraft.js";
+import UpgradeTrackingCard from "./components/UpgradeTrackingCard.jsx";
 
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
@@ -2475,7 +2476,6 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       tier:           p.insurance?.tier       || "",
       tierPrice:      p.insurance?.tierPrice  ?? null,
       carePlanType:   p.carePlan              || "",
-      warrantyExpiry: p.devices?.warrantyExpiry || "",
     });
     setEditPlanSearch("");
     setEditSection("coverage");
@@ -2499,7 +2499,6 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           tier_price_per_aid: editDraft.tierPrice != null ? Math.round(editDraft.tierPrice * 100) : null,
           insurance_plan_id:  planId,
           care_plan_type:     editDraft.carePlanType   || null,
-          warranty_expiry:    editDraft.warrantyExpiry || null,
         },
         selectedPatient._ids?.coverageId || null
       );
@@ -2507,7 +2506,6 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         ...p,
         carePlan: editDraft.carePlanType,
         insurance: { ...p.insurance, carrier: editDraft.carrier, planGroup: editDraft.planGroup, tpa: editDraft.tpa, tier: editDraft.tier, tierPrice: editDraft.tierPrice },
-        devices: p.devices ? { ...p.devices, warrantyExpiry: editDraft.warrantyExpiry } : p.devices,
         _ids: { ...p._ids, coverageId: p._ids?.coverageId || "pending" },
       }));
       setEditSuccess("Saved");
@@ -2573,6 +2571,17 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           warranty_expiry: editDraft.warrantyExpiry || null,
           fitting_type:    editDraft.fittingType    || null,
         });
+        // The fitting owns the warranty; keep the insurance_coverage mirror in
+        // step (same pattern as confirmDeviceFitting) so coverage-driven reads
+        // never see a stale date. Mirror only — never create a coverage row
+        // just to hold a warranty date.
+        if (selectedPatient._ids?.coverageId && selectedPatient._ids.coverageId !== "pending") {
+          await updateInsuranceCoverage(
+            selectedPatient.id,
+            { warranty_expiry: editDraft.warrantyExpiry || null },
+            selectedPatient._ids.coverageId
+          );
+        }
       }
       const buildSideFields = (s) => ({
         manufacturer:    s.manufacturer    || null,
@@ -7905,7 +7914,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>TPA</label><input value={editDraft.tpa} onChange={e=>setEditDraft(d=>({...d,tpa:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
                     <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Tier</label><input value={editDraft.tier} onChange={e=>setEditDraft(d=>({...d,tier:e.target.value}))} placeholder="e.g. Level 3" style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
                     <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Copay ($/aid)</label><input type="number" value={editDraft.tierPrice??""} onChange={e=>setEditDraft(d=>({...d,tierPrice:e.target.value?Number(e.target.value):null}))} placeholder="e.g. 999" style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
-                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Warranty Expiry</label><input type="date" value={editDraft.warrantyExpiry} onChange={e=>setEditDraft(d=>({...d,warrantyExpiry:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",boxSizing:"border-box"}} /></div>
+                    {/* Warranty is owned by the fitting — edit it in Device Specifications.
+                        Editing it here too used to write insurance_coverage only, silently
+                        diverging from the device_fittings value the chart displays. */}
+                    <div><label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Warranty Expiry</label>
+                      <div style={{padding:"8px 10px",border:"1px dashed #E4E0D5",borderRadius:8,fontSize:13,color:"#6b7280",background:"#FBF9F3"}}>
+                        {p.devices?.warrantyExpiry ? fmtDate(p.devices.warrantyExpiry) : "—"} <span style={{fontSize:11,color:"#9ca3af"}}>· edit under Device Specifications</span>
+                      </div>
+                    </div>
                     <div>
                       <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Care Plan</label>
                       <select value={editDraft.carePlanType} onChange={e=>setEditDraft(d=>({...d,carePlanType:e.target.value}))} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",background:"white",boxSizing:"border-box"}}>
@@ -8493,81 +8509,19 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             {/* follow-up queue's "off warranty · no upgrade conversation" bucket;    */}
             {/* logging an outcome here removes the patient from that bucket.        */}
             {selectedPatient.devices && (
-              <div className="detail-card full">
-                <div className="detail-card-title">Upgrade Tracking</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14}}>
-                  <div>
-                    <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#9ca3af",display:"block",marginBottom:6}}>Care plan start</label>
-                    <div style={{fontSize:13,fontWeight:600,color:"#0a1628",padding:"8px 0"}}>
-                      {selectedPatient.carePlanStartDate ? fmtDate(selectedPatient.carePlanStartDate) : <span style={{color:"#9ca3af",fontWeight:400}}>—</span>}
-                    </div>
-                  </div>
-                  <div>
-                    <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#9ca3af",display:"block",marginBottom:6}}>Tier offered</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Premium IX"
-                      defaultValue={selectedPatient.upgradeTierOffered || ""}
-                      onBlur={async (e) => {
-                        const v = e.target.value.trim();
-                        if (v === (selectedPatient.upgradeTierOffered || "")) return;
-                        try {
-                          await recordUpgradeOutcome(selectedPatient.id, { tierOffered: v });
-                          await refreshPatients();
-                          setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
-                        } catch (err) { console.error("recordUpgradeOutcome tier:", err); }
-                      }}
-                      style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:6,fontSize:13,fontFamily:"'Sora',sans-serif"}}
-                    />
-                  </div>
-                  <div>
-                    <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#9ca3af",display:"block",marginBottom:6}}>Outcome</label>
-                    <select
-                      value={selectedPatient.upgradeOutcome || ""}
-                      onChange={async (e) => {
-                        const v = e.target.value;
-                        try {
-                          await recordUpgradeOutcome(selectedPatient.id, {
-                            outcome: v,
-                            // Wipe donation recipient if outcome moves off "donated"
-                            ...(v !== "donated" ? { donationRecipient: "" } : {}),
-                          });
-                          await refreshPatients();
-                          setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
-                        } catch (err) { console.error("recordUpgradeOutcome outcome:", err); }
-                      }}
-                      style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:6,fontSize:13,fontFamily:"'Sora',sans-serif",background:"white"}}
-                    >
-                      <option value="">— not yet discussed —</option>
-                      <option value="pending">Pending — conversation started</option>
-                      <option value="declined">Declined upgrade</option>
-                      <option value="upgraded">Upgraded</option>
-                      <option value="reprogrammed">Reprogrammed (kept devices)</option>
-                      <option value="donated">Donated old aids</option>
-                    </select>
-                  </div>
-                </div>
-                {(selectedPatient.upgradeOutcome === "donated" || selectedPatient.donationRecipient) && (
-                  <div style={{marginTop:14}}>
-                    <label style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#9ca3af",display:"block",marginBottom:6}}>Donation recipient</label>
-                    <input
-                      type="text"
-                      placeholder="Recipient name or organization"
-                      defaultValue={selectedPatient.donationRecipient || ""}
-                      onBlur={async (e) => {
-                        const v = e.target.value.trim();
-                        if (v === (selectedPatient.donationRecipient || "")) return;
-                        try {
-                          await recordUpgradeOutcome(selectedPatient.id, { donationRecipient: v });
-                          await refreshPatients();
-                          setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
-                        } catch (err) { console.error("recordUpgradeOutcome donation:", err); }
-                      }}
-                      style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:6,fontSize:13,fontFamily:"'Sora',sans-serif"}}
-                    />
-                  </div>
-                )}
-              </div>
+              <UpgradeTrackingCard
+                patient={selectedPatient}
+                onSave={async (fields) => {
+                  await recordUpgradeOutcome(selectedPatient.id, fields);
+                  setSelectedPatient(p => ({
+                    ...p,
+                    ...(fields.tierOffered !== undefined ? { upgradeTierOffered: fields.tierOffered } : {}),
+                    ...(fields.outcome !== undefined ? { upgradeOutcome: fields.outcome } : {}),
+                    ...(fields.donationRecipient !== undefined ? { donationRecipient: fields.donationRecipient } : {}),
+                  }));
+                  await refreshPatients();
+                }}
+              />
             )}
 
 
