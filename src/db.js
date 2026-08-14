@@ -366,6 +366,37 @@ export async function createQuoteShare({
 }
 
 /**
+ * Quote-open signals for the hot-lead badge: get_shared_quote bumps
+ * view_count / first_viewed_at / last_viewed_at every time a patient opens
+ * their share link, and until now nothing read them back. Returns
+ * { [patientId]: { viewCount, lastViewedAt } } aggregated across that
+ * patient's viewed shares from the last `sinceDays` days — a patient
+ * re-reading their quote is the warmest follow-up signal we have.
+ */
+export async function loadQuoteViewSignals(clinicId, sinceDays = 60) {
+  if (!clinicId) return {}
+  const since = new Date(Date.now() - sinceDays * 86400000).toISOString()
+  const { data, error } = await supabase
+    .from('quote_shares')
+    .select('patient_id, view_count, last_viewed_at')
+    .eq('clinic_id', clinicId)
+    .gt('view_count', 0)
+    .gte('created_at', since)
+  if (error) { console.error('loadQuoteViewSignals:', error); return {} }
+  const map = {}
+  for (const r of data || []) {
+    if (!r.patient_id) continue
+    const cur = map[r.patient_id] || { viewCount: 0, lastViewedAt: null }
+    cur.viewCount += r.view_count || 0
+    if (r.last_viewed_at && (!cur.lastViewedAt || r.last_viewed_at > cur.lastViewedAt)) {
+      cur.lastViewedAt = r.last_viewed_at
+    }
+    map[r.patient_id] = cur
+  }
+  return map
+}
+
+/**
  * Resolve a shared quote by token (anon-callable RPC — the /quote page's
  * only data access). Returns { payload, clinic, createdAt, expiresAt } or
  * null for unknown/expired/revoked tokens. Each successful resolve bumps

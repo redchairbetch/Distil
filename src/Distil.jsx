@@ -137,6 +137,7 @@ import {
   addAppointment,
   updateAppointment,
   setAppointmentStatus,
+  loadQuoteViewSignals,
   logAnalyticsEvent,
   listMessagesForPatient,
   listPatientNotes,
@@ -2192,8 +2193,15 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     isNationsPatient && nationsCoverageTier(famEntry, t) === null;
 
 
+  // Quote-open hot-lead signal: { patientId: { viewCount, lastViewedAt } }.
+  // Loaded alongside the roster; refreshed with it.
+  const [quoteViewSignals, setQuoteViewSignals] = useState({});
+  const refreshQuoteSignals = () =>
+    loadQuoteViewSignals(clinicId).then(setQuoteViewSignals).catch(() => {});
+
   useEffect(() => {
     loadAllPatients(clinicId).then(p => { setPatients(p); setLoading(false); });
+    refreshQuoteSignals();
     (async () => {
       try {
         if (clinicId) {
@@ -2255,6 +2263,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   const refreshPatients = async () => {
     const p = await loadAllPatients(clinicId);
     setPatients(p);
+    refreshQuoteSignals(); // fire-and-forget; badge freshness only
   };
 
   // ── Patient archive ───────────────────────────────────────────────────────
@@ -4058,6 +4067,20 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     return () => { cancelled = true; clearTimeout(t); };
   }, [tableSearch, searchScope]);
 
+  // "Viewed their quote" hot-lead badge — a TNS patient re-reading their
+  // share-link quote is the warmest name on the follow-up list.
+  const quoteViewBadge = (patientId) => {
+    const s = quoteViewSignals[patientId];
+    if (!s?.viewCount) return null;
+    return (
+      <span
+        title={`Patient opened their quote link ${s.viewCount} time${s.viewCount === 1 ? "" : "s"} — last ${fmtDate(s.lastViewedAt)}`}
+        style={{ background: "#fce7f3", color: "#be185d", borderRadius: 99, padding: "1px 7px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>
+        👀 Viewed quote{s.viewCount > 1 ? ` ×${s.viewCount}` : ""}
+      </span>
+    );
+  };
+
   const filteredPatients = sortPatients(
     (searchScope === "global"
       ? globalResults // server already matched name/phone across all locations
@@ -4298,7 +4321,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                           style={{ cursor: "pointer", background: isTagging ? "#fffbeb" : "white" }}
                         >
                           <td>
-                            <div className="patient-name">{p.name}</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <div className="patient-name">{p.name}</div>
+                              {quoteViewBadge(p.id)}
+                            </div>
                             <div style={{ fontSize: 11, color: "#9ca3af" }}>{p.phone}</div>
                           </td>
                           <td>
@@ -4440,6 +4466,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                           <div className="patient-name">{p.name}</div>
                           {isTns && <span style={{background:"#fef3c7",color:"#92400e",borderRadius:99,padding:"1px 7px",fontSize:10,fontWeight:700}}>TNS</span>}
                           {isTnl && <span style={{background:"#dbeafe",color:"#1d4ed8",borderRadius:99,padding:"1px 7px",fontSize:10,fontWeight:700}}>TNL</span>}
+                          {quoteViewBadge(p.id)}
                           {searchScope === "global" && p.location && (
                             <span style={{background:p.clinicId===clinicId?"#dcfce7":"#e0e7ff",color:p.clinicId===clinicId?"#15803d":"#3730a3",borderRadius:99,padding:"1px 7px",fontSize:10,fontWeight:700}}>
                               {p.location.replace(/^My Hearing Centers\s*[–-]\s*/,"")}
