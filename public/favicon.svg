@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Distil mark: a distillation drop on the brand navy. Placeholder wordmark
+       until the full brand system (backlog #11) lands, replacing the generic
+       stethoscope emoji. -->
+  <rect width="64" height="64" rx="14" fill="#0a1628"/>
+  <path d="M32 10 C32 10 18 28 18 38 a14 14 0 0 0 28 0 C46 28 32 10 32 10 Z"
+        fill="none" stroke="#1B8A7A" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M32 22 C32 22 25 32 25 38 a7 7 0 0 0 14 0 C39 32 32 22 32 22 Z"
+        fill="#7FD1C0"/>
+</svg>

@@ -7337,7 +7337,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
 
           <div className="settings-section">
             <div className="settings-title">About Distil</div>
-            {[["Version","1.0 Prototype"],["Patient App","Aided"],["Noah Integration","Coming soon — Noah ES API"],["HIPAA","Data stored locally in this session"]].map(([k,v])=>(
+            {[["Version","1.0 Prototype"],["Patient App","Aided"],["Noah Integration","Coming soon — Noah ES API"],["Data & Privacy","Encrypted cloud database (Supabase) · row-level security scoped per clinic"]].map(([k,v])=>(
               <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #F0EDE3",fontSize:13}}>
                 <span style={{color:"#9ca3af"}}>{k}</span>
                 <span style={{fontWeight:500,color:"#374151"}}>{v}</span>
