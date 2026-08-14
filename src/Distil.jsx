@@ -134,6 +134,9 @@ import {
   getDocumentSignedUrl,
   createQuoteShare,
   recordUpgradeOutcome,
+  addAppointment,
+  updateAppointment,
+  setAppointmentStatus,
   logAnalyticsEvent,
   listMessagesForPatient,
   listPatientNotes,
@@ -179,6 +182,7 @@ import CloseAppointmentModal, {
 } from "./views/CloseAppointmentModal.jsx";
 import { stashWizardDraft, readWizardDraft, clearWizardDraft } from "./lib/wizardDraft.js";
 import UpgradeTrackingCard from "./components/UpgradeTrackingCard.jsx";
+import AppointmentSchedule from "./components/AppointmentSchedule.jsx";
 
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
@@ -1582,68 +1586,9 @@ function pickLicenseForClinic(licenses, address) {
 // pickBaselinePerAid) now lives in lib/pricing.js (imported above) so the
 // money math is unit-testable.
 
-// Patient-detail appointment list — collapsed to the next visit by default; expands to the full arc (backlog #5).
-function AppointmentSchedule({ appointments }) {
-  const [expanded, setExpanded] = useState(false);
-  if (!appointments?.length) return null;
-  const sorted = [...appointments].sort((a, b) => new Date(a.date) - new Date(b.date));
-  const upcoming = sorted.filter(a => daysUntil(a.date) >= 0);
-  const past = sorted.filter(a => daysUntil(a.date) < 0).reverse();
-  const next = upcoming[0] || null;
-  const restUpcoming = upcoming.slice(1);
-  const hiddenCount = restUpcoming.length + past.length;
-  const relHint = (dateStr) => {
-    const d = daysUntil(dateStr);
-    return d <= 0 ? "today" : d === 1 ? "tomorrow" : `in ${d} days`;
-  };
-  const row = (a, key, muted) => (
-    <div className="detail-row" key={key}>
-      <span className="detail-key" style={muted ? { color: "#9ca3af" } : undefined}>{a.type}</span>
-      <span className="detail-val" style={muted ? { color: "#9ca3af" } : undefined}>{fmtDate(a.date)}</span>
-    </div>
-  );
-  return (
-    <div className="detail-card full">
-      <div className="detail-card-title">
-        Appointment Schedule{upcoming.length > 0 ? ` · ${upcoming.length} upcoming` : ""}
-      </div>
-      {next ? (
-        <div style={{ background: "#eff6ff", borderLeft: "3px solid #1d4ed8", borderRadius: 4, padding: "6px 8px", margin: "3px 0" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: "#0a1628" }}>
-              {next.type}
-              <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, color: "#1d4ed8", background: "#dbeafe", borderRadius: 4, padding: "1px 5px", letterSpacing: 0.5 }}>NEXT</span>
-            </span>
-            <span style={{ fontSize: 13, color: "#374151", whiteSpace: "nowrap" }}>
-              {fmtDate(next.date)}
-              <span style={{ marginLeft: 6, fontSize: 11, color: "#6b7280" }}>({relHint(next.date)})</span>
-            </span>
-          </div>
-          {next.note && <div style={{ fontSize: 11, color: "#6b7280", marginTop: 3, lineHeight: 1.4 }}>{next.note}</div>}
-        </div>
-      ) : (
-        <div style={{ fontSize: 12, color: "#9ca3af", padding: "4px 0" }}>No upcoming appointments.</div>
-      )}
-      {expanded && (
-        <>
-          {restUpcoming.map((a, i) => row(a, `u${i}`, false))}
-          {past.length > 0 && (
-            <>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: "#9ca3af", margin: "10px 0 2px" }}>Past</div>
-              {past.map((a, i) => row(a, `p${i}`, true))}
-            </>
-          )}
-        </>
-      )}
-      {hiddenCount > 0 && (
-        <button onClick={() => setExpanded(e => !e)}
-          style={{ background: "none", border: "none", color: "#1d4ed8", fontFamily: "'Sora',sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer", padding: "6px 0 0" }}>
-          {expanded ? "Show less" : `Show full schedule (${hiddenCount} more)`}
-        </button>
-      )}
-    </div>
-  );
-}
+// AppointmentSchedule (patient-detail appointment list) now lives in
+// components/AppointmentSchedule.jsx — collapsed to the next visit, with
+// per-row complete/edit/cancel actions (backlog #5 / follow-up loop).
 
 export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = [], onClinicSwitched }) {
   const [clinic, setClinic] = useState(DEFAULT_CLINIC);
@@ -8299,7 +8244,25 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             })()}
 
 
-            <AppointmentSchedule appointments={p.appointments} />
+            <AppointmentSchedule
+              appointments={p.appointments}
+              visitTypes={VISIT_TYPES}
+              onAdd={async (fields) => {
+                const row = await addAppointment(selectedPatient.id, clinicId, fields, staffId);
+                setSelectedPatient(sp => ({ ...sp, appointments: [...(sp.appointments || []), row] }));
+                await refreshPatients();
+              }}
+              onUpdate={async (id, fields) => {
+                await updateAppointment(id, fields);
+                setSelectedPatient(sp => ({ ...sp, appointments: sp.appointments.map(a => a.id === id ? { ...a, ...fields } : a) }));
+                await refreshPatients();
+              }}
+              onSetStatus={async (id, status) => {
+                await setAppointmentStatus(id, status);
+                setSelectedPatient(sp => ({ ...sp, appointments: sp.appointments.map(a => a.id === id ? { ...a, status } : a) }));
+                await refreshPatients();
+              }}
+            />
 
 
             {/* ── PERSONALIZATION PREVIEW (read-only) ──────────────────────────────── */}

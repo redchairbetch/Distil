@@ -894,6 +894,7 @@ function assemblePatient(row) {
     donationRecipient:    row.donation_recipient      || '',
 
     appointments: appts.map(a => ({
+      id: a.id,
       date: a.appointment_date,
       type: a.appointment_type,
       note: a.notes,
@@ -3547,6 +3548,53 @@ export async function updateDeviceSide(sideId, fields) {
     .from('device_sides')
     .update(fields)
     .eq('id', sideId)
+  if (error) throw error
+}
+
+
+// ============================================================
+// APPOINTMENTS (chart-side management)
+// ============================================================
+// The wizard and care arc insert appointments in bulk; these let the chart
+// correct individual rows afterward. Status vocabulary matches the arc/
+// pending-fitting writers: 'scheduled' | 'completed' | 'cancelled'.
+// Writes are clinic-scoped by RLS (staff_see_own_clinic_appointments).
+
+export async function addAppointment(patientId, clinicId, { date, type, note }, staffId = null) {
+  const { data, error } = await supabase
+    .from('appointments')
+    .insert({
+      patient_id: patientId,
+      clinic_id: clinicId,
+      staff_id: staffId,
+      appointment_date: date,
+      appointment_type: type || null,
+      notes: note || null,
+      status: 'scheduled',
+    })
+    .select('id, appointment_date, appointment_type, notes, status')
+    .single()
+  if (error) throw error
+  return { id: data.id, date: data.appointment_date, type: data.appointment_type, note: data.notes, status: data.status }
+}
+
+export async function updateAppointment(apptId, { date, type, note }) {
+  const fields = {}
+  if (date !== undefined) fields.appointment_date = date
+  if (type !== undefined) fields.appointment_type = type || null
+  if (note !== undefined) fields.notes = note || null
+  const { error } = await supabase
+    .from('appointments')
+    .update(fields)
+    .eq('id', apptId)
+  if (error) throw error
+}
+
+export async function setAppointmentStatus(apptId, status) {
+  const { error } = await supabase
+    .from('appointments')
+    .update({ status })
+    .eq('id', apptId)
   if (error) throw error
 }
 
