@@ -112,7 +112,7 @@ The patient education / care plan / device selection flow is structured as five 
 |---|---|---|
 | 1 — Patient story | Intake kiosk | Chief complaint · motivation score · soft commitment status |
 | 2 — Evidence | Post-testing | Diagnosis · WR gap · SNR loss · auto-mapped to stated complaints |
-| 3 — Investment | Care plan selection | Selected care plan · the ongoing-relationship conversation · Complete Care+ pre-selected by default |
+| 3 — Investment | Care plan selection | Selected care plan · the ongoing-relationship conversation · lifetime care explanation (`CareExpectations`) · Complete Care+ pre-selected by default |
 | 4 — Recommendation | Device selection | Device rec · lifestyle rationale · insurance applied · patient cost only · total investment + PA/quote fork |
 | 5 — Commitment | Close | Treatment plan document · adaptation notes · provider checklist · day-2 call prompt |
 
@@ -121,6 +121,7 @@ The patient education / care plan / device selection flow is structured as five 
 - Never show retail price without the insurance savings alongside it.
 - Care plan default = Complete Care+ (opt-out, not opt-in).
 - Care plan is presented before tier/devices; private pay still skips the step (Complete Care+ bundled) and enters at Technology Tier.
+- **Lifetime care explanation (Kurt, 2026-08-17):** `src/views/CareExpectations.jsx` sits between the Hearing Journey infographic and the plan cards on the Care Plan step. Frames hearing aids as a treatment rather than a purchase — sensitive electronics worn all day in a warm, wet ear, calibrated to a loss that keeps changing — then walks four phases of care (adaptation → quarterly servicing → annual re-test/recalibration → year-four review) and closes on perpetuity: the relationship continues for as long as the patient wears aids. Visit counts are derived from `CARE_ARC` so the copy can't drift from the schedule actually written to the calendar at fitting. Chapter-3 prompter lines mirror the same four beats.
 - Provider-facing "prompter" sidebar shows talking points, soft commitment status, and close-readiness signal derived from motivation score + WR gap + severity.
 - The complaint carry-forward quote (patient's own words from intake) appears at the top of the pricing reveal.
 

@@ -79,6 +79,9 @@ const PROMPTER_CONTENT = {
   3: {
     base: [
       "Lead with the relationship: success comes from ongoing care, and the devices are the tool we pick once that's understood.",
+      "Walk the four phases on screen — adaptation, quarterly servicing, annual recalibration, year-four review. The schedule IS the treatment.",
+      "Name the equipment reality: precision electronics worn all day in a warm, wet ear, tuned to a loss that keeps changing. Servicing isn't upkeep, it's treatment.",
+      "Close the loop on perpetuity: 'You'll have a hearing care provider the same way you have a dentist' — this doesn't end at year five.",
       "Complete Care+ is the recommendation. Default is opt-out, not opt-in.",
       "Reframe the price: 'Over five years, that's $X/month for unlimited care.'",
       "Address the investment question: 'What's it worth to hear your grandkids on the phone?'",
