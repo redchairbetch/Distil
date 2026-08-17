@@ -150,7 +150,8 @@ export default function CareJourney({ position = 0, warrantyYears = 4, currentAb
         color: "#6b7280", fontSize: 12.5, margin: "0 0 12px 8px", lineHeight: 1.4,
         fontFamily: "'DM Sans', sans-serif",
       }}>
-        How regular care keeps your hearing at its best over five years.
+        How regular care keeps your hearing at its best — the first five years of care that
+        continues for as long as you wear hearing aids.
       </p>
 
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block" }}>

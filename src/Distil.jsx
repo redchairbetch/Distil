@@ -53,6 +53,7 @@ import logoWidex from "./assets/logos/Widex.png";
 // Device product photos (keyed by product_catalog.image_key — see deviceImages.js)
 import { deviceImageUrl } from "./deviceImages.js";
 import CareJourney from "./views/CareJourney.jsx";
+import CareExpectations from "./views/CareExpectations.jsx";
 import HealthHistory from "./views/HealthHistory.jsx";
 import UpgradeWizard from "./views/UpgradeWizard.jsx";
 import IntakeResponsesAccordion from "./views/IntakeResponsesAccordion.jsx";
@@ -6757,6 +6758,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         <>
           {/* Care journey visualization */}
           <CareJourney />
+
+          {/* What ongoing treatment actually looks like — the lifetime care
+              relationship, explained before the patient picks how to pay for
+              it. Visit counts derive from CARE_ARC. */}
+          <CareExpectations bridgeToPlans={form.payType !== "private"} />
 
           {/* Plan selector — three peer options, no pre-selection */}
           <div className="card">
