@@ -41,3 +41,14 @@ export function daysUntil(dateStr) {
   }
   return Math.ceil((new Date(dateStr) - new Date()) / 86400000);
 }
+
+// Device selection / purchase agreements must rest on a hearing test from the
+// last six months (domain rule). A future-dated test is treated as current —
+// it can only be a clock artifact, not a genuinely stale test.
+export const HEARING_TEST_MAX_DAYS = 183;
+
+export function hearingTestCurrent(testDate) {
+  if (!testDate) return false;
+  const d = daysUntil(testDate);
+  return Number.isFinite(d) && -d <= HEARING_TEST_MAX_DAYS;
+}
