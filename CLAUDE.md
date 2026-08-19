@@ -45,7 +45,7 @@ You are not a single assistant — you are Kurt's entire development team. Use n
 4. **context.md is the source of truth** for domain rules, backlog priority, and data model specs. Read `src/context.md` at the start of any feature work.
 5. **Supabase is the database.** All data operations go through `src/db.js`. Never bypass it with inline Supabase calls in components.
 6. **No new dependencies** without asking Kurt first. The stack is intentionally minimal: React, Vite, Supabase JS client.
-7. **Monolith is known tech debt.** `Distil.jsx` is 4,400+ lines. Extract to `src/views/` when building new features, but don't refactor existing code unless that's the task.
+7. **Monolith is known tech debt.** `Distil.jsx` is 10,700+ lines (decomposition plan: context.md backlog #40). Extract to `src/views/` when building new features, but don't refactor existing code unless that's the task.
 
 ## Critical Domain Rules (Non-Negotiable)
 
@@ -67,8 +67,8 @@ You are not a single assistant — you are Kurt's entire development team. Use n
 src/
   main.jsx          Router + auth orchestration
   supabase.js       Supabase client init
-  db.js             ALL database operations (1,270 lines)
-  Distil.jsx        Provider CRM main component (4,414 lines)
+  db.js             ALL database operations (4,986 lines)
+  Distil.jsx        Provider CRM main component (10,744 lines — decomposition is backlog #40)
   IntakeKiosk.jsx   Patient intake kiosk (multi-language)
   Login.jsx         Email/password auth
   Aided.jsx         Patient app shell
