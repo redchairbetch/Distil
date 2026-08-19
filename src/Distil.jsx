@@ -20,6 +20,7 @@ import ComplexBenefitCalculator from "./components/ComplexBenefitCalculator.jsx"
 import { computeComplexBenefit } from "./lib/complexBenefit.js";
 import DeviceComparison, { techLevelToRank } from "./views/DeviceComparison.jsx";
 import ComparisonHub from "./views/ComparisonHub.jsx";
+import CouplesComparison from "./views/CouplesComparison.jsx";
 import { LegacyDevicePanel } from "./views/LegacyFastPath.jsx";
 import { rankFromTierLabel } from "./deviceComparison.js";
 import { parseDateOnly, fmtDate, warrantyDate, daysUntil } from "./lib/dates.js";
@@ -10274,7 +10275,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     <div className="topbar-title">Consultation — {p.name}</div>
                     <div className="topbar-sub">Audiogram counseling tools · {p.id.slice(0,8).toUpperCase()}</div>
                   </div>
-                  <button className="btn-ghost" onClick={()=>setView("patient")}>{"\u2190"} Exit Consultation</button>
+                  <div style={{display:"flex",gap:8}}>
+                    <button className="btn-ghost" onClick={()=>setView("couples")}>Compare with Partner</button>
+                    <button className="btn-ghost" onClick={()=>setView("patient")}>{"\u2190"} Exit Consultation</button>
+                  </div>
                 </div>
                 <div className="content">
                   <div style={{maxWidth:1100,margin:"0 auto"}}>
@@ -10284,6 +10288,20 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               </>
             );
           })()}
+          {view === "couples" && selectedPatient && (
+            <>
+              <div className="topbar">
+                <div>
+                  <div className="topbar-title">Hearing Comparison {"\u2014"} {selectedPatient.name}</div>
+                  <div className="topbar-sub">Side-by-side counseling view</div>
+                </div>
+                <button className="btn-ghost" onClick={()=>setView("consultation")}>{"\u2190"} Back to Consultation</button>
+              </div>
+              <div className="content">
+                <CouplesComparison patient={selectedPatient} clinicId={clinicId} onExit={()=>setView("consultation")} />
+              </div>
+            </>
+          )}
           {view === "compare" && (
             <>
               <div className="topbar">
