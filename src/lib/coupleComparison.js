@@ -24,6 +24,7 @@ import {
   severityRank,
   getPTA4,
   getSlope,
+  getConfiguration,
   isAsymmetric,
 } from "../audiogramAnalysis.js";
 import { isTestedNoLoss, NORMAL_HEARING_MAX_DB } from "./audiogram.js";
@@ -117,45 +118,98 @@ export function tierProcessingPhrase(rank) {
   return null;
 }
 
+// Frequencies that drive the receiver-power decision — the fitting-power
+// (speech) range. An isolated 6–8 kHz drop must not push someone into power
+// territory: a high-frequency presentation with healthy lows wants an
+// open-fit standard receiver, not a power device.
+const POWER_FREQS = [500, 750, 1000, 1500, 2000, 3000, 4000];
+// Frequencies that drive the acoustics (open vs. closed fit) decision — the
+// venting / own-voice story lives in the lows.
+const LOW_FREQS = [250, 500];
+
+function enteredAt(ear, freqs) {
+  if (!ear || typeof ear !== "object") return [];
+  return freqs
+    .map(f => ear[f])
+    .filter(v => v !== null && v !== undefined && v !== "")
+    .map(Number)
+    .filter(Number.isFinite);
+}
+
 // Body-style fit guidance from the audiogram. Deliberately NOT an engine —
-// there is no body-style engine in the app; the provider decides. This is
-// severity-banded counseling guidance keyed off the worst entered AC
-// threshold across both ears (same basis as worst-threshold severity), with
-// receiver-power logic in the spirit of DeviceSelection's fit confirmation.
+// there is no body-style engine in the app; the provider decides. Three
+// independent signals, mirroring how computeFitConfirmation (DeviceSelection)
+// treats low- and high-frequency coverage separately:
+//   power     ← worst entered 500–4000 Hz threshold across both ears
+//   acoustics ← 250/500 Hz average of the worse ear (open vs. closed fit)
+//   copy      ← configuration/slope of the worse ear
 // Returns { headline, notes[] } or null when nothing was tested.
 export function styleGuidance(audiology) {
   const aud = audiology || {};
-  const entered = [...enteredVals(aud.rightT), ...enteredVals(aud.leftT)];
-  if (!entered.length) return null;
-  const worst = Math.max(...entered);
+  const rightT = aud.rightT || {};
+  const leftT = aud.leftT || {};
+  const allEntered = [...enteredVals(rightT), ...enteredVals(leftT)];
+  if (!allEntered.length) return null;
 
-  if (worst <= NORMAL_HEARING_MAX_DB) {
+  if (Math.max(...allEntered) <= NORMAL_HEARING_MAX_DB) {
     return {
       headline: "Hearing in the normal range",
       notes: ["No device is recommended today — an annual re-check keeps a baseline on file."],
     };
   }
 
-  let headline;
+  // Receiver power. Falls back to the overall worst when nothing in the
+  // speech range was entered, so guidance never silently understates.
+  const powerVals = [...enteredAt(rightT, POWER_FREQS), ...enteredAt(leftT, POWER_FREQS)];
+  const powerWorst = powerVals.length ? Math.max(...powerVals) : Math.max(...allEntered);
+
+  // Worse ear (by PTA4) carries the acoustics and configuration story.
+  const rP = getPTA4(rightT), lP = getPTA4(leftT);
+  const worseT = rP != null && lP != null ? (rP >= lP ? rightT : leftT)
+    : rP != null ? rightT
+    : lP != null ? leftT
+    : (enteredVals(rightT).length ? rightT : leftT);
+  const lowVals = enteredAt(worseT, LOW_FREQS);
+  const lowAvg = lowVals.length ? lowVals.reduce((a, b) => a + b, 0) / lowVals.length : null;
+  const acoustics = lowAvg == null ? null : lowAvg <= 30 ? "open" : lowAvg <= 50 ? "vented" : "sealed";
+  const config = getConfiguration(worseT);
+  const highFreqPattern = config === "ski-slope" || config === "high-freq" || getSlope(worseT) === "sloping";
+
   const notes = [];
-  if (worst <= 55) {
-    headline = "Receiver-in-canal (RIC) — standard receiver";
-    notes.push("Smaller in-the-canal styles are also within range for this degree of loss.");
-  } else if (worst <= 70) {
-    headline = "Receiver-in-canal (RIC) with a power receiver";
-    notes.push("The smallest in-the-canal styles can run short on power at this level.");
-  } else if (worst <= 90) {
+  let headline;
+
+  if (powerWorst > 90) {
+    headline = "Behind-the-ear (BTE) — the style with the most power";
+  } else if (powerWorst > 70) {
     headline = "RIC with a high-power receiver, or behind-the-ear (BTE)";
     notes.push("In-the-canal styles aren't recommended at this level — power comes first.");
   } else {
-    headline = "Behind-the-ear (BTE) — the style with the most power";
+    const receiver = powerWorst <= 55 ? "standard receiver" : "power receiver";
+    if (acoustics === "open") {
+      headline = `Open-fit RIC — ${receiver}`;
+      notes.push(
+        highFreqPattern
+          ? "The low pitches are still close to normal — an open fit leaves them sounding natural, and the device works only where the highs drop off."
+          : "The low pitches are still healthy, so an open, barely-there fit stays comfortable all day."
+      );
+    } else if (acoustics === "vented") {
+      headline = `RIC with a ${receiver} and a vented fit`;
+      notes.push("The loss reaches into the lower pitches, so the fit keeps more of the device's sound in the ear while still letting it breathe.");
+    } else if (acoustics === "sealed") {
+      headline = `RIC with a ${receiver} and a closed fit`;
+      notes.push("The loss spans the whole pitch range, so a closed fit — a power dome or a custom earmold — keeps the device's power in the ear instead of leaking out.");
+    } else {
+      headline = `Receiver-in-canal (RIC) — ${receiver}`;
+    }
   }
 
-  const summaryish = buildPersonSummary(audiology);
-  if (summaryish.slope === "sloping") {
-    notes.push("A steeply sloping loss fits best with an open fit, which keeps your own voice sounding natural.");
+  if (config === "cookie-bite") {
+    notes.push("A mid-pitch pattern like this is less common — the exact fit gets confirmed at the fitting appointment.");
+  } else if (config === "reverse") {
+    notes.push("The lower pitches are affected more than the highs here — the exact fit gets confirmed at the fitting appointment.");
   }
-  if (summaryish.asymmetric) {
+
+  if (isAsymmetric(leftT, rightT)) {
     notes.push("Each ear may call for a different receiver strength — that's normal and easy to do.");
   }
 

@@ -117,6 +117,8 @@ describe("tier labels", () => {
 });
 
 describe("styleGuidance", () => {
+  // 1000 Hz sits in the power range; no 250/500 entered → acoustics unknown,
+  // so these isolate the receiver-power banding.
   const headlineAt = worst =>
     styleGuidance({ rightT: { 1000: worst }, leftT: { 1000: 25 } }).headline;
 
@@ -131,32 +133,70 @@ describe("styleGuidance", () => {
     expect(g.notes[0]).toMatch(/No device is recommended today/);
   });
 
-  it("bands on the worst entered threshold: 55/56, 70/71, 90/91 boundaries", () => {
+  it("receiver power bands on the speech-range worst: 55/56, 70/71, 90/91 boundaries", () => {
     expect(headlineAt(55)).toMatch(/standard receiver/);
     expect(headlineAt(56)).toMatch(/power receiver/);
     expect(headlineAt(70)).toMatch(/power receiver/);
     expect(headlineAt(71)).toMatch(/high-power receiver, or behind-the-ear/);
     expect(headlineAt(90)).toMatch(/high-power receiver, or behind-the-ear/);
-    expect(headlineAt(91)).toMatch(/Behind-the-ear \(BTE\) — the style with the most power/);
+    expect(headlineAt(91)).toMatch(/Behind-the-ear \(BTE\)/);
   });
 
-  it("uses the worst threshold across BOTH ears", () => {
+  it("uses the speech-range worst across BOTH ears", () => {
     const g = styleGuidance({ rightT: flatEar(30), leftT: { 4000: 95 } });
     expect(g.headline).toMatch(/Behind-the-ear/);
   });
 
-  it("appends the open-fit note for sloping losses", () => {
+  it("the Butt case: gradual slope vs high-frequency presentation get different guidance", () => {
+    // Similar worst thresholds (~70 dB at 4 kHz) — opposite fitting needs.
+    const gradual = { 250: 50, 500: 55, 1000: 60, 2000: 65, 4000: 70, 8000: 75 };
+    const highFreq = { 250: 10, 500: 15, 1000: 25, 2000: 50, 4000: 70, 8000: 75 };
+    const g1 = styleGuidance({ rightT: gradual, leftT: gradual });
+    const g2 = styleGuidance({ rightT: highFreq, leftT: highFreq });
+    expect(g1.headline).toMatch(/power receiver and a closed fit/);
+    expect(g2.headline).toMatch(/Open-fit RIC — power receiver/);
+    expect(g2.notes.some(n => /works only where the highs drop off/.test(n))).toBe(true);
+    expect(g1.headline).not.toBe(g2.headline);
+  });
+
+  it("an isolated 6–8 kHz drop does not drive the power band", () => {
+    const ear = { 250: 20, 500: 25, 1000: 30, 2000: 40, 4000: 50, 8000: 85 };
+    const g = styleGuidance({ rightT: ear, leftT: ear });
+    expect(g.headline).toMatch(/Open-fit RIC — standard receiver/);
+    expect(g.headline).not.toMatch(/high-power|Behind-the-ear/);
+  });
+
+  it("falls back to the overall worst when only 6–8 kHz was entered", () => {
+    const g = styleGuidance({ rightT: { 8000: 80 }, leftT: {} });
+    expect(g.headline).toMatch(/high-power receiver, or behind-the-ear/);
+  });
+
+  it("acoustics bands on the worse ear's 250/500 average: 30/31 and 50/51 boundaries", () => {
+    const withLows = L => {
+      const ear = { 250: L, 500: L, 1000: 45, 2000: 50, 4000: 55 };
+      return styleGuidance({ rightT: ear, leftT: ear }).headline;
+    };
+    expect(withLows(30)).toMatch(/Open-fit/);
+    expect(withLows(31)).toMatch(/vented fit/);
+    expect(withLows(50)).toMatch(/vented fit/);
+    expect(withLows(51)).toMatch(/closed fit/);
+  });
+
+  it("open-fit copy for a sloping high-frequency loss", () => {
     const g = styleGuidance({ rightT: slopingEar, leftT: slopingEar });
-    expect(g.notes.some(n => /open fit/.test(n))).toBe(true);
+    expect(g.headline).toMatch(/Open-fit RIC/);
+    expect(g.notes.some(n => /low pitches are still close to normal/.test(n))).toBe(true);
   });
 
   it("appends the per-ear receiver note for asymmetric losses", () => {
     const g = styleGuidance({ rightT: flatEar(25), leftT: flatEar(65) });
+    expect(g.headline).toMatch(/closed fit/); // worse ear's lows are 65
     expect(g.notes.some(n => /different receiver strength/.test(n))).toBe(true);
   });
 
-  it("no sloping/asymmetry notes on a flat symmetric loss", () => {
+  it("no open-fit/asymmetry notes on a flat symmetric loss", () => {
     const g = styleGuidance({ rightT: flatEar(45), leftT: flatEar(45) });
+    expect(g.headline).toMatch(/vented fit/);
     expect(g.notes.some(n => /open fit|different receiver/.test(n))).toBe(false);
   });
 
