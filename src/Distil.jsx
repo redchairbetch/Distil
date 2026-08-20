@@ -65,6 +65,7 @@ import Reports from "./views/Reports.jsx";
 import { AudigramSVG, getDegreeName, PHONEMES, interpolateThreshold } from "./components/AudiogramSVG.jsx";
 import AudiogramEntry from "./components/AudiogramEntry.jsx";
 import { mapComplaintsToFindings } from "./lib/intakeReview.js";
+import { CONSULT_T } from "./i18n/consultation.js";
 
 import TeamAdmin from "./views/TeamAdmin.jsx";
 import {
@@ -1537,6 +1538,26 @@ const STEP_TO_CHAPTER = [1, 1, 2, 2, 3, 4, 4, 5];
 const CHAPTER_TITLES = ["Patient story", "Evidence", "Investment", "Recommendation", "Commitment"];
 
 
+// ── PATIENT-FACING DISPLAY LANGUAGE TOGGLE ────────────────────────────────────
+// Small EN/ES pill pair rendered inside patient-facing surfaces (Consultation
+// Mode, Presentation, Pricing Reveal, …) so the provider can flip the display
+// language live mid-appointment. Session-only — never writes the patient's
+// stored preference. Provider chrome stays English.
+function LangToggle({ lang, onChange }) {
+  return (
+    <div style={{display:"inline-flex",border:"1px solid #d1d5db",borderRadius:8,overflow:"hidden",flexShrink:0}}>
+      {[["en","EN"],["es","ES"]].map(([l,label])=>(
+        <button key={l} onClick={()=>onChange(l)}
+          style={{padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer",border:"none",fontFamily:"'Sora',sans-serif",letterSpacing:0.5,
+            background: lang===l ? "#0a1628" : "#fff",
+            color: lang===l ? "#fff" : "#6b7280"}}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── ROLE CHECK UTILITY ─────────────────────────────────────────────────────────
 // Role categories: 'care_coordinator' | 'provider' | 'closer' | 'admin'
 // This is UI gating (defense-in-depth). The real enforcement is in Postgres RLS:
@@ -1613,6 +1634,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   const [view, setView] = useState("dashboard");
   const [patients, setPatients] = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
+  // Language the patient-facing surfaces render in. Follows the selected
+  // patient's stored preference (and the kiosk language on intake accept);
+  // the provider can flip it live with the LangToggle. Session-only.
+  const [displayLang, setDisplayLang] = useState("en");
+  useEffect(() => {
+    if (selectedPatient) setDisplayLang(selectedPatient.preferredLanguage === "es" ? "es" : "en");
+  }, [selectedPatient?.id, selectedPatient?.preferredLanguage]);
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
@@ -3529,6 +3557,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // intake queryable by patient_id from the very first save.
   const handleAcceptIntake = async (intake) => {
     if (!confirmDiscardWizardDraft()) return; // intake stays in the queue
+    // Patient-facing wizard steps render in the language they chose at the kiosk.
+    setDisplayLang(intake._meta?.lang === "es" ? "es" : "en");
     const a = unwrapIntakeAnswers(intake.answers) || {};
     const phone = a.mobilePhone || a.homePhone || a.workPhone || a.phone || "";
     const digits = phone.replace(/\D/g,"").slice(0,10);
@@ -4944,6 +4974,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // audiometric finding that explains it.
   const renderResultsContent = (aud, chiefComplaint, intakeAnswers = null) => {
     if (!aud) return null;
+    const ct = CONSULT_T[displayLang] || CONSULT_T.en;
     const rPTA = getPTA(aud.rightT);
     const lPTA = getPTA(aud.leftT);
     const hasThresholds = rPTA!=null || lPTA!=null;
@@ -4978,29 +5009,22 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     const inaudibleBoth = computeInaudible(null, "both");
     const highFreqInaudible = inaudibleBoth.filter(l => HIGH_FREQ_CONSONANTS.includes(l));
 
-    const findingSentence = {
-      "Normal": "Your hearing thresholds are within the normal range.",
-      "Mild": "You have a mild hearing loss \u2014 most noticeable in quiet or reverberant rooms.",
-      "Moderate": "You have a moderate hearing loss affecting everyday conversation.",
-      "Moderately Severe": "You have a moderately severe hearing loss. Unaided conversation requires significant effort.",
-      "Severe": "You have a severe hearing loss. Unaided speech understanding is substantially compromised.",
-      "Profound": "You have a profound hearing loss. Unaided communication is extremely limited.",
-    }[overallSeverity] || null;
+    const findingSentence = ct.findingSentence[overallSeverity] || null;
 
     const clarityGapCopy = (() => {
       if(worseCCT==null || worseCCT >= 90) return null;
       const deficit = 100 - worseCCT;
-      if(worseCCT >= 75) return "Even at a comfortable volume, your ability to understand speech clearly is mildly reduced.";
-      if(worseCCT >= 60) return `At a level where someone with normal hearing scores 100%, you scored ${worseCCT}%. That ${deficit}-point gap is the difference between hearing and understanding.`;
-      return "Your word recognition deficit is significant. You are likely missing large portions of conversation even when sound is loud enough to hear.";
+      if(worseCCT >= 75) return ct.clarityMild;
+      if(worseCCT >= 60) return ct.clarityGap(worseCCT, deficit);
+      return ct.claritySevere;
     })();
 
     const missingCopy = (() => {
       if(!hasThresholds) return null;
       const n = highFreqInaudible.length;
-      if(n >= 5) return "The sounds you\u2019re missing most \u2014 S, F, TH, SH \u2014 are the consonants that define word endings and questions. Without them, speech sounds muffled rather than quiet.";
-      if(n >= 3) return "Several high-frequency consonants are in your inaudible range. This explains why some words sound unclear even when the volume seems fine.";
-      if(n >= 1) return "A small number of high-frequency sounds fall just outside your hearing range \u2014 likely subtle, but present.";
+      if(n >= 5) return ct.missingMany;
+      if(n >= 3) return ct.missingSome;
+      if(n >= 1) return ct.missingFew;
       return null;
     })();
 
@@ -5021,7 +5045,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       <>
         {hasThresholds && (
           <div className="card">
-            <div className="card-title">Your Audiogram</div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+              <div className="card-title">{ct.yourAudiogram}</div>
+              <LangToggle lang={displayLang} onChange={setDisplayLang} />
+            </div>
             <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
               {["left","both","right"].map(mode=>(
                 <button key={mode} onClick={()=>setPhonemeDimMode(mode)}
@@ -5029,10 +5056,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     border:phonemeDimMode===mode?"2px solid #6366f1":"1px solid #d1d5db",
                     background:phonemeDimMode===mode?"#eef2ff":"#fff",
                     color:phonemeDimMode===mode?"#4f46e5":mode==="right"?"#dc2626":mode==="left"?"#2563eb":"#374151"}}>
-                  {mode==="left"?"Left":mode==="right"?"Right":"Both"}
+                  {mode==="left"?ct.earLeft:mode==="right"?ct.earRight:ct.earBoth}
                 </button>
               ))}
-              <span style={{fontSize:11,color:"#9ca3af",alignSelf:"center",marginLeft:4}}>Focus ear</span>
+              <span style={{fontSize:11,color:"#9ca3af",alignSelf:"center",marginLeft:4}}>{ct.focusEar}</span>
 
               <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center"}}>
                 <button onClick={()=>setDrawingEnabled(!drawingEnabled)}
@@ -5041,7 +5068,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     background:drawingEnabled?"#fffbeb":"#fff",
                     color:drawingEnabled?"#b45309":"#6b7280"}}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-                  Draw
+                  {ct.draw}
                 </button>
                 {drawingEnabled && <>
                   {[["#dc2626","Red"],["#2563eb","Blue"],["#1e293b","Black"]].map(([c,label])=>(
@@ -5082,9 +5109,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             {/* Hearing Simulation Paragraph */}
             <div style={{margin:"0 0 16px",padding:"16px 20px",background:"#fff",border:"1px solid #E4E0D5",borderRadius:10}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:8}}>
-                <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>What speech sounds like with your hearing</div>
+                <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>{ct.simTitle}</div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{fontSize:10,color:"#9ca3af",fontWeight:600}}>Dim</span>
+                  <span style={{fontSize:10,color:"#9ca3af",fontWeight:600}}>{ct.dim}</span>
                   <input type="range" min="0" max="100" value={dimIntensity} onChange={e=>setDimIntensity(Number(e.target.value))}
                     style={{width:100,accentColor:"#6366f1",cursor:"pointer"}}/>
                   <span style={{fontSize:10,color:"#9ca3af",fontWeight:600,minWidth:28}}>{dimIntensity}%</span>
@@ -5097,10 +5124,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   style={{display:"flex",alignItems:"center",gap:7,padding:"8px 16px",borderRadius:8,border:"none",cursor:"pointer",
                     background: simPlaying ? "#dc2626" : "#4f46e5", color:"#fff", fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:13}}>
                   <span style={{fontSize:12}}>{simPlaying ? "■" : "▶"}</span>
-                  {simPlaying ? "Stop" : "Hear this"}
+                  {simPlaying ? ct.stop : ct.hearThis}
                 </button>
                 <div style={{display:"inline-flex",border:"1px solid #d1d5db",borderRadius:8,overflow:"hidden"}}>
-                  {[["typical","Typical hearing"],["yours","Your hearing"]].map(([m,label])=>(
+                  {[["typical",ct.typicalHearing],["yours",ct.yourHearing]].map(([m,label])=>(
                     <button key={m} onClick={()=>setSimMode(m)}
                       style={{padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",border:"none",fontFamily:"'Sora',sans-serif",
                         background: simMode===m ? (m==="yours" ? "#4f46e5" : "#0a1628") : "#fff",
@@ -5110,7 +5137,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   ))}
                 </div>
                 <span style={{fontSize:11,color:"#9ca3af"}}>
-                  {simPlaying ? "Toggle to compare — same clip, your audiogram applied" : "Plays the sentence through your hearing loss"}
+                  {simPlaying ? ct.simCaptionPlaying : ct.simCaptionIdle}
                 </span>
               </div>
               <p style={{fontSize:16,lineHeight:2,fontFamily:"'DM Sans',sans-serif",margin:0,letterSpacing:"0.01em"}}>
@@ -5147,31 +5174,31 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
               {rSeverity&&(
                 <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"10px 16px"}}>
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:2}}>Right Ear</div>
-                  <div style={{fontSize:16,fontWeight:800,color:"#0a1628"}}>{rSeverity}</div>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:2}}>{ct.rightEar}</div>
+                  <div style={{fontSize:16,fontWeight:800,color:"#0a1628"}}>{ct.severity[rSeverity]||rSeverity}</div>
                 </div>
               )}
               {lSeverity&&(
                 <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 16px"}}>
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:2}}>Left Ear</div>
-                  <div style={{fontSize:16,fontWeight:800,color:"#0a1628"}}>{lSeverity}</div>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:2}}>{ct.leftEar}</div>
+                  <div style={{fontSize:16,fontWeight:800,color:"#0a1628"}}>{ct.severity[lSeverity]||lSeverity}</div>
                 </div>
               )}
               {aud.sinBin!=null&&(
                 <div style={{background:"#FAF8F2",border:"1px solid #E4E0D5",borderRadius:8,padding:"10px 16px"}}>
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>QuickSIN SNR Loss</div>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>{ct.quickSin}</div>
                   <div style={{fontSize:18,fontWeight:800,color:"#0a1628"}}>{aud.sinBin} <span style={{fontSize:11,color:"#9ca3af",fontWeight:400}}>dB</span></div>
                   <div style={{fontSize:11,fontWeight:600,marginTop:2,
                     color:aud.sinBin<=2?"#16a34a":aud.sinBin<=7?"#ca8a04":aud.sinBin<=15?"#ea580c":"#dc2626"}}>
-                    {aud.sinBin<=2?"Near-normal":aud.sinBin<=7?"Mild":aud.sinBin<=15?"Moderate":"Severe"} difficulty in noise
+                    {ct.noiseDifficulty(aud.sinBin<=2?ct.noiseLabels.nearNormal:aud.sinBin<=7?ct.noiseLabels.mild:aud.sinBin<=15?ct.noiseLabels.moderate:ct.noiseLabels.severe)}
                   </div>
                 </div>
               )}
               {(aud.tinnitusRight||aud.tinnitusLeft)&&(
                 <div style={{background:"#fefce8",border:"1px solid #fde68a",borderRadius:8,padding:"10px 16px"}}>
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#92400e",marginBottom:2}}>Tinnitus</div>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#92400e",marginBottom:2}}>{ct.tinnitus}</div>
                   <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>
-                    {aud.tinnitusRight&&aud.tinnitusLeft?"Bilateral":aud.tinnitusRight?"Right Ear":"Left Ear"}
+                    {aud.tinnitusRight&&aud.tinnitusLeft?ct.bilateral:aud.tinnitusRight?ct.rightEar:ct.leftEar}
                   </div>
                 </div>
               )}
@@ -5181,35 +5208,35 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             {(cctR!=null||cctL!=null||aud.wrMclR!=null||aud.wrMclL!=null) && (
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
                 <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:10,padding:"14px 16px"}}>
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:10}}>Right Ear</div>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:10}}>{ct.rightEar}</div>
                   <div style={{marginBottom:10}}>
-                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>CCT Score</div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>{ct.cctScore}</div>
                     <div style={{fontSize:22,fontWeight:800,color:cctColor(cctR)}}>{cctR!=null?`${cctR}%`:"\u2014"}</div>
                     {cctDefR!=null&&cctDefR>0&&(
-                      <div style={{fontSize:12,fontWeight:700,color:"#dc2626",marginTop:2}}>{cctDefR} pts below normal</div>
+                      <div style={{fontSize:12,fontWeight:700,color:"#dc2626",marginTop:2}}>{ct.ptsBelowNormal(cctDefR)}</div>
                     )}
-                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>California Consonant Test @ 45 dB</div>
+                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>{ct.cctCaption}</div>
                   </div>
                   <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>WRS @ MCL</div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>{ct.wrsMcl}</div>
                     <div style={{fontSize:22,fontWeight:800,color:"#0a1628"}}>{aud.wrMclR!=null?`${aud.wrMclR}%`:"\u2014"}</div>
-                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>Word recognition at comfortable volume</div>
+                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>{ct.wrsCaption}</div>
                   </div>
                 </div>
                 <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:10,padding:"14px 16px"}}>
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:10}}>Left Ear</div>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:10}}>{ct.leftEar}</div>
                   <div style={{marginBottom:10}}>
-                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>CCT Score</div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>{ct.cctScore}</div>
                     <div style={{fontSize:22,fontWeight:800,color:cctColor(cctL)}}>{cctL!=null?`${cctL}%`:"\u2014"}</div>
                     {cctDefL!=null&&cctDefL>0&&(
-                      <div style={{fontSize:12,fontWeight:700,color:"#dc2626",marginTop:2}}>{cctDefL} pts below normal</div>
+                      <div style={{fontSize:12,fontWeight:700,color:"#dc2626",marginTop:2}}>{ct.ptsBelowNormal(cctDefL)}</div>
                     )}
-                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>California Consonant Test @ 45 dB</div>
+                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>{ct.cctCaption}</div>
                   </div>
                   <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>WRS @ MCL</div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>{ct.wrsMcl}</div>
                     <div style={{fontSize:22,fontWeight:800,color:"#0a1628"}}>{aud.wrMclL!=null?`${aud.wrMclL}%`:"\u2014"}</div>
-                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>Word recognition at comfortable volume</div>
+                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>{ct.wrsCaption}</div>
                   </div>
                 </div>
               </div>
@@ -5223,11 +5250,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             this" state rather than an invented mechanism. */}
         {complaintRows.length > 0 && (
           <div className="card">
-            <div className="card-title">What You Told Us — Explained</div>
+            <div className="card-title">{ct.toldUsTitle}</div>
             {intakeVisitReason && (
               <div style={{fontSize:14,fontStyle:"italic",color:"#374151",lineHeight:1.6,padding:"10px 16px",background:"#F0F9FA",borderLeft:"3px solid #0A7B8C",borderRadius:"0 8px 8px 0",marginBottom:16}}>
                 “{intakeVisitReason}”
-                <span style={{display:"block",fontSize:11,fontStyle:"normal",color:"#6b7280",marginTop:4}}>— your reason for today's visit</span>
+                <span style={{display:"block",fontSize:11,fontStyle:"normal",color:"#6b7280",marginTop:4}}>{ct.visitReasonCaption}</span>
               </div>
             )}
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -5241,7 +5268,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   <div style={{fontSize:22,lineHeight:1.2,flexShrink:0}}>{row.icon}</div>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:13,fontWeight:700,color:"#0a1628",marginBottom:3}}>
-                      You told us: {row.restatement.toLowerCase()}
+                      {ct.youToldUs} {row.restatement.toLowerCase()}
                     </div>
                     <div style={{fontSize:13,color: row.supported ? "#374151" : "#64748b",lineHeight:1.6}}>
                       {row.explanation}
@@ -5256,7 +5283,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         {/* Dynamic Counseling Copy */}
         {hasAnyData && (
           <div className="card">
-            <div className="card-title">Understanding Your Results</div>
+            <div className="card-title">{ct.understandingTitle}</div>
             {findingSentence && (
               <div style={{fontSize:14,color:"#0a1628",fontWeight:600,lineHeight:1.7,marginBottom:16}}>
                 {findingSentence}
@@ -5273,7 +5300,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               </div>
             )}
             <div style={{fontSize:13,color:"#6b7280",fontWeight:500,lineHeight:1.7,paddingTop:8,borderTop:"1px solid #F0EDE3"}}>
-              Below, you'll see how treatment addresses each of these gaps.
+              {ct.treatmentBelow}
             </div>
           </div>
         )}
@@ -5281,8 +5308,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         {!hasAnyData && (
           <div className="card" style={{textAlign:"center",padding:"40px 20px",color:"#9ca3af"}}>
             <div style={{fontSize:40,marginBottom:12}}>📋</div>
-            <div style={{fontSize:16,fontWeight:600,color:"#374151",marginBottom:8}}>No test data recorded yet</div>
-            <div style={{fontSize:13}}>Go back to the Testing step to enter audiogram and speech scores, or continue to treatment options.</div>
+            <div style={{fontSize:16,fontWeight:600,color:"#374151",marginBottom:8}}>{ct.noDataTitle}</div>
+            <div style={{fontSize:13}}>{ct.noDataBody}</div>
           </div>
         )}
       </>
