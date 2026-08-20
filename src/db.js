@@ -811,6 +811,7 @@ function assemblePatient(row) {
     address:   row.address || '',
     payType:   row.pay_type,
     directPurchase: row.direct_purchase === true, // TruHearing benefit sold private at the TPA price
+    preferredLanguage: row.preferred_language || 'en',
 
     notes:     row.notes || '',
 
@@ -1112,6 +1113,7 @@ export async function savePatient(patient, staffId, clinicId) {
       pay_type:  patient.payType,
       direct_purchase: patient.directPurchase === true,
       notes:     patient.notes     || null,
+      preferred_language: patient.preferredLanguage || 'en',
       patient_status: patient.patientStatus || 'prospect',
       // Private-pay tier snapshot — null for insurance patients.
       private_pay_tier:          patient.privatePay?.tier || null,
@@ -1499,6 +1501,7 @@ export async function createPatientDraft(data, staffId, clinicId) {
       pay_type:       data.payType,
       direct_purchase: data.directPurchase === true,
       notes:          data.notes     || null,
+      preferred_language: data.preferredLanguage || 'en',
       patient_status: 'prospect',
       // Private-pay tier snapshot — null for insurance patients.
       private_pay_tier:          data.privatePay?.tier || null,
@@ -3320,12 +3323,27 @@ export async function createProviderIntake(patientId, clinicId) {
 // another clinic's patient.
 export async function linkIntakeToPatient(intakeId, patientId, clinicId) {
   if (!intakeId || !patientId || !clinicId) return
-  const { error } = await supabase
+  const { data: linkedRows, error } = await supabase
     .from('intakes')
     .update({ patient_id: patientId })
     .eq('id', intakeId)
     .eq('clinic_id', clinicId)
+    .select('answers, source')
   if (error) console.error('linkIntakeToPatient:', error)
+
+  // Best-effort: carry the language the patient chose at the kiosk onto their
+  // record. Kiosk lang always wins at link time (it's the patient's own most
+  // recent choice); provider-created intakes never route through here and are
+  // excluded by the source guard as well. Must never block the link itself.
+  const linked = linkedRows?.[0]
+  const kioskLang = linked?.answers?._meta?.lang
+  if (linked && linked.source !== 'provider' && ['en', 'es'].includes(kioskLang)) {
+    const { error: langErr } = await supabase
+      .from('patients')
+      .update({ preferred_language: kioskLang })
+      .eq('id', patientId)
+    if (langErr) console.error('linkIntakeToPatient: preferred_language copy:', langErr)
+  }
 
   // Best-effort backfill — failures here shouldn't block the intake link.
   const { error: docErr } = await supabase
@@ -3557,6 +3575,7 @@ function normalizeIntake(row) {
       status:      row.status,
       submittedAt: row.submitted_at,
       acceptedAt:  row.accepted_at || null,
+      lang:        row.answers?._meta?.lang || 'en',
     },
   }
 }
@@ -3566,6 +3585,18 @@ function normalizeIntake(row) {
 // PATIENT DETAIL EDITS
 // All updates go through Supabase and will trigger HIPAA audit_log triggers.
 // ============================================================
+
+// Set the patient's preferred language from the Aided app. Goes through the
+// set_patient_language SECURITY DEFINER RPC (pid-knowledge bearer model, same
+// as sendPatientReply) because the anon role has no UPDATE policy on patients.
+export async function setPatientLanguage(patientId, lang) {
+  if (!patientId || !['en', 'es'].includes(lang)) return
+  const { error } = await supabase.rpc('set_patient_language', {
+    p_patient_id: patientId,
+    p_lang: lang,
+  })
+  if (error) console.error('setPatientLanguage:', error)
+}
 
 // Update core patient contact fields
 export async function updatePatientContact(patientId, fields) {
