@@ -28,6 +28,7 @@ import {
   isAsymmetric,
 } from "../audiogramAnalysis.js";
 import { isTestedNoLoss, NORMAL_HEARING_MAX_DB } from "./audiogram.js";
+import { COMP_T } from "../i18n/comparison.js";
 
 // Lowercase classifier vocabulary → the display words consultation mode uses.
 export const SEVERITY_DISPLAY = {
@@ -144,7 +145,8 @@ function enteredAt(ear, freqs) {
 //   acoustics ← 250/500 Hz average of the worse ear (open vs. closed fit)
 //   copy      ← configuration/slope of the worse ear
 // Returns { headline, notes[] } or null when nothing was tested.
-export function styleGuidance(audiology) {
+export function styleGuidance(audiology, lang = "en") {
+  const L = COMP_T[lang] || COMP_T.en;
   const aud = audiology || {};
   const rightT = aud.rightT || {};
   const leftT = aud.leftT || {};
@@ -153,8 +155,8 @@ export function styleGuidance(audiology) {
 
   if (Math.max(...allEntered) <= NORMAL_HEARING_MAX_DB) {
     return {
-      headline: "Hearing in the normal range",
-      notes: ["No device is recommended today — an annual re-check keeps a baseline on file."],
+      headline: L.sgNormalHeadline,
+      notes: [L.sgNormalNote],
     };
   }
 
@@ -179,38 +181,34 @@ export function styleGuidance(audiology) {
   let headline;
 
   if (powerWorst > 90) {
-    headline = "Behind-the-ear (BTE) — the style with the most power";
+    headline = L.sgBte;
   } else if (powerWorst > 70) {
-    headline = "RIC with a high-power receiver, or behind-the-ear (BTE)";
-    notes.push("In-the-canal styles aren't recommended at this level — power comes first.");
+    headline = L.sgRicHighPower;
+    notes.push(L.sgInCanalNote);
   } else {
-    const receiver = powerWorst <= 55 ? "standard receiver" : "power receiver";
+    const receiver = powerWorst <= 55 ? L.sgStandardReceiver : L.sgPowerReceiver;
     if (acoustics === "open") {
-      headline = `Open-fit RIC — ${receiver}`;
-      notes.push(
-        highFreqPattern
-          ? "The low pitches are still close to normal — an open fit leaves them sounding natural, and the device works only where the highs drop off."
-          : "The low pitches are still healthy, so an open, barely-there fit stays comfortable all day."
-      );
+      headline = L.sgOpenHeadline(receiver);
+      notes.push(highFreqPattern ? L.sgOpenNoteHF : L.sgOpenNote);
     } else if (acoustics === "vented") {
-      headline = `RIC with a ${receiver} and a vented fit`;
-      notes.push("The loss reaches into the lower pitches, so the fit keeps more of the device's sound in the ear while still letting it breathe.");
+      headline = L.sgVentedHeadline(receiver);
+      notes.push(L.sgVentedNote);
     } else if (acoustics === "sealed") {
-      headline = `RIC with a ${receiver} and a closed fit`;
-      notes.push("The loss spans the whole pitch range, so a closed fit — a power dome or a custom earmold — keeps the device's power in the ear instead of leaking out.");
+      headline = L.sgSealedHeadline(receiver);
+      notes.push(L.sgSealedNote);
     } else {
-      headline = `Receiver-in-canal (RIC) — ${receiver}`;
+      headline = L.sgRicGeneric(receiver);
     }
   }
 
   if (config === "cookie-bite") {
-    notes.push("A mid-pitch pattern like this is less common — the exact fit gets confirmed at the fitting appointment.");
+    notes.push(L.sgCookieBite);
   } else if (config === "reverse") {
-    notes.push("The lower pitches are affected more than the highs here — the exact fit gets confirmed at the fitting appointment.");
+    notes.push(L.sgReverse);
   }
 
   if (isAsymmetric(leftT, rightT)) {
-    notes.push("Each ear may call for a different receiver strength — that's normal and easy to do.");
+    notes.push(L.sgAsymmetric);
   }
 
   return { headline, notes };

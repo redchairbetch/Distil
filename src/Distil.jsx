@@ -6615,7 +6615,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 </div>
                 {showWizardCompare && (
                   <div style={{ marginTop: 16 }}>
-                    <DeviceComparison variant="embedded" initialOld={intakeOld} proposedNew={proposedNew} flaggedEnvs={compFlags} />
+                    <DeviceComparison variant="embedded" initialOld={intakeOld} proposedNew={proposedNew} flaggedEnvs={compFlags} lang={displayLang} />
                   </div>
                 )}
               </div>
@@ -10348,7 +10348,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 <button className="btn-ghost" onClick={()=>setView("consultation")}>{"\u2190"} Back to Consultation</button>
               </div>
               <div className="content">
-                <CouplesComparison patient={selectedPatient} clinicId={clinicId} onExit={()=>setView("consultation")} />
+                <CouplesComparison patient={selectedPatient} clinicId={clinicId} onExit={()=>setView("consultation")} lang={displayLang} />
               </div>
             </>
           )}
@@ -10362,7 +10362,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 <button className="btn-ghost" onClick={()=>setView("dashboard")}>{"←"} Back</button>
               </div>
               <div className="content">
-                <ComparisonHub patientId={selectedPatient?.id || null} />
+                <ComparisonHub patientId={selectedPatient?.id || null} lang={displayLang} />
               </div>
             </>
           )}

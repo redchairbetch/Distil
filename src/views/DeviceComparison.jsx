@@ -39,6 +39,8 @@ import { deviceImageUrl } from "../deviceImages.js";
 import { loadDeviceCatalog } from "../catalog.js";
 import { indexCatalog } from "../catalogComparison.js";
 import { DeviceCascade } from "./CapabilityComparison.jsx";
+import { COMP_T } from "../i18n/comparison.js";
+import { PRICING_T } from "../i18n/pricing.js";
 
 // Product-catalog tier_rank (1-5) → the sparse COVERAGE_BY_RANK scale (5/3/1).
 const COVERAGE_RANK_BY_CATALOG_RANK = { 5: 5, 4: 3, 3: 1, 2: 0, 1: -1 };
@@ -250,7 +252,7 @@ function Chip({ children, tone = "teal" }) {
   );
 }
 
-function DeviceCard({ side, device, onChange }) {
+function DeviceCard({ side, device, onChange, ct }) {
   const isNew = side === "new";
   const img = deviceImageUrl(device?.imageKey);
   return (
@@ -258,13 +260,13 @@ function DeviceCard({ side, device, onChange }) {
       borderRadius: 12, padding: 16, borderTop: `3px solid ${isNew ? COLOR.teal : COLOR.ink3}` }}>
       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
         color: isNew ? COLOR.tealInk : COLOR.ink3, marginBottom: 6 }}>
-        {isNew ? "New — proposed" : "Current — today"}
+        {isNew ? ct.newProposed : ct.currentToday}
       </div>
       <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontFamily: FONT.display, fontSize: 19, fontWeight: 700, color: COLOR.ink,
             lineHeight: 1.15 }}>
-            {device?.display || (isNew ? "Pick a device" : "No current device set")}
+            {device?.display || (isNew ? ct.pickADevice : ct.noCurrentSet)}
           </div>
           {device?.sub && (
             <div style={{ fontSize: 12, color: COLOR.ink2, marginTop: 3 }}>{device.sub}</div>
@@ -273,14 +275,14 @@ function DeviceCard({ side, device, onChange }) {
         {img && <img src={img} alt="" style={{ width: 56, height: 56, objectFit: "contain", flexShrink: 0 }} />}
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
-        {device?.tierLabel && <Chip tone="muted">{device.tierLabel} when new</Chip>}
-        {device?.rechargeable && <Chip tone="muted">Rechargeable</Chip>}
-        {device?.bluetoothStreaming && <Chip tone="muted">Bluetooth</Chip>}
+        {device?.tierLabel && <Chip tone="muted">{ct.whenNew(device.tierLabel)}</Chip>}
+        {device?.rechargeable && <Chip tone="muted">{ct.rechargeableChip}</Chip>}
+        {device?.bluetoothStreaming && <Chip tone="muted">{ct.bluetoothChip}</Chip>}
       </div>
       <button onClick={onChange} style={{ marginTop: 12, background: "transparent",
         border: `1px solid ${COLOR.line}`, borderRadius: 8, padding: "6px 12px", cursor: "pointer",
         fontSize: 12, fontWeight: 600, color: COLOR.ink2 }}>
-        {device ? "Change" : "Choose"}
+        {device ? ct.change : ct.choose}
       </button>
     </div>
   );
@@ -478,8 +480,10 @@ function NewPicker({ catalogTiers, catIdx, onPick, onClose }) {
 // ── Main comparator ──────────────────────────────────────────────────────────
 export default function DeviceComparison({
   patient = null, initialOld = null, initialNew = null, proposedNew = null,
-  flaggedEnvs = null, variant = "standalone", onClose = null,
+  flaggedEnvs = null, variant = "standalone", onClose = null, lang = "en",
 }) {
+  const ct = COMP_T[lang] || COMP_T.en;
+  const envT = (PRICING_T[lang] || PRICING_T.en).environments;
   const [legacyList, setLegacyList] = useState([]);
   const [catalogTiers, setCatalogTiers] = useState([]);
   const [refCatalog, setRefCatalog] = useState(null); // device_platforms/tiers reference catalog
@@ -531,7 +535,7 @@ export default function DeviceComparison({
   );
   const ready = oldDevice?.tierRank != null && newDevice?.tierRank != null;
   const headlineGain = useMemo(() => averageGain(rows, flagged.size ? flagged : null), [rows, flagged]);
-  const upgrades = useMemo(() => specUpgrades(oldDevice, newDevice), [oldDevice, newDevice]);
+  const upgrades = useMemo(() => specUpgrades(oldDevice, newDevice, ct.upgradeChips), [oldDevice, newDevice, ct]);
 
   // Flagged environments float to the top, emphasized — matches EnvironmentCoverage.
   const orderedRows = useMemo(() => {
@@ -557,9 +561,9 @@ export default function DeviceComparison({
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
         <div>
-          <div style={{ fontFamily: FONT.display, fontSize: 24, fontWeight: 700 }}>Then vs. Now</div>
+          <div style={{ fontFamily: FONT.display, fontSize: 24, fontWeight: 700 }}>{ct.thenVsNow}</div>
           <div style={{ fontSize: 13, color: COLOR.ink2, marginTop: 2 }}>
-            How today's technology compares to the current hearing aids, environment by environment.
+            {ct.thenVsNowSub}
           </div>
         </div>
         {onClose && (
@@ -572,8 +576,8 @@ export default function DeviceComparison({
 
       {/* Device cards */}
       <div style={{ display: "flex", gap: 12, alignItems: "stretch" }}>
-        <DeviceCard side="old" device={oldDevice} onChange={() => setPicker(picker === "old" ? null : "old")} />
-        <DeviceCard side="new" device={newDevice} onChange={() => setPicker(picker === "new" ? null : "new")} />
+        <DeviceCard side="old" device={oldDevice} ct={ct} onChange={() => setPicker(picker === "old" ? null : "old")} />
+        <DeviceCard side="new" device={newDevice} ct={ct} onChange={() => setPicker(picker === "new" ? null : "new")} />
       </div>
 
       {picker === "old" && (
@@ -593,8 +597,7 @@ export default function DeviceComparison({
             +{headlineGain}%
           </div>
           <div style={{ fontSize: 13, color: COLOR.ink2 }}>
-            average improvement{flagged.size ? " in the environments this patient flagged" : " across everyday listening"}
-            {" "}with {newDevice.display}.
+            {ct.avgImprovement(newDevice.display, flagged.size > 0)}
           </div>
         </div>
       )}
@@ -605,18 +608,18 @@ export default function DeviceComparison({
           padding: 16, marginTop: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
             <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: COLOR.ink2 }}>
-              Listening environment
+              {ct.listeningEnvironment}
             </div>
             <div style={{ display: "flex", gap: 14, fontSize: 10, color: COLOR.ink2 }}>
               <span><span style={{ display: "inline-block", width: 10, height: 6, background: coverageColor(80),
-                opacity: 0.5, filter: "saturate(0.45)", borderRadius: 2, marginRight: 4 }} />Current (faded)</span>
+                opacity: 0.5, filter: "saturate(0.45)", borderRadius: 2, marginRight: 4 }} />{ct.currentFaded}</span>
               <span><span style={{ display: "inline-block", width: 10, height: 6, background: coverageColor(80),
-                borderRadius: 2, marginRight: 4 }} />New</span>
-              <span style={{ fontWeight: 700 }}>Gain</span>
+                borderRadius: 2, marginRight: 4 }} />{ct.newBar}</span>
+              <span style={{ fontWeight: 700 }}>{ct.gain}</span>
             </div>
           </div>
           {visibleRows.map(r => (
-            <PairedRow key={r.id} label={r.label} oldPct={r.old} newPct={r.new} delta={r.delta} prominent={r.prominent} />
+            <PairedRow key={r.id} label={envT[r.id] || r.label} oldPct={r.old} newPct={r.new} delta={r.delta} prominent={r.prominent} />
           ))}
           {collapsible && (
             <button onClick={() => setShowAllEnvs(v => !v)}
@@ -624,8 +627,8 @@ export default function DeviceComparison({
                 border: `1px dashed ${COLOR.line}`, borderRadius: 8, padding: "7px 12px",
                 cursor: "pointer", fontSize: 12, fontWeight: 600, color: COLOR.ink2 }}>
               {showAllEnvs
-                ? "Show fewer — just the flagged environments"
-                : `Show all ${orderedRows.length} environments (${hiddenCount} more)`}
+                ? ct.showFewer
+                : ct.showAllEnvsBtn(orderedRows.length, hiddenCount)}
             </button>
           )}
         </div>
@@ -633,8 +636,8 @@ export default function DeviceComparison({
         <div style={{ background: COLOR.paper, border: `1px dashed ${COLOR.line}`, borderRadius: 12,
           padding: 24, marginTop: 16, textAlign: "center", color: COLOR.ink2, fontSize: 13 }}>
           {oldDevice?.tierRank == null
-            ? "Set the current device to see the comparison."
-            : "Choose a new device to compare."}
+            ? ct.setCurrentToSee
+            : ct.chooseNewToCompare}
         </div>
       )}
 
@@ -642,7 +645,7 @@ export default function DeviceComparison({
       {ready && upgrades.length > 0 && (
         <div style={{ marginTop: 16 }}>
           <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em",
-            color: COLOR.tealInk, marginBottom: 8 }}>What the new devices add</div>
+            color: COLOR.tealInk, marginBottom: 8 }}>{ct.whatNewAdds}</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {upgrades.map((u, i) => <Chip key={i} tone="teal">{u}</Chip>)}
           </div>
@@ -652,11 +655,11 @@ export default function DeviceComparison({
       {/* Honesty footnote */}
       <div style={{ fontSize: 11, color: COLOR.ink3, marginTop: 18, paddingTop: 12,
         borderTop: `1px solid ${COLOR.line}`, lineHeight: 1.5 }}>
-        Estimated from technology generation and documented specifications — a clinician's
-        comparison, not a measured lab result. Bars show expected coverage of each environment;
-        {" "}<span style={{ color: "#16a34a", fontWeight: 700 }}>green</span> is fully covered,
-        {" "}<span style={{ color: "#dc2626", fontWeight: 700 }}>red</span> is where even the best
-        technology has limits.
+        {ct.dcHonesty[0]}
+        <span style={{ color: "#16a34a", fontWeight: 700 }}>{ct.dcHonesty[1]}</span>
+        {ct.dcHonesty[2]}
+        <span style={{ color: "#dc2626", fontWeight: 700 }}>{ct.dcHonesty[3]}</span>
+        {ct.dcHonesty[4]}
       </div>
     </div>
   );

@@ -42,6 +42,7 @@ import {
 } from "../lib/coupleComparison.js";
 import { AudigramSVG } from "../components/AudiogramSVG.jsx";
 import { COLOR, FONT } from "../theme.js";
+import { COMP_T } from "../i18n/comparison.js";
 
 const card = {
   background: COLOR.card,
@@ -57,13 +58,13 @@ const cardTitle = {
 // Resolve one person's tier recommendation without side effects. Persisted
 // active row first (respecting provider-edited rationale); otherwise run the
 // engine ephemerally. Returns a RecState the tech-level card can render.
-async function resolveRecommendation(p) {
+async function resolveRecommendation(p, ct) {
   const summary = buildPersonSummary(p.audiology);
   if (!summary.hasThresholds) {
-    return { status: "none", copy: "A hearing test is needed before we can tailor a recommendation." };
+    return { status: "none", copy: ct.needTestCopy };
   }
   if (summary.normalHearing) {
-    return { status: "none", copy: "Hearing in the normal range — no device is recommended today." };
+    return { status: "none", copy: ct.normalRangeCopy };
   }
   try {
     const row = await loadCurrentRecommendation(p.id);
@@ -77,16 +78,17 @@ async function resolveRecommendation(p) {
     const inputs = await loadPatientRecommendationInputs(p.id);
     const result = runRecommendationEngine(inputs.audiogram, inputs.thresholds, inputs.intakeAnswers);
     if (result.blocked) {
-      return { status: "none", copy: "A hearing test is needed before we can tailor a recommendation." };
+      return { status: "none", copy: ct.needTestCopy };
     }
     return { status: "ready", rank: result.recommendedRank, rationale: result.rationale };
   } catch (err) {
     console.error("CouplesComparison resolveRecommendation:", err);
-    return { status: "none", copy: "Guidance isn't available for this chart right now." };
+    return { status: "none", copy: ct.guidanceUnavailable };
   }
 }
 
-export default function CouplesComparison({ patient, clinicId, onExit }) {
+export default function CouplesComparison({ patient, clinicId, onExit, lang = "en" }) {
+  const ct = COMP_T[lang] || COMP_T.en;
   const [partner, setPartner] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [prefilled, setPrefilled] = useState(false);
@@ -144,7 +146,7 @@ export default function CouplesComparison({ patient, clinicId, onExit }) {
     people.forEach(p => {
       if (recs[p.id]) return;
       setRecs(prev => ({ ...prev, [p.id]: { status: "loading" } }));
-      resolveRecommendation(p).then(rec => {
+      resolveRecommendation(p, ct).then(rec => {
         if (aliveRef.current) setRecs(prev => ({ ...prev, [p.id]: rec }));
       });
     });
@@ -159,7 +161,7 @@ export default function CouplesComparison({ patient, clinicId, onExit }) {
       {p === partner && (
         <button onClick={() => setPartner(null)}
           style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, color: COLOR.ink2, background: "transparent", border: `1px solid ${COLOR.line}`, borderRadius: 8, padding: "4px 10px", cursor: "pointer" }}>
-          Change partner
+          {ct.changePartner}
         </button>
       )}
     </div>
@@ -167,7 +169,7 @@ export default function CouplesComparison({ patient, clinicId, onExit }) {
 
   const audiogramCard = (p, summary) => (
     <div style={card}>
-      <div style={cardTitle}>Audiogram</div>
+      <div style={cardTitle}>{ct.audiogram}</div>
       {summary.hasThresholds ? (
         <div style={{ background: "#fafafa", border: `1px solid ${COLOR.line}`, borderRadius: 10, padding: "10px 6px" }}>
           <AudigramSVG
@@ -180,7 +182,7 @@ export default function CouplesComparison({ patient, clinicId, onExit }) {
         </div>
       ) : (
         <div style={{ fontSize: 13, color: COLOR.ink2, padding: "24px 8px", textAlign: "center" }}>
-          No hearing test on file yet — we can add {p.name.split(" ")[0]}&rsquo;s results after a hearing evaluation.
+          {ct.noTestOnFile(p.name.split(" ")[0])}
         </div>
       )}
     </div>
@@ -190,24 +192,24 @@ export default function CouplesComparison({ patient, clinicId, onExit }) {
     <div style={{ background: palette.bg, border: `1px solid ${palette.border}`, borderRadius: 8, padding: "10px 16px", flex: 1 }}>
       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: palette.accent, marginBottom: 2 }}>{label}</div>
       <div style={{ fontSize: 16, fontWeight: 800, color: "#0a1628" }}>
-        {severity ? SEVERITY_DISPLAY[severity] : "—"}
+        {severity ? (ct.severityDisplay[severity] || SEVERITY_DISPLAY[severity]) : "—"}
       </div>
       <div style={{ fontSize: 10, color: COLOR.ink3, marginTop: 2 }}>
-        {severity == null ? "Not tested" : pta4 != null ? `${pta4} dB 4-frequency average` : ""}
+        {severity == null ? ct.notTested : pta4 != null ? ct.dbAvg(pta4) : ""}
       </div>
     </div>
   );
 
   const levelsCard = (summary) => (
     <div style={card}>
-      <div style={cardTitle}>Hearing Levels</div>
+      <div style={cardTitle}>{ct.hearingLevels}</div>
       <div style={{ display: "flex", gap: 10 }}>
-        {severityChip("Right Ear", summary.rSeverity, summary.rPTA4, { bg: "#fef2f2", border: "#fecaca", accent: "#dc2626" })}
-        {severityChip("Left Ear", summary.lSeverity, summary.lPTA4, { bg: "#eff6ff", border: "#bfdbfe", accent: "#2563eb" })}
+        {severityChip(ct.rightEar, summary.rSeverity, summary.rPTA4, { bg: "#fef2f2", border: "#fecaca", accent: "#dc2626" })}
+        {severityChip(ct.leftEar, summary.lSeverity, summary.lPTA4, { bg: "#eff6ff", border: "#bfdbfe", accent: "#2563eb" })}
       </div>
       {summary.asymmetric && (
         <div style={{ fontSize: 12, color: COLOR.ink2, marginTop: 10 }}>
-          The two ears differ noticeably — each ear gets its own settings.
+          {ct.asymmetricNote}
         </div>
       )}
     </div>
@@ -224,25 +226,25 @@ export default function CouplesComparison({ patient, clinicId, onExit }) {
 
   const speechCard = (p, summary) => (
     <div style={card}>
-      <div style={cardTitle}>Speech Understanding</div>
+      <div style={cardTitle}>{ct.speechUnderstanding}</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: "12px 14px" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: "#dc2626", marginBottom: 8 }}>Right Ear</div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: "#dc2626", marginBottom: 8 }}>{ct.rightEar}</div>
           <div style={{ display: "flex", gap: 16 }}>
-            {scoreCell("Word recognition", summary.unaidedR, false)}
-            {scoreCell("Word clarity", summary.clarityR, true)}
+            {scoreCell(ct.wordRecognition, summary.unaidedR, false)}
+            {scoreCell(ct.wordClarity, summary.clarityR, true)}
           </div>
         </div>
         <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 10, padding: "12px 14px" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: "#2563eb", marginBottom: 8 }}>Left Ear</div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: "#2563eb", marginBottom: 8 }}>{ct.leftEar}</div>
           <div style={{ display: "flex", gap: 16 }}>
-            {scoreCell("Word recognition", summary.unaidedL, false)}
-            {scoreCell("Word clarity", summary.clarityL, true)}
+            {scoreCell(ct.wordRecognition, summary.unaidedL, false)}
+            {scoreCell(ct.wordClarity, summary.clarityL, true)}
           </div>
         </div>
       </div>
       <div style={{ fontSize: 10, color: COLOR.ink3, marginTop: 8 }}>
-        Word clarity is measured at a comfortable volume — it shows understanding, not loudness.
+        {ct.clarityNote}
       </div>
     </div>
   );
@@ -251,9 +253,9 @@ export default function CouplesComparison({ patient, clinicId, onExit }) {
     const rec = recs[p.id];
     return (
       <div style={card}>
-        <div style={cardTitle}>Technology Level</div>
+        <div style={cardTitle}>{ct.technologyLevel}</div>
         {!rec || rec.status === "loading" ? (
-          <div style={{ fontSize: 13, color: COLOR.ink2 }}>Preparing guidance…</div>
+          <div style={{ fontSize: 13, color: COLOR.ink2 }}>{ct.preparingGuidance}</div>
         ) : rec.status === "none" ? (
           <div style={{ fontSize: 13, color: COLOR.ink2 }}>{rec.copy}</div>
         ) : (
@@ -263,7 +265,7 @@ export default function CouplesComparison({ patient, clinicId, onExit }) {
                 {patientTierLabel(rec.rank) || "—"}
               </span>
               {tierProcessingPhrase(rec.rank) && (
-                <span style={{ fontSize: 12, color: COLOR.ink2 }}>{tierProcessingPhrase(rec.rank)} processing</span>
+                <span style={{ fontSize: 12, color: COLOR.ink2 }}>{ct.processingPhrase(tierProcessingPhrase(rec.rank))}</span>
               )}
             </div>
             {rec.rationale && <div style={{ fontSize: 13, color: COLOR.ink, lineHeight: 1.55 }}>{rec.rationale}</div>}
@@ -275,7 +277,7 @@ export default function CouplesComparison({ patient, clinicId, onExit }) {
 
   const styleCard = (summary, guidance) => (
     <div style={card}>
-      <div style={cardTitle}>Style Guidance</div>
+      <div style={cardTitle}>{ct.styleGuidanceTitle}</div>
       {guidance ? (
         <>
           <div style={{ fontSize: 14, fontWeight: 700, color: COLOR.ink, marginBottom: 6 }}>{guidance.headline}</div>
@@ -285,7 +287,7 @@ export default function CouplesComparison({ patient, clinicId, onExit }) {
         </>
       ) : (
         <div style={{ fontSize: 13, color: COLOR.ink2 }}>
-          Style guidance will appear once a hearing test is on file.
+          {ct.styleWillAppear}
         </div>
       )}
     </div>
@@ -293,7 +295,7 @@ export default function CouplesComparison({ patient, clinicId, onExit }) {
 
   const personCards = (p) => {
     const summary = buildPersonSummary(p.audiology);
-    const guidance = styleGuidance(p.audiology);
+    const guidance = styleGuidance(p.audiology, lang);
     return [
       nameCard(p),
       audiogramCard(p, summary),
@@ -350,7 +352,7 @@ export default function CouplesComparison({ patient, clinicId, onExit }) {
   return (
     <div style={{ maxWidth: 1240, margin: "0 auto", fontFamily: FONT.ui }}>
       <div style={{ fontSize: 13, color: COLOR.ink2, margin: "2px 2px 14px" }}>
-        Seeing both sets of results together shows how each hearing profile calls for its own approach.
+        {ct.couplesIntro}
       </div>
       {partner ? (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
