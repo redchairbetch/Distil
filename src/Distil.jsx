@@ -2394,7 +2394,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     const parts = (p.name || "").trim().split(/\s+/);
     const lastName  = parts.length > 1 ? parts.pop() : "";
     const firstName = parts.join(" ");
-    setEditDraft({ firstName, lastName, phone: p.phone || "", email: p.email || "", dob: p.dob || "", payType: p.payType || "insurance", notes: p.notes || "" });
+    setEditDraft({ firstName, lastName, phone: p.phone || "", email: p.email || "", dob: p.dob || "", payType: p.payType || "insurance", preferredLanguage: p.preferredLanguage || "en", notes: p.notes || "" });
     setEditSection("contact");
     setEditError(null);
     setEditSuccess(null);
@@ -2410,10 +2410,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         email:      editDraft.email  || null,
         dob:        editDraft.dob    || null,
         pay_type:   editDraft.payType,
+        preferred_language: editDraft.preferredLanguage || "en",
         notes:      editDraft.notes  || null,
       });
       const newName = [editDraft.firstName, editDraft.lastName].filter(Boolean).join(" ");
-      setSelectedPatient(p => ({ ...p, name: newName, phone: editDraft.phone, email: editDraft.email, dob: editDraft.dob, payType: editDraft.payType, notes: editDraft.notes }));
+      setSelectedPatient(p => ({ ...p, name: newName, phone: editDraft.phone, email: editDraft.email, dob: editDraft.dob, payType: editDraft.payType, preferredLanguage: editDraft.preferredLanguage, notes: editDraft.notes }));
       setPatients(prev => prev.map(pt => pt.id === selectedPatient.id ? { ...pt, name: newName, phone: editDraft.phone, email: editDraft.email } : pt));
       setEditSuccess("Saved");
       setTimeout(() => { setEditSection(null); setEditSuccess(null); }, 1400);
@@ -7831,6 +7832,16 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       ))}
                     </div>
                   </div>
+                  <div style={{marginBottom:10}}>
+                    <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:6}}>Preferred Language</label>
+                    <div style={{display:"flex",gap:8}}>
+                      {[["en","English"],["es","Español"]].map(([val,label])=>(
+                        <div key={val} onClick={()=>setEditDraft(d=>({...d,preferredLanguage:val}))} style={{flex:1,border:`2px solid ${editDraft.preferredLanguage===val?"#0a1628":"#E4E0D5"}`,borderRadius:10,padding:"10px",cursor:"pointer",textAlign:"center",background:editDraft.preferredLanguage===val?"#FBF9F3":"white",transition:"all 0.15s"}}>
+                          <div style={{fontSize:13,fontWeight:600,color:"#0a1628"}}>{label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                   <div style={{marginBottom:4}}>
                     <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Notes</label>
                     <textarea value={editDraft.notes} onChange={e=>setEditDraft(d=>({...d,notes:e.target.value}))} rows={3} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",resize:"vertical",boxSizing:"border-box"}} />
@@ -7848,6 +7859,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v}</span></div>
                   ))}
                   {p.payType && <div className="detail-row"><span className="detail-key">Pay Type</span><span className="detail-val">{p.payType==="insurance"?"Insurance":"Private Pay"}</span></div>}
+                  <div className="detail-row"><span className="detail-key">Language</span><span className="detail-val">{p.preferredLanguage==="es"?"Español":"English"}</span></div>
                   {p.notes && <div className="detail-row"><span className="detail-key">Notes</span><span className="detail-val" style={{whiteSpace:"pre-wrap"}}>{p.notes}</span></div>}
                 </div>
               )}
@@ -9944,6 +9956,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                         <span style={{marginLeft:8,background:"#0f766e",color:"white",borderRadius:20,
                           padding:"2px 9px",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,verticalAlign:"middle"}}>
                           Annual / Upgrade
+                        </span>
+                      )}
+                      {intake._meta?.lang === "es" && (
+                        <span style={{marginLeft:8,background:"#b45309",color:"white",borderRadius:20,
+                          padding:"2px 9px",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,verticalAlign:"middle"}}
+                          title="Intake completed in Spanish">
+                          ES
                         </span>
                       )}
                     </div>
