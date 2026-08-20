@@ -42,8 +42,6 @@ const DEMO = {
   preferredLanguage: "en",
 };
 
-const CARE_PLAN_LABELS = { complete: "Complete Care+", punch: "MHC Punch Card", paygo: "Standard Billing" };
-
 // Parse a bare 'YYYY-MM-DD' as a local-time Date. `new Date('YYYY-MM-DD')` is
 // UTC midnight, which renders a day earlier in negative-offset US timezones —
 // so fitting/warranty dates were showing one day off. Returns null for anything
@@ -73,37 +71,8 @@ function daysAgo(dateStr) {
   return Math.ceil((new Date() - new Date(dateStr)) / 86400000);
 }
 
-const CLEANING_STEPS = [
-  { icon:"🪮", title:"Wipe the shell", desc:"Use the soft dry cloth to gently wipe the outer surface of both hearing aids. Never use water or cleaning sprays." },
-  { icon:"🔍", title:"Check the microphone ports", desc:"Use the small brush to clear any debris from the microphone openings on top of the device." },
-  { icon:"🔄", title:"Clean or replace the dome", desc:"Remove the dome from the receiver tip. Rinse with the provided tool, or replace if worn or discolored." },
-  { icon:"🔧", title:"Replace the wax filter", desc:"Use the filter replacement stick. White end removes old filter, dark end inserts new one. Change monthly or when sound is muffled." },
-  { icon:"🔋", title:"Place in charger overnight", desc:"For rechargeable devices, always place in the charging case each evening. Ensure the light confirms a connection." },
-];
-
-const TROUBLESHOOT_TIPS = [
-  { q:"No sound", a:"Check that the device is powered on. Inspect the wax filter — if clogged, replace it. Ensure the dome is seated properly on the receiver." },
-  { q:"Feedback / whistling", a:"Reinsert the hearing aid — an improper seal causes feedback. Check if the dome or earmold is damaged. If it persists, call the clinic." },
-  { q:"Sound is muffled", a:"The wax filter is almost certainly blocked. Replace it using your cleaning kit. Also verify the microphone ports are clear of debris." },
-  { q:"Won't charge", a:"Check the charging contacts on both device and case for debris. Try a different outlet. If the case LED doesn't light, contact your clinic." },
-  { q:"Bluetooth not connecting", a:"Open your phone's Bluetooth settings and forget the device. Power cycle the hearing aid, then re-pair. Stay within 30 feet of your phone." },
-];
-
-// ── Achievement badge display map ────────────────────────────────────────────
-const ACHIEVEMENT_DISPLAY = {
-  first_fitting:         { emoji: '🎧', label: 'First Fitting' },
-  one_year_anniversary:  { emoji: '🎂', label: '1 Year Strong' },
-  three_year_anniversary:{ emoji: '🏆', label: '3 Year Veteran' },
-  five_year_anniversary: { emoji: '⭐', label: '5 Year Champion' },
-  six_year_survivor:     { emoji: '🦴', label: 'Stubborn Survivor' },
-  care_plan_streak_6:    { emoji: '🔥', label: '6-Month Streak' },
-  care_plan_streak_12:   { emoji: '💎', label: 'Full Year Streak' },
-  lima_charlie_donor:    { emoji: '🎖️', label: 'Lima Charlie Donor' },
-  early_upgrader:        { emoji: '⚡', label: 'Early Upgrader' },
-  serial_upgrader:       { emoji: '🚀', label: 'Serial Upgrader' },
-  two_sets_one_year:     { emoji: '😅', label: 'Overachiever' },
-  hearing_champion:      { emoji: '👑', label: 'Hearing Champion' },
-};
+// Cleaning steps, troubleshooting tips, achievement labels, and care plan
+// labels live in src/i18n/aided.js (per-language content).
 
 // ── Web Push helpers ─────────────────────────────────────────────────────────
 // Public VAPID key — safe to ship in the client; the matching private key
@@ -496,7 +465,7 @@ export default function PatientApp() {
       await refreshInbox(patient.id);
     } catch (err) {
       console.warn('sendPatientReply failed:', err);
-      setReplyError("Your message didn't send. Check your connection and try again, or call the clinic.");
+      setReplyError(t.sendFailed);
     } finally {
       setReplySending(false);
     }
@@ -821,26 +790,26 @@ export default function PatientApp() {
   const renderHome = () => (
     <>
       <div className="header">
-        <div className="header-greeting">Good {new Date().getHours()<12?"morning":new Date().getHours()<17?"afternoon":"evening"},</div>
+        <div className="header-greeting">{new Date().getHours()<12?t.goodMorning:new Date().getHours()<17?t.goodAfternoon:t.goodEvening}</div>
         <div className="header-name">{p.name.split(" ")[0]} 👋</div>
         <div className="profile-id">ID: {p.id}</div>
       </div>
       <div className="scroll-content">
         {nextAppt && (
           <div className="section pt-section">
-            <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>Next Appointment</div>
+            <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>{t.nextAppointment}</div>
             <div className="appt-card">
               <div>
-                <div className="appt-month">{new Date(nextAppt.date).toLocaleDateString("en-US",{month:"long",year:"numeric"})}</div>
+                <div className="appt-month">{new Date(nextAppt.date).toLocaleDateString(lang==="es"?"es-US":"en-US",{month:"long",year:"numeric"})}</div>
                 <div className="appt-type">{nextAppt.type}</div>
                 <div className="appt-countdown">
-                  {daysUntil(nextAppt.date) === 0 ? "Today!" : `In ${daysUntil(nextAppt.date)} days`}
+                  {daysUntil(nextAppt.date) === 0 ? t.apptToday : t.apptInDays(daysUntil(nextAppt.date))}
                 </div>
               </div>
               <div style={{textAlign:"right"}}>
                 <div className="appt-date-big">{new Date(nextAppt.date).getDate()}</div>
                 <div style={{fontSize:12,opacity:0.65,marginTop:2}}>
-                  {new Date(nextAppt.date).toLocaleDateString("en-US",{weekday:"short"})}
+                  {new Date(nextAppt.date).toLocaleDateString(lang==="es"?"es-US":"en-US",{weekday:"short"})}
                 </div>
               </div>
             </div>
@@ -848,7 +817,7 @@ export default function PatientApp() {
         )}
 
         <div className="section">
-          <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>My Devices</div>
+          <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>{t.myDevices}</div>
           <div className="card">
             <div className="device-hero">
               <div className="device-mfr">{p.devices?.manufacturer}</div>
@@ -858,12 +827,12 @@ export default function PatientApp() {
             <div className="warranty-block">
               <div className="warranty-top">
                 <div>
-                  <div className="warranty-label">Warranty</div>
-                  <div style={{fontSize:12,color:"#9ca3af",marginTop:2}}>Expires {fmtDate(p.devices?.warrantyExpiry)}</div>
+                  <div className="warranty-label">{t.warranty}</div>
+                  <div style={{fontSize:12,color:"#9ca3af",marginTop:2}}>{t.expiresOn(fmtDate(p.devices?.warrantyExpiry, lang))}</div>
                 </div>
                 <div style={{textAlign:"right"}}>
-                  <div className="warranty-days">{warrantyDays > 0 ? `${warrantyDays}d` : "Expired"}</div>
-                  <div className="warranty-sub">remaining</div>
+                  <div className="warranty-days">{warrantyDays > 0 ? `${warrantyDays}d` : t.expired}</div>
+                  <div className="warranty-sub">{t.remaining}</div>
                 </div>
               </div>
               <div className="progress-track">
@@ -874,9 +843,9 @@ export default function PatientApp() {
         </div>
 
         <div className="section">
-          <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>Quick Actions</div>
+          <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>{t.quickActions}</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-            {[["🧹","Clean Guide",()=>setTab("care")],["💬","Get Help",()=>setTab("help")],["📅","Schedule",()=>setTab("schedule")],["🎧","Device Info",()=>setTab("devices")]].map(([icon,label,action])=>(
+            {[["🧹",t.actionCleanGuide,()=>setTab("care")],["💬",t.actionGetHelp,()=>setTab("help")],["📅",t.actionSchedule,()=>setTab("schedule")],["🎧",t.actionDeviceInfo,()=>setTab("devices")]].map(([icon,label,action])=>(
               <div key={label} onClick={action} style={{background:"white",borderRadius:14,padding:"16px",textAlign:"center",cursor:"pointer",boxShadow:"0 1px 3px rgba(0,0,0,0.06)"}}>
                 <div style={{fontSize:26,marginBottom:6}}>{icon}</div>
                 <div style={{fontSize:13,fontWeight:600,color:"#0a1628"}}>{label}</div>
@@ -886,21 +855,21 @@ export default function PatientApp() {
         </div>
 
         <div className="section">
-          <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>Care Plan</div>
+          <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>{t.carePlanLabel}</div>
           {p.carePlan === "punch" ? (
             <div className="punch-mini" onClick={()=>setTab("care")}>
               <div className="punch-mini-left">
                 <div className="punch-mini-title">MHC Punch Card</div>
-                <div className="punch-mini-sub">Tap to use a visit · {(12 - punchUsed.cleanings) + (16 - punchUsed.appointments)} visits remaining</div>
+                <div className="punch-mini-sub">{t.punchMiniSub((12 - punchUsed.cleanings) + (16 - punchUsed.appointments))}</div>
               </div>
               <div className="punch-mini-pills">
                 <div className="punch-mini-pill">
                   <div className="punch-mini-num">{12 - punchUsed.cleanings}</div>
-                  <div className="punch-mini-label">Cleanings</div>
+                  <div className="punch-mini-label">{t.punchMiniCleanings}</div>
                 </div>
                 <div className="punch-mini-pill">
                   <div className="punch-mini-num">{16 - punchUsed.appointments}</div>
-                  <div className="punch-mini-label">Appts</div>
+                  <div className="punch-mini-label">{t.punchMiniAppts}</div>
                 </div>
               </div>
             </div>
@@ -908,7 +877,7 @@ export default function PatientApp() {
             <div className="card">
               <div className="card-pad" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div>
-                  <div style={{fontSize:15,fontWeight:700,color:"#0a1628"}}>{CARE_PLAN_LABELS[p.carePlan]||p.carePlan}</div>
+                  <div style={{fontSize:15,fontWeight:700,color:"#0a1628"}}>{t.carePlanLabels[p.carePlan]||p.carePlan}</div>
                   <div style={{fontSize:12,color:"#9ca3af",marginTop:3}}>{p.location}</div>
                 </div>
                 <div style={{fontSize:28}}>✅</div>
@@ -920,10 +889,10 @@ export default function PatientApp() {
         {/* Achievements — only show if the patient has earned any */}
         {achievements.length > 0 && (
           <div className="section">
-            <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>Achievements</div>
+            <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>{t.achievementsLabel}</div>
             <div style={{display:"flex",gap:12,overflowX:"auto",paddingBottom:4,WebkitOverflowScrolling:"touch"}}>
               {achievements.map((a, i) => {
-                const display = ACHIEVEMENT_DISPLAY[a.achievement];
+                const display = t.achievements[a.achievement];
                 if (!display) return null;
                 return (
                   <div key={i} style={{
@@ -932,7 +901,7 @@ export default function PatientApp() {
                   }}>
                     <div style={{fontSize:28,marginBottom:6}}>{display.emoji}</div>
                     <div style={{fontSize:12,fontWeight:700,color:"#0a1628",marginBottom:4}}>{display.label}</div>
-                    <div style={{fontSize:10,color:"#9ca3af"}}>{fmtDate(a.earned_at)}</div>
+                    <div style={{fontSize:10,color:"#9ca3af"}}>{fmtDate(a.earned_at, lang)}</div>
                   </div>
                 );
               })}
@@ -946,7 +915,7 @@ export default function PatientApp() {
   const renderDevices = () => (
     <>
       <div className="header">
-        <div className="header-greeting">Device Specifications</div>
+        <div className="header-greeting">{t.deviceSpecifications}</div>
         <div className="header-name">{p.devices?.manufacturer}</div>
       </div>
       <div className="scroll-content">
@@ -958,7 +927,7 @@ export default function PatientApp() {
               <div className="device-style">{p.devices?.style?.toUpperCase()} · {p.devices?.battery}</div>
             </div>
             <div className="device-specs">
-              {[["Color",p.devices?.color||"N/A"],["Battery",p.devices?.battery],["Receiver",p.devices?.receiver||"N/A"],["Dome",p.devices?.dome||"N/A"],["Serial (L)",p.devices?.serialLeft],["Serial (R)",p.devices?.serialRight]].map(([k,v])=>(
+              {[[t.specColor,p.devices?.color||t.notAvailable],[t.specBattery,p.devices?.battery],[t.specReceiver,p.devices?.receiver||t.notAvailable],[t.specDome,p.devices?.dome||t.notAvailable],[t.specSerialL,p.devices?.serialLeft],[t.specSerialR,p.devices?.serialRight]].map(([k,v])=>(
                 <div className="spec-item" key={k}><div className="spec-key">{k}</div><div className="spec-val">{v}</div></div>
               ))}
             </div>
@@ -966,26 +935,26 @@ export default function PatientApp() {
         </div>
 
         <div className="section">
-          <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>Warranty</div>
+          <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>{t.warranty}</div>
           <div className="card">
             <div className="warranty-block">
               <div className="warranty-top">
                 <div>
-                  <div className="warranty-label">Warranty Status</div>
-                  <div style={{fontSize:12,color:"#9ca3af",marginTop:2}}>Fitted {fmtDate(p.devices?.fittingDate)} · {fittingDaysAgo} days ago</div>
+                  <div className="warranty-label">{t.warrantyStatus}</div>
+                  <div style={{fontSize:12,color:"#9ca3af",marginTop:2}}>{t.fittedOn(fmtDate(p.devices?.fittingDate, lang), fittingDaysAgo)}</div>
                 </div>
                 <div style={{textAlign:"right"}}>
-                  <div className="warranty-days">{warrantyDays > 0 ? `${warrantyDays}d` : "Expired"}</div>
-                  <div className="warranty-sub">remaining</div>
+                  <div className="warranty-days">{warrantyDays > 0 ? `${warrantyDays}d` : t.expired}</div>
+                  <div className="warranty-sub">{t.remaining}</div>
                 </div>
               </div>
               <div className="progress-track">
                 <div className="progress-fill" style={{width:`${warrantyPct}%`}} />
               </div>
-              <div style={{marginTop:12,fontSize:12,color:"#6b7280"}}>Expires {fmtDate(p.devices?.warrantyExpiry)}</div>
+              <div style={{marginTop:12,fontSize:12,color:"#6b7280"}}>{t.expiresOn(fmtDate(p.devices?.warrantyExpiry, lang))}</div>
               {p.carePlan === "complete" && (
                 <div style={{marginTop:8,background:"#dcfce7",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#16a34a",fontWeight:600}}>
-                  ✓ Extended to 4 years with Complete Care+
+                  {t.warrantyExtended}
                 </div>
               )}
             </div>
@@ -993,11 +962,11 @@ export default function PatientApp() {
         </div>
 
         <div className="section">
-          <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>Insurance Coverage</div>
+          <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>{t.insuranceCoverage}</div>
           <div className="card">
             <div className="card-pad">
               {p.payType === "insurance" ? (
-                [["Carrier",p.insurance?.carrier],["Plan",p.insurance?.planGroup],["TPA",p.insurance?.tpa],["Tier",p.insurance?.tier],["Copay",`$${p.insurance?.tierPrice?.toLocaleString()} per aid`]].map(([k,v])=>(
+                [[t.covCarrier,p.insurance?.carrier],[t.covPlan,p.insurance?.planGroup],[t.covTpa,p.insurance?.tpa],[t.covTier,p.insurance?.tier],[t.covCopay,t.perAid(`$${p.insurance?.tierPrice?.toLocaleString(lang==="es"?"es-US":"en-US")}`)]].map(([k,v])=>(
                   <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #f5f5f7",fontSize:13}}>
                     <span style={{color:"#9ca3af"}}>{k}</span>
                     <span style={{fontWeight:600,color:"#0a1628"}}>{v}</span>
@@ -1005,8 +974,8 @@ export default function PatientApp() {
                 ))
               ) : (
                 <div>
-                  <div style={{fontSize:14,fontWeight:600,color:"#0a1628"}}>Private Pay</div>
-                  <div style={{fontSize:12,color:"#6b7280",marginTop:6,lineHeight:1.5}}>Contact your clinic for current pricing.</div>
+                  <div style={{fontSize:14,fontWeight:600,color:"#0a1628"}}>{t.privatePay}</div>
+                  <div style={{fontSize:12,color:"#6b7280",marginTop:6,lineHeight:1.5}}>{t.contactForPricing}</div>
                 </div>
               )}
             </div>
@@ -1021,8 +990,8 @@ export default function PatientApp() {
     return (
       <>
         <div className="header">
-          <div className="header-greeting">Cleaning & Care</div>
-          <div className="header-name">Daily Routine</div>
+          <div className="header-greeting">{t.cleaningAndCare}</div>
+          <div className="header-name">{t.dailyRoutine}</div>
         </div>
         <div className="scroll-content">
 
@@ -1038,17 +1007,17 @@ export default function PatientApp() {
                 <div className="punch-card">
                   <div className="punch-card-header">
                     <div>
-                      <div className="punch-card-title">My Punch Card</div>
-                      <div className="punch-card-sub">Punched by your specialist at each visit</div>
+                      <div className="punch-card-title">{t.myPunchCard}</div>
+                      <div className="punch-card-sub">{t.punchedBySpecialist}</div>
                     </div>
-                    <div className="punch-card-badge">{totalLeft} left</div>
+                    <div className="punch-card-badge">{t.punchLeft(totalLeft)}</div>
                   </div>
 
                   {/* CLEANINGS */}
                   <div className="punch-section">
                     <div className="punch-section-label">
-                      <span>🧹 Cleanings</span>
-                      <span style={{color:"#4ade80"}}>{punchUsed.cleanings}/12 used</span>
+                      <span>{t.punchCleanings}</span>
+                      <span style={{color:"#4ade80"}}>{t.punchUsedOf(punchUsed.cleanings, 12)}</span>
                     </div>
                     <div className="punch-dots">
                       {Array.from({length:12},(_,i) => (
@@ -1057,14 +1026,14 @@ export default function PatientApp() {
                         </div>
                       ))}
                     </div>
-                    {cleanLeft === 0 && <div className="punch-exhausted">All 12 cleaning visits used ✓</div>}
+                    {cleanLeft === 0 && <div className="punch-exhausted">{t.punchAllCleaningsUsed(12)}</div>}
                   </div>
 
                   {/* APPOINTMENTS */}
                   <div className="punch-section" style={{marginBottom:0}}>
                     <div className="punch-section-label">
-                      <span>📅 Appointments</span>
-                      <span style={{color:"#4ade80"}}>{punchUsed.appointments}/16 used</span>
+                      <span>{t.punchAppointments}</span>
+                      <span style={{color:"#4ade80"}}>{t.punchUsedOf(punchUsed.appointments, 16)}</span>
                     </div>
                     <div className="punch-dots">
                       {Array.from({length:16},(_,i) => (
@@ -1073,12 +1042,12 @@ export default function PatientApp() {
                         </div>
                       ))}
                     </div>
-                    {apptLeft === 0 && <div className="punch-exhausted">All 16 appointment visits used ✓</div>}
+                    {apptLeft === 0 && <div className="punch-exhausted">{t.punchAllApptsUsed(16)}</div>}
                   </div>
 
                   {allUsed && (
                     <div style={{marginTop:14,background:"rgba(74,222,128,0.1)",borderRadius:10,padding:"12px",textAlign:"center",fontSize:13,color:"#4ade80",fontWeight:700}}>
-                      🎉 All visits used! Your clinic will be in touch about next steps.
+                      {t.punchAllUsed}
                     </div>
                   )}
                 </div>
@@ -1088,13 +1057,13 @@ export default function PatientApp() {
 
           <div className="section pt-section">
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-              <div className="card-label" style={{paddingLeft:4}}>Cleaning Checklist</div>
+              <div className="card-label" style={{paddingLeft:4}}>{t.cleaningChecklist}</div>
               {checkedCount > 0 && (
-                <div style={{fontSize:12,color:"#16a34a",fontWeight:600,cursor:"pointer"}} onClick={()=>setCheckedSteps({})}>Reset</div>
+                <div style={{fontSize:12,color:"#16a34a",fontWeight:600,cursor:"pointer"}} onClick={()=>setCheckedSteps({})}>{t.reset}</div>
               )}
             </div>
             <div className="card">
-              {CLEANING_STEPS.map((s,i)=>(
+              {t.cleaningSteps.map((s,i)=>(
                 <div key={i} className={`clean-step ${checkedSteps[i]?"done":""}`} onClick={()=>setCheckedSteps(c=>({...c,[i]:!c[i]}))}>
                   <div className={`clean-check ${checkedSteps[i]?"checked":""}`}>{checkedSteps[i]?"✓":""}</div>
                   <div style={{fontSize:22,flexShrink:0}}>{s.icon}</div>
@@ -1104,21 +1073,21 @@ export default function PatientApp() {
                   </div>
                 </div>
               ))}
-              {checkedCount === CLEANING_STEPS.length && (
+              {checkedCount === t.cleaningSteps.length && (
                 <div style={{padding:"14px 16px",background:"#dcfce7",textAlign:"center",fontSize:14,fontWeight:700,color:"#16a34a"}}>
-                  ✓ All done! Great job caring for your devices.
+                  {t.allDone}
                 </div>
               )}
             </div>
           </div>
 
           <div className="section">
-            <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>Troubleshooting</div>
+            <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>{t.troubleshooting}</div>
             <div className="card">
-              {TROUBLESHOOT_TIPS.map((t,i)=>(
+              {t.troubleshootTips.map((tip,i)=>(
                 <div key={i} className="tip-row" onClick={()=>setExpandedTip(expandedTip===i?null:i)}>
-                  <div className="tip-q">{t.q}<span>{expandedTip===i?"▲":"▼"}</span></div>
-                  {expandedTip===i && <div className="tip-a">{t.a}</div>}
+                  <div className="tip-q">{tip.q}<span>{expandedTip===i?"▲":"▼"}</span></div>
+                  {expandedTip===i && <div className="tip-a">{tip.a}</div>}
                 </div>
               ))}
             </div>
@@ -1126,10 +1095,10 @@ export default function PatientApp() {
 
           <div className="section">
             <div className="card" style={{background:"linear-gradient(135deg,#0a1628,#1a3050)",padding:"18px"}}>
-              <div style={{fontSize:16,fontWeight:700,color:"white",marginBottom:6}}>Need more help?</div>
-              <div style={{fontSize:13,color:"rgba(255,255,255,0.6)",marginBottom:14}}>Call your clinic or see the Help tab for troubleshooting tips.</div>
+              <div style={{fontSize:16,fontWeight:700,color:"white",marginBottom:6}}>{t.needMoreHelp}</div>
+              <div style={{fontSize:13,color:"rgba(255,255,255,0.6)",marginBottom:14}}>{t.needMoreHelpBody}</div>
               <div style={{background:"#4ade80",borderRadius:8,padding:"10px",textAlign:"center",cursor:"pointer",fontWeight:700,fontSize:14,color:"#0a1628"}} onClick={()=>setTab("help")}>
-                Open Help →
+                {t.openHelp}
               </div>
             </div>
           </div>
@@ -1152,7 +1121,7 @@ export default function PatientApp() {
     return (
       <>
         <div className="header">
-          <div className="header-greeting">My Appointments</div>
+          <div className="header-greeting">{t.myAppointments}</div>
           <div className="header-name">{p.location || clinicName}</div>
         </div>
         <div className="scroll-content">
@@ -1163,9 +1132,9 @@ export default function PatientApp() {
                 padding:"18px", color:"white", position:"relative",
               }}>
                 <div style={{fontSize:24,marginBottom:8}}>🔔</div>
-                <div style={{fontSize:16,fontWeight:700,marginBottom:6}}>Want a heads-up before your next visit?</div>
+                <div style={{fontSize:16,fontWeight:700,marginBottom:6}}>{t.notifPromptTitle}</div>
                 <div style={{fontSize:13,opacity:0.7,lineHeight:1.5,marginBottom:14}}>
-                  Get a reminder 24 hours before each appointment, plus monthly cleaning prompts.
+                  {t.notifPromptBody}
                 </div>
                 <div style={{display:"flex",gap:8}}>
                   <button
@@ -1177,7 +1146,7 @@ export default function PatientApp() {
                       fontFamily:"inherit", cursor: notifBusy ? "default" : "pointer",
                       opacity: notifBusy ? 0.6 : 1,
                     }}>
-                    {notifBusy ? "…" : "Turn on"}
+                    {notifBusy ? "…" : t.turnOn}
                   </button>
                   <button
                     onClick={dismissNotifPrompt}
@@ -1186,26 +1155,26 @@ export default function PatientApp() {
                       border:"1px solid rgba(255,255,255,0.2)", borderRadius:8,
                       padding:"10px", fontSize:13, fontWeight:600, fontFamily:"inherit", cursor:"pointer",
                     }}>
-                    Not now
+                    {t.notNow}
                   </button>
                 </div>
               </div>
             </div>
           )}
           <div className={`section ${showNotifPrompt ? '' : 'pt-section'}`}>
-            <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>Upcoming</div>
+            <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>{t.upcoming}</div>
             <div className="card">
               {allAppts.filter(a=>daysUntil(a.date)>=0).length === 0 ? (
-                <div style={{padding:"24px",textAlign:"center",color:"#9ca3af",fontSize:14}}>No upcoming appointments scheduled</div>
+                <div style={{padding:"24px",textAlign:"center",color:"#9ca3af",fontSize:14}}>{t.noUpcoming}</div>
               ) : allAppts.filter(a=>daysUntil(a.date)>=0).map((a,i)=>(
                 <div className="appt-row" key={i}>
                   <div className="appt-dot" />
                   <div>
-                    <div className="appt-row-date">{fmtDate(a.date)}</div>
+                    <div className="appt-row-date">{fmtDate(a.date, lang)}</div>
                     <div className="appt-row-type">{a.type}</div>
                   </div>
                   <div className="appt-row-countdown">
-                    {daysUntil(a.date)===0?"Today":daysUntil(a.date)===1?"Tomorrow":`${daysUntil(a.date)} days`}
+                    {daysUntil(a.date)===0?t.today:daysUntil(a.date)===1?t.tomorrow:t.nDays(daysUntil(a.date))}
                   </div>
                 </div>
               ))}
@@ -1213,23 +1182,23 @@ export default function PatientApp() {
           </div>
 
           <div className="section">
-            <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>Past Appointments</div>
+            <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>{t.pastAppointments}</div>
             <div className="card">
               <div className="appt-row">
                 <div className="appt-dot past" />
                 <div>
-                  <div className="appt-row-date">{fmtDate(p.devices?.fittingDate)}</div>
-                  <div className="appt-row-type">Initial Fitting</div>
+                  <div className="appt-row-date">{fmtDate(p.devices?.fittingDate, lang)}</div>
+                  <div className="appt-row-type">{t.initialFitting}</div>
                 </div>
-                <div style={{marginLeft:"auto",fontSize:11,color:"#9ca3af"}}>{fittingDaysAgo}d ago</div>
+                <div style={{marginLeft:"auto",fontSize:11,color:"#9ca3af"}}>{t.dAgo(fittingDaysAgo)}</div>
               </div>
             </div>
           </div>
 
           <div className="section">
             <div style={{background:"#f0fdf4",borderRadius:14,padding:"16px",border:"1px solid #bbf7d0"}}>
-              <div style={{fontSize:13,fontWeight:700,color:"#16a34a",marginBottom:4}}>📞 To reschedule or book</div>
-              <div style={{fontSize:13,color:"#374151"}}>Call your clinic directly or request an appointment through the {clinicName} website.</div>
+              <div style={{fontSize:13,fontWeight:700,color:"#16a34a",marginBottom:4}}>{t.rescheduleTitle}</div>
+              <div style={{fontSize:13,color:"#374151"}}>{t.rescheduleBody(clinicName)}</div>
             </div>
           </div>
         </div>
@@ -1246,14 +1215,14 @@ export default function PatientApp() {
       return (
         <>
           <div className="header">
-            <div className="header-greeting">Inbox</div>
-            <div className="header-sub">Messages from your clinic</div>
+            <div className="header-greeting">{t.inbox}</div>
+            <div className="header-sub">{t.inboxDemoSub}</div>
           </div>
           <div className="section">
             <div className="card"><div className="card-pad">
-              <div className="card-label">Demo Mode</div>
+              <div className="card-label">{t.inboxDemoLabel}</div>
               <div style={{fontSize:13,color:"#6b7280",lineHeight:1.55}}>
-                Once you scan your clinic's QR code, real messages from your provider will show up here.
+                {t.inboxDemoBody}
               </div>
             </div></div>
           </div>
@@ -1263,22 +1232,22 @@ export default function PatientApp() {
     return (
       <>
         <div className="header">
-          <div className="header-greeting">Inbox</div>
+          <div className="header-greeting">{t.inbox}</div>
           <div className="header-sub">
             {inboxMessages.length === 0
-              ? "Messages between you and your clinic"
-              : `${inboxMessages.length} message${inboxMessages.length === 1 ? "" : "s"}${unreadCount > 0 ? ` · ${unreadCount} unread` : ""}`}
+              ? t.inboxSubEmpty
+              : t.inboxSubCount(inboxMessages.length, unreadCount)}
           </div>
         </div>
         <div className="section">
           {/* Compose — patient writes back to the clinic. Plain expectations:
               messages are read during clinic hours, urgent = call. */}
           <div className="card" style={{marginBottom:12}}><div className="card-pad">
-            <div className="card-label">Message your clinic</div>
+            <div className="card-label">{t.messageYourClinic}</div>
             <textarea
               value={replyDraft}
               onChange={e => { setReplyDraft(e.target.value); setReplyError(null); }}
-              placeholder="Type your message…"
+              placeholder={t.typeMessage}
               rows={3}
               maxLength={4000}
               style={{
@@ -1289,7 +1258,7 @@ export default function PatientApp() {
             />
             <div style={{display:"flex",alignItems:"center",gap:10,marginTop:8}}>
               <div style={{flex:1,fontSize:11,color:"#9ca3af",lineHeight:1.45}}>
-                Your clinic reads messages during business hours and will reply here. If it's urgent, call the clinic.
+                {t.clinicReadsNote}
               </div>
               <button
                 onClick={handleSendReply}
@@ -1300,7 +1269,7 @@ export default function PatientApp() {
                   background: replyDraft.trim() && !replySending ? "#1d4ed8" : "#d1d5db",
                   color:"white", cursor: replyDraft.trim() && !replySending ? "pointer" : "default",
                 }}
-              >{replySending ? "Sending…" : "Send"}</button>
+              >{replySending ? t.sending : t.send}</button>
             </div>
             {replyError && (
               <div style={{marginTop:8,fontSize:12,color:"#991b1b",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"8px 12px"}}>
@@ -1311,9 +1280,9 @@ export default function PatientApp() {
           {inboxMessages.length === 0 ? (
             <div className="card"><div className="card-pad">
               <div style={{fontSize:32,textAlign:"center",marginBottom:8}}>📭</div>
-              <div style={{fontSize:14,fontWeight:600,color:"#0a1628",textAlign:"center",marginBottom:6}}>No messages yet</div>
+              <div style={{fontSize:14,fontWeight:600,color:"#0a1628",textAlign:"center",marginBottom:6}}>{t.noMessagesYet}</div>
               <div style={{fontSize:12,color:"#6b7280",textAlign:"center",lineHeight:1.55}}>
-                When your clinic sends you a reminder, follow-up, or note, it will land here. You can also start the conversation above.
+                {t.noMessagesBody}
               </div>
             </div></div>
           ) : (
@@ -1348,14 +1317,14 @@ export default function PatientApp() {
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: expanded ? "normal" : "nowrap",
-                        }}>{fromMe ? "You" : m.title}</div>
+                        }}>{fromMe ? t.you : m.title}</div>
                         {!expanded && (
                           <div style={{
                             fontSize: 12, color: "#6b7280", marginTop: 3,
                             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                           }}>{m.body}</div>
                         )}
-                        <div style={{fontSize:11,color:"#9ca3af",marginTop:4}}>{fmtDate(m.created_at)}</div>
+                        <div style={{fontSize:11,color:"#9ca3af",marginTop:4}}>{fmtDate(m.created_at, lang)}</div>
                       </div>
                       <div style={{fontSize:12,color:"#9ca3af",marginTop:4}}>{expanded ? "▲" : "▼"}</div>
                     </div>
