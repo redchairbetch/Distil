@@ -29,19 +29,20 @@ import { useState, useEffect } from 'react'
 import { fetchSharedQuote } from '../db.js'
 import { COLOR, FONT, SHADOW, RADIUS } from '../theme.js'
 import {
-  CARE_PLAN_META, PLAN_COMPARE, WHY_IT_MATTERS,
+  CARE_PLAN_META,
   FREQS, FREQ_POS, FREQ_POS_MAX, INTER_OCTAVES, DEGREE_REGIONS, getPTA, getPTA4, getDegreeName,
 } from '../generateQuote.js'
+import { QUOTE_T } from '../i18n/quote.js'
 
-const money = (n) =>
+const money = (n, lang = 'en') =>
   (n == null || isNaN(n))
     ? '—'
-    : '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : '$' + Number(n).toLocaleString(lang === 'es' ? 'es-US' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
-const longDate = (iso) => {
+const longDate = (iso, lang = 'en') => {
   if (!iso) return ''
   const d = new Date(iso)
-  return isNaN(d) ? '' : d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+  return isNaN(d) ? '' : d.toLocaleDateString(lang === 'es' ? 'es-US' : 'en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 }
 
 // Fitting styles → coarse silhouette/explainer bucket (mirrors the catalog's
@@ -53,39 +54,9 @@ const STYLE_BUCKET = {
   cic: 'cic', iic: 'cic',
 }
 
-const STYLE_EXPLAINERS = {
-  ric: {
-    title: 'Receiver-in-Canal (RIC)',
-    body: 'The most commonly fit style today. A small, lightweight unit rests behind the ear while a nearly invisible wire carries sound directly into the ear canal. The open, comfortable fit keeps your own voice sounding natural, and the placement of the speaker in the canal delivers clear, detailed sound.',
-  },
-  bte: {
-    title: 'Behind-the-Ear (BTE)',
-    body: 'A durable, powerful style. The electronics sit in a slim case behind the ear, connected by tubing to a custom earpiece. BTEs offer the most amplification headroom of any style and are easy to handle, making them a dependable choice for significant hearing loss.',
-  },
-  ite: {
-    title: 'In-the-Ear custom (ITE)',
-    body: 'A custom shell molded from an impression of your own ear, so the entire device sits securely in the ear with nothing behind it. Easy to insert and remove, with controls right on the device — a great fit for glasses wearers and active lifestyles.',
-  },
-  cic: {
-    title: 'Completely-in-Canal (CIC)',
-    body: 'The most discreet custom style — molded to sit deep in the ear canal where it is barely visible. The ear itself funnels sound naturally to the microphone, which helps with wind noise and phone use.',
-  },
-}
-
-const CROS_EXPLAINER = {
-  title: 'Your CROS system',
-  body: 'One of your units is a CROS transmitter rather than a hearing aid: it picks up sound on the side that can’t benefit from amplification and streams it instantly to the device on your better-hearing ear. Conversation and awareness from that side are no longer missed — no head-turning required.',
-}
-
-const RECHARGEABLE_EXPLAINER = {
-  title: 'Rechargeable battery',
-  body: 'Your devices use a sealed lithium-ion battery — set them in their charger overnight and they’re ready for a full day, every day. No tiny batteries to buy, change, or drop, and the sealed case adds protection from moisture and dust.',
-}
-
-const disposableExplainer = (batteryLabel) => ({
-  title: 'Battery',
-  body: `Your devices run on size ${batteryLabel} zinc-air batteries — inexpensive, sold everywhere, and easy to swap in seconds. A battery typically lasts several days to a week depending on wear time and streaming, and your clinic keeps them in stock.`,
-})
+// Style / CROS / battery explainer copy lives in src/i18n/quote.js
+// (QUOTE_T.<lang>.styleExplainers etc.) so the page renders in the
+// language frozen into the share payload.
 
 // ── Small building blocks ────────────────────────────────────────────────────
 
@@ -175,7 +146,7 @@ function DeviceSilhouette({ bucket }) {
 
 // ── Audiogram (SVG twin of the PDF chart) ────────────────────────────────────
 
-function Audiogram({ rightT, leftT }) {
+function Audiogram({ rightT, leftT, qt }) {
   const W = 520, H = 372
   const chartX = 44, chartW = 420, chartY = 16, chartH = 300
   const dbMin = -10, dbMax = 120, dbRange = dbMax - dbMin
@@ -197,7 +168,7 @@ function Audiogram({ rightT, leftT }) {
       ))}
       {DEGREE_REGIONS.map(r => (
         <text key={`lbl-${r.label}`} x={chartX + chartW + 4} y={(yOf(r.from) + yOf(r.to)) / 2 + 3}
-          fontSize="9" fill={COLOR.ink3} fontFamily={FONT.ui}>{r.label}</text>
+          fontSize="9" fill={COLOR.ink3} fontFamily={FONT.ui}>{qt.degreeNames[r.label] || r.label}</text>
       ))}
       {Array.from({ length: 13 }, (_, i) => i * 10).map(db => (
         <line key={`g${db}`} x1={chartX} y1={yOf(db)} x2={chartX + chartW} y2={yOf(db)}
@@ -217,7 +188,7 @@ function Audiogram({ rightT, leftT }) {
           textAnchor="end" fontFamily={FONT.ui}>{db}</text>
       ))}
       <text x={chartX + chartW / 2} y={chartY + chartH + 34} fontSize="10" fill={COLOR.ink2}
-        textAnchor="middle" fontFamily={FONT.ui}>Frequency (Hz)</text>
+        textAnchor="middle" fontFamily={FONT.ui}>{qt.freqAxis}</text>
       <text x={12} y={chartY + chartH / 2} fontSize="10" fill={COLOR.ink2} textAnchor="middle"
         fontFamily={FONT.ui} transform={`rotate(-90 12 ${chartY + chartH / 2})`}>dB HL</text>
 
@@ -238,7 +209,7 @@ function Audiogram({ rightT, leftT }) {
 
 // ── Device card ──────────────────────────────────────────────────────────────
 
-function DeviceCard({ sideLabel, side, price, retail }) {
+function DeviceCard({ earLabel, side, price, retail, qt, lang }) {
   if (!side) return null
   const isCros = side.isCROS
   const bucket = STYLE_BUCKET[side.style] || 'ric'
@@ -250,7 +221,7 @@ function DeviceCard({ sideLabel, side, price, retail }) {
     && !!side.techLevel
     && !(side.family || '').toLowerCase().includes(side.techLevel.toLowerCase())
   const modelName = isCros
-    ? `${side.variant || 'CROS'} transmitter`
+    ? qt.crosTransmitter(side.variant || 'CROS')
     : [side.family, appendTech ? side.techLevel : ''].filter(Boolean).join(' ')
   const savings = retail != null && price != null ? Math.max(0, retail - price) : 0
   return (
@@ -270,7 +241,7 @@ function DeviceCard({ sideLabel, side, price, retail }) {
           display: 'inline-block', fontSize: 10.5, fontWeight: 700, letterSpacing: '0.08em',
           textTransform: 'uppercase', color: COLOR.tealInk, background: COLOR.tealSoft,
           borderRadius: RADIUS.pill, padding: '3px 10px', marginBottom: 6,
-        }}>{sideLabel} ear</div>
+        }}>{earLabel}</div>
         <div style={{ fontSize: 15, fontWeight: 700, color: COLOR.ink, lineHeight: 1.3 }}>
           {side.manufacturer}{modelName ? ` ${modelName}` : ''}
         </div>
@@ -279,11 +250,11 @@ function DeviceCard({ sideLabel, side, price, retail }) {
         </div>
         <div style={{ marginTop: 8 }}>
           <span style={{ fontFamily: FONT.display, fontSize: 21, fontWeight: 600, color: COLOR.brassInk }}>
-            {money(price)}
+            {money(price, lang)}
           </span>
           {savings > 0.005 && (
             <div style={{ fontSize: 12, color: COLOR.ink2, marginTop: 2 }}>
-              Full retail value {money(retail)} — you save {money(savings)}
+              {qt.fullRetailSavings(money(retail, lang), money(savings, lang))}
             </div>
           )}
         </div>
@@ -295,6 +266,7 @@ function DeviceCard({ sideLabel, side, price, retail }) {
 // ── Not-available screen (expired / revoked / unknown token) ─────────────────
 
 function UnavailableScreen() {
+  const qt = QUOTE_T.en // no payload → no language on record
   return (
     <div style={{
       minHeight: '100vh', background: COLOR.paper, fontFamily: FONT.ui,
@@ -306,12 +278,10 @@ function UnavailableScreen() {
       }}>
         <div style={{ fontSize: 34, marginBottom: 12 }} aria-hidden>⏳</div>
         <div style={{ fontFamily: FONT.display, fontSize: 22, color: COLOR.ink, marginBottom: 10 }}>
-          This quote link is no longer active
+          {qt.unavailableTitle}
         </div>
         <div style={{ fontSize: 14, lineHeight: 1.65, color: COLOR.ink2 }}>
-          Quote links expire 30 days after your visit, or when a newer quote replaces
-          this one. Your hearing care team can send you a current quote — just give
-          your clinic a call.
+          {qt.unavailableBody}
         </div>
       </div>
     </div>
@@ -324,7 +294,6 @@ export default function QuoteView({ token }) {
   const [state, setState] = useState({ status: 'loading', data: null })
 
   useEffect(() => {
-    document.title = 'Your Hearing Care Quote'
     let cancelled = false
     fetchSharedQuote(token)
       .then(data => { if (!cancelled) setState({ status: data ? 'ok' : 'gone', data }) })
@@ -332,13 +301,19 @@ export default function QuoteView({ token }) {
     return () => { cancelled = true }
   }, [token])
 
+  // Language rides in the payload, frozen at share time. Old shares → English.
+  const lang = state.data?.payload?.lang === 'es' ? 'es' : 'en'
+  const qt = QUOTE_T[lang] || QUOTE_T.en
+
+  useEffect(() => { document.title = qt.docTitle }, [qt])
+
   if (state.status === 'loading') {
     return (
       <div style={{
         minHeight: '100vh', background: COLOR.paper, fontFamily: FONT.ui,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         color: COLOR.ink3, fontSize: 14,
-      }}>Loading your quote…</div>
+      }}>{QUOTE_T.en.loading}</div>
     )
   }
   if (state.status !== 'ok') return <UnavailableScreen />
@@ -352,10 +327,10 @@ export default function QuoteView({ token }) {
 
   const sides = []
   if (isBilateral || devices.fittingType === 'monaural_right') {
-    sides.push({ label: 'Right', side: devices.right, price: pricing.rightPrice ?? pricing.pricePerAid, retail: pricing.rightRetail })
+    sides.push({ key: 'right', earLabel: qt.earRight, side: devices.right, price: pricing.rightPrice ?? pricing.pricePerAid, retail: pricing.rightRetail })
   }
   if (isBilateral || devices.fittingType === 'monaural_left') {
-    sides.push({ label: 'Left', side: devices.left, price: pricing.leftPrice ?? pricing.pricePerAid, retail: pricing.leftRetail })
+    sides.push({ key: 'left', earLabel: qt.earLeft, side: devices.left, price: pricing.leftPrice ?? pricing.pricePerAid, retail: pricing.leftRetail })
   }
 
   // TruHearing prints the tech level once, next to pricing — not per row.
@@ -369,9 +344,9 @@ export default function QuoteView({ token }) {
   const isRechargeable = /li[-\s]?ion|recharge/i.test(batteryLabel)
   const batterySize = (batteryLabel.match(/\b(10|13|312|675)\b/) || [])[1]
   const drilldowns = [
-    ...buckets.map(b => STYLE_EXPLAINERS[b]),
-    ...(anyCros ? [CROS_EXPLAINER] : []),
-    ...(isRechargeable ? [RECHARGEABLE_EXPLAINER] : (batterySize ? [disposableExplainer(batterySize)] : [])),
+    ...buckets.map(b => qt.styleExplainers[b]),
+    ...(anyCros ? [qt.crosExplainer] : []),
+    ...(isRechargeable ? [qt.rechargeableExplainer] : (batterySize ? [qt.disposableExplainer(batterySize)] : [])),
   ].filter(Boolean)
 
   const aud = q.audiology
@@ -382,16 +357,16 @@ export default function QuoteView({ token }) {
   const lPTA4 = hasAudiogram ? getPTA4(aud.leftT) : null
   const hasSpeech = !!(aud && (aud.unaidedR != null || aud.unaidedL != null || aud.aidedR != null || aud.aidedL != null || aud.sinBin != null))
   const sinLabel = aud?.sinBin == null ? null
-    : aud.sinBin <= 2 ? 'Near-normal' : aud.sinBin <= 7 ? 'Mild' : aud.sinBin <= 15 ? 'Moderate' : 'Severe'
+    : aud.sinBin <= 2 ? qt.sinLabels.nearNormal : aud.sinBin <= 7 ? qt.sinLabels.mild : aud.sinBin <= 15 ? qt.sinLabels.moderate : qt.sinLabels.severe
 
   // Private pay bundles Complete Care+ into per-aid pricing (mirror the PDF).
   const compareRows = isPrivate
-    ? PLAN_COMPARE.map(r => r.label === 'Cost' ? { ...r, complete: 'Included with devices' } : r)
-    : PLAN_COMPARE
+    ? qt.planCompare.map((r, i) => i === 0 ? { ...r, complete: qt.includedWithDevicesCell } : r)
+    : qt.planCompare
   const planCols = [
-    { id: 'paygo', label: 'Standard Billing' },
-    { id: 'punch', label: 'MHC Punch Card' },
-    { id: 'complete', label: 'Complete Care+' },
+    { id: 'paygo', label: qt.planLabels.paygo },
+    { id: 'punch', label: qt.planLabels.punch },
+    { id: 'complete', label: qt.planLabels.complete },
   ]
 
   const phoneHref = clinic?.phone ? `tel:${String(clinic.phone).replace(/[^\d+]/g, '')}` : null
@@ -408,47 +383,47 @@ export default function QuoteView({ token }) {
           }}>{clinic?.name || 'My Hearing Centers'}</div>
           <h1 style={{
             fontFamily: FONT.display, fontSize: 30, fontWeight: 600, margin: '10px 0 6px', color: COLOR.ink,
-          }}>Your Hearing Care Quote</h1>
+          }}>{qt.docTitle}</h1>
           <div style={{ fontSize: 13.5, color: COLOR.ink2 }}>
-            Prepared for <strong>{q.patient?.firstName || 'you'}</strong>
-            {q.provider?.fullName ? <> by {q.provider.fullName}</> : null}
-            {q.quoteDate ? <> · {longDate(q.quoteDate)}</> : null}
+            {qt.preparedFor} <strong>{q.patient?.firstName || qt.you}</strong>
+            {q.provider?.fullName ? <> {qt.by} {q.provider.fullName}</> : null}
+            {q.quoteDate ? <> · {longDate(q.quoteDate, lang)}</> : null}
           </div>
           {expiresAt && (
             <div style={{
               display: 'inline-block', marginTop: 10, fontSize: 12, fontWeight: 600,
               color: COLOR.brassInk, background: COLOR.brassSoft,
               borderRadius: RADIUS.pill, padding: '4px 12px',
-            }}>Valid through {longDate(expiresAt)}</div>
+            }}>{qt.validThrough(longDate(expiresAt, lang))}</div>
           )}
         </div>
 
         {/* ── Devices ── */}
-        <SectionTitle>Your Recommended Devices</SectionTitle>
+        <SectionTitle>{qt.recommendedDevices}</SectionTitle>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {sides.map(s => (
-            <DeviceCard key={s.label} sideLabel={s.label} side={s.side} price={s.price} retail={s.retail} />
+            <DeviceCard key={s.key} earLabel={s.earLabel} side={s.side} price={s.price} retail={s.retail} qt={qt} lang={lang} />
           ))}
         </div>
         {thTechLevel && (
           <div style={{ fontSize: 12, color: COLOR.ink2, marginTop: 10 }}>
-            Technology level {thTechLevel} — included in the price shown for each device above.
+            {qt.techLevelNote(thTechLevel)}
           </div>
         )}
         {q.directPurchase ? (
           <div style={{ fontSize: 12, color: COLOR.ink2, marginTop: 10 }}>
-            Direct purchase · pricing matched to your {q.tpa || q.carrier || 'insurance'} benefit · not billed to insurance
+            {qt.directPurchaseNote(q.tpa || q.carrier || 'insurance')}
           </div>
         ) : (q.payType === 'insurance' && q.carrier) ? (
           <div style={{ fontSize: 12, color: COLOR.ink2, marginTop: 10 }}>
-            Coverage: {q.carrier}{q.tpa ? ` (${q.tpa})` : ''} · prices shown reflect your plan's copay
+            {qt.coverageNote(q.carrier, q.tpa)}
           </div>
         ) : null}
 
         {/* ── Learn more ── */}
         {drilldowns.length > 0 && (
           <>
-            <SectionTitle>Want the Details?</SectionTitle>
+            <SectionTitle>{qt.wantDetails}</SectionTitle>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {drilldowns.map(d => (
                 <Accordion key={d.title} title={d.title}><p style={{ margin: 0 }}>{d.body}</p></Accordion>
@@ -458,32 +433,32 @@ export default function QuoteView({ token }) {
         )}
 
         {/* ── Care plan ── */}
-        <SectionTitle>{isPrivate ? 'Included Care Plan' : 'Your Care Plan'}</SectionTitle>
+        <SectionTitle>{isPrivate ? qt.includedCarePlan : qt.yourCarePlan}</SectionTitle>
         <div style={{
           background: '#f0fdf4', border: '1px solid #bbf7d0', borderLeft: '4px solid #16a34a',
           borderRadius: RADIUS.md, padding: '16px 18px',
         }}>
           <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#15803d' }}>
-            {isPrivate ? 'Included with your devices' : 'You selected'}
+            {isPrivate ? qt.includedWithDevices : qt.youSelected}
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, marginTop: 6 }}>
-            <div style={{ fontSize: 17, fontWeight: 700, color: COLOR.ink }}>{cpMeta.label}</div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: COLOR.ink }}>{qt.planLabels[q.selectedCarePlan] || cpMeta.label}</div>
             <div style={{ fontFamily: FONT.display, fontSize: 18, fontWeight: 600, color: COLOR.ink, whiteSpace: 'nowrap' }}>
-              {isPrivate ? 'No charge' : q.selectedCarePlan === 'paygo' ? '$65 per visit' : money(cpMeta.price)}
+              {isPrivate ? qt.noCharge : q.selectedCarePlan === 'paygo' ? qt.perVisit65 : money(cpMeta.price, lang)}
             </div>
           </div>
           <div style={{ fontSize: 13, color: COLOR.ink2, marginTop: 6, lineHeight: 1.6 }}>
             {isPrivate
-              ? 'Bundled with your device purchase — no separate charge.'
+              ? qt.planDescBundled
               : q.selectedCarePlan === 'complete'
-                ? 'Unlimited visits for the life of your aids · 4-year warranty & loss/damage coverage'
+                ? qt.planDescComplete
                 : q.selectedCarePlan === 'punch'
-                  ? 'Prepaid visit package · locked-in visit pricing · 3-year warranty'
-                  : 'Pay per visit as needed · no upfront commitment · 3-year warranty'}
+                  ? qt.planDescPunch
+                  : qt.planDescPaygo}
           </div>
         </div>
         <div style={{ marginTop: 10 }}>
-          <Accordion title="See how the three care plans compare">
+          <Accordion title={qt.seeCompare}>
             <div style={{ overflowX: 'auto', margin: '4px -4px 0' }}>
               <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: 480 }}>
                 <thead>
@@ -524,22 +499,22 @@ export default function QuoteView({ token }) {
           boxShadow: SHADOW.md, padding: '22px 22px 20px', color: COLOR.card,
         }}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', opacity: 0.85 }}>
-            Total Investment
+            {qt.totalInvestment}
           </div>
           <div style={{ fontFamily: FONT.display, fontSize: 40, fontWeight: 600, color: COLOR.brass2, margin: '6px 0 12px' }}>
-            {money(pricing.total)}
+            {money(pricing.total, lang)}
           </div>
           <div style={{ fontSize: 13, display: 'flex', flexDirection: 'column', gap: 4, opacity: 0.92 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>Devices ({isBilateral ? 'pair' : 'single'})</span><span>{money(pricing.deviceTotal)}</span>
+              <span>{qt.devicesLine(isBilateral)}</span><span>{money(pricing.deviceTotal, lang)}</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span>{cpMeta.label}</span>
-              <span>{isPrivate ? 'Included' : q.selectedCarePlan === 'paygo' ? 'Per visit' : money(pricing.carePlanPrice)}</span>
+              <span>{qt.planLabels[q.selectedCarePlan] || cpMeta.label}</span>
+              <span>{isPrivate ? qt.included : q.selectedCarePlan === 'paygo' ? qt.perVisit : money(pricing.carePlanPrice, lang)}</span>
             </div>
             {pricing.hasDiscount && (
               <div style={{ display: 'flex', justifyContent: 'space-between', color: '#86efac', fontWeight: 600 }}>
-                <span>Your discount off full retail value</span><span>−{money(pricing.totalDiscount)}</span>
+                <span>{qt.discountLine}</span><span>−{money(pricing.totalDiscount, lang)}</span>
               </div>
             )}
           </div>
@@ -548,21 +523,21 @@ export default function QuoteView({ token }) {
         {/* ── Evaluation results ── */}
         {(hasAudiogram || hasSpeech) && (
           <>
-            <SectionTitle>Your Hearing Evaluation</SectionTitle>
+            <SectionTitle>{qt.yourEvaluation}</SectionTitle>
             {hasAudiogram && (
               <div style={{
                 background: COLOR.card, border: `1px solid ${COLOR.line}`,
                 borderRadius: RADIUS.lg, padding: 16, boxShadow: SHADOW.sm,
               }}>
-                <Audiogram rightT={aud.rightT} leftT={aud.leftT} />
+                <Audiogram rightT={aud.rightT} leftT={aud.leftT} qt={qt} />
                 <div style={{ display: 'flex', gap: 18, fontSize: 12.5, fontWeight: 600, marginTop: 8 }}>
-                  <span style={{ color: '#dc2626' }}>● Right ear</span>
-                  <span style={{ color: '#2563eb' }}>✕ Left ear</span>
+                  <span style={{ color: '#dc2626' }}>{qt.legendRight}</span>
+                  <span style={{ color: '#2563eb' }}>{qt.legendLeft}</span>
                 </div>
                 {(rPTA != null || lPTA != null) && (
                   <div style={{ fontSize: 13, color: COLOR.ink2, marginTop: 10, lineHeight: 1.6 }}>
-                    {rPTA != null && <div>Right: {rPTA} dB HL — {getDegreeName(rPTA4 ?? rPTA)} hearing loss{rPTA4 != null && <span style={{ color: COLOR.ink3 }}> (PTA4: {rPTA4} dB)</span>}</div>}
-                    {lPTA != null && <div>Left: {lPTA} dB HL — {getDegreeName(lPTA4 ?? lPTA)} hearing loss{lPTA4 != null && <span style={{ color: COLOR.ink3 }}> (PTA4: {lPTA4} dB)</span>}</div>}
+                    {rPTA != null && <div>{qt.earLine(qt.right, rPTA, qt.degreeNames[getDegreeName(rPTA4 ?? rPTA)] || getDegreeName(rPTA4 ?? rPTA))}{rPTA4 != null && <span style={{ color: COLOR.ink3 }}> (PTA4: {rPTA4} dB)</span>}</div>}
+                    {lPTA != null && <div>{qt.earLine(qt.left, lPTA, qt.degreeNames[getDegreeName(lPTA4 ?? lPTA)] || getDegreeName(lPTA4 ?? lPTA))}{lPTA4 != null && <span style={{ color: COLOR.ink3 }}> (PTA4: {lPTA4} dB)</span>}</div>}
                   </div>
                 )}
               </div>
@@ -574,16 +549,16 @@ export default function QuoteView({ token }) {
                 marginTop: 12, fontSize: 13.5, color: COLOR.ink2, lineHeight: 1.7,
               }}>
                 <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: COLOR.ink, marginBottom: 6 }}>
-                  Speech Recognition
+                  {qt.speechRecognition}
                 </div>
                 {(aud.unaidedR != null || aud.unaidedL != null) && (
-                  <div>Word recognition (unaided): {[aud.unaidedR != null ? `Right ${aud.unaidedR}%` : null, aud.unaidedL != null ? `Left ${aud.unaidedL}%` : null].filter(Boolean).join(' · ')}</div>
+                  <div>{qt.wrUnaided} {[aud.unaidedR != null ? `${qt.right} ${aud.unaidedR}%` : null, aud.unaidedL != null ? `${qt.left} ${aud.unaidedL}%` : null].filter(Boolean).join(' · ')}</div>
                 )}
                 {(aud.aidedR != null || aud.aidedL != null) && (
-                  <div>Word recognition (aided): {[aud.aidedR != null ? `Right ${aud.aidedR}%` : null, aud.aidedL != null ? `Left ${aud.aidedL}%` : null].filter(Boolean).join(' · ')}</div>
+                  <div>{qt.wrAided} {[aud.aidedR != null ? `${qt.right} ${aud.aidedR}%` : null, aud.aidedL != null ? `${qt.left} ${aud.aidedL}%` : null].filter(Boolean).join(' · ')}</div>
                 )}
                 {aud.sinBin != null && (
-                  <div>QuickSIN SNR loss: {aud.sinBin} dB ({sinLabel} difficulty)</div>
+                  <div>{qt.quickSin(aud.sinBin, sinLabel)}</div>
                 )}
               </div>
             )}
@@ -600,14 +575,14 @@ export default function QuoteView({ token }) {
         )}
 
         {/* ── Why it matters ── */}
-        <SectionTitle>Why Treating Hearing Loss Matters</SectionTitle>
+        <SectionTitle>{qt.whyMatters}</SectionTitle>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {WHY_IT_MATTERS.map(card => (
+          {qt.whyCards.map(card => (
             <Accordion key={card.title} title={card.title}>
               <p style={{ margin: 0 }}>{card.body}</p>
             </Accordion>
           ))}
-          <Accordion title="Sources">
+          <Accordion title={qt.sources}>
             <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
               <li>Lancet Commission on Dementia Prevention, Intervention, and Care (2020) — <a href="https://doi.org/10.1016/S0140-6736(20)30367-6" target="_blank" rel="noopener noreferrer" style={{ color: COLOR.teal }}>doi.org/10.1016/S0140-6736(20)30367-6</a></li>
               <li>Lin et al. — ACHIEVE Study, Lancet (2023) — <a href="https://doi.org/10.1016/S0140-6736(23)01048-8" target="_blank" rel="noopener noreferrer" style={{ color: COLOR.teal }}>doi.org/10.1016/S0140-6736(23)01048-8</a></li>
@@ -623,19 +598,19 @@ export default function QuoteView({ token }) {
           borderRadius: RADIUS.xl, boxShadow: SHADOW.md, padding: '26px 22px', textAlign: 'center',
         }}>
           <div style={{ fontFamily: FONT.display, fontSize: 22, fontWeight: 600, color: COLOR.ink }}>
-            Ready to move forward?
+            {qt.readyTitle}
           </div>
           <div style={{ fontSize: 13.5, color: COLOR.ink2, margin: '8px 0 16px', lineHeight: 1.6 }}>
-            Call the clinic to schedule your fitting appointment — we'll take care of the rest.
+            {qt.readyBody}
           </div>
           {phoneHref ? (
             <a href={phoneHref} style={{
               display: 'inline-block', background: COLOR.pine, color: COLOR.card,
               fontWeight: 700, fontSize: 15, textDecoration: 'none',
               borderRadius: RADIUS.md, padding: '13px 30px', boxShadow: SHADOW.sm,
-            }}>Call {clinic.phone}</a>
+            }}>{qt.callBtn(clinic.phone)}</a>
           ) : (
-            <div style={{ fontSize: 14, fontWeight: 700, color: COLOR.ink }}>Contact your clinic</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: COLOR.ink }}>{qt.contactClinic}</div>
           )}
           {clinic?.address && (
             <div style={{ fontSize: 12, color: COLOR.ink3, marginTop: 14 }}>
@@ -645,8 +620,7 @@ export default function QuoteView({ token }) {
         </div>
 
         <div style={{ textAlign: 'center', fontSize: 11, color: COLOR.ink3, marginTop: 26, lineHeight: 1.7 }}>
-          Prices shown are your cost as quoted on {longDate(q.quoteDate)} and are valid
-          through {longDate(expiresAt)}.<br />Generated by Distil CRM.
+          {qt.footerLine(longDate(q.quoteDate, lang), longDate(expiresAt, lang))}<br />Generated by Distil CRM.
         </div>
       </div>
     </div>

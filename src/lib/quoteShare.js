@@ -72,6 +72,9 @@ export function buildQuoteSharePayload({
   audiology = null,
   counselingSections = null,
   provider = null,
+  // Display language for the shared page, frozen at share time (the wizard's
+  // displayLang). Old shares without the field render English.
+  lang = 'en',
 }) {
   const cpKey = CARE_PLAN_META[selectedCarePlan] ? selectedCarePlan : 'complete'
   const cpMeta = CARE_PLAN_META[cpKey]
@@ -102,6 +105,7 @@ export function buildQuoteSharePayload({
 
   return {
     version: 1,
+    lang: lang === 'es' ? 'es' : 'en',
     quoteDate: new Date().toISOString().split('T')[0],
     validDays: QUOTE_SHARE_VALID_DAYS,
     patient: { firstName: firstNameOf(patient?.name) },

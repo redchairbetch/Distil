@@ -589,6 +589,7 @@ export default function CreateQuoteModal({
           tierLabel,
           audiology: patient.audiology,
           provider: { fullName: staffProfile?.fullName || 'Provider' },
+          lang: patient.preferredLanguage === 'es' ? 'es' : 'en',
         })
         const share = await createQuoteShare({
           patientId: patient.id,

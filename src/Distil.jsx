@@ -3104,6 +3104,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           audiology: form.audiology,
           counselingSections,
           provider: { fullName: paProvider?.fullName || "" },
+          lang: displayLang,
         });
         const share = await createQuoteShare({
           patientId: wizardPatientId,
