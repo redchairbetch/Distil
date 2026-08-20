@@ -12,7 +12,8 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from './supabase.js'
-import { listInboxMessages, markMessageRead, countUnreadMessages, sendPatientReply } from './db.js'
+import { listInboxMessages, markMessageRead, countUnreadMessages, sendPatientReply, setPatientLanguage } from './db.js'
+import { T } from './i18n/aided.js'
 
 // ── DEMO PATIENT (shown when no real data exists yet) ─────────────────────────
 const DEMO = {
@@ -38,6 +39,7 @@ const DEMO = {
   ],
   notes: "Mild-moderate SNHL bilateral. Prefer phone calls over texts.",
   createdAt: "2024-11-14T10:30:00Z",
+  preferredLanguage: "en",
 };
 
 const CARE_PLAN_LABELS = { complete: "Complete Care+", punch: "MHC Punch Card", paygo: "Standard Billing" };
@@ -51,7 +53,7 @@ function parseDateOnly(s) {
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   return m ? new Date(+m[1], +m[2]-1, +m[3]) : null;
 }
-function fmtDate(d) { return (parseDateOnly(d) || new Date(d)).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}); }
+function fmtDate(d, lang = "en") { return (parseDateOnly(d) || new Date(d)).toLocaleDateString(lang === "es" ? "es-US" : "en-US",{month:"short",day:"numeric",year:"numeric"}); }
 function daysUntil(dateStr) {
   const dateOnly = parseDateOnly(dateStr);
   if (dateOnly) {
@@ -199,7 +201,7 @@ async function unsubscribeFromPush() {
 // First-launch gate for real (non-demo) patients. Provider sets up patient in
 // office, then the patient scans the QR and confirms their DOB to unlock the
 // app on this device. 3 wrong attempts → 60s lockout, then counter resets.
-function DobGate({ patient, onVerified }) {
+function DobGate({ patient, onVerified, t }) {
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
   const [now, setNow] = useState(Date.now());
@@ -232,11 +234,11 @@ function DobGate({ patient, onVerified }) {
       const until = Date.now() + 60_000;
       localStorage.setItem('aided_dob_lockout_until', String(until));
       localStorage.setItem('aided_dob_attempts', '0');
-      setError('Too many attempts.');
+      setError(t.gateTooMany);
       setNow(Date.now());
     } else {
       localStorage.setItem('aided_dob_attempts', String(attempts));
-      setError(`That doesn't match. ${3 - attempts} ${3 - attempts === 1 ? 'attempt' : 'attempts'} remaining.`);
+      setError(t.gateWrong(3 - attempts));
     }
     setInput('');
   };
@@ -254,11 +256,9 @@ function DobGate({ patient, onVerified }) {
         padding: 24, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: 'white',
       }}>
         <div style={{ fontSize: 56, marginBottom: 16 }}>🔒</div>
-        <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 8 }}>One quick step first</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 8 }}>{t.gateNoDobTitle}</h1>
         <p style={{ fontSize: 14, opacity: 0.6, textAlign: 'center', maxWidth: 320, lineHeight: 1.5 }}>
-          We can't verify this profile yet because it's missing a date of birth.
-          Please call your clinic — they can add it in under a minute, and this
-          screen will unlock.
+          {t.gateNoDobBody}
         </p>
       </div>
     );
@@ -271,9 +271,9 @@ function DobGate({ patient, onVerified }) {
       padding: 24, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif", color: 'white',
     }}>
       <div style={{ fontSize: 56, marginBottom: 16 }}>🔒</div>
-      <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 8 }}>Confirm it's you</h1>
+      <h1 style={{ fontSize: 24, fontWeight: 800, marginBottom: 8 }}>{t.gateTitle}</h1>
       <p style={{ fontSize: 14, opacity: 0.6, marginBottom: 28, textAlign: 'center', maxWidth: 320, lineHeight: 1.5 }}>
-        Enter your date of birth to access your hearing care profile.
+        {t.gateBody}
       </p>
       <form onSubmit={submit} style={{ width: '100%', maxWidth: 320, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <input
@@ -292,7 +292,7 @@ function DobGate({ patient, onVerified }) {
         )}
         {locked && (
           <div style={{ fontSize: 13, color: '#fbbf24', textAlign: 'center' }}>
-            Locked. Try again in {lockSeconds}s.
+            {t.gateLocked(lockSeconds)}
           </div>
         )}
         <button
@@ -306,11 +306,11 @@ function DobGate({ patient, onVerified }) {
             cursor: (locked || !input) ? 'default' : 'pointer',
           }}
         >
-          Continue
+          {t.gateContinue}
         </button>
       </form>
       <div style={{ fontSize: 12, opacity: 0.45, marginTop: 24, textAlign: 'center', maxWidth: 280, lineHeight: 1.5 }}>
-        Trouble? Call your clinic — they can re-link your device.
+        {t.gateTrouble}
       </div>
     </div>
   );
@@ -370,6 +370,7 @@ function mapSupabasePatientToAidedShape(data) {
     notes: data.notes,
     createdAt: data.created_at,
     clinic_id: data.clinic_id,
+    preferredLanguage: data.preferred_language || 'en',
   };
 }
 
@@ -416,6 +417,13 @@ export default function PatientApp() {
   );
   const [pushSubscribed, setPushSubscribed] = useState(false);
   const [notifBusy, setNotifBusy] = useState(false);
+  // Display language. The DB (patients.preferred_language) wins whenever a
+  // real patient row loads; localStorage covers PWA cold-start, offline, and
+  // demo mode. The Help-tab switcher writes both (plus the DB via RPC).
+  const [lang, setLang] = useState(() =>
+    (typeof window !== 'undefined' && localStorage.getItem('aided_lang')) || 'en'
+  );
+  const t = T[lang] || T.en;
 
   // Load punch card state from Supabase (or skip for demo patient)
   useEffect(() => {
@@ -574,6 +582,10 @@ export default function PatientApp() {
             if (clinic?.name) setClinicName(clinic.name);
           }
           setPatient(mapSupabasePatientToAidedShape(patientData));
+          if (patientData.preferred_language === 'en' || patientData.preferred_language === 'es') {
+            setLang(patientData.preferred_language);
+            localStorage.setItem('aided_lang', patientData.preferred_language);
+          }
           return true;
         }
       } catch (err) {
@@ -676,13 +688,13 @@ export default function PatientApp() {
 
   if (!patient) return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",fontFamily:"system-ui",color:"#6b7280"}}>
-      Loading your profile…
+      {t.loadingProfile}
     </div>
   );
 
   // DOB gate for real patients only. Demo skips entirely.
   if (patient.id !== 'DEMO01' && !dobVerified) {
-    return <DobGate patient={patient} onVerified={() => setDobVerified(true)} />;
+    return <DobGate patient={patient} onVerified={() => setDobVerified(true)} t={t} />;
   }
 
   const p = patient;
@@ -1373,34 +1385,58 @@ export default function PatientApp() {
     return (
     <>
       <div className="header">
-        <div className="header-greeting">Need a hand?</div>
-        <div className="header-name">We're here to help</div>
+        <div className="header-greeting">{t.helpGreeting}</div>
+        <div className="header-name">{t.helpTitle}</div>
       </div>
       <div className="scroll-content">
         <div className="section" style={{paddingTop:16}}>
           <div className="card card-pad">
-            <div className="card-label">Contact your clinic</div>
+            <div className="card-label">{t.contactYourClinic}</div>
             <div style={{fontSize:15,fontWeight:700,color:"#0a1628",marginBottom:6}}>{clinicName}</div>
             {p.phone && <div style={{fontSize:14,color:"#374151",marginBottom:4}}>📞 {p.phone}</div>}
             {p.location && <div style={{fontSize:13,color:"#6b7280"}}>📍 {p.location}</div>}
             <div style={{fontSize:12,color:"#9ca3af",marginTop:12,lineHeight:1.5}}>
-              Call your clinic for appointments, device issues, or any questions about your hearing care.
+              {t.contactBody}
+            </div>
+          </div>
+        </div>
+        <div className="section">
+          <div className="card card-pad">
+            <div className="card-label">{t.languageLabel}</div>
+            <div style={{fontSize:12,color:"#6b7280",marginBottom:12,lineHeight:1.5}}>{t.languageBody}</div>
+            <div style={{display:"flex",gap:8}}>
+              {/* Each option renders in its own language so a patient stuck in
+                  the wrong one can always find their way back. */}
+              {[["en","English"],["es","Español"]].map(([l,label])=>(
+                <button
+                  key={l}
+                  onClick={()=>{
+                    setLang(l);
+                    localStorage.setItem('aided_lang', l);
+                    if (patient && patient.id !== 'DEMO01') setPatientLanguage(patient.id, l);
+                  }}
+                  style={{
+                    flex:1, padding:"12px", borderRadius:10, fontFamily:"inherit",
+                    fontSize:14, fontWeight:700, cursor:"pointer", transition:"all 0.15s",
+                    border: lang===l ? "2px solid #0a1628" : "2px solid #e5e7eb",
+                    background: lang===l ? "#0a1628" : "white",
+                    color: lang===l ? "white" : "#0a1628",
+                  }}>
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
         </div>
         {showNotifRow && (
           <div className="section">
             <div className="card card-pad">
-              <div className="card-label">Notifications</div>
+              <div className="card-label">{t.notifications}</div>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
                 <div style={{flex:1}}>
-                  <div style={{fontSize:14,fontWeight:600,color:"#0a1628"}}>Reminders & alerts</div>
+                  <div style={{fontSize:14,fontWeight:600,color:"#0a1628"}}>{t.remindersAlerts}</div>
                   <div style={{fontSize:12,color:"#6b7280",marginTop:4,lineHeight:1.5}}>
-                    {blocked
-                      ? "Blocked at the device level. Enable in your phone's notification settings."
-                      : pushSubscribed
-                      ? "On. You'll get appointment reminders, cleaning prompts, and warranty alerts."
-                      : "Off. Turn on to get appointment reminders, cleaning prompts, and warranty alerts."}
+                    {blocked ? t.notifBlocked : pushSubscribed ? t.notifOn : t.notifOff}
                   </div>
                 </div>
                 {!blocked && (
@@ -1414,7 +1450,7 @@ export default function PatientApp() {
                       position:"relative", transition:"background 0.2s",
                       opacity: notifBusy ? 0.6 : 1,
                     }}
-                    aria-label={pushSubscribed ? "Disable notifications" : "Enable notifications"}>
+                    aria-label={pushSubscribed ? t.notifDisableAria : t.notifEnableAria}>
                     <div style={{
                       position:"absolute", top:3, left: pushSubscribed ? 25 : 3,
                       width:24, height:24, borderRadius:"50%", background:"white",
@@ -1429,12 +1465,12 @@ export default function PatientApp() {
         <div className="section">
           <div className="card">
             <div className="card-pad">
-              <div className="card-label">Quick Troubleshooting</div>
+              <div className="card-label">{t.quickTroubleshooting}</div>
             </div>
-            {TROUBLESHOOT_TIPS.map((t,i)=>(
+            {t.troubleshootTips.map((tip,i)=>(
               <div key={i} className="tip-row" onClick={()=>setExpandedTip(expandedTip===i?null:i)}>
-                <div className="tip-q">{t.q}<span>{expandedTip===i?"▲":"▼"}</span></div>
-                {expandedTip===i && <div className="tip-a">{t.a}</div>}
+                <div className="tip-q">{tip.q}<span>{expandedTip===i?"▲":"▼"}</span></div>
+                {expandedTip===i && <div className="tip-a">{tip.a}</div>}
               </div>
             ))}
           </div>
@@ -1445,12 +1481,12 @@ export default function PatientApp() {
   };
 
   const TABS = [
-    { id:"home", icon:"🏠", label:"Home" },
-    { id:"devices", icon:"🎧", label:"Devices" },
-    { id:"care", icon:"🧹", label:"Care" },
-    { id:"schedule", icon:"📅", label:"Schedule" },
-    { id:"inbox", icon:"✉️", label:"Inbox" },
-    { id:"help", icon:"💬", label:"Help" },
+    { id:"home", icon:"🏠", label:t.tabHome },
+    { id:"devices", icon:"🎧", label:t.tabDevices },
+    { id:"care", icon:"🧹", label:t.tabCare },
+    { id:"schedule", icon:"📅", label:t.tabSchedule },
+    { id:"inbox", icon:"✉️", label:t.tabInbox },
+    { id:"help", icon:"💬", label:t.tabHelp },
   ];
 
   return (
@@ -1468,11 +1504,11 @@ export default function PatientApp() {
         {tab==="inbox" && renderInbox()}
         {tab==="help" && renderHelp()}
         <div className="bottom-nav">
-          {TABS.map(t=>(
-            <div key={t.id} className={`nav-tab ${tab===t.id?"active":""}`} onClick={()=>setTab(t.id)}>
+          {TABS.map(tb=>(
+            <div key={tb.id} className={`nav-tab ${tab===tb.id?"active":""}`} onClick={()=>setTab(tb.id)}>
               <div className="nav-tab-icon" style={{position:"relative"}}>
-                {t.icon}
-                {t.id === "inbox" && unreadCount > 0 && (
+                {tb.icon}
+                {tb.id === "inbox" && unreadCount > 0 && (
                   <span style={{
                     position: "absolute", top: -4, right: -10,
                     background: "#ef4444", color: "white",
@@ -1484,7 +1520,7 @@ export default function PatientApp() {
                   }}>{unreadCount > 9 ? "9+" : unreadCount}</span>
                 )}
               </div>
-              <div className="nav-tab-label">{t.label}</div>
+              <div className="nav-tab-label">{tb.label}</div>
             </div>
           ))}
         </div>
