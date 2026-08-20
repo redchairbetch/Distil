@@ -12,6 +12,7 @@
 
 import React from "react";
 import { CARE_ARC } from "../lib/careArc.js";
+import { PRICING_T } from "../i18n/pricing.js";
 
 /**
  * "What treatment looks like from here" — the patient-facing explanation of
@@ -38,34 +39,12 @@ const SUBDUED = "#6b7280";
 const SERIF = "'Fraunces', Georgia, serif";
 const SANS = "'DM Sans', sans-serif";
 
-const PHASES = [
-  {
-    when: "First six weeks",
-    count: `${adaptationVisits} visits`,
-    title: "Adaptation",
-    body: "Your brain has to relearn sounds it stopped hearing years ago, so we start you below your full prescription and step the volume up over the first month. We fit you, call you two days in, and fine-tune in the office at two, four, and six weeks. At the four-week visit we measure the sound down in your ear canal to confirm you're getting exactly what your hearing loss calls for — not what the box was set to.",
-  },
-  {
-    when: "Every three months",
-    count: `${quarterlyVisits} visits`,
-    title: "Cleaning & servicing",
-    body: "Hearing aids live in the hardest environment any electronics face: body heat, moisture, and earwax, twelve to sixteen hours a day. Every quarter we deep-clean them, replace the parts that wear out — wax guards, domes, tubing, microphone covers — and check that each aid still puts out what it's supposed to. Most failures give warning before they happen. This visit is where we catch them.",
-  },
-  {
-    when: "Every year",
-    count: `${annualExams} exams`,
-    title: "Re-testing & recalibration",
-    body: "Hearing changes. We re-test yours once a year and reprogram the aids to your current results. Skip it and the aids stay calibrated to ears you no longer have — the fit between the prescription and the loss quietly comes apart, and it usually gets blamed on the hearing aids.",
-  },
-  {
-    when: "Year four and on",
-    count: "Renewal",
-    title: "Review & what's next",
-    body: "Around year four your warranty ends and the technology has moved on. We sit down, look at how you're actually hearing rather than how old the aids are, and decide together whether to keep servicing what you have or move to newer equipment. Whichever you choose, the next stretch of care starts from that visit.",
-  },
-];
-
-export default function CareExpectations({ bridgeToPlans = true }) {
+export default function CareExpectations({ bridgeToPlans = true, lang = "en" }) {
+  const pt = PRICING_T[lang] || PRICING_T.en;
+  // Phase copy comes from the i18n dictionary; visit counts stay derived
+  // from CARE_ARC so the numbers can never drift from the real schedule.
+  const phaseCounts = [pt.nVisits(adaptationVisits), pt.nVisits(quarterlyVisits), pt.nExams(annualExams), pt.renewal];
+  const PHASES = pt.phases.map((ph, i) => ({ ...ph, count: phaseCounts[i] }));
   return (
     <div style={{
       background: "#ffffff",
@@ -84,17 +63,12 @@ export default function CareExpectations({ bridgeToPlans = true }) {
         margin: 0,
         letterSpacing: "-0.02em",
       }}>
-        What treatment looks like from here
+        {pt.careTitle}
       </h3>
       <p style={{
         color: "#374151", fontSize: 13.5, lineHeight: 1.6, margin: "10px 0 0", maxWidth: 860,
       }}>
-        For nearly every hearing loss we see, hearing aids are the most effective treatment
-        there is. They don't repair the ear — they carry sound to it, shaped to your specific
-        loss, every hour you wear them. That makes them medical instruments rather than
-        accessories: sensitive electronics, calibrated to your test results, worn all day
-        inside a warm and humid ear. Keeping them accurate is our work, and it doesn't
-        finish. That's why you leave here with a schedule, not just a pair of hearing aids.
+        {pt.careIntro}
       </p>
 
       {/* ── Four phases of care ────────────────────────────── */}
@@ -161,16 +135,10 @@ export default function CareExpectations({ bridgeToPlans = true }) {
           fontSize: 10.5, fontWeight: 700, letterSpacing: "0.08em",
           textTransform: "uppercase", color: "rgba(255,255,255,0.45)", marginBottom: 8,
         }}>
-          And then it keeps going
+          {pt.keepsGoing}
         </div>
         <p style={{ fontSize: 13.5, lineHeight: 1.6, margin: 0, color: "rgba(255,255,255,0.92)" }}>
-          {totalVisits} visits go on your calendar the day you're fitted — and those are the
-          start of the plan, not the whole of it. Hearing loss is permanent and it keeps
-          changing; hearing aids are machines, and machines get serviced and eventually
-          replaced. So for as long as you wear them, you have a hearing care provider — the
-          same way you have a dentist or an eye doctor, and for the same reason. That's what
-          today is really about: not buying a device, but starting a treatment relationship
-          that stays with you.
+          {pt.perpetuity(totalVisits)}
         </p>
       </div>
 
@@ -179,7 +147,7 @@ export default function CareExpectations({ bridgeToPlans = true }) {
         <p style={{
           fontSize: 12.5, color: SUBDUED, lineHeight: 1.55, margin: "14px 0 0",
         }}>
-          The plans below differ in how that care is paid for — not in whether you need it.
+          {pt.bridgeToPlans}
         </p>
       )}
     </div>

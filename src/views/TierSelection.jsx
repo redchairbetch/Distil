@@ -24,6 +24,7 @@ import {
 } from "../listeningSituations.js";
 import { EnvironmentCoverage } from "../components/CoverageBars.jsx";
 import { findAnchorForRank, TIER_LABEL_CATALOG_RANK } from "../lib/pricing.js";
+import { PRICING_T } from "../i18n/pricing.js";
 
 // Technology Tier Selection — wizard step between Results and Device
 // Selection. Shows the patient three tier cards (filtered by insurance
@@ -137,7 +138,9 @@ export default function TierSelection({
   // so the price frame is settled before body style, per the tier-first flow.
   deviceDrivenTpa = null,
   deviceDrivenTiers = [],
+  lang = "en",
 }) {
+  const pt = PRICING_T[lang] || PRICING_T.en;
   const [engineResult, setEngineResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [engineError, setEngineError] = useState(null);
@@ -266,21 +269,21 @@ export default function TierSelection({
       const tpaName = deviceDrivenTpa === "UHCH" ? "United Healthcare Hearing"
         : deviceDrivenTpa === "Nations" ? "NationsBenefits"
         : deviceDrivenTpa;
-      const processing = rankToProcessingLabel(engineResult?.recommended_tier_rank);
+      const processing = pt.processingLabels[engineResult?.recommended_tier_rank] || rankToProcessingLabel(engineResult?.recommended_tier_rank);
       return (
         <div style={{ background: COLOR.card, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 24, boxShadow: SHADOW.md, fontFamily: FONT.ui }}>
           <div style={{ fontFamily: FONT.display, fontSize: 22, fontWeight: 600, color: TEXT, letterSpacing: "0.1px" }}>
-            Here's what we found — and what it will cost
+            {pt.foundCost}
           </div>
           <div style={{ fontSize: 13, color: FAINT, marginTop: 3, marginBottom: 18 }}>
-            Based on what you told us and your hearing test.
+            {pt.basedOn}
           </div>
 
-          <IntakeReflection flagged={flagged} effortSignals={effortSignals} hasIntakeAnswers={hasIntakeAnswers} />
+          <IntakeReflection flagged={flagged} effortSignals={effortSignals} hasIntakeAnswers={hasIntakeAnswers} pt={pt} />
 
           {loading ? (
             <div style={{ background:BG_SOFT, border:`1px solid ${BORDER}`, borderRadius:8, padding:"10px 14px", fontSize:13, color:MUTED }}>
-              Computing recommendation…
+              {pt.computing}
             </div>
           ) : engineError ? (
             <div style={{ background:"#fef9c3", border:"1px solid #fde047", borderRadius:8, padding:"10px 14px", fontSize:13, color:"#854d0e" }}>
@@ -289,7 +292,7 @@ export default function TierSelection({
           ) : processing ? (
             <div style={{ background:TEAL_BG, borderLeft:`4px solid ${TEAL}`, borderRadius:6, padding:"12px 16px" }}>
               <div style={{ fontSize:13, fontWeight:700, color:TEAL_DARK, marginBottom:4 }}>
-                Recommended: {processing} processing
+                {pt.recommendedProcessing(processing)}
               </div>
               <div style={{ fontSize:13, color:TEXT, lineHeight:1.5 }}>
                 {engineResult?.generated_rationale_text}
@@ -300,7 +303,7 @@ export default function TierSelection({
           {deviceDrivenTiers.length > 0 && (
             <div style={{ marginTop:18 }}>
               <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: TEAL_DARK, marginBottom: 9 }}>
-                Your plan's price bands
+                {pt.priceBands}
               </div>
               <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
                 {deviceDrivenTiers.map(t => (
@@ -310,8 +313,8 @@ export default function TierSelection({
                   }}>
                     <span style={{ fontSize:13, fontWeight:600, color:TEXT }}>{t.label}</span>
                     <span style={{ fontFamily:FONT.display, fontSize:16, fontWeight:700, color:TEXT }}>
-                      {t.price === 0 ? "No Charge" : t.price != null ? `$${money(t.price)}` : "—"}
-                      {t.price != null && t.price !== 0 && <span style={{ fontSize:11, fontWeight:600, color:MUTED, marginLeft:5 }}>per aid</span>}
+                      {t.price === 0 ? pt.noCharge : t.price != null ? `$${money(t.price)}` : "—"}
+                      {t.price != null && t.price !== 0 && <span style={{ fontSize:11, fontWeight:600, color:MUTED, marginLeft:5 }}>{pt.perAid}</span>}
                     </span>
                   </div>
                 ))}
@@ -320,9 +323,7 @@ export default function TierSelection({
           )}
 
           <div style={{ marginTop:16, fontSize:12.5, color:MUTED, lineHeight:1.55 }}>
-            {tpaName} prices by the specific device rather than a technology level you pick here —
-            every covered device falls into one of the price bands above. On the next step we'll
-            choose the device together, which settles your exact price before style and fit details.
+            {pt.tpaExplain(tpaName)}
           </div>
         </div>
       );
@@ -331,7 +332,7 @@ export default function TierSelection({
       <div className="card">
         <div className="card-title">Technology Tier</div>
         <div style={{ padding:24, color:MUTED, fontSize:14, textAlign:"center" }}>
-          Tier selection isn't available for this plan type. Continue to device selection.
+          {pt.tierUnavailable}
         </div>
       </div>
     );
@@ -349,6 +350,8 @@ export default function TierSelection({
           blurb={tierBlurbs[tier.label]}
           flagged={flagged}
           savings={savingsFor(tier)}
+          pt={pt}
+          lang={lang}
           onSelect={() => onSelectTier(tier.label, tier.price)}
         />
       ))}
@@ -358,10 +361,10 @@ export default function TierSelection({
   return (
     <div style={{ background: COLOR.card, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 24, boxShadow: SHADOW.md, fontFamily: FONT.ui }}>
       <div style={{ fontFamily: FONT.display, fontSize: 22, fontWeight: 600, color: TEXT, letterSpacing: "0.1px" }}>
-        Here's what we found — and your options
+        {pt.foundOptions}
       </div>
       <div style={{ fontSize: 13, color: FAINT, marginTop: 3, marginBottom: (isPrivateLabel || payType === "private") ? 8 : 18 }}>
-        Based on what you told us and your hearing test.
+        {pt.basedOn}
       </div>
       {/* Price-first framing: this step settles the technology level AND the
           price before any body-style talk. For private-label (TruHearing) it
@@ -369,18 +372,16 @@ export default function TierSelection({
           is the platform generation, not a second tier decision. */}
       {isPrivateLabel && (
         <div style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.5, marginBottom: 18 }}>
-          This choice sets the level of sound processing inside your hearing aids — and your price per aid.
-          On the next step you'll pick the model and style; every model comes with the technology level you choose here.
+          {pt.privateLabelNote}
         </div>
       )}
       {payType === "private" && !isPrivateLabel && (
         <div style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.5, marginBottom: 18 }}>
-          This choice settles your investment level first. On the next step you'll pick the brand,
-          style, and model — whatever you choose there is matched to the technology level you select here.
+          {pt.privatePayNote}
         </div>
       )}
 
-      <IntakeReflection flagged={flagged} effortSignals={effortSignals} hasIntakeAnswers={hasIntakeAnswers} />
+      <IntakeReflection flagged={flagged} effortSignals={effortSignals} hasIntakeAnswers={hasIntakeAnswers} pt={pt} />
 
       <RecommendationBanner
         loading={loading}
@@ -389,6 +390,7 @@ export default function TierSelection({
         rationaleText={engineResult?.generated_rationale_text}
         flaggedCount={flagged.size}
         hasIntakeAnswers={hasIntakeAnswers}
+        pt={pt}
       />
 
       {primaryTiers.length === 0 ? (
@@ -415,7 +417,7 @@ export default function TierSelection({
                   letterSpacing:"0.02em",
                 }}
               >
-                {showValueTiers ? "Hide all options ▴" : "Show all options ▾"}
+                {showValueTiers ? pt.hideAllOptions : pt.showAllOptions}
               </button>
               {showValueTiers && renderGrid(valueTiers)}
             </>
@@ -431,15 +433,15 @@ export default function TierSelection({
 // the effort signals (drained / concentrating hard), which are the felt cost
 // rather than a place. Renders nothing if there's no intake on file or
 // nothing was flagged.
-function IntakeReflection({ flagged, effortSignals = [], hasIntakeAnswers }) {
+function IntakeReflection({ flagged, effortSignals = [], hasIntakeAnswers, pt }) {
   if (!hasIntakeAnswers || (flagged.size === 0 && effortSignals.length === 0)) return null;
   const labels = ENVIRONMENTS
     .filter(e => flagged.has(e.id))
-    .map(e => SITUATION_LABEL[e.id] || e.label);
+    .map(e => pt.situationLabels[e.id] || SITUATION_LABEL[e.id] || e.label);
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: TEAL_DARK, marginBottom: 9 }}>
-        From your intake — where listening takes the most effort
+        {pt.fromIntake}
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
         {labels.map(l => (
@@ -461,7 +463,7 @@ function IntakeReflection({ flagged, effortSignals = [], hasIntakeAnswers }) {
             padding: "6px 13px", fontSize: 12.5, fontWeight: 600,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: BRASS }} />
-            {EFFORT_SIGNAL_LABEL[k]}
+            {pt.effortSignals[k] || EFFORT_SIGNAL_LABEL[k]}
           </span>
         ))}
       </div>
@@ -469,36 +471,36 @@ function IntakeReflection({ flagged, effortSignals = [], hasIntakeAnswers }) {
   );
 }
 
-function RecommendationBanner({ loading, engineError, recommended, rationaleText, flaggedCount, hasIntakeAnswers }) {
+function RecommendationBanner({ loading, engineError, recommended, rationaleText, flaggedCount, hasIntakeAnswers, pt }) {
   if (loading) {
     return (
       <div style={{ background:BG_SOFT, border:`1px solid ${BORDER}`, borderRadius:8, padding:"10px 14px", fontSize:13, color:MUTED }}>
-        Computing recommendation…
+        {pt.computing}
       </div>
     );
   }
   if (engineError) {
     return (
       <div style={{ background:"#fef9c3", border:"1px solid #fde047", borderRadius:8, padding:"10px 14px", fontSize:13, color:"#854d0e" }}>
-        {engineError} You can still pick a tier manually below.
+        {engineError}{pt.pickManually}
       </div>
     );
   }
   if (!recommended?.tier) return null;
 
   const cappedNote = recommended.capped
-    ? ` The engine flagged a higher tier, but ${rankToLabel(recommended.originalRank)} isn't part of this plan — ${recommended.tier.label} is the strongest option available to you.`
+    ? pt.cappedNote(rankToLabel(recommended.originalRank), recommended.tier.label)
     : "";
   const sourceNote = !hasIntakeAnswers
-    ? " Recommendation is grounded in audiometric findings — no intake on file."
+    ? pt.sourceNoIntake
     : flaggedCount === 0
-      ? " Recommendation reflects your audiogram. Your intake answers didn't flag specific listening challenges, which the engine reads as a quieter listening profile."
-      : ` Recommendation reflects your audiogram and the ${flaggedCount === 1 ? "situation" : `${flaggedCount} situations`} you flagged as taking the most listening effort.`;
+      ? pt.sourceNoFlags
+      : pt.sourceFlagged(flaggedCount);
 
   return (
     <div style={{ background:TEAL_BG, borderLeft:`4px solid ${TEAL}`, borderRadius:6, padding:"12px 16px" }}>
       <div style={{ fontSize:13, fontWeight:700, color:TEAL_DARK, marginBottom:4 }}>
-        Recommended: {recommended.tier.label}
+        {pt.recommendedTier(recommended.tier.label)}
       </div>
       <div style={{ fontSize:13, color:TEXT, lineHeight:1.5 }}>
         {rationaleText}{cappedNote}{sourceNote}
@@ -507,10 +509,10 @@ function RecommendationBanner({ loading, engineError, recommended, rationaleText
   );
 }
 
-function TierCard({ tier, selected, recommended, selectable, blurb, flagged, savings, onSelect }) {
+function TierCard({ tier, selected, recommended, selectable, blurb, flagged, savings, pt, lang, onSelect }) {
   const rank = tierLabelToRank(tier.label);
   const coverage = rank != null ? COVERAGE_BY_RANK[rank] : null;
-  const effortCopy = rank != null ? TIER_EFFORT_COPY[rank] : null;
+  const effortCopy = rank != null ? (pt.tierEffort[rank] || TIER_EFFORT_COPY[rank]) : null;
 
   // Recommended (engine pick) is the dominant visual state. The selected
   // state only matters in the manual-fallback mode — when the engine has
@@ -543,7 +545,7 @@ function TierCard({ tier, selected, recommended, selectable, blurb, flagged, sav
           padding:"3px 11px", borderRadius:99,
           fontSize:11, fontWeight:700, letterSpacing:"0.03em",
         }}>
-          Recommended for you
+          {pt.recommendedForYou}
         </div>
       )}
 
@@ -553,15 +555,15 @@ function TierCard({ tier, selected, recommended, selectable, blurb, flagged, sav
             the price gets settled, before any body-style conversation. */}
         <div style={{ marginTop:6, display:"flex", alignItems:"baseline", gap:6, flexWrap:"wrap" }}>
           <span style={{ fontFamily:FONT.display, fontSize:26, fontWeight:700, color:TEXT }}>
-            {tier.price === 0 ? "No Charge" : tier.price != null ? `$${money(tier.price)}` : "—"}
+            {tier.price === 0 ? pt.noCharge : tier.price != null ? `$${money(tier.price)}` : "—"}
           </span>
           {tier.price != null && tier.price !== 0 && (
-            <span style={{ fontSize:12, fontWeight:600, color:MUTED }}>per aid</span>
+            <span style={{ fontSize:12, fontWeight:600, color:MUTED }}>{pt.perAid}</span>
           )}
         </div>
         {savings && (
           <div style={{ marginTop:5, fontSize:12, lineHeight:1.45, color:BRASS_INK }}>
-            Full retail value ${money(savings.retail)} — your plan saves you ${money(savings.amount)} ({savings.pct}%) per aid
+            {pt.savingsLine(money(savings.retail), money(savings.amount), savings.pct)}
           </div>
         )}
         {/* Listening effort is the tier's primary description (effort pivot) —
@@ -570,7 +572,7 @@ function TierCard({ tier, selected, recommended, selectable, blurb, flagged, sav
         {effortCopy && (
           <div style={{ marginTop:9 }}>
             <div style={{ fontSize:10, fontWeight:700, letterSpacing:"0.07em", textTransform:"uppercase", color:BRASS_INK, marginBottom:4 }}>
-              Listening effort
+              {pt.listeningEffort}
             </div>
             <div style={{ fontSize:13, lineHeight:1.55, color:TEXT }}>{effortCopy}</div>
           </div>
@@ -586,13 +588,13 @@ function TierCard({ tier, selected, recommended, selectable, blurb, flagged, sav
               not the headline — the connector line makes that relationship
               explicit. */}
           <div style={{ fontSize:11.5, color:MUTED, marginBottom:9, lineHeight:1.4 }}>
-            Here's where that shows up, situation by situation:
+            {pt.whereShowsUp}
           </div>
-          <EnvironmentCoverage rank={rank} flagged={flagged} />
+          <EnvironmentCoverage rank={rank} flagged={flagged} lang={lang} />
         </div>
       ) : (
         <div style={{ borderTop:`1px solid ${BORDER}`, padding:"12px 16px", flex:1, fontSize:12, color:MUTED, fontStyle:"italic" }}>
-          Coverage chart not available for this tier label.
+          {pt.noCoverageChart}
         </div>
       )}
 
@@ -608,7 +610,7 @@ function TierCard({ tier, selected, recommended, selectable, blurb, flagged, sav
             fontSize:13, fontWeight:700,
             fontFamily:"inherit",
           }}>
-            {selected ? "✓ Selected" : `Select ${tier.label}`}
+            {selected ? pt.selectedTick : pt.selectTier(tier.label)}
           </div>
         </div>
       )}

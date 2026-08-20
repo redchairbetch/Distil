@@ -66,6 +66,7 @@ import { AudigramSVG, getDegreeName, PHONEMES, interpolateThreshold } from "./co
 import AudiogramEntry from "./components/AudiogramEntry.jsx";
 import { mapComplaintsToFindings } from "./lib/intakeReview.js";
 import { CONSULT_T } from "./i18n/consultation.js";
+import { PRICING_T } from "./i18n/pricing.js";
 
 import TeamAdmin from "./views/TeamAdmin.jsx";
 import {
@@ -5596,6 +5597,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           tierBlurbs={TH_TIER_BLURBS}
           deviceDrivenTpa={form.payType === "insurance" && (form.tpa === "UHCH" || form.tpa === "Nations") ? form.tpa : null}
           deviceDrivenTiers={selectedInsurancePlan?.tiers || []}
+          lang={displayLang}
         />
       );
     }
@@ -6270,7 +6272,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       onSave={handleSaveComplexBenefit}
                       onCancel={cbInputs ? null : () => setCbOpen(false)}
                     />
-                    {cbResult && cbResult.patientTotal > 0 && <FinancingCalculator total={cbResult.patientTotal} />}
+                    {cbResult && cbResult.patientTotal > 0 && <FinancingCalculator total={cbResult.patientTotal} lang={displayLang} />}
                   </>
                 );
               }
@@ -6280,6 +6282,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               // Render the investment without a savings badge (Kurt: Relate has
               // no street retail to anchor against); off-plan additionally shows
               // the acknowledgement-form flag and bills standard retail.
+              const pt = PRICING_T[displayLang] || PRICING_T.en;
               const isDeviceDrivenTpa = form.tpa === 'UHCH' || form.tpa === 'Nations';
               const tpaName = form.tpa === 'Nations' ? 'NationsBenefits' : 'UHCH';
               // Insurance selected but no plan chosen → the device is priced at
@@ -6305,11 +6308,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       </div>
                     )}
                     <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}}>
-                      {offPlan ? "Standard Retail · Off-Plan" : isInsuranceNoPlan ? "Standard Retail" : "Your Investment Today"}
+                      {offPlan ? "Standard Retail · Off-Plan" : isInsuranceNoPlan ? "Standard Retail" : pt.investmentToday}
                     </div>
                     <div style={{display:"flex",alignItems:"baseline",gap:8}}>
                       <span style={{fontSize:28,fontWeight:800,color:"#0a1628"}}>${fmt2(investment)}</span>
-                      <span style={{fontSize:12,color:"#6b7280"}}>{bothDone ? "pair (2 aids)" : "per aid"}</span>
+                      <span style={{fontSize:12,color:"#6b7280"}}>{bothDone ? pt.pairTwoAids : pt.perAid}</span>
                     </div>
                     {!offPlan && (
                       <div style={{fontSize:12,color:"#6b7280",marginTop:6}}>
@@ -6345,7 +6348,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               if (!pricingRevealData || form.tierPrice == null || !anyConfigured) {
                 return (
                   <div style={{background:"#FCF8EF",border:"1px solid #EADFC7",borderRadius:14,padding:"22px 24px",marginTop:12,textAlign:"center",color:"#9AA39B",fontSize:13,fontFamily:"'Sora',sans-serif"}}>
-                    Select a device to see your investment.
+                    {pt.selectDeviceFirst}
                   </div>
                 );
               }
@@ -6411,10 +6414,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               const reflectAnswers = unwrapIntakeAnswers(wizardIntake?.answers) || null;
               const reflectFlags = flaggedEnvironments(reflectAnswers);
               const reflectEffort = flaggedEffortSignals(reflectAnswers).length > 0;
-              const reflectSits = ENVIRONMENTS.filter(e => reflectFlags.has(e.id)).map(e => (SITUATION_LABEL[e.id] || e.label).toLowerCase());
-              const reflectText = reflectSits.length === 0 ? null
-                : reflectSits.length === 1 ? reflectSits[0]
-                : reflectSits.slice(0, -1).join(", ") + " and " + reflectSits[reflectSits.length - 1];
+              const reflectSits = ENVIRONMENTS.filter(e => reflectFlags.has(e.id)).map(e => (pt.situationLabels[e.id] || SITUATION_LABEL[e.id] || e.label).toLowerCase());
+              const reflectText = reflectSits.length === 0 ? null : pt.listJoin(reflectSits);
 
               return (
                 <div style={{background:"#FCF8EF",border:"1px solid #EADFC7",borderRadius:14,padding:"22px 24px",marginTop:12,fontFamily:"'Sora',sans-serif",boxShadow:"0 1px 2px rgba(16,32,28,.04),0 14px 30px -22px rgba(120,90,30,.4)"}}>
@@ -6423,13 +6424,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       nothing was flagged. */}
                   {reflectText ? (
                     <div style={{fontSize:13.5,color:"#54625C",fontStyle:"italic",borderLeft:"3px solid #B5832E",paddingLeft:13,marginBottom:16,lineHeight:1.55}}>
-                      You told us the hardest moments have been {reflectText}{reflectEffort
-                        ? " — and that listening there leaves you drained."
-                        : " — the places where listening takes the most out of you."}
+                      {pt.reflectHardest(reflectText, reflectEffort)}
                     </div>
                   ) : reflectEffort ? (
                     <div style={{fontSize:13.5,color:"#54625C",fontStyle:"italic",borderLeft:"3px solid #B5832E",paddingLeft:13,marginBottom:16,lineHeight:1.55}}>
-                      You told us listening takes real work these days — conversations leave you more tired than they should.
+                      {pt.reflectEffortOnly}
                     </div>
                   ) : chiefComplaint ? (
                     <div style={{fontSize:13.5,color:"#54625C",fontStyle:"italic",borderLeft:"3px solid #B5832E",paddingLeft:13,marginBottom:16,lineHeight:1.55}}>
@@ -6437,9 +6436,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     </div>
                   ) : null}
 
-                  {/* Technology tier label */}
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#B5832E",marginBottom:6}}>
-                    {tierLabel} Technology
+                  {/* Technology tier label + display-language toggle */}
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#B5832E"}}>
+                      {pt.tierTech(tierLabel)}
+                    </div>
+                    <LangToggle lang={displayLang} onChange={setDisplayLang} />
                   </div>
 
                   {/* Listening-effort framing — who does the work of separating
@@ -6449,20 +6451,20 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       label's rank; silent if unmapped. */}
                   {(() => {
                     const effRank = rankFromTierLabel(tierLabel);
-                    const eff = effRank != null ? TIER_EFFORT_COPY[effRank] : null;
+                    const eff = effRank != null ? (pt.tierEffort[effRank] || TIER_EFFORT_COPY[effRank]) : null;
                     return eff ? (
                       <div style={{fontSize:12.5,lineHeight:1.55,color:"#54625C",marginBottom:14}}>
-                        <span style={{fontWeight:700,color:"#B5832E"}}>Listening effort · </span>{eff}
+                        <span style={{fontWeight:700,color:"#B5832E"}}>{pt.listeningEffort} · </span>{eff}
                       </div>
                     ) : null;
                   })()}
 
                   {/* Your investment — cost first, stated plainly, in the display serif */}
                   <div style={{marginBottom:16}}>
-                    <div style={{fontSize:11,fontWeight:600,color:"#9AA39B",textTransform:"uppercase",letterSpacing:0.6,marginBottom:5}}>Your investment</div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#9AA39B",textTransform:"uppercase",letterSpacing:0.6,marginBottom:5}}>{pt.yourInvestment}</div>
                     <div style={{display:"flex",alignItems:"baseline",gap:9}}>
                       <span style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:38,fontWeight:600,color:"#16201D",lineHeight:1}}>${fmt(investmentDisplay)}</span>
-                      <span style={{fontSize:12.5,color:"#54625C"}}>{bothDone ? "for both hearing aids" : "per aid"}</span>
+                      <span style={{fontSize:12.5,color:"#54625C"}}>{bothDone ? pt.forBothAids : pt.perAid}</span>
                     </div>
                     {/* Per-aid toggle / per-ear breakdown. Shows the
                         simple "$X / aid" when ears match, and a labeled
@@ -6475,22 +6477,22 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       if (!earsDiffer) {
                         return (
                           <div style={{fontSize:12,color:"#9AA39B",marginTop:3}}>
-                            ${fmt(copayPerAid)} / aid
+                            {pt.perAidSlash(`$${fmt(copayPerAid)}`)}
                           </div>
                         );
                       }
                       const leftFam  = catalog.find(e => e.id === form.left.familyId);
                       const rightFam = catalog.find(e => e.id === form.right.familyId);
-                      const leftLabel  = perEar.left.source === 'cros' ? 'CROS unit' : (leftFam?.family || '—');
-                      const rightLabel = perEar.right.source === 'cros' ? 'CROS unit' : (rightFam?.family || '—');
+                      const leftLabel  = perEar.left.source === 'cros' ? pt.crosUnit : (leftFam?.family || '—');
+                      const rightLabel = perEar.right.source === 'cros' ? pt.crosUnit : (rightFam?.family || '—');
                       return (
                         <div style={{marginTop:8,fontSize:12,color:"#54625C"}}>
                           <div style={{display:"flex",justifyContent:"space-between",padding:"3px 0"}}>
-                            <span>Right · {rightLabel}</span>
+                            <span>{pt.right} · {rightLabel}</span>
                             <span style={{fontWeight:600}}>${fmt(rp)}</span>
                           </div>
                           <div style={{display:"flex",justifyContent:"space-between",padding:"3px 0"}}>
-                            <span>Left · {leftLabel}</span>
+                            <span>{pt.left} · {leftLabel}</span>
                             <span style={{fontWeight:600}}>${fmt(lp)}</span>
                           </div>
                         </div>
@@ -6504,27 +6506,27 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderTop:"1px solid #EADFC7",fontSize:13}}>
                     {isPrivatePay ? (
                       <span style={{color:"#54625C",display:"flex",alignItems:"center",gap:6}}>
-                        <span style={{color:"#1B8A7A",fontWeight:700}}>✓</span> Complete Care+ <span style={{color:"#9AA39B"}}>(included)</span>
+                        <span style={{color:"#1B8A7A",fontWeight:700}}>✓</span> Complete Care+ <span style={{color:"#9AA39B"}}>{pt.ccIncluded}</span>
                       </span>
                     ) : (
-                      <span style={{color:"#54625C"}}>Your plan covers</span>
+                      <span style={{color:"#54625C"}}>{pt.planCovers}</span>
                     )}
                     <span style={{fontWeight:700,color:"#6E4E16"}}>${fmt(planCoversWithCare)}</span>
                   </div>
 
                   {/* Full retail value — never shown without the savings beside it */}
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderTop:"1px solid #EADFC7",fontSize:13}}>
-                    <span style={{color:"#9AA39B"}}>Full retail value</span>
+                    <span style={{color:"#9AA39B"}}>{pt.fullRetailValue}</span>
                     <span style={{color:"#9AA39B",textDecoration:"line-through"}}>${fmt(retailWithCare)}</span>
                   </div>
 
                   {/* Savings — the helping number, in brass */}
                   <div style={{background:"#F4EAD4",borderRadius:9,padding:"11px 14px",marginTop:10,display:"flex",alignItems:"center",justifyContent:"center",gap:9}}>
                     <span style={{fontSize:13.5,fontWeight:700,color:"#6E4E16"}}>
-                      You save ${fmt(savingsWithCare)}
+                      {pt.youSave(`$${fmt(savingsWithCare)}`)}
                     </span>
                     <span style={{background:"#B5832E",color:"white",borderRadius:20,padding:"2px 11px",fontSize:11,fontWeight:700}}>
-                      {savingsPctDisplay}% off
+                      {pt.pctOff(savingsPctDisplay)}
                     </span>
                   </div>
 
@@ -6532,13 +6534,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       not "lifetime"). Bundled for private pay; the opt-out default
                       care plan for insurance (confirmed on the step-6 care-plan step). */}
                   <div style={{marginTop:16,background:"#0B4A42",borderRadius:11,padding:"15px 17px",color:"#fff"}}>
-                    <div style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:15,fontWeight:600,marginBottom:6}}>Five years of care, included</div>
+                    <div style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:15,fontWeight:600,marginBottom:6}}>{pt.fiveYearsTitle}</div>
                     <div style={{fontSize:12.5,lineHeight:1.6,color:"rgba(255,255,255,0.82)"}}>
-                      Unlimited visits for 5 years · a 4-year repair warranty (your manufacturer's 3 years plus 1 more from us) · cleanings, adjustments, and a check-in call two days after you start.
+                      {pt.fiveYearsBody}
                     </div>
                     {!isPrivatePay && (
                       <div style={{fontSize:11.5,lineHeight:1.5,color:"rgba(255,255,255,0.6)",marginTop:8}}>
-                        Your default care plan — we'll confirm it together on the next step.
+                        {pt.defaultCarePlanNote}
                       </div>
                     )}
                   </div>
@@ -6546,7 +6548,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   {/* Comfortable monthly options — interactive CareCredit / Allegro
                       calculator: deferred-interest (6/12/18) vs fixed-APR
                       (24/36/48/60) terms, with real APR + total cost shown. */}
-                  <FinancingCalculator total={investmentDisplay} />
+                  <FinancingCalculator total={investmentDisplay} lang={displayLang} />
                 </div>
               );
             })()}
@@ -6788,12 +6790,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       return (
         <>
           {/* Care journey visualization */}
-          <CareJourney />
+          <CareJourney lang={displayLang} />
 
           {/* What ongoing treatment actually looks like — the lifetime care
               relationship, explained before the patient picks how to pay for
               it. Visit counts derive from CARE_ARC. */}
-          <CareExpectations bridgeToPlans={form.payType !== "private"} />
+          <CareExpectations bridgeToPlans={form.payType !== "private"} lang={displayLang} />
 
           {/* Plan selector — three peer options, no pre-selection */}
           <div className="card">
