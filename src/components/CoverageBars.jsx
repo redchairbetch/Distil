@@ -21,6 +21,7 @@
 // fixed semantic gradient and intentionally theme-independent.
 import { COLOR } from "../theme.js";
 import { ENVIRONMENTS, COVERAGE_BY_RANK } from "../listeningSituations.js";
+import { PRICING_T } from "../i18n/pricing.js";
 
 // Red (≤50%) → Yellow (75%) → Green (100%) gradient. Linear RGB
 // interpolation between anchors so adjacent percentages read as
@@ -61,34 +62,36 @@ export function CoverageRow({ label, pct, prominent = false }) {
 // environments first, then everything else. `rank` is an engine tier rank
 // (5/3/1/0/-1); `flagged` is a Set of environment ids from
 // flaggedEnvironments(). Renders nothing when the rank has no coverage map.
-export function EnvironmentCoverage({ rank, flagged }) {
+export function EnvironmentCoverage({ rank, flagged, lang = "en" }) {
   const coverage = rank != null ? COVERAGE_BY_RANK[rank] : null;
   if (!coverage) return null;
+  const pt = PRICING_T[lang] || PRICING_T.en;
 
   const hasFlagged = flagged && flagged.size > 0;
   const flaggedEnvs = hasFlagged ? ENVIRONMENTS.filter(e => flagged.has(e.id)) : [];
   const otherEnvs   = hasFlagged ? ENVIRONMENTS.filter(e => !flagged.has(e.id)) : ENVIRONMENTS;
+  const envLabel = (env) => pt.environments[env.id] || env.label;
 
   return (
     <div>
       {flaggedEnvs.length > 0 && (
         <>
           <div style={{ fontSize:10, fontWeight:700, color:COLOR.tealInk, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>
-            Your most challenging environments
+            {pt.mostChallenging}
           </div>
           <div style={{ display:"flex", flexDirection:"column", gap:5, marginBottom:14 }}>
             {flaggedEnvs.map(env => (
-              <CoverageRow key={env.id} label={env.label} pct={coverage[env.id]} prominent />
+              <CoverageRow key={env.id} label={envLabel(env)} pct={coverage[env.id]} prominent />
             ))}
           </div>
         </>
       )}
       <div style={{ fontSize:10, fontWeight:700, color:COLOR.ink2, textTransform:"uppercase", letterSpacing:"0.07em", marginBottom:6 }}>
-        {flaggedEnvs.length > 0 ? "Other environments" : "All listening environments"}
+        {flaggedEnvs.length > 0 ? pt.otherEnvironments : pt.allEnvironments}
       </div>
       <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
         {otherEnvs.map(env => (
-          <CoverageRow key={env.id} label={env.label} pct={coverage[env.id]} />
+          <CoverageRow key={env.id} label={envLabel(env)} pct={coverage[env.id]} />
         ))}
       </div>
     </div>

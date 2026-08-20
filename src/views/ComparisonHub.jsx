@@ -22,12 +22,14 @@ import React, { useState } from "react";
 import { COLOR, FONT } from "../theme.js";
 import CapabilityComparison from "./CapabilityComparison.jsx";
 import DeviceComparison from "./DeviceComparison.jsx";
+import { COMP_T } from "../i18n/comparison.js";
 
-export default function ComparisonHub({ patientId = null, providerMode = false }) {
+export default function ComparisonHub({ patientId = null, providerMode = false, lang = "en" }) {
+  const ct = COMP_T[lang] || COMP_T.en;
   const [tab, setTab] = useState("capability");
   const tabs = [
-    ["capability", "What's changed"],
-    ["coverage", "Environment coverage"],
+    ["capability", ct.tabWhatsChanged],
+    ["coverage", ct.tabCoverage],
   ];
   return (
     <div style={{ fontFamily: FONT.ui }}>
@@ -44,8 +46,8 @@ export default function ComparisonHub({ patientId = null, providerMode = false }
         ))}
       </div>
       {tab === "capability"
-        ? <CapabilityComparison variant="standalone" patientId={patientId} providerMode={providerMode} />
-        : <DeviceComparison variant="standalone" />}
+        ? <CapabilityComparison variant="standalone" patientId={patientId} providerMode={providerMode} lang={lang} />
+        : <DeviceComparison variant="standalone" lang={lang} />}
     </div>
   );
 }

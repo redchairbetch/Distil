@@ -11,6 +11,7 @@
  */
 
 import React from "react";
+import { PRICING_T } from "../i18n/pricing.js";
 
 /* ── Catmull-Rom → Cubic Bézier conversion ────────────────────────── */
 function catmullRomPath(pts, tension = 0.35) {
@@ -101,7 +102,8 @@ function abilityAt(xPct) {
  *                      connector up to the ideal curve — making the gap that
  *                      regular care (or an upgrade) closes visible.
  */
-export default function CareJourney({ position = 0, warrantyYears = 4, currentAbility = null }) {
+export default function CareJourney({ position = 0, warrantyYears = 4, currentAbility = null, lang = "en" }) {
+  const pt = PRICING_T[lang] || PRICING_T.en;
   const pos = Math.max(0, Math.min(1, position));
   const wYears = Math.max(0, Math.min(5, warrantyYears));
   const hasAbility = currentAbility != null;
@@ -144,14 +146,13 @@ export default function CareJourney({ position = 0, warrantyYears = 4, currentAb
         margin: "0 0 8px 8px",
         letterSpacing: "-0.02em",
       }}>
-        Your Hearing Journey
+        {pt.journeyTitle}
       </h3>
       <p style={{
         color: "#6b7280", fontSize: 12.5, margin: "0 0 12px 8px", lineHeight: 1.4,
         fontFamily: "'DM Sans', sans-serif",
       }}>
-        How regular care keeps your hearing at its best — the first five years of care that
-        continues for as long as you wear hearing aids.
+        {pt.journeySubtitle}
       </p>
 
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block" }}>
@@ -188,7 +189,7 @@ export default function CareJourney({ position = 0, warrantyYears = 4, currentAb
           textAnchor="end" fontSize="10" fontFamily="'DM Sans', sans-serif"
           fill="#16a34a" fontWeight="600" opacity="0.7"
         >
-          Normal Hearing
+          {pt.normalHearing}
         </text>
 
         {/* ── Y-axis label ───────────────────────────────── */}
@@ -198,7 +199,7 @@ export default function CareJourney({ position = 0, warrantyYears = 4, currentAb
           fill="#9ca3af" fontWeight="500"
           transform={`rotate(-90, 10, ${plotMidY})`}
         >
-          Hearing Ability
+          {pt.hearingAbility}
         </text>
 
         {/* ── Gradient fill under curve ──────────────────── */}
@@ -213,6 +214,7 @@ export default function CareJourney({ position = 0, warrantyYears = 4, currentAb
 
         {/* ── Milestone markers & labels ─────────────────── */}
         {milestones.map((ms, i) => {
+          const label = i === 0 ? pt.milestoneGetAids : i === milestones.length - 1 ? pt.milestoneUpgrade : ms.label;
           const x = msX(ms.xPct);
           // Find the curve point closest to this milestone
           const closest = curvePts.reduce((best, pt) =>
@@ -220,7 +222,7 @@ export default function CareJourney({ position = 0, warrantyYears = 4, currentAb
           , curvePts[0]);
           const cy = closest[1];
           const bottomY = H - MB + 4;
-          const lines = ms.label.split("\n");
+          const lines = label.split("\n");
 
           return (
             <g key={i}>
@@ -277,7 +279,7 @@ export default function CareJourney({ position = 0, warrantyYears = 4, currentAb
             textAnchor={posLabelAnchor} fontSize="9.5" fontWeight="700"
             fill="#0a1628" fontFamily="'DM Sans', sans-serif"
           >
-            You are here
+            {pt.youAreHere}
           </text>
         </g>
 
@@ -286,7 +288,7 @@ export default function CareJourney({ position = 0, warrantyYears = 4, currentAb
           fontSize="10" fontWeight="700" fill="#374151"
           fontFamily="'DM Sans', sans-serif"
         >
-          {wYears}-Year Warranty Coverage
+          {pt.warrantyCoverage(wYears)}
         </text>
         <rect x={ML} y={barY} width={PW} height={barH} rx={barH / 2} fill="#f3f4f6" />
         <rect x={ML} y={barY} width={covW} height={barH} rx={barH / 2} fill="#16a34a" />

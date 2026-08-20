@@ -65,6 +65,8 @@ import Reports from "./views/Reports.jsx";
 import { AudigramSVG, getDegreeName, PHONEMES, interpolateThreshold } from "./components/AudiogramSVG.jsx";
 import AudiogramEntry from "./components/AudiogramEntry.jsx";
 import { mapComplaintsToFindings } from "./lib/intakeReview.js";
+import { CONSULT_T } from "./i18n/consultation.js";
+import { PRICING_T } from "./i18n/pricing.js";
 
 import TeamAdmin from "./views/TeamAdmin.jsx";
 import {
@@ -1537,6 +1539,26 @@ const STEP_TO_CHAPTER = [1, 1, 2, 2, 3, 4, 4, 5];
 const CHAPTER_TITLES = ["Patient story", "Evidence", "Investment", "Recommendation", "Commitment"];
 
 
+// ── PATIENT-FACING DISPLAY LANGUAGE TOGGLE ────────────────────────────────────
+// Small EN/ES pill pair rendered inside patient-facing surfaces (Consultation
+// Mode, Presentation, Pricing Reveal, …) so the provider can flip the display
+// language live mid-appointment. Session-only — never writes the patient's
+// stored preference. Provider chrome stays English.
+function LangToggle({ lang, onChange }) {
+  return (
+    <div style={{display:"inline-flex",border:"1px solid #d1d5db",borderRadius:8,overflow:"hidden",flexShrink:0}}>
+      {[["en","EN"],["es","ES"]].map(([l,label])=>(
+        <button key={l} onClick={()=>onChange(l)}
+          style={{padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer",border:"none",fontFamily:"'Sora',sans-serif",letterSpacing:0.5,
+            background: lang===l ? "#0a1628" : "#fff",
+            color: lang===l ? "#fff" : "#6b7280"}}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── ROLE CHECK UTILITY ─────────────────────────────────────────────────────────
 // Role categories: 'care_coordinator' | 'provider' | 'closer' | 'admin'
 // This is UI gating (defense-in-depth). The real enforcement is in Postgres RLS:
@@ -1613,6 +1635,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   const [view, setView] = useState("dashboard");
   const [patients, setPatients] = useState([]);
   const [selectedPatient, setSelectedPatient] = useState(null);
+  // Language the patient-facing surfaces render in. Follows the selected
+  // patient's stored preference (and the kiosk language on intake accept);
+  // the provider can flip it live with the LangToggle. Session-only.
+  const [displayLang, setDisplayLang] = useState("en");
+  useEffect(() => {
+    if (selectedPatient) setDisplayLang(selectedPatient.preferredLanguage === "es" ? "es" : "en");
+  }, [selectedPatient?.id, selectedPatient?.preferredLanguage]);
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
@@ -2394,7 +2423,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     const parts = (p.name || "").trim().split(/\s+/);
     const lastName  = parts.length > 1 ? parts.pop() : "";
     const firstName = parts.join(" ");
-    setEditDraft({ firstName, lastName, phone: p.phone || "", email: p.email || "", dob: p.dob || "", payType: p.payType || "insurance", notes: p.notes || "" });
+    setEditDraft({ firstName, lastName, phone: p.phone || "", email: p.email || "", dob: p.dob || "", payType: p.payType || "insurance", preferredLanguage: p.preferredLanguage || "en", notes: p.notes || "" });
     setEditSection("contact");
     setEditError(null);
     setEditSuccess(null);
@@ -2410,10 +2439,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         email:      editDraft.email  || null,
         dob:        editDraft.dob    || null,
         pay_type:   editDraft.payType,
+        preferred_language: editDraft.preferredLanguage || "en",
         notes:      editDraft.notes  || null,
       });
       const newName = [editDraft.firstName, editDraft.lastName].filter(Boolean).join(" ");
-      setSelectedPatient(p => ({ ...p, name: newName, phone: editDraft.phone, email: editDraft.email, dob: editDraft.dob, payType: editDraft.payType, notes: editDraft.notes }));
+      setSelectedPatient(p => ({ ...p, name: newName, phone: editDraft.phone, email: editDraft.email, dob: editDraft.dob, payType: editDraft.payType, preferredLanguage: editDraft.preferredLanguage, notes: editDraft.notes }));
       setPatients(prev => prev.map(pt => pt.id === selectedPatient.id ? { ...pt, name: newName, phone: editDraft.phone, email: editDraft.email } : pt));
       setEditSuccess("Saved");
       setTimeout(() => { setEditSection(null); setEditSuccess(null); }, 1400);
@@ -3074,6 +3104,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           audiology: form.audiology,
           counselingSections,
           provider: { fullName: paProvider?.fullName || "" },
+          lang: displayLang,
         });
         const share = await createQuoteShare({
           patientId: wizardPatientId,
@@ -3528,6 +3559,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // intake queryable by patient_id from the very first save.
   const handleAcceptIntake = async (intake) => {
     if (!confirmDiscardWizardDraft()) return; // intake stays in the queue
+    // Patient-facing wizard steps render in the language they chose at the kiosk.
+    setDisplayLang(intake._meta?.lang === "es" ? "es" : "en");
     const a = unwrapIntakeAnswers(intake.answers) || {};
     const phone = a.mobilePhone || a.homePhone || a.workPhone || a.phone || "";
     const digits = phone.replace(/\D/g,"").slice(0,10);
@@ -4943,6 +4976,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // audiometric finding that explains it.
   const renderResultsContent = (aud, chiefComplaint, intakeAnswers = null) => {
     if (!aud) return null;
+    const ct = CONSULT_T[displayLang] || CONSULT_T.en;
     const rPTA = getPTA(aud.rightT);
     const lPTA = getPTA(aud.leftT);
     const hasThresholds = rPTA!=null || lPTA!=null;
@@ -4977,29 +5011,22 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     const inaudibleBoth = computeInaudible(null, "both");
     const highFreqInaudible = inaudibleBoth.filter(l => HIGH_FREQ_CONSONANTS.includes(l));
 
-    const findingSentence = {
-      "Normal": "Your hearing thresholds are within the normal range.",
-      "Mild": "You have a mild hearing loss \u2014 most noticeable in quiet or reverberant rooms.",
-      "Moderate": "You have a moderate hearing loss affecting everyday conversation.",
-      "Moderately Severe": "You have a moderately severe hearing loss. Unaided conversation requires significant effort.",
-      "Severe": "You have a severe hearing loss. Unaided speech understanding is substantially compromised.",
-      "Profound": "You have a profound hearing loss. Unaided communication is extremely limited.",
-    }[overallSeverity] || null;
+    const findingSentence = ct.findingSentence[overallSeverity] || null;
 
     const clarityGapCopy = (() => {
       if(worseCCT==null || worseCCT >= 90) return null;
       const deficit = 100 - worseCCT;
-      if(worseCCT >= 75) return "Even at a comfortable volume, your ability to understand speech clearly is mildly reduced.";
-      if(worseCCT >= 60) return `At a level where someone with normal hearing scores 100%, you scored ${worseCCT}%. That ${deficit}-point gap is the difference between hearing and understanding.`;
-      return "Your word recognition deficit is significant. You are likely missing large portions of conversation even when sound is loud enough to hear.";
+      if(worseCCT >= 75) return ct.clarityMild;
+      if(worseCCT >= 60) return ct.clarityGap(worseCCT, deficit);
+      return ct.claritySevere;
     })();
 
     const missingCopy = (() => {
       if(!hasThresholds) return null;
       const n = highFreqInaudible.length;
-      if(n >= 5) return "The sounds you\u2019re missing most \u2014 S, F, TH, SH \u2014 are the consonants that define word endings and questions. Without them, speech sounds muffled rather than quiet.";
-      if(n >= 3) return "Several high-frequency consonants are in your inaudible range. This explains why some words sound unclear even when the volume seems fine.";
-      if(n >= 1) return "A small number of high-frequency sounds fall just outside your hearing range \u2014 likely subtle, but present.";
+      if(n >= 5) return ct.missingMany;
+      if(n >= 3) return ct.missingSome;
+      if(n >= 1) return ct.missingFew;
       return null;
     })();
 
@@ -5012,7 +5039,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           worseCCT,
           highFreqCount: highFreqInaudible.length,
           hasThresholds,
-        })
+        }, displayLang)
       : [];
     const intakeVisitReason = (intakeAnswers?.visitReason || "").trim();
 
@@ -5020,7 +5047,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       <>
         {hasThresholds && (
           <div className="card">
-            <div className="card-title">Your Audiogram</div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+              <div className="card-title">{ct.yourAudiogram}</div>
+              <LangToggle lang={displayLang} onChange={setDisplayLang} />
+            </div>
             <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
               {["left","both","right"].map(mode=>(
                 <button key={mode} onClick={()=>setPhonemeDimMode(mode)}
@@ -5028,10 +5058,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     border:phonemeDimMode===mode?"2px solid #6366f1":"1px solid #d1d5db",
                     background:phonemeDimMode===mode?"#eef2ff":"#fff",
                     color:phonemeDimMode===mode?"#4f46e5":mode==="right"?"#dc2626":mode==="left"?"#2563eb":"#374151"}}>
-                  {mode==="left"?"Left":mode==="right"?"Right":"Both"}
+                  {mode==="left"?ct.earLeft:mode==="right"?ct.earRight:ct.earBoth}
                 </button>
               ))}
-              <span style={{fontSize:11,color:"#9ca3af",alignSelf:"center",marginLeft:4}}>Focus ear</span>
+              <span style={{fontSize:11,color:"#9ca3af",alignSelf:"center",marginLeft:4}}>{ct.focusEar}</span>
 
               <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center"}}>
                 <button onClick={()=>setDrawingEnabled(!drawingEnabled)}
@@ -5040,7 +5070,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     background:drawingEnabled?"#fffbeb":"#fff",
                     color:drawingEnabled?"#b45309":"#6b7280"}}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
-                  Draw
+                  {ct.draw}
                 </button>
                 {drawingEnabled && <>
                   {[["#dc2626","Red"],["#2563eb","Blue"],["#1e293b","Black"]].map(([c,label])=>(
@@ -5081,9 +5111,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             {/* Hearing Simulation Paragraph */}
             <div style={{margin:"0 0 16px",padding:"16px 20px",background:"#fff",border:"1px solid #E4E0D5",borderRadius:10}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:8}}>
-                <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>What speech sounds like with your hearing</div>
+                <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#9ca3af"}}>{ct.simTitle}</div>
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{fontSize:10,color:"#9ca3af",fontWeight:600}}>Dim</span>
+                  <span style={{fontSize:10,color:"#9ca3af",fontWeight:600}}>{ct.dim}</span>
                   <input type="range" min="0" max="100" value={dimIntensity} onChange={e=>setDimIntensity(Number(e.target.value))}
                     style={{width:100,accentColor:"#6366f1",cursor:"pointer"}}/>
                   <span style={{fontSize:10,color:"#9ca3af",fontWeight:600,minWidth:28}}>{dimIntensity}%</span>
@@ -5096,10 +5126,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   style={{display:"flex",alignItems:"center",gap:7,padding:"8px 16px",borderRadius:8,border:"none",cursor:"pointer",
                     background: simPlaying ? "#dc2626" : "#4f46e5", color:"#fff", fontFamily:"'Sora',sans-serif", fontWeight:700, fontSize:13}}>
                   <span style={{fontSize:12}}>{simPlaying ? "■" : "▶"}</span>
-                  {simPlaying ? "Stop" : "Hear this"}
+                  {simPlaying ? ct.stop : ct.hearThis}
                 </button>
                 <div style={{display:"inline-flex",border:"1px solid #d1d5db",borderRadius:8,overflow:"hidden"}}>
-                  {[["typical","Typical hearing"],["yours","Your hearing"]].map(([m,label])=>(
+                  {[["typical",ct.typicalHearing],["yours",ct.yourHearing]].map(([m,label])=>(
                     <button key={m} onClick={()=>setSimMode(m)}
                       style={{padding:"7px 13px",fontSize:12,fontWeight:600,cursor:"pointer",border:"none",fontFamily:"'Sora',sans-serif",
                         background: simMode===m ? (m==="yours" ? "#4f46e5" : "#0a1628") : "#fff",
@@ -5109,7 +5139,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   ))}
                 </div>
                 <span style={{fontSize:11,color:"#9ca3af"}}>
-                  {simPlaying ? "Toggle to compare — same clip, your audiogram applied" : "Plays the sentence through your hearing loss"}
+                  {simPlaying ? ct.simCaptionPlaying : ct.simCaptionIdle}
                 </span>
               </div>
               <p style={{fontSize:16,lineHeight:2,fontFamily:"'DM Sans',sans-serif",margin:0,letterSpacing:"0.01em"}}>
@@ -5146,31 +5176,31 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:14}}>
               {rSeverity&&(
                 <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:8,padding:"10px 16px"}}>
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:2}}>Right Ear</div>
-                  <div style={{fontSize:16,fontWeight:800,color:"#0a1628"}}>{rSeverity}</div>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:2}}>{ct.rightEar}</div>
+                  <div style={{fontSize:16,fontWeight:800,color:"#0a1628"}}>{ct.severity[rSeverity]||rSeverity}</div>
                 </div>
               )}
               {lSeverity&&(
                 <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:"10px 16px"}}>
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:2}}>Left Ear</div>
-                  <div style={{fontSize:16,fontWeight:800,color:"#0a1628"}}>{lSeverity}</div>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:2}}>{ct.leftEar}</div>
+                  <div style={{fontSize:16,fontWeight:800,color:"#0a1628"}}>{ct.severity[lSeverity]||lSeverity}</div>
                 </div>
               )}
               {aud.sinBin!=null&&(
                 <div style={{background:"#FAF8F2",border:"1px solid #E4E0D5",borderRadius:8,padding:"10px 16px"}}>
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>QuickSIN SNR Loss</div>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:2}}>{ct.quickSin}</div>
                   <div style={{fontSize:18,fontWeight:800,color:"#0a1628"}}>{aud.sinBin} <span style={{fontSize:11,color:"#9ca3af",fontWeight:400}}>dB</span></div>
                   <div style={{fontSize:11,fontWeight:600,marginTop:2,
                     color:aud.sinBin<=2?"#16a34a":aud.sinBin<=7?"#ca8a04":aud.sinBin<=15?"#ea580c":"#dc2626"}}>
-                    {aud.sinBin<=2?"Near-normal":aud.sinBin<=7?"Mild":aud.sinBin<=15?"Moderate":"Severe"} difficulty in noise
+                    {ct.noiseDifficulty(aud.sinBin<=2?ct.noiseLabels.nearNormal:aud.sinBin<=7?ct.noiseLabels.mild:aud.sinBin<=15?ct.noiseLabels.moderate:ct.noiseLabels.severe)}
                   </div>
                 </div>
               )}
               {(aud.tinnitusRight||aud.tinnitusLeft)&&(
                 <div style={{background:"#fefce8",border:"1px solid #fde68a",borderRadius:8,padding:"10px 16px"}}>
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#92400e",marginBottom:2}}>Tinnitus</div>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#92400e",marginBottom:2}}>{ct.tinnitus}</div>
                   <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>
-                    {aud.tinnitusRight&&aud.tinnitusLeft?"Bilateral":aud.tinnitusRight?"Right Ear":"Left Ear"}
+                    {aud.tinnitusRight&&aud.tinnitusLeft?ct.bilateral:aud.tinnitusRight?ct.rightEar:ct.leftEar}
                   </div>
                 </div>
               )}
@@ -5180,35 +5210,35 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             {(cctR!=null||cctL!=null||aud.wrMclR!=null||aud.wrMclL!=null) && (
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
                 <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:10,padding:"14px 16px"}}>
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:10}}>Right Ear</div>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#dc2626",marginBottom:10}}>{ct.rightEar}</div>
                   <div style={{marginBottom:10}}>
-                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>CCT Score</div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>{ct.cctScore}</div>
                     <div style={{fontSize:22,fontWeight:800,color:cctColor(cctR)}}>{cctR!=null?`${cctR}%`:"\u2014"}</div>
                     {cctDefR!=null&&cctDefR>0&&(
-                      <div style={{fontSize:12,fontWeight:700,color:"#dc2626",marginTop:2}}>{cctDefR} pts below normal</div>
+                      <div style={{fontSize:12,fontWeight:700,color:"#dc2626",marginTop:2}}>{ct.ptsBelowNormal(cctDefR)}</div>
                     )}
-                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>California Consonant Test @ 45 dB</div>
+                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>{ct.cctCaption}</div>
                   </div>
                   <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>WRS @ MCL</div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>{ct.wrsMcl}</div>
                     <div style={{fontSize:22,fontWeight:800,color:"#0a1628"}}>{aud.wrMclR!=null?`${aud.wrMclR}%`:"\u2014"}</div>
-                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>Word recognition at comfortable volume</div>
+                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>{ct.wrsCaption}</div>
                   </div>
                 </div>
                 <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:10,padding:"14px 16px"}}>
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:10}}>Left Ear</div>
+                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#2563eb",marginBottom:10}}>{ct.leftEar}</div>
                   <div style={{marginBottom:10}}>
-                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>CCT Score</div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>{ct.cctScore}</div>
                     <div style={{fontSize:22,fontWeight:800,color:cctColor(cctL)}}>{cctL!=null?`${cctL}%`:"\u2014"}</div>
                     {cctDefL!=null&&cctDefL>0&&(
-                      <div style={{fontSize:12,fontWeight:700,color:"#dc2626",marginTop:2}}>{cctDefL} pts below normal</div>
+                      <div style={{fontSize:12,fontWeight:700,color:"#dc2626",marginTop:2}}>{ct.ptsBelowNormal(cctDefL)}</div>
                     )}
-                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>California Consonant Test @ 45 dB</div>
+                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>{ct.cctCaption}</div>
                   </div>
                   <div>
-                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>WRS @ MCL</div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:3}}>{ct.wrsMcl}</div>
                     <div style={{fontSize:22,fontWeight:800,color:"#0a1628"}}>{aud.wrMclL!=null?`${aud.wrMclL}%`:"\u2014"}</div>
-                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>Word recognition at comfortable volume</div>
+                    <div style={{fontSize:10,color:"#9ca3af",marginTop:3}}>{ct.wrsCaption}</div>
                   </div>
                 </div>
               </div>
@@ -5222,11 +5252,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             this" state rather than an invented mechanism. */}
         {complaintRows.length > 0 && (
           <div className="card">
-            <div className="card-title">What You Told Us — Explained</div>
+            <div className="card-title">{ct.toldUsTitle}</div>
             {intakeVisitReason && (
               <div style={{fontSize:14,fontStyle:"italic",color:"#374151",lineHeight:1.6,padding:"10px 16px",background:"#F0F9FA",borderLeft:"3px solid #0A7B8C",borderRadius:"0 8px 8px 0",marginBottom:16}}>
                 “{intakeVisitReason}”
-                <span style={{display:"block",fontSize:11,fontStyle:"normal",color:"#6b7280",marginTop:4}}>— your reason for today's visit</span>
+                <span style={{display:"block",fontSize:11,fontStyle:"normal",color:"#6b7280",marginTop:4}}>{ct.visitReasonCaption}</span>
               </div>
             )}
             <div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -5240,7 +5270,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   <div style={{fontSize:22,lineHeight:1.2,flexShrink:0}}>{row.icon}</div>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:13,fontWeight:700,color:"#0a1628",marginBottom:3}}>
-                      You told us: {row.restatement.toLowerCase()}
+                      {ct.youToldUs} {row.restatement.toLowerCase()}
                     </div>
                     <div style={{fontSize:13,color: row.supported ? "#374151" : "#64748b",lineHeight:1.6}}>
                       {row.explanation}
@@ -5255,7 +5285,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         {/* Dynamic Counseling Copy */}
         {hasAnyData && (
           <div className="card">
-            <div className="card-title">Understanding Your Results</div>
+            <div className="card-title">{ct.understandingTitle}</div>
             {findingSentence && (
               <div style={{fontSize:14,color:"#0a1628",fontWeight:600,lineHeight:1.7,marginBottom:16}}>
                 {findingSentence}
@@ -5272,7 +5302,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               </div>
             )}
             <div style={{fontSize:13,color:"#6b7280",fontWeight:500,lineHeight:1.7,paddingTop:8,borderTop:"1px solid #F0EDE3"}}>
-              Below, you'll see how treatment addresses each of these gaps.
+              {ct.treatmentBelow}
             </div>
           </div>
         )}
@@ -5280,8 +5310,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         {!hasAnyData && (
           <div className="card" style={{textAlign:"center",padding:"40px 20px",color:"#9ca3af"}}>
             <div style={{fontSize:40,marginBottom:12}}>📋</div>
-            <div style={{fontSize:16,fontWeight:600,color:"#374151",marginBottom:8}}>No test data recorded yet</div>
-            <div style={{fontSize:13}}>Go back to the Testing step to enter audiogram and speech scores, or continue to treatment options.</div>
+            <div style={{fontSize:16,fontWeight:600,color:"#374151",marginBottom:8}}>{ct.noDataTitle}</div>
+            <div style={{fontSize:13}}>{ct.noDataBody}</div>
           </div>
         )}
       </>
@@ -5432,6 +5462,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       return (
         <HealthHistory
           intake={wizardIntake}
+          lang={displayLang}
+          langControl={<LangToggle lang={displayLang} onChange={setDisplayLang} />}
           onUpdateAnswer={async (key, value) => {
             if (!intakeId) return;
             const nextAnswers = { ...(wizardIntake.answers || {}), [key]: value };
@@ -5566,6 +5598,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           tierBlurbs={TH_TIER_BLURBS}
           deviceDrivenTpa={form.payType === "insurance" && (form.tpa === "UHCH" || form.tpa === "Nations") ? form.tpa : null}
           deviceDrivenTiers={selectedInsurancePlan?.tiers || []}
+          lang={displayLang}
         />
       );
     }
@@ -6240,7 +6273,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       onSave={handleSaveComplexBenefit}
                       onCancel={cbInputs ? null : () => setCbOpen(false)}
                     />
-                    {cbResult && cbResult.patientTotal > 0 && <FinancingCalculator total={cbResult.patientTotal} />}
+                    {cbResult && cbResult.patientTotal > 0 && <FinancingCalculator total={cbResult.patientTotal} lang={displayLang} />}
                   </>
                 );
               }
@@ -6250,6 +6283,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               // Render the investment without a savings badge (Kurt: Relate has
               // no street retail to anchor against); off-plan additionally shows
               // the acknowledgement-form flag and bills standard retail.
+              const pt = PRICING_T[displayLang] || PRICING_T.en;
               const isDeviceDrivenTpa = form.tpa === 'UHCH' || form.tpa === 'Nations';
               const tpaName = form.tpa === 'Nations' ? 'NationsBenefits' : 'UHCH';
               // Insurance selected but no plan chosen → the device is priced at
@@ -6275,11 +6309,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       </div>
                     )}
                     <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}}>
-                      {offPlan ? "Standard Retail · Off-Plan" : isInsuranceNoPlan ? "Standard Retail" : "Your Investment Today"}
+                      {offPlan ? "Standard Retail · Off-Plan" : isInsuranceNoPlan ? "Standard Retail" : pt.investmentToday}
                     </div>
                     <div style={{display:"flex",alignItems:"baseline",gap:8}}>
                       <span style={{fontSize:28,fontWeight:800,color:"#0a1628"}}>${fmt2(investment)}</span>
-                      <span style={{fontSize:12,color:"#6b7280"}}>{bothDone ? "pair (2 aids)" : "per aid"}</span>
+                      <span style={{fontSize:12,color:"#6b7280"}}>{bothDone ? pt.pairTwoAids : pt.perAid}</span>
                     </div>
                     {!offPlan && (
                       <div style={{fontSize:12,color:"#6b7280",marginTop:6}}>
@@ -6315,7 +6349,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               if (!pricingRevealData || form.tierPrice == null || !anyConfigured) {
                 return (
                   <div style={{background:"#FCF8EF",border:"1px solid #EADFC7",borderRadius:14,padding:"22px 24px",marginTop:12,textAlign:"center",color:"#9AA39B",fontSize:13,fontFamily:"'Sora',sans-serif"}}>
-                    Select a device to see your investment.
+                    {pt.selectDeviceFirst}
                   </div>
                 );
               }
@@ -6381,10 +6415,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               const reflectAnswers = unwrapIntakeAnswers(wizardIntake?.answers) || null;
               const reflectFlags = flaggedEnvironments(reflectAnswers);
               const reflectEffort = flaggedEffortSignals(reflectAnswers).length > 0;
-              const reflectSits = ENVIRONMENTS.filter(e => reflectFlags.has(e.id)).map(e => (SITUATION_LABEL[e.id] || e.label).toLowerCase());
-              const reflectText = reflectSits.length === 0 ? null
-                : reflectSits.length === 1 ? reflectSits[0]
-                : reflectSits.slice(0, -1).join(", ") + " and " + reflectSits[reflectSits.length - 1];
+              const reflectSits = ENVIRONMENTS.filter(e => reflectFlags.has(e.id)).map(e => (pt.situationLabels[e.id] || SITUATION_LABEL[e.id] || e.label).toLowerCase());
+              const reflectText = reflectSits.length === 0 ? null : pt.listJoin(reflectSits);
 
               return (
                 <div style={{background:"#FCF8EF",border:"1px solid #EADFC7",borderRadius:14,padding:"22px 24px",marginTop:12,fontFamily:"'Sora',sans-serif",boxShadow:"0 1px 2px rgba(16,32,28,.04),0 14px 30px -22px rgba(120,90,30,.4)"}}>
@@ -6393,13 +6425,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       nothing was flagged. */}
                   {reflectText ? (
                     <div style={{fontSize:13.5,color:"#54625C",fontStyle:"italic",borderLeft:"3px solid #B5832E",paddingLeft:13,marginBottom:16,lineHeight:1.55}}>
-                      You told us the hardest moments have been {reflectText}{reflectEffort
-                        ? " — and that listening there leaves you drained."
-                        : " — the places where listening takes the most out of you."}
+                      {pt.reflectHardest(reflectText, reflectEffort)}
                     </div>
                   ) : reflectEffort ? (
                     <div style={{fontSize:13.5,color:"#54625C",fontStyle:"italic",borderLeft:"3px solid #B5832E",paddingLeft:13,marginBottom:16,lineHeight:1.55}}>
-                      You told us listening takes real work these days — conversations leave you more tired than they should.
+                      {pt.reflectEffortOnly}
                     </div>
                   ) : chiefComplaint ? (
                     <div style={{fontSize:13.5,color:"#54625C",fontStyle:"italic",borderLeft:"3px solid #B5832E",paddingLeft:13,marginBottom:16,lineHeight:1.55}}>
@@ -6407,9 +6437,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     </div>
                   ) : null}
 
-                  {/* Technology tier label */}
-                  <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#B5832E",marginBottom:6}}>
-                    {tierLabel} Technology
+                  {/* Technology tier label + display-language toggle */}
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+                    <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#B5832E"}}>
+                      {pt.tierTech(tierLabel)}
+                    </div>
+                    <LangToggle lang={displayLang} onChange={setDisplayLang} />
                   </div>
 
                   {/* Listening-effort framing — who does the work of separating
@@ -6419,20 +6452,20 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       label's rank; silent if unmapped. */}
                   {(() => {
                     const effRank = rankFromTierLabel(tierLabel);
-                    const eff = effRank != null ? TIER_EFFORT_COPY[effRank] : null;
+                    const eff = effRank != null ? (pt.tierEffort[effRank] || TIER_EFFORT_COPY[effRank]) : null;
                     return eff ? (
                       <div style={{fontSize:12.5,lineHeight:1.55,color:"#54625C",marginBottom:14}}>
-                        <span style={{fontWeight:700,color:"#B5832E"}}>Listening effort · </span>{eff}
+                        <span style={{fontWeight:700,color:"#B5832E"}}>{pt.listeningEffort} · </span>{eff}
                       </div>
                     ) : null;
                   })()}
 
                   {/* Your investment — cost first, stated plainly, in the display serif */}
                   <div style={{marginBottom:16}}>
-                    <div style={{fontSize:11,fontWeight:600,color:"#9AA39B",textTransform:"uppercase",letterSpacing:0.6,marginBottom:5}}>Your investment</div>
+                    <div style={{fontSize:11,fontWeight:600,color:"#9AA39B",textTransform:"uppercase",letterSpacing:0.6,marginBottom:5}}>{pt.yourInvestment}</div>
                     <div style={{display:"flex",alignItems:"baseline",gap:9}}>
                       <span style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:38,fontWeight:600,color:"#16201D",lineHeight:1}}>${fmt(investmentDisplay)}</span>
-                      <span style={{fontSize:12.5,color:"#54625C"}}>{bothDone ? "for both hearing aids" : "per aid"}</span>
+                      <span style={{fontSize:12.5,color:"#54625C"}}>{bothDone ? pt.forBothAids : pt.perAid}</span>
                     </div>
                     {/* Per-aid toggle / per-ear breakdown. Shows the
                         simple "$X / aid" when ears match, and a labeled
@@ -6445,22 +6478,22 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       if (!earsDiffer) {
                         return (
                           <div style={{fontSize:12,color:"#9AA39B",marginTop:3}}>
-                            ${fmt(copayPerAid)} / aid
+                            {pt.perAidSlash(`$${fmt(copayPerAid)}`)}
                           </div>
                         );
                       }
                       const leftFam  = catalog.find(e => e.id === form.left.familyId);
                       const rightFam = catalog.find(e => e.id === form.right.familyId);
-                      const leftLabel  = perEar.left.source === 'cros' ? 'CROS unit' : (leftFam?.family || '—');
-                      const rightLabel = perEar.right.source === 'cros' ? 'CROS unit' : (rightFam?.family || '—');
+                      const leftLabel  = perEar.left.source === 'cros' ? pt.crosUnit : (leftFam?.family || '—');
+                      const rightLabel = perEar.right.source === 'cros' ? pt.crosUnit : (rightFam?.family || '—');
                       return (
                         <div style={{marginTop:8,fontSize:12,color:"#54625C"}}>
                           <div style={{display:"flex",justifyContent:"space-between",padding:"3px 0"}}>
-                            <span>Right · {rightLabel}</span>
+                            <span>{pt.right} · {rightLabel}</span>
                             <span style={{fontWeight:600}}>${fmt(rp)}</span>
                           </div>
                           <div style={{display:"flex",justifyContent:"space-between",padding:"3px 0"}}>
-                            <span>Left · {leftLabel}</span>
+                            <span>{pt.left} · {leftLabel}</span>
                             <span style={{fontWeight:600}}>${fmt(lp)}</span>
                           </div>
                         </div>
@@ -6474,27 +6507,27 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderTop:"1px solid #EADFC7",fontSize:13}}>
                     {isPrivatePay ? (
                       <span style={{color:"#54625C",display:"flex",alignItems:"center",gap:6}}>
-                        <span style={{color:"#1B8A7A",fontWeight:700}}>✓</span> Complete Care+ <span style={{color:"#9AA39B"}}>(included)</span>
+                        <span style={{color:"#1B8A7A",fontWeight:700}}>✓</span> Complete Care+ <span style={{color:"#9AA39B"}}>{pt.ccIncluded}</span>
                       </span>
                     ) : (
-                      <span style={{color:"#54625C"}}>Your plan covers</span>
+                      <span style={{color:"#54625C"}}>{pt.planCovers}</span>
                     )}
                     <span style={{fontWeight:700,color:"#6E4E16"}}>${fmt(planCoversWithCare)}</span>
                   </div>
 
                   {/* Full retail value — never shown without the savings beside it */}
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderTop:"1px solid #EADFC7",fontSize:13}}>
-                    <span style={{color:"#9AA39B"}}>Full retail value</span>
+                    <span style={{color:"#9AA39B"}}>{pt.fullRetailValue}</span>
                     <span style={{color:"#9AA39B",textDecoration:"line-through"}}>${fmt(retailWithCare)}</span>
                   </div>
 
                   {/* Savings — the helping number, in brass */}
                   <div style={{background:"#F4EAD4",borderRadius:9,padding:"11px 14px",marginTop:10,display:"flex",alignItems:"center",justifyContent:"center",gap:9}}>
                     <span style={{fontSize:13.5,fontWeight:700,color:"#6E4E16"}}>
-                      You save ${fmt(savingsWithCare)}
+                      {pt.youSave(`$${fmt(savingsWithCare)}`)}
                     </span>
                     <span style={{background:"#B5832E",color:"white",borderRadius:20,padding:"2px 11px",fontSize:11,fontWeight:700}}>
-                      {savingsPctDisplay}% off
+                      {pt.pctOff(savingsPctDisplay)}
                     </span>
                   </div>
 
@@ -6502,13 +6535,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       not "lifetime"). Bundled for private pay; the opt-out default
                       care plan for insurance (confirmed on the step-6 care-plan step). */}
                   <div style={{marginTop:16,background:"#0B4A42",borderRadius:11,padding:"15px 17px",color:"#fff"}}>
-                    <div style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:15,fontWeight:600,marginBottom:6}}>Five years of care, included</div>
+                    <div style={{fontFamily:"'Fraunces',Georgia,serif",fontSize:15,fontWeight:600,marginBottom:6}}>{pt.fiveYearsTitle}</div>
                     <div style={{fontSize:12.5,lineHeight:1.6,color:"rgba(255,255,255,0.82)"}}>
-                      Unlimited visits for 5 years · a 4-year repair warranty (your manufacturer's 3 years plus 1 more from us) · cleanings, adjustments, and a check-in call two days after you start.
+                      {pt.fiveYearsBody}
                     </div>
                     {!isPrivatePay && (
                       <div style={{fontSize:11.5,lineHeight:1.5,color:"rgba(255,255,255,0.6)",marginTop:8}}>
-                        Your default care plan — we'll confirm it together on the next step.
+                        {pt.defaultCarePlanNote}
                       </div>
                     )}
                   </div>
@@ -6516,7 +6549,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   {/* Comfortable monthly options — interactive CareCredit / Allegro
                       calculator: deferred-interest (6/12/18) vs fixed-APR
                       (24/36/48/60) terms, with real APR + total cost shown. */}
-                  <FinancingCalculator total={investmentDisplay} />
+                  <FinancingCalculator total={investmentDisplay} lang={displayLang} />
                 </div>
               );
             })()}
@@ -6583,7 +6616,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 </div>
                 {showWizardCompare && (
                   <div style={{ marginTop: 16 }}>
-                    <DeviceComparison variant="embedded" initialOld={intakeOld} proposedNew={proposedNew} flaggedEnvs={compFlags} />
+                    <DeviceComparison variant="embedded" initialOld={intakeOld} proposedNew={proposedNew} flaggedEnvs={compFlags} lang={displayLang} />
                   </div>
                 )}
               </div>
@@ -6758,12 +6791,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       return (
         <>
           {/* Care journey visualization */}
-          <CareJourney />
+          <CareJourney lang={displayLang} />
 
           {/* What ongoing treatment actually looks like — the lifetime care
               relationship, explained before the patient picks how to pay for
               it. Visit counts derive from CARE_ARC. */}
-          <CareExpectations bridgeToPlans={form.payType !== "private"} />
+          <CareExpectations bridgeToPlans={form.payType !== "private"} lang={displayLang} />
 
           {/* Plan selector — three peer options, no pre-selection */}
           <div className="card">
@@ -7831,6 +7864,16 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       ))}
                     </div>
                   </div>
+                  <div style={{marginBottom:10}}>
+                    <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:6}}>Preferred Language</label>
+                    <div style={{display:"flex",gap:8}}>
+                      {[["en","English"],["es","Español"]].map(([val,label])=>(
+                        <div key={val} onClick={()=>setEditDraft(d=>({...d,preferredLanguage:val}))} style={{flex:1,border:`2px solid ${editDraft.preferredLanguage===val?"#0a1628":"#E4E0D5"}`,borderRadius:10,padding:"10px",cursor:"pointer",textAlign:"center",background:editDraft.preferredLanguage===val?"#FBF9F3":"white",transition:"all 0.15s"}}>
+                          <div style={{fontSize:13,fontWeight:600,color:"#0a1628"}}>{label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                   <div style={{marginBottom:4}}>
                     <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Notes</label>
                     <textarea value={editDraft.notes} onChange={e=>setEditDraft(d=>({...d,notes:e.target.value}))} rows={3} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",resize:"vertical",boxSizing:"border-box"}} />
@@ -7848,6 +7891,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val">{v}</span></div>
                   ))}
                   {p.payType && <div className="detail-row"><span className="detail-key">Pay Type</span><span className="detail-val">{p.payType==="insurance"?"Insurance":"Private Pay"}</span></div>}
+                  <div className="detail-row"><span className="detail-key">Language</span><span className="detail-val">{p.preferredLanguage==="es"?"Español":"English"}</span></div>
                   {p.notes && <div className="detail-row"><span className="detail-key">Notes</span><span className="detail-val" style={{whiteSpace:"pre-wrap"}}>{p.notes}</span></div>}
                 </div>
               )}
@@ -9946,6 +9990,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                           Annual / Upgrade
                         </span>
                       )}
+                      {intake._meta?.lang === "es" && (
+                        <span style={{marginLeft:8,background:"#b45309",color:"white",borderRadius:20,
+                          padding:"2px 9px",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,verticalAlign:"middle"}}
+                          title="Intake completed in Spanish">
+                          ES
+                        </span>
+                      )}
                     </div>
                     <div className="queue-card-meta">Submitted {submitted}</div>
                     <div className="queue-card-fields">
@@ -10298,7 +10349,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 <button className="btn-ghost" onClick={()=>setView("consultation")}>{"\u2190"} Back to Consultation</button>
               </div>
               <div className="content">
-                <CouplesComparison patient={selectedPatient} clinicId={clinicId} onExit={()=>setView("consultation")} />
+                <CouplesComparison patient={selectedPatient} clinicId={clinicId} onExit={()=>setView("consultation")} lang={displayLang} />
               </div>
             </>
           )}
@@ -10312,7 +10363,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 <button className="btn-ghost" onClick={()=>setView("dashboard")}>{"←"} Back</button>
               </div>
               <div className="content">
-                <ComparisonHub patientId={selectedPatient?.id || null} />
+                <ComparisonHub patientId={selectedPatient?.id || null} lang={displayLang} />
               </div>
             </>
           )}

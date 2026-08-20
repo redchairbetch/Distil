@@ -35,6 +35,7 @@ import { deviceImageUrl } from "../deviceImages.js";
 import {
   indexCatalog, compareDevices, resolveBase, ladderOf, CATEGORY_LABELS,
 } from "../catalogComparison.js";
+import { COMP_T } from "../i18n/comparison.js";
 
 const CURRENT = "current";
 
@@ -44,11 +45,11 @@ export function tierDisplayLabel(designation) {
 }
 
 // Position → patient-facing words. Exact positions are provider-view detail.
-function positionPhrase(pos, ladderSize) {
-  if (pos <= 1) return "the top technology level";
-  if (pos >= ladderSize) return "the entry technology level";
-  if (pos === 2 && ladderSize >= 4) return "an upper technology level";
-  return "a middle technology level";
+function positionPhrase(pos, ladderSize, ct) {
+  if (pos <= 1) return ct.posTop;
+  if (pos >= ladderSize) return ct.posEntry;
+  if (pos === 2 && ladderSize >= 4) return ct.posUpper;
+  return ct.posMiddle;
 }
 
 // ── Small atoms ──────────────────────────────────────────────────────────────
@@ -140,7 +141,7 @@ export function DeviceCascade({ idx, value, onChange, allowEmptyTier = false }) 
   );
 }
 
-function DeviceCard({ side, platform, tier, freetext, provider, onChangeClick }) {
+function DeviceCard({ side, platform, tier, freetext, provider, onChangeClick, ct }) {
   const isRec = side === "recommended";
   const img = deviceImageUrl(platform?.imageKey);
   const name = freetext
@@ -148,20 +149,20 @@ function DeviceCard({ side, platform, tier, freetext, provider, onChangeClick })
   const sub = platform
     ? [tier ? tierDisplayLabel(tier.tierDesignation) : null,
        platform.releaseYear || null,
-       platform.deviceClass === "otc" ? "over-the-counter" : null,
+       platform.deviceClass === "otc" ? ct.otcWord : null,
       ].filter(Boolean).join(" · ")
-    : freetext ? "not yet matched to the catalog" : null;
+    : freetext ? ct.notMatchedToCatalog : null;
   return (
     <div style={{ flex: 1, minWidth: 0, background: COLOR.card, border: `1px solid ${COLOR.line}`,
       borderRadius: 12, padding: 16, borderTop: `3px solid ${isRec ? COLOR.teal : COLOR.ink3}` }}>
       <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
         color: isRec ? COLOR.tealInk : COLOR.ink3, marginBottom: 6 }}>
-        {isRec ? "Recommended" : "Current devices"}
+        {isRec ? ct.recommendedLabel : ct.currentDevices}
       </div>
       <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontFamily: FONT.display, fontSize: 19, fontWeight: 700, color: COLOR.ink, lineHeight: 1.15 }}>
-            {name || (isRec ? "Pick a device" : "No device on record")}
+            {name || (isRec ? ct.pickADevice : ct.noDeviceOnRecord)}
           </div>
           {sub && <div style={{ fontSize: 12, color: COLOR.ink2, marginTop: 3 }}>{sub}</div>}
         </div>
@@ -231,27 +232,27 @@ function SectionTitle({ children }) {
   );
 }
 
-function GenerationStory({ result, provider }) {
+function GenerationStory({ result, provider, ct }) {
   const { platformDelta, patient, recommended } = result;
   if (!platformDelta) return null;
   const countIsSolid = provider ||
     (patient.base.verificationStatus === "verified" && recommended.base.verificationStatus === "verified");
   const gens = platformDelta.generations;
   const headline = gens === 0
-    ? "Same platform generation"
+    ? ct.sameGen
     : countIsSolid && gens != null
-      ? `${gens} platform generation${gens === 1 ? "" : "s"} newer`
-      : "A newer platform generation";
+      ? ct.genNewer(gens)
+      : ct.aNewerGen;
   return (
     <div style={{ background: COLOR.card, border: `1px solid ${COLOR.line}`, borderRadius: 12,
       padding: 16, marginTop: 16 }}>
-      <SectionTitle>The platform — what changed underneath</SectionTitle>
+      <SectionTitle>{ct.platformSection}</SectionTitle>
       <div style={{ fontFamily: FONT.display, fontSize: 20, fontWeight: 700, color: COLOR.ink }}>
         {headline}
       </div>
       {gens === 0 && (
         <div style={{ fontSize: 13, color: COLOR.ink2, marginTop: 6 }}>
-          The current devices run on the same platform generation — the difference lives in the technology level below.
+          {ct.sameGenNote}
         </div>
       )}
       {platformDelta.steps.map(step => {
@@ -269,7 +270,7 @@ function GenerationStory({ result, provider }) {
             <div style={{ marginTop: 6 }}>
               {anyVisible
                 ? <ClaimChips items={items} provider={provider} />
-                : <div style={{ fontSize: 12, color: COLOR.ink3 }}>Details pending verification.</div>}
+                : <div style={{ fontSize: 12, color: COLOR.ink3 }}>{ct.pendingVerification}</div>}
             </div>
             {provider && step.platform.notes && (
               <div style={{ fontSize: 11, color: COLOR.ink3, marginTop: 6 }}>{step.platform.notes}</div>
@@ -281,34 +282,24 @@ function GenerationStory({ result, provider }) {
   );
 }
 
-function TierStory({ result, provider }) {
+function TierStory({ result, provider, ct }) {
   const td = result.tierDelta;
   if (!td) return null;
   let body;
   if (!td.applicable) {
-    const line = {
-      "patient-single-level-line":
-        "This line came in a single technology level — the platform story above carries the whole comparison.",
-      "single-level-recommendation":
-        "The recommended line comes in one level, so there is no tier ladder to climb.",
-      "unknown-patient-tier":
-        "The current devices' technology level isn't on record — set it to complete this part of the story.",
-      "no-recommended-tier":
-        "Pick a recommended level to complete this part of the story.",
-    }[td.reason] || null;
+    const line = ct.tierReasons[td.reason] || null;
     body = line && <div style={{ fontSize: 13, color: COLOR.ink2 }}>{line}</div>;
   } else if (!td.moved) {
     body = (
       <div style={{ fontSize: 13, color: COLOR.ink2 }}>
-        The current devices sat at the same relative level when they were new — the platform
-        story above is the whole story.
+        {ct.sameRelativeLevel}
       </div>
     );
   } else {
     body = (
       <>
         <div style={{ fontFamily: FONT.display, fontSize: 20, fontWeight: 700, color: COLOR.ink }}>
-          From {positionPhrase(td.patientPos, td.ladderSize)} to {positionPhrase(td.recPos, td.ladderSize)}
+          {ct.fromTo(positionPhrase(td.patientPos, td.ladderSize, ct), positionPhrase(td.recPos, td.ladderSize, ct))}
         </div>
         {provider && (
           <div style={{ fontSize: 11, color: COLOR.ink3, marginTop: 4 }}>
@@ -322,13 +313,13 @@ function TierStory({ result, provider }) {
           return (
             <div key={g.tier.id} style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${COLOR.line2}` }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: COLOR.ink }}>
-                At {tierDisplayLabel(g.tier.tierDesignation)}
+                {ct.atTier(tierDisplayLabel(g.tier.tierDesignation))}
                 {provider && <Badge status={g.verificationStatus} />}
               </div>
               <div style={{ marginTop: 6 }}>
                 {anyVisible
                   ? <ClaimChips items={items} provider={provider} />
-                  : <div style={{ fontSize: 12, color: COLOR.ink3 }}>Details pending verification.</div>}
+                  : <div style={{ fontSize: 12, color: COLOR.ink3 }}>{ct.pendingVerification}</div>}
               </div>
             </div>
           );
@@ -339,7 +330,7 @@ function TierStory({ result, provider }) {
   return (
     <div style={{ background: COLOR.card, border: `1px solid ${COLOR.line}`, borderRadius: 12,
       padding: 16, marginTop: 16 }}>
-      <SectionTitle>The technology level — what the recommended tier unlocks</SectionTitle>
+      <SectionTitle>{ct.tierSection}</SectionTitle>
       {body}
     </div>
   );
@@ -347,7 +338,7 @@ function TierStory({ result, provider }) {
 
 // Cross-brand & OTC: capability categories side by side. Named capabilities
 // only — never a spec-number race.
-function CategoryGrid({ result, provider }) {
+function CategoryGrid({ result, provider, ct }) {
   const cats = result.categories;
   if (!cats) return null;
   const otc = result.mode === "otc";
@@ -357,8 +348,7 @@ function CategoryGrid({ result, provider }) {
     <div style={{ background: COLOR.card, border: `1px solid ${COLOR.line}`, borderRadius: 12,
       padding: 16, marginTop: 16 }}>
       <SectionTitle>
-        {otc ? "Over-the-counter device vs. prescription device — capability by capability"
-             : "Different manufacturers — capability by capability"}
+        {otc ? ct.categoryOtc : ct.categoryCross}
       </SectionTitle>
       {CATEGORY_LABELS.map(([key, label]) => {
         const pItems = cats.patient?.[key] || [];
@@ -369,7 +359,7 @@ function CategoryGrid({ result, provider }) {
         return (
           <div key={key} style={{ display: "flex", gap: 16, padding: "12px 0",
             borderTop: `1px solid ${COLOR.line2}` }}>
-            <div style={{ flex: "0 0 130px", fontSize: 12, fontWeight: 700, color: COLOR.ink2 }}>{label}</div>
+            <div style={{ flex: "0 0 130px", fontSize: 12, fontWeight: 700, color: COLOR.ink2 }}>{ct.categoryLabels[key] || label}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
               {pVisible.length
                 ? <ClaimChips items={pItems.map(i => ({ ...i }))} provider={provider} />
@@ -424,7 +414,9 @@ export default function CapabilityComparison({
   providerMode = false,
   variant = "standalone",
   onClose = null,
+  lang = "en",
 }) {
+  const ct = COMP_T[lang] || COMP_T.en;
   const [catalog, setCatalog] = useState(null);
   const [patientSel, setPatientSel] = useState(patientDeviceRef || { platformId: "", tierId: "" });
   const [recSel, setRecSel] = useState(recommendationRef || { platformId: "", tierId: "" });
@@ -491,9 +483,9 @@ export default function CapabilityComparison({
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
         <div>
-          <div style={{ fontFamily: FONT.display, fontSize: 24, fontWeight: 700 }}>What's Changed</div>
+          <div style={{ fontFamily: FONT.display, fontSize: 24, fontWeight: 700 }}>{ct.whatsChanged}</div>
           <div style={{ fontSize: 13, color: COLOR.ink2, marginTop: 2 }}>
-            What the recommended devices do that the current ones cannot — by platform generation, then by technology level.
+            {ct.whatsChangedSub}
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -513,9 +505,9 @@ export default function CapabilityComparison({
 
       {/* Device cards */}
       <div style={{ display: "flex", gap: 12, alignItems: "stretch" }}>
-        <DeviceCard side="patient" platform={patientPlatform} tier={patientTier} freetext={freetext}
+        <DeviceCard side="patient" platform={patientPlatform} tier={patientTier} freetext={freetext} ct={ct}
           provider={provider} onChangeClick={() => setPicker(picker === "patient" ? null : "patient")} />
-        <DeviceCard side="recommended" platform={recPlatform} tier={recTier}
+        <DeviceCard side="recommended" platform={recPlatform} tier={recTier} ct={ct}
           provider={provider} onChangeClick={() => setPicker(picker === "recommended" ? null : "recommended")} />
       </div>
 
@@ -538,39 +530,36 @@ export default function CapabilityComparison({
       {freetext && !patientPlatform && (
         <div style={{ background: COLOR.paper, border: `1px dashed ${COLOR.line}`, borderRadius: 12,
           padding: 16, marginTop: 16, fontSize: 13, color: COLOR.ink2 }}>
-          The current device is on record as “{freetext}” but isn't matched to the catalog yet —
-          match it above to tell this story. (An unmatchable device is a catalog gap worth logging.)
+          {ct.freetextUnmatched(freetext)}
         </div>
       )}
 
       {result && (
         <>
           <Spectrum result={result} provider={provider}
-            patientLabel={patientPlatform ? patientPlatform.platformName : "Today"}
-            recLabel={recPlatform ? recPlatform.platformName : "Recommended"} />
+            patientLabel={patientPlatform ? patientPlatform.platformName : ct.today}
+            recLabel={recPlatform ? recPlatform.platformName : ct.recommendedLabel} />
           {(result.mode === "vertical" || result.mode === "same-platform") && (
-            <GenerationStory result={result} provider={provider} />
+            <GenerationStory result={result} provider={provider} ct={ct} />
           )}
           {(result.mode === "cross-brand" || result.mode === "otc") && (
-            <CategoryGrid result={result} provider={provider} />
+            <CategoryGrid result={result} provider={provider} ct={ct} />
           )}
-          <TierStory result={result} provider={provider} />
+          <TierStory result={result} provider={provider} ct={ct} />
         </>
       )}
 
       {!result && !freetext && (
         <div style={{ background: COLOR.paper, border: `1px dashed ${COLOR.line}`, borderRadius: 12,
           padding: 24, marginTop: 16, textAlign: "center", color: COLOR.ink2, fontSize: 13 }}>
-          Set the current device to tell the story.
+          {ct.setCurrentToTell}
         </div>
       )}
 
       {/* Honesty footnote */}
       <div style={{ fontSize: 11, color: COLOR.ink3, marginTop: 18, paddingTop: 12,
         borderTop: `1px solid ${COLOR.line}`, lineHeight: 1.5 }}>
-        Capabilities shown are the manufacturers' own published feature names, drawn from
-        spec sheets and product guides. Where something couldn't be confirmed against a
-        source, it isn't shown here.
+        {ct.capHonesty}
       </div>
     </div>
   );

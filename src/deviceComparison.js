@@ -198,19 +198,28 @@ export function averageGain(rows, flagged = null) {
 // Short chips describing concrete features the new device adds over the old.
 // Gains only — we never editorialize about what the old device lacked beyond
 // the plain fact of the upgrade.
-export function specUpgrades(oldDevice, newDevice) {
+export function specUpgrades(oldDevice, newDevice, labels = null) {
+  // `labels` lets the caller pass a translated chip map (i18n/comparison.js
+  // upgradeChips); the English defaults keep existing callers unchanged.
+  const L = labels || {
+    streaming: "Direct phone & TV streaming",
+    rechargeable: "Rechargeable — no more batteries",
+    beamforming: "Beamforming focus in noise",
+    sharperFocus: "Sharper focus in noise",
+    telecoil: "Telecoil (loop systems)",
+  };
   const o = toDescriptor(oldDevice);
   const n = toDescriptor(newDevice);
   const gains = [];
   if (n.bluetoothStreaming === true && o.bluetoothStreaming !== true)
-    gains.push("Direct phone & TV streaming");
+    gains.push(L.streaming);
   if (n.rechargeable === true && o.rechargeable !== true)
-    gains.push("Rechargeable — no more batteries");
+    gains.push(L.rechargeable);
   const oMic = MIC_RANK[o.directionalMic] ?? null;
   const nMic = MIC_RANK[n.directionalMic] ?? null;
   if (oMic != null && nMic != null && nMic > oMic)
-    gains.push(nMic >= 3 ? "Beamforming focus in noise" : "Sharper focus in noise");
+    gains.push(nMic >= 3 ? L.beamforming : L.sharperFocus);
   if (n.telecoil === true && o.telecoil !== true)
-    gains.push("Telecoil (loop systems)");
+    gains.push(L.telecoil);
   return gains;
 }
