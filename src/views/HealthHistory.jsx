@@ -224,7 +224,7 @@ export function formatFieldValue(field, value, answers = {}) {
   }
 }
 
-export default function HealthHistory({ intake, onUpdateAnswer, onUpdateNote, onUpdateAssessment, onStartGuidedConversation }) {
+export default function HealthHistory({ intake, onUpdateAnswer, onUpdateNote, onUpdateAssessment, onStartGuidedConversation, lang = "en", langControl = null }) {
   // Notes that have a value on load are auto-expanded so the provider
   // sees prior context immediately. New notes start collapsed.
   const [expandedNotes, setExpandedNotes] = useState(() => new Set(
@@ -284,12 +284,16 @@ export default function HealthHistory({ intake, onUpdateAnswer, onUpdateNote, on
 
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:24 }}>
-      <ModeToggle mode={mode} onChange={setMode} />
+      <div style={{ display:"flex", justifyContent:"flex-end", alignItems:"center", gap:8 }}>
+        {mode === "presentation" && langControl}
+        <ModeToggle mode={mode} onChange={setMode} />
+      </div>
       {mode === "presentation" ? (
         <IntakePresentation
           intake={intake}
           onUpdateAnswer={onUpdateAnswer}
           onUpdateNote={onUpdateNote}
+          lang={lang}
         />
       ) : (
         <>
@@ -326,24 +330,22 @@ export default function HealthHistory({ intake, onUpdateAnswer, onUpdateNote, on
 // corrections, the full grid, and the Provider Assessment live.
 function ModeToggle({ mode, onChange }) {
   return (
-    <div style={{ display:"flex", justifyContent:"flex-end" }}>
-      <div style={{ display:"inline-flex", border:`1px solid ${BORDER}`, borderRadius:8, overflow:"hidden" }}>
-        {[["presentation","Presentation"],["clinical","Clinical detail"]].map(([k, label]) => (
-          <button
-            key={k}
-            type="button"
-            onClick={() => onChange(k)}
-            style={{
-              padding:"6px 14px", fontSize:12, fontWeight:600, border:"none",
-              background: mode === k ? TEAL_BG : "#fff",
-              color: mode === k ? TEAL : MUTED,
-              cursor:"pointer", fontFamily:"inherit",
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+    <div style={{ display:"inline-flex", border:`1px solid ${BORDER}`, borderRadius:8, overflow:"hidden" }}>
+      {[["presentation","Presentation"],["clinical","Clinical detail"]].map(([k, label]) => (
+        <button
+          key={k}
+          type="button"
+          onClick={() => onChange(k)}
+          style={{
+            padding:"6px 14px", fontSize:12, fontWeight:600, border:"none",
+            background: mode === k ? TEAL_BG : "#fff",
+            color: mode === k ? TEAL : MUTED,
+            cursor:"pointer", fontFamily:"inherit",
+          }}
+        >
+          {label}
+        </button>
+      ))}
     </div>
   );
 }

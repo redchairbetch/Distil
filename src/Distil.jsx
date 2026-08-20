@@ -5037,7 +5037,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           worseCCT,
           highFreqCount: highFreqInaudible.length,
           hasThresholds,
-        })
+        }, displayLang)
       : [];
     const intakeVisitReason = (intakeAnswers?.visitReason || "").trim();
 
@@ -5460,6 +5460,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       return (
         <HealthHistory
           intake={wizardIntake}
+          lang={displayLang}
+          langControl={<LangToggle lang={displayLang} onChange={setDisplayLang} />}
           onUpdateAnswer={async (key, value) => {
             if (!intakeId) return;
             const nextAnswers = { ...(wizardIntake.answers || {}), [key]: value };

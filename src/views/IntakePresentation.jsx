@@ -17,6 +17,7 @@ import {
   hearingSituationState,
   perceptionGapCopy,
 } from "../lib/intakeReview.js";
+import { PRES_T } from "../i18n/presentation.js";
 
 // IntakePresentation — the patient-facing face of the Health History
 // step. The screen is viewed BY PATIENT AND PROVIDER TOGETHER, so every
@@ -48,32 +49,33 @@ const AMBER_BG = "#fffbeb";
 const AMBER_BORDER = "#fde68a";
 const SLATE_BG = "#f8fafc";
 
-export default function IntakePresentation({ intake, onUpdateAnswer, onUpdateNote }) {
+export default function IntakePresentation({ intake, onUpdateAnswer, onUpdateNote, lang = "en" }) {
   const answers = intake?.answers || {};
   const notes = intake?.providerNotes || {};
   const firstName = answers.firstName || "";
+  const t = PRES_T[lang] || PRES_T.en;
 
   const fda = fdaSafetyState(answers);
   const situations = hearingSituationState(answers);
-  const gapCopy = perceptionGapCopy(answers);
+  const gapCopy = perceptionGapCopy(answers, lang);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 28, maxWidth: 860, margin: "0 auto" }}>
       <div style={{ textAlign: "center", padding: "8px 0 0" }}>
         <div style={{ fontSize: 24, fontWeight: 800, color: TEXT, letterSpacing: "-0.01em" }}>
-          {firstName ? `${firstName}, let's start with your story` : "Let's start with your story"}
+          {firstName ? t.titleWithName(firstName) : t.title}
         </div>
         <div style={{ fontSize: 14, color: MUTED, marginTop: 6 }}>
-          Everything below came from your answers — let's walk through it together before we test.
+          {t.subtitle}
         </div>
       </div>
 
-      <TheirWords answers={answers} />
-      <SafetyCheck fda={fda} answers={answers} notes={notes}
+      <TheirWords answers={answers} t={t} />
+      <SafetyCheck fda={fda} answers={answers} notes={notes} t={t}
         onUpdateAnswer={onUpdateAnswer} onUpdateNote={onUpdateNote} />
-      <Situations situations={situations} notes={notes}
+      <Situations situations={situations} notes={notes} t={t}
         onUpdateAnswer={onUpdateAnswer} onUpdateNote={onUpdateNote} />
-      <WhereYouStand answers={answers} gapCopy={gapCopy} notes={notes} onUpdateNote={onUpdateNote} />
+      <WhereYouStand answers={answers} gapCopy={gapCopy} notes={notes} t={t} onUpdateNote={onUpdateNote} />
     </div>
   );
 }
@@ -87,12 +89,12 @@ function BeatLabel({ children }) {
 }
 
 // ── Beat 1 — In your words ──────────────────────────────────────────
-function TheirWords({ answers }) {
+function TheirWords({ answers, t }) {
   const reason = (answers.visitReason || "").trim();
   if (!reason) return null;
   return (
     <div>
-      <BeatLabel>In your words</BeatLabel>
+      <BeatLabel>{t.beatWords}</BeatLabel>
       <div style={{
         background: "#fff", border: `1px solid ${BORDER}`, borderLeft: `4px solid ${TEAL}`,
         borderRadius: 10, padding: "22px 26px",
@@ -101,7 +103,7 @@ function TheirWords({ answers }) {
           “{reason}”
         </div>
         <div style={{ fontSize: 12, color: MUTED, marginTop: 10 }}>
-          — your reason for today's visit
+          {t.visitReasonCaption}
         </div>
       </div>
     </div>
@@ -109,16 +111,16 @@ function TheirWords({ answers }) {
 }
 
 // ── Beat 2 — Medical safety check ───────────────────────────────────
-function SafetyCheck({ fda, answers, notes, onUpdateAnswer, onUpdateNote }) {
+function SafetyCheck({ fda, answers, notes, t, onUpdateAnswer, onUpdateNote }) {
   const { flagged, clear, unanswered, allClear } = fda;
   const doctorSeen = answers.med_doctor === true;
   const doctorWhen = (answers.med_doctor_when || "").trim();
 
   return (
     <div>
-      <BeatLabel>Your medical safety check</BeatLabel>
+      <BeatLabel>{t.beatSafety}</BeatLabel>
       <div style={{ fontSize: 13, color: MUTED, marginBottom: 12, lineHeight: 1.55 }}>
-        We screen every patient for six medical signs that deserve a doctor's attention before anything else.
+        {t.safetyIntro}
       </div>
 
       {allClear && (
@@ -128,9 +130,9 @@ function SafetyCheck({ fda, answers, notes, onUpdateAnswer, onUpdateNote }) {
         }}>
           <div style={{ fontSize: 28, lineHeight: 1 }}>✅</div>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: GREEN }}>All clear</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: GREEN }}>{t.allClear}</div>
             <div style={{ fontSize: 13, color: "#166534", marginTop: 3, lineHeight: 1.5 }}>
-              None of the six apply to you — we're clear to move ahead with testing.
+              {t.allClearBody}
             </div>
           </div>
         </div>
@@ -152,10 +154,10 @@ function SafetyCheck({ fda, answers, notes, onUpdateAnswer, onUpdateNote }) {
         >
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ fontSize: 20, lineHeight: 1 }}>⚠️</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: AMBER }}>{item.label}</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: AMBER }}>{t.fdaLabels[item.key] || item.label}</div>
           </div>
           <div style={{ fontSize: 12.5, color: "#92400e", marginTop: 6, lineHeight: 1.5 }}>
-            Let's talk about this one together — it matters for how we plan your care.
+            {t.flaggedTalk}
           </div>
         </RevealCard>
       ))}
@@ -166,7 +168,7 @@ function SafetyCheck({ fda, answers, notes, onUpdateAnswer, onUpdateNote }) {
           background: TEAL_BG, border: `1px solid #B7DDE2`, borderRadius: 999,
           padding: "5px 12px", fontSize: 12, fontWeight: 600, color: TEAL,
         }}>
-          🩺 Discussed with a doctor{doctorWhen ? ` — ${doctorWhen}` : ""}
+          {t.discussedWithDoctor}{doctorWhen ? ` — ${doctorWhen}` : ""}
         </div>
       )}
 
@@ -180,7 +182,7 @@ function SafetyCheck({ fda, answers, notes, onUpdateAnswer, onUpdateNote }) {
               background: GREEN_BG, border: `1px solid ${GREEN_BORDER}`, borderRadius: 999,
               padding: "4px 11px", fontSize: 12, fontWeight: 600, color: GREEN,
             }}>
-              ✓ {item.label}
+              ✓ {t.fdaLabels[item.key] || item.label}
             </span>
           ))}
         </div>
@@ -192,10 +194,10 @@ function SafetyCheck({ fda, answers, notes, onUpdateAnswer, onUpdateNote }) {
           borderRadius: 10, padding: "12px 16px",
         }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: MUTED, marginBottom: 8 }}>
-            A few we didn't get your answer on — let's cover them now:
+            {t.unansweredSafety}
           </div>
           {unanswered.map(item => (
-            <InlineYesNo key={item.key} label={item.label} answerKey={item.key} onUpdateAnswer={onUpdateAnswer} />
+            <InlineYesNo key={item.key} label={t.fdaLabels[item.key] || item.label} answerKey={item.key} t={t} onUpdateAnswer={onUpdateAnswer} />
           ))}
         </div>
       )}
@@ -204,17 +206,16 @@ function SafetyCheck({ fda, answers, notes, onUpdateAnswer, onUpdateNote }) {
 }
 
 // ── Beat 3 — Where hearing gets hard ────────────────────────────────
-function Situations({ situations, notes, onUpdateAnswer, onUpdateNote }) {
+function Situations({ situations, notes, t, onUpdateAnswer, onUpdateNote }) {
   const { endorsed, denied, unanswered, total } = situations;
 
   return (
     <div>
-      <BeatLabel>Where hearing gets hard</BeatLabel>
+      <BeatLabel>{t.beatSituations}</BeatLabel>
       {endorsed.length > 0 ? (
         <>
           <div style={{ fontSize: 13, color: MUTED, marginBottom: 12, lineHeight: 1.55 }}>
-            You told us <strong style={{ color: TEXT }}>{endorsed.length} of {total}</strong> everyday
-            listening situations are a struggle:
+            {t.youToldUsCount} <strong style={{ color: TEXT }}>{endorsed.length} / {total}</strong> {t.situationsStruggle}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 10 }}>
             {endorsed.map(item => (
@@ -232,7 +233,7 @@ function Situations({ situations, notes, onUpdateAnswer, onUpdateNote }) {
                 <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
                   <div style={{ fontSize: 26, lineHeight: 1.1 }}>{item.icon}</div>
                   <div style={{ fontSize: 14.5, fontWeight: 700, color: TEXT, lineHeight: 1.4, paddingTop: 2 }}>
-                    {item.restatement}
+                    {t.restatements[item.key] || item.restatement}
                   </div>
                 </div>
               </RevealCard>
@@ -247,10 +248,10 @@ function Situations({ situations, notes, onUpdateAnswer, onUpdateNote }) {
           background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 10, padding: "18px 22px",
         }}>
           <div style={{ fontSize: 14, color: TEXT, fontWeight: 600, lineHeight: 1.5 }}>
-            You told us everyday listening isn't giving you much trouble right now.
+            {t.noTroubleTitle}
           </div>
           <div style={{ fontSize: 13, color: MUTED, marginTop: 4, lineHeight: 1.5 }}>
-            Today's test gives us a baseline either way — hearing is worth tracking like anything else about your health.
+            {t.noTroubleBody}
           </div>
         </div>
       ) : null}
@@ -261,12 +262,10 @@ function Situations({ situations, notes, onUpdateAnswer, onUpdateNote }) {
           borderRadius: 10, padding: "12px 16px",
         }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: MUTED, marginBottom: 8 }}>
-            {unanswered.length === total
-              ? "Let's walk through these together:"
-              : "A few we didn't get your answer on:"}
+            {unanswered.length === total ? t.walkThroughAll : t.fewUnanswered}
           </div>
           {unanswered.map(item => (
-            <InlineYesNo key={item.key} label={item.restatement} answerKey={item.key} onUpdateAnswer={onUpdateAnswer} />
+            <InlineYesNo key={item.key} label={t.restatements[item.key] || item.restatement} answerKey={item.key} t={t} onUpdateAnswer={onUpdateAnswer} />
           ))}
         </div>
       )}
@@ -275,7 +274,7 @@ function Situations({ situations, notes, onUpdateAnswer, onUpdateNote }) {
 }
 
 // ── Beat 4 — Where you stand ────────────────────────────────────────
-function WhereYouStand({ answers, gapCopy, notes, onUpdateNote }) {
+function WhereYouStand({ answers, gapCopy, notes, t, onUpdateNote }) {
   const rating = Number(answers.hear_rating) || null;
   const ready = answers.hear_ready;
   const picks = Array.isArray(answers.resistancePoints) ? answers.resistancePoints : [];
@@ -291,7 +290,7 @@ function WhereYouStand({ answers, gapCopy, notes, onUpdateNote }) {
 
   return (
     <div>
-      <BeatLabel>Where you stand</BeatLabel>
+      <BeatLabel>{t.beatStand}</BeatLabel>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {rating != null && (
           <div style={{
@@ -303,7 +302,7 @@ function WhereYouStand({ answers, gapCopy, notes, onUpdateNote }) {
                 {rating}<span style={{ fontSize: 20, color: MUTED, fontWeight: 600 }}> / 10</span>
               </div>
               <div style={{ fontSize: 11, color: MUTED, fontWeight: 600, marginTop: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                How you rate your hearing
+                {t.ratingCaption}
               </div>
             </div>
             {gapCopy && (
@@ -321,9 +320,7 @@ function WhereYouStand({ answers, gapCopy, notes, onUpdateNote }) {
             borderRadius: 10, padding: "14px 18px",
             fontSize: 14, fontWeight: 600, color: ready ? GREEN : TEXT, lineHeight: 1.5,
           }}>
-            {ready
-              ? "You told us you're ready to improve your hearing if a loss is found today."
-              : "You're still weighing it — that's exactly what today is for. No decisions required to get answers."}
+            {ready ? t.readyYes : t.readyNo}
           </div>
         )}
 
@@ -338,12 +335,12 @@ function WhereYouStand({ answers, gapCopy, notes, onUpdateNote }) {
             }}
           >
             <div style={{ fontSize: 13, fontWeight: 700, color: MUTED, marginBottom: 8 }}>
-              What's made this hard to address before:
+              {t.resistanceTitle}
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {picks.map(k => {
                 const r = RESISTANCE_REVIEW[k];
-                const label = k === "other" && otherText ? otherText : (r ? r.label : k);
+                const label = k === "other" && otherText ? otherText : (t.resistanceLabels[k] || (r ? r.label : k));
                 return (
                   <span key={k} style={{
                     background: TEAL_BG, border: "1px solid #B7DDE2", borderRadius: 999,
@@ -365,12 +362,12 @@ function WhereYouStand({ answers, gapCopy, notes, onUpdateNote }) {
 
 // Inline yes/no pills for questions the intake left unanswered, so the
 // walk-through can fill gaps without leaving presentation mode.
-function InlineYesNo({ label, answerKey, onUpdateAnswer }) {
+function InlineYesNo({ label, answerKey, t, onUpdateAnswer }) {
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "5px 0" }}>
       <div style={{ fontSize: 13, color: TEXT, lineHeight: 1.4 }}>{label}</div>
       <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-        {[["Yes", true], ["No", false]].map(([txt, v]) => (
+        {[[t.yes, true], [t.no, false]].map(([txt, v]) => (
           <button key={txt} type="button" onClick={() => onUpdateAnswer(answerKey, v)}
             style={{
               padding: "5px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6,

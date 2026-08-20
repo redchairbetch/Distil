@@ -27,6 +27,8 @@
 // support a complaint (never invent an explanation).
 // `prompt` strings are PROVIDER-ONLY and hidden by default in the UI.
 
+import { PRES_T } from "../i18n/presentation.js";
+
 // ── FDA medical safety battery ──────────────────────────────────────
 // The six medQ_* intake items are the FDA red-flag conditions for
 // hearing aid dispensing. Patient-facing framing is "medical safety
@@ -139,17 +141,18 @@ export function hearingSituationState(answers = {}) {
 // Perception-gap line for the "Where you stand" beat. Curiosity
 // framing, never gotcha — and only when there's actually a story to
 // tell. Returns null when the rating is missing.
-export function perceptionGapCopy(answers = {}) {
+export function perceptionGapCopy(answers = {}, lang = "en") {
+  const L = PRES_T[lang] || PRES_T.en;
   const rating = Number(answers.hear_rating);
   if (!rating) return null;
   const { endorsed, total } = hearingSituationState(answers);
   if (rating >= 6 && endorsed.length >= 3) {
-    return `You rate your hearing ${rating} out of 10 — and you told us ${endorsed.length} of ${total} everyday situations are a struggle. Let's see what the test says.`;
+    return L.gapHighRating(rating, endorsed.length, total);
   }
   if (rating <= 5) {
-    return `You already sense it — you rate your hearing ${rating} out of 10. Today's test will show us exactly where, and how much.`;
+    return L.gapLowRating(rating);
   }
-  return `You rate your hearing ${rating} out of 10. Today's test gives us the full picture.`;
+  return L.gapNeutral(rating);
 }
 
 // ── Results-step carry-forward mapping ──────────────────────────────
@@ -164,7 +167,8 @@ export function perceptionGapCopy(answers = {}) {
 // Every row is { key, icon, restatement, explanation, supported }.
 // `supported:false` marks the honest degraded state — the test doesn't
 // explain the complaint, and the copy says so instead of inventing.
-export function mapComplaintsToFindings(answers = {}, metrics = {}) {
+export function mapComplaintsToFindings(answers = {}, metrics = {}, lang = "en") {
+  const L = PRES_T[lang] || PRES_T.en;
   const { endorsed } = hearingSituationState(answers);
   if (endorsed.length === 0) return [];
 
@@ -172,54 +176,36 @@ export function mapComplaintsToFindings(answers = {}, metrics = {}) {
   const severityKnown = hasThresholds && overallSeverity != null;
   const hasLoss = severityKnown && overallSeverity !== "Normal";
   const clarityDeficit = worseCCT != null && worseCCT < 90;
-  const sevPhrase = overallSeverity ? overallSeverity.toLowerCase() : null;
+  const sevPhrase = overallSeverity ? (L.sevPhrase[overallSeverity] || overallSeverity.toLowerCase()) : null;
 
-  const unexplained = "Today's results don't fully explain this one — it's worth exploring together, because the struggle is real even when the numbers don't show it.";
+  const unexplained = L.unexplained;
 
   const explain = (item) => {
     switch (item.category) {
       case "clarity":
         if (highFreqCount >= 1) {
-          if (item.key === "hear_kids") {
-            return "Children's voices sit higher in pitch — exactly the range where your test shows sounds slipping below your hearing. The words aren't quiet; parts of them are missing.";
-          }
-          return "Your test shows high-pitched consonants — S, F, TH, SH — falling below your hearing range. Words lose their edges, so voices sound like mumbling even at normal volume.";
+          if (item.key === "hear_kids") return L.clarityKids;
+          return L.clarityHF;
         }
-        if (hasLoss) {
-          return `A ${sevPhrase} loss softens parts of every word before they reach you — the words arrive incomplete, and incomplete words sound unclear.`;
-        }
+        if (hasLoss) return L.clarityLoss(sevPhrase);
         return unexplained;
       case "noise":
-        if (clarityDeficit) {
-          return `At a comfortable volume in quiet, you caught ${worseCCT}% of words. Background noise widens that gap — your brain fills in the missing pieces, and in a busy room there are too many pieces to fill.`;
-        }
-        if (hasLoss) {
-          return `In quiet, context helps you fill the gaps a ${sevPhrase} loss creates. Noise takes the context away — that's why busy rooms fall apart first.`;
-        }
+        if (clarityDeficit) return L.noiseCCT(worseCCT);
+        if (hasLoss) return L.noiseLoss(sevPhrase);
         return unexplained;
       case "effort":
-        if (clarityDeficit || hasLoss) {
-          return "That tiredness is measurable: when the signal arrives incomplete, your brain works overtime to reconstruct it. The drained feeling after noisy conversation is the cost of that work.";
-        }
+        if (clarityDeficit || hasLoss) return L.effortCost;
         return unexplained;
       case "volume":
         if (hasLoss) {
-          if (item.key === "hear_loud") {
-            return `With a ${sevPhrase} loss, your own voice comes back to you quieter than it really is — so you naturally raise it. It isn't a habit; it's your hearing calibrating your volume.`;
-          }
-          return `With a ${sevPhrase} loss, normal volume settings genuinely aren't loud enough for you. The TV volume isn't a preference — it's audibility.`;
+          if (item.key === "hear_loud") return L.volumeLoud(sevPhrase);
+          return L.volumeTV(sevPhrase);
         }
         return unexplained;
       case "mixed":
-        if (hasLoss && highFreqCount >= 1) {
-          return "Asking for repeats is usually both problems at once: some sounds arrive too soft to catch, and the high-pitched consonants that define words are missing entirely. Your test shows both.";
-        }
-        if (hasLoss) {
-          return `A ${sevPhrase} loss means some words arrive too soft to catch the first time — the repeat request is you buying a second chance at them.`;
-        }
-        if (clarityDeficit) {
-          return `Your word recognition score explains this: at a comfortable volume you caught ${worseCCT}% of words, so some sentences need a second pass.`;
-        }
+        if (hasLoss && highFreqCount >= 1) return L.mixedBoth;
+        if (hasLoss) return L.mixedLoss(sevPhrase);
+        if (clarityDeficit) return L.mixedCCT(worseCCT);
         return unexplained;
       default:
         return unexplained;
@@ -231,7 +217,7 @@ export function mapComplaintsToFindings(answers = {}, metrics = {}) {
     return {
       key: item.key,
       icon: item.icon,
-      restatement: item.restatement,
+      restatement: L.restatements[item.key] || item.restatement,
       explanation,
       supported: explanation !== unexplained,
     };
