@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { parseDateOnly, warrantyDate, daysUntil } from "./dates.js";
+import { parseDateOnly, warrantyDate, daysUntil, hearingTestCurrent, HEARING_TEST_MAX_DAYS } from "./dates.js";
 
 describe("parseDateOnly", () => {
   it("parses a bare YYYY-MM-DD as local time (the UTC-skew bug this exists to fix)", () => {
@@ -56,5 +56,37 @@ describe("daysUntil", () => {
   it("is negative for past dates and positive for future dates", () => {
     expect(daysUntil("2000-01-01")).toBeLessThan(0);
     expect(daysUntil("2090-01-01")).toBeGreaterThan(0);
+  });
+});
+
+describe("hearingTestCurrent", () => {
+  const pad = (n) => String(n).padStart(2, "0");
+  const isoDaysAgo = (days) => {
+    const now = new Date();
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - days);
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  };
+
+  it("passes a test from today", () => {
+    expect(hearingTestCurrent(isoDaysAgo(0))).toBe(true);
+  });
+
+  it("passes exactly at the 6-month boundary and fails one day past it", () => {
+    expect(hearingTestCurrent(isoDaysAgo(HEARING_TEST_MAX_DAYS))).toBe(true);
+    expect(hearingTestCurrent(isoDaysAgo(HEARING_TEST_MAX_DAYS + 1))).toBe(false);
+  });
+
+  it("fails a clearly stale test", () => {
+    expect(hearingTestCurrent("2020-01-01")).toBe(false);
+  });
+
+  it("fails when no test date is on file", () => {
+    expect(hearingTestCurrent(null)).toBe(false);
+    expect(hearingTestCurrent(undefined)).toBe(false);
+    expect(hearingTestCurrent("")).toBe(false);
+  });
+
+  it("treats a future-dated test as current (clock artifact, not stale)", () => {
+    expect(hearingTestCurrent(isoDaysAgo(-2))).toBe(true);
   });
 });

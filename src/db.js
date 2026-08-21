@@ -876,6 +876,9 @@ function assemblePatient(row) {
     audiology: {
       rightT, leftT, rightBC, leftBC,
       rightMask, leftMask, rightBCMask, leftBCMask,
+      // Date of the newest audiogram — drives the 6-month hearing-test
+      // recency gate on device selection / purchase agreements.
+      testDate: audiogram?.test_date ?? null,
       tinnitusRight: audiogram?.tinnitus_right ?? false,
       tinnitusLeft:  audiogram?.tinnitus_left  ?? false,
       unaidedR: audiogram?.unaided_wrs_right ?? null,

@@ -23,7 +23,7 @@ import ComparisonHub from "./views/ComparisonHub.jsx";
 import CouplesComparison from "./views/CouplesComparison.jsx";
 import { LegacyDevicePanel } from "./views/LegacyFastPath.jsx";
 import { rankFromTierLabel } from "./deviceComparison.js";
-import { parseDateOnly, fmtDate, warrantyDate, daysUntil } from "./lib/dates.js";
+import { parseDateOnly, fmtDate, warrantyDate, daysUntil, hearingTestCurrent } from "./lib/dates.js";
 import { patientMatchesSearch, sortPatients } from "./lib/patientSearch.js";
 import { CARE_ARC, buildCareArc } from "./lib/careArc.js";
 import { isTestedNoLoss, buildTnlRetestAppointment, TNL_RETEST_TYPE } from "./lib/audiogram.js";
@@ -1870,6 +1870,37 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   const [paPrefill, setPaPrefill] = useState(null);
   const [paSignatureName, setPaSignatureName] = useState("");
   const [paStep, setPaStep] = useState("sign"); // wizard PA: 'review' | 'sign'
+
+  // ── Consultation Mode picker + hearing-test recency gate ─────────────
+  // The Consultation Mode button forks: audiogram counseling (the original
+  // behavior) or device selection & pricing (the chart-side purchase
+  // agreement). Device selection — and any PA — must rest on a hearing test
+  // from the last 6 months; a stale or undated test pops a verify warning
+  // the provider can attest past (paper test / tested elsewhere).
+  const [showConsultPicker, setShowConsultPicker] = useState(false);
+  // { action: 'devices', lastTestDate: string|null } | null — non-null = warning open.
+  // Action tag rather than a stored callback so there's no stale closure.
+  const [testRecencyWarn, setTestRecencyWarn] = useState(null);
+
+  const startAudiogramCounseling = () => {
+    setShowConsultPicker(false);
+    setDrawPaths([]); setDrawingEnabled(false); setPhonemeDimMode("both");
+    setView("consultation");
+  };
+  const proceedAfterTestGate = (action) => {
+    setTestRecencyWarn(null);
+    if (action === "devices") {
+      setView("patient");   // the PA modal mounts inside the patient view only
+      setPaPrefill(null);
+      setShowPurchaseAgreement(true);
+    }
+  };
+  const requireCurrentHearingTest = (action) => {
+    setShowConsultPicker(false);
+    const testDate = selectedPatient?.audiology?.testDate ?? null;
+    if (hearingTestCurrent(testDate)) { proceedAfterTestGate(action); return; }
+    setTestRecencyWarn({ action, lastTestDate: testDate });
+  };
 
   // ── Wizard PA / Quote fork state ─────────────────────────────────────
   const [showWizardPaModal, setShowWizardPaModal] = useState(false);
@@ -7540,7 +7571,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             {p.audiology && (getPTA(p.audiology.rightT)!=null || getPTA(p.audiology.leftT)!=null) && (
               <button
                 style={{background:"#4f46e5",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
-                onClick={() => { setDrawPaths([]); setDrawingEnabled(false); setPhonemeDimMode("both"); setView("consultation"); }}
+                onClick={() => setShowConsultPicker(true)}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
                 Consultation Mode
@@ -7559,7 +7590,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             </button>
             <button
               style={{background:"#0a1628",color:"white",border:"none",borderRadius:8,padding:"8px 16px",fontFamily:"'Sora',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}
-              onClick={() => { setPaPrefill(null); setShowPurchaseAgreement(true); }}
+              onClick={() => requireCurrentHearingTest("devices")}
               title="Pick devices, pricing, and care plan, sign, and save the agreed configuration to the chart"
             >
               <span style={{fontSize:14}}>📄</span> Generate Purchase Agreement
@@ -9947,6 +9978,81 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         </div>
       )}
 
+      {/* ── Consultation Mode chooser — counseling vs. device selection ── */}
+      {showConsultPicker && selectedPatient && (
+        <div className="queue-modal-overlay" onClick={() => setShowConsultPicker(false)}>
+          <div className="queue-modal" onClick={e => e.stopPropagation()} style={{maxWidth:480}}>
+            <div style={{padding:"28px"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",letterSpacing:0.6,marginBottom:6}}>Consultation Mode</div>
+              <h2 style={{margin:"0 0 4px",fontFamily:"'Sora',sans-serif",fontSize:20,color:"#111"}}>{selectedPatient.name}</h2>
+              <p style={{margin:"0 0 18px",color:"#6b7280",fontSize:13,lineHeight:1.5}}>What are we sitting down for?</p>
+              <button
+                onClick={startAudiogramCounseling}
+                style={{display:"block",width:"100%",textAlign:"left",background:"#f0fdfa",border:"2px solid #5eead4",borderRadius:12,padding:"14px 16px",marginBottom:10,cursor:"pointer"}}>
+                <div style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,color:"#0f766e"}}>Audiogram Counseling</div>
+                <div style={{fontSize:12,color:"#6b7280",marginTop:2,lineHeight:1.5}}>
+                  Walk through the hearing test results — familiar sounds, speech banana, word scores.
+                </div>
+              </button>
+              <button
+                onClick={() => requireCurrentHearingTest("devices")}
+                style={{display:"block",width:"100%",textAlign:"left",background:"#eff6ff",border:"2px solid #93c5fd",borderRadius:12,padding:"14px 16px",marginBottom:14,cursor:"pointer"}}>
+                <div style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,color:"#1d4ed8"}}>Device Selection & Pricing</div>
+                <div style={{fontSize:12,color:"#6b7280",marginTop:2,lineHeight:1.5}}>
+                  Pick devices together — filtered by their insurance plan, or standard private-pay
+                  pricing — then sign a purchase agreement.
+                </div>
+              </button>
+              <div style={{textAlign:"center"}}>
+                <button onClick={() => setShowConsultPicker(false)}
+                  style={{background:"none",border:"none",color:"#9ca3af",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Hearing-test recency warning — 6-month rule before device selection ── */}
+      {testRecencyWarn && (
+        <div className="queue-modal-overlay" onClick={() => setTestRecencyWarn(null)}>
+          <div className="queue-modal" onClick={e => e.stopPropagation()} style={{maxWidth:480}}>
+            <div style={{padding:"28px"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#b45309",textTransform:"uppercase",letterSpacing:0.6,marginBottom:6}}>⚠️ Verify current hearing test</div>
+              <h2 style={{margin:"0 0 10px",fontFamily:"'Sora',sans-serif",fontSize:19,color:"#111"}}>
+                {testRecencyWarn.lastTestDate
+                  ? `Last hearing test: ${fmtDate(testRecencyWarn.lastTestDate)}`
+                  : "No dated hearing test is on this chart"}
+              </h2>
+              <p style={{margin:"0 0 18px",color:"#6b7280",fontSize:13,lineHeight:1.6}}>
+                {testRecencyWarn.lastTestDate
+                  ? "That was more than 6 months ago. "
+                  : ""}
+                Device selection and pricing must be based on a hearing test from the
+                last 6 months. If a current test is on file elsewhere (paper chart,
+                tested at another office), verify it and continue — otherwise run a
+                new test first.
+              </p>
+              <button
+                onClick={() => proceedAfterTestGate(testRecencyWarn.action)}
+                style={{display:"block",width:"100%",textAlign:"left",background:"#fffbeb",border:"2px solid #fcd34d",borderRadius:12,padding:"14px 16px",marginBottom:14,cursor:"pointer"}}>
+                <div style={{fontFamily:"'Sora',sans-serif",fontWeight:700,fontSize:14,color:"#b45309"}}>Hearing test verified — continue</div>
+                <div style={{fontSize:12,color:"#6b7280",marginTop:2,lineHeight:1.5}}>
+                  A test from the last 6 months exists outside this chart. Proceed to device selection.
+                </div>
+              </button>
+              <div style={{textAlign:"center"}}>
+                <button onClick={() => setTestRecencyWarn(null)}
+                  style={{background:"none",border:"none",color:"#9ca3af",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showIntakeQueue && (
         <div className="queue-modal-overlay" onClick={() => setShowIntakeQueue(false)}>
           <div className="queue-modal" onClick={e => e.stopPropagation()}>
@@ -10327,6 +10433,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     <div className="topbar-sub">Audiogram counseling tools · {p.id.slice(0,8).toUpperCase()}</div>
                   </div>
                   <div style={{display:"flex",gap:8}}>
+                    <button className="btn-ghost" onClick={()=>requireCurrentHearingTest("devices")}>Select Devices</button>
                     <button className="btn-ghost" onClick={()=>setView("couples")}>Compare with Partner</button>
                     <button className="btn-ghost" onClick={()=>setView("patient")}>{"\u2190"} Exit Consultation</button>
                   </div>
