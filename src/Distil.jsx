@@ -132,6 +132,7 @@ import {
   updatePatientCarePlan,
   finalizePatient,
   saveAppointmentOutcome,
+  createMedicalReferral,
   updateVisit,
   uploadPatientDocument,
   listPatientDocuments,
@@ -157,6 +158,7 @@ import {
   dismissRateVerification,
 } from "./db.js";
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
+import { downloadReferralPdf } from "./generateReferralPdf.js";
 import { downloadQuote } from "./generateQuote.js";
 import { buildQuoteSharePayload, QUOTE_SHARE_VALID_DAYS } from "./lib/quoteShare.js";
 
@@ -3202,17 +3204,22 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     // prospect. Demoting to 'tns' would poison the tested-not-sold funnel with
     // people who were never tested.
     const isDnt = deviceDisposition === "did_not_test" && wizardMode !== "upgrade";
+    // Medical referral: a red-flag condition pauses the sale behind a medical
+    // evaluation — nothing was accepted or declined, so the patient STAYS a
+    // prospect (like Did Not Test) and no fitting/care plan is written. They
+    // return with clearance and pick up where they left off.
+    const isReferral = deviceDisposition === "medical_referral" && wizardMode !== "upgrade";
     const finalizeStatus = (wizardPaSigned || deviceDisposition === "committed")
       ? "active"
       : isTnl ? "tnl"
-      : isDnt ? "prospect"
+      : (isDnt || isReferral) ? "prospect"
       : (wizardMode === "upgrade" ? "active" : "tns");
 
     // Incremental save path — patient already exists in DB as draft
     if (wizardPatientId) {
       try {
-        const carePlan = (isTnl || isDnt) ? null : (form.payType === "insurance" ? form.carePlan : null);
-        const privatePay = !isTnl && !isDnt && form.payType === "private" && form.tierPrice != null
+        const carePlan = (isTnl || isDnt || isReferral) ? null : (form.payType === "insurance" ? form.carePlan : null);
+        const privatePay = !isTnl && !isDnt && !isReferral && form.payType === "private" && form.tierPrice != null
           ? { tier: form.tier, tierPrice: form.tierPrice }
           : null;
         // A signed fitting now schedules ONLY the estimated Fitting &
@@ -3237,7 +3244,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           // enrollment (TNL enrolls its campaign off the status instead).
           // A signed PA finalizes as a PENDING fitting: no warranty expiry yet —
           // it's computed from the confirmed fit date in the queue.
-          (isTnl || isDnt) ? null : { fittingDate: warrantyStart, warrantyExpiry: null },
+          (isTnl || isDnt || isReferral) ? null : { fittingDate: warrantyStart, warrantyExpiry: null },
           carePlan,
           form.notes,
           finalizeAppointments,
@@ -3259,7 +3266,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           directPurchase: !!form.directPurchase,
           insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
           privatePay,
-          devices: (isTnl || isDnt) ? null : { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: null, pendingFitting: paCommitted, warrantyYears: paCommitted ? years : null, recordedAt: new Date().toISOString(), serialLeft: genId(), serialRight: genId() },
+          devices: (isTnl || isDnt || isReferral) ? null : { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: null, pendingFitting: paCommitted, warrantyYears: paCommitted ? years : null, recordedAt: new Date().toISOString(), serialLeft: genId(), serialRight: genId() },
           audiology: form.audiology,
           carePlan: carePlan,
           appointments: finalizeAppointments,
@@ -3286,10 +3293,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       payType: form.payType,
       directPurchase: !!form.directPurchase,
       insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
-      privatePay: !isTnl && !isDnt && form.payType === "private" && form.tierPrice != null
+      privatePay: !isTnl && !isDnt && !isReferral && form.payType === "private" && form.tierPrice != null
         ? { tier: form.tier, tierPrice: form.tierPrice }
         : null,
-      devices: (isTnl || isDnt) ? null : {
+      devices: (isTnl || isDnt || isReferral) ? null : {
         left: leftRec,
         right: rightRec,
         fittingType,
@@ -3307,7 +3314,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         serialRight: genId(),
       },
       audiology: form.audiology,
-      carePlan: (isTnl || isDnt) ? null : (form.payType === "insurance" ? form.carePlan : null),
+      carePlan: (isTnl || isDnt || isReferral) ? null : (form.payType === "insurance" ? form.carePlan : null),
       appointments: isTnl
         ? [...(form.appointments || []), buildTnlRetestAppointment()]
         : paCommitted
@@ -3375,6 +3382,78 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     };
   };
 
+  // Medical referral out (Close Appointment): persist the medical_referrals
+  // row, then generate the printable referral document — downloaded for the
+  // patient to take to their medical appointment and archived to the chart
+  // (Documents card, kind 'medical_referral'). The appointment_outcomes row
+  // is already saved by the caller; failures here must not undo the close,
+  // so they surface loudly as an alert instead of throwing.
+  const recordMedicalReferral = async (patient, referral, visitId = null) => {
+    const problems = [];
+    try {
+      await createMedicalReferral({
+        patientId: patient.id,
+        clinicId,
+        providerId: staffId,
+        visitId,
+        referralType: referral.referralType,
+        reasons: referral.reasons,
+        notes: referral.notes,
+        referredTo: referral.referredTo,
+      });
+    } catch (e) {
+      console.error("createMedicalReferral:", e);
+      problems.push("saving the referral record");
+    }
+    let generated = null;
+    try {
+      const aud = patient.audiology || null;
+      const earSummary = (t, wrs) =>
+        (getPTA(t) == null && getPTA4(t) == null && wrs == null) ? null
+          : { pta: getPTA(t), pta4: getPTA4(t), wrs: wrs ?? null };
+      const audiometry = aud
+        ? { right: earSummary(aud.rightT, aud.unaidedR), left: earSummary(aud.leftT, aud.unaidedL) }
+        : null;
+      generated = downloadReferralPdf({
+        patient: { name: patient.name, dob: patient.dob ? fmtDate(patient.dob) : null, phone: patient.phone },
+        clinic: { name: paClinic?.name, address: paClinic?.address, phone: paClinic?.phone },
+        provider: paProvider,
+        referralType: referral.referralType,
+        reasons: referral.reasons,
+        notes: referral.notes || "",
+        referredTo: referral.referredTo || "",
+        audiometry: (audiometry && (audiometry.right || audiometry.left)) ? audiometry : null,
+        signatureImageBase64: paSignatureB64,
+      });
+    } catch (e) {
+      console.error("generateReferralPdf:", e);
+      problems.push("generating the referral document");
+    }
+    if (generated) {
+      try {
+        await uploadPatientDocument({
+          patientId: patient.id,
+          clinicId,
+          staffId,
+          kind: "medical_referral",
+          blob: generated.blob,
+          fileName: generated.fileName,
+          metadata: {
+            reasons: referral.reasons,
+            referral_type: referral.referralType,
+            referred_to: referral.referredTo || null,
+          },
+        });
+      } catch (e) {
+        console.error("archive referral document:", e);
+        problems.push("archiving the document to the chart");
+      }
+    }
+    if (problems.length) {
+      window.alert(`Appointment closed, but the medical referral hit a problem: ${problems.join(", ")}. Check the chart before the patient leaves.`);
+    }
+  };
+
   // Close Appointment from the wizard. The ordering is load-bearing:
   //   1. finalize the patient — must succeed first, the disposition needs a
   //      patient_id (a failure throws back into the modal; wizard stays put)
@@ -3398,6 +3477,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     } catch (e) {
       console.error("saveAppointmentOutcome (wizard):", e);
       stashPendingOutcome(patient.id, outcome);
+    }
+    // Medical referral out: referral record + printable document for the
+    // patient (best-effort — the close itself already succeeded).
+    if (fields.referral) {
+      await recordMedicalReferral(patient, fields.referral, wizardVisitId || null);
     }
     // The wizard opened this visit at draft time; the close ends it.
     if (wizardVisitId) {
@@ -3433,6 +3517,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     };
     await saveAppointmentOutcome(outcome); // throws → modal surfaces the error
     clearPendingOutcome(p.id);
+    // Medical referral out: referral record + printable document (best-effort
+    // — the outcome row is already saved, so a failure here must not reopen
+    // the modal and tempt a duplicate close).
+    if (fields.referral) {
+      await recordMedicalReferral(p, fields.referral, pending?.visitId || null);
+      refreshDocuments?.();
+    }
     setCloseAppointment(null);
   };
 
@@ -8402,12 +8493,15 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   {patientDocuments.map(d => {
                     const kindLabel = d.kind === 'purchase_agreement' ? 'Purchase Agreement'
                                     : d.kind === 'kiosk_intake' ? 'Intake Form'
+                                    : d.kind === 'medical_referral' ? 'Medical Referral'
                                     : 'Quote';
                     const kindColor = d.kind === 'purchase_agreement' ? '#0a1628'
                                     : d.kind === 'kiosk_intake' ? '#7c3aed'
+                                    : d.kind === 'medical_referral' ? '#be123c'
                                     : '#15803d';
                     const kindBg    = d.kind === 'purchase_agreement' ? '#e2e8f0'
                                     : d.kind === 'kiosk_intake' ? '#ede9fe'
+                                    : d.kind === 'medical_referral' ? '#ffe4e6'
                                     : '#dcfce7';
                     const sizeKb = d.byte_size ? Math.round(d.byte_size / 1024) : null;
                     return (
@@ -10373,6 +10467,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 defaultCarePlan: pending.carePlanDisposition || null,
                 defaultCarePlanReason: pending.carePlanReason || null,
                 defaultCarePlanSelected: pending.carePlanSelected || null,
+                defaultReferral: pending.referral || null,
               };
             } else if (isWizard && closeAppointment.tnl) {
               // Tested No Loss — launched from the Results step's TNL banner.

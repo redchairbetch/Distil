@@ -12,7 +12,7 @@
 
 import { describe, it, expect } from "vitest";
 import {
-  computeReportStats, computeAdjustmentStats, computeFollowUpStats,
+  computeReportStats, computeAdjustmentStats, computeFollowUpStats, computeReferralReasonMix,
   toTransaction, outcomePredicate, selectOutcomeDrill, selectFollowUpDrill, selectAdjustmentDrill,
   csvEscape, toCsv,
 } from "./reportStats.js";
@@ -69,6 +69,19 @@ describe("computeReportStats — close rate", () => {
     expect(stats.deviceReasons.cerumen_management_only).toBe(1);
   });
 
+  it("excludes Medical Referral from the denominator but keeps it in the mix", () => {
+    const stats = computeReportStats([
+      outcome(),                                                            // committed
+      outcome({ device_disposition: "medical_referral", care_plan_disposition: "not_applicable", care_plan_selected: null }),
+    ]);
+    // Referral out = the sale is paused behind a medical evaluation, not
+    // lost — the close rate stays 1/1. No device_reason: the red-flag
+    // reasons live in medical_referrals rows.
+    expect(stats.closeRate).toEqual({ closed: 1, denominator: 1, rate: 1 });
+    expect(stats.deviceMix.medical_referral).toBe(1);
+    expect(stats.deviceReasons).toEqual({});
+  });
+
   it("splits close rate by context", () => {
     const stats = computeReportStats([
       outcome({ context: "new_fit" }),
@@ -83,6 +96,22 @@ describe("computeReportStats — close rate", () => {
     const stats = computeReportStats([]);
     expect(stats.closeRate.rate).toBeNull();
     expect(stats.total).toBe(0);
+  });
+});
+
+describe("computeReferralReasonMix", () => {
+  it("tallies reasons across referrals (multi-select counts each flag)", () => {
+    const { mix, referralCount } = computeReferralReasonMix([
+      { reasons: ["active_drainage", "ear_pain_discomfort"] },
+      { reasons: ["active_drainage"] },
+    ]);
+    expect(referralCount).toBe(2);
+    expect(mix).toEqual({ active_drainage: 2, ear_pain_discomfort: 1 });
+  });
+
+  it("tolerates malformed rows and an empty range", () => {
+    expect(computeReferralReasonMix([])).toEqual({ mix: {}, referralCount: 0 });
+    expect(computeReferralReasonMix([{ reasons: null }, {}]).referralCount).toBe(0);
   });
 });
 
