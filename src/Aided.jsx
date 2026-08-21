@@ -286,20 +286,30 @@ function DobGate({ patient, onVerified, t }) {
 }
 
 // ── Map Supabase patient join to the flat shape Aided's render functions expect ──
+// Schema notes: device_sides keys on `ear` and holds per-side specs (manufacturer,
+// family, style, color, battery); serials and dates live on device_fittings as
+// serial_left/serial_right; copay is insurance_coverage.tier_price_per_aid in
+// integer cents.
 function mapSupabasePatientToAidedShape(data) {
-  // Find the most recent active fitting
+  // Find the most recent fitting that hasn't been cancelled or deactivated
   const fitting = (data.device_fittings || [])
+    .filter(f => f.active !== false && !f.cancelled_at && f.fitting_status !== 'cancelled')
     .sort((a, b) => new Date(b.fitting_date || 0) - new Date(a.fitting_date || 0))[0];
 
   // Get device sides from the fitting
   const sides = fitting?.device_sides || [];
-  const left = sides.find(s => s.side === 'left') || {};
-  const right = sides.find(s => s.side === 'right') || {};
-  // Use left side as primary for display (bilateral assumption)
+  const left = sides.find(s => s.ear === 'left') || {};
+  const right = sides.find(s => s.ear === 'right') || {};
+  // Use left side as primary for display; falls back to right for unilateral-right fits
   const primary = left.id ? left : right;
 
-  // Find insurance coverage
-  const coverage = (data.insurance_coverage || [])[0];
+  const receiver = [
+    primary.receiver_power,
+    primary.receiver_length && `length ${primary.receiver_length}`,
+  ].filter(Boolean).join(', ');
+
+  // Find active insurance coverage
+  const coverage = (data.insurance_coverage || []).find(c => c.active !== false);
 
   // Map appointments to expected shape
   const appointments = (data.appointments || []).map(a => ({
@@ -310,31 +320,33 @@ function mapSupabasePatientToAidedShape(data) {
   return {
     id: data.id,
     name: [data.first_name, data.last_name].filter(Boolean).join(' ') || data.name || 'Patient',
-    dob: data.date_of_birth || data.dob,
+    dob: data.dob,
     phone: data.phone,
-    location: data.clinic_name || '',
+    location: '', // clinic name is fetched separately and shown via clinicName fallback
     payType: coverage ? 'insurance' : (data.pay_type || 'private'),
     insurance: coverage ? {
-      carrier: coverage.carrier || coverage.insurance_carrier,
-      planGroup: coverage.plan_group || coverage.plan_name,
+      carrier: coverage.carrier,
+      planGroup: coverage.plan_group,
       tpa: coverage.tpa,
       tier: coverage.tier,
-      tierPrice: coverage.tier_price || coverage.copay,
+      tierPrice: coverage.tier_price_per_aid != null
+        ? Math.round(coverage.tier_price_per_aid / 100) // cents → dollars for display
+        : null,
     } : null,
     devices: fitting ? {
-      manufacturer: fitting.manufacturer || primary.manufacturer,
-      model: fitting.model || primary.model,
-      style: fitting.style || primary.style || 'ric',
-      color: primary.color || fitting.color,
-      battery: primary.battery_type || fitting.battery_type || 'Rechargeable',
-      receiver: primary.receiver || fitting.receiver,
-      dome: primary.dome || fitting.dome,
+      manufacturer: primary.manufacturer,
+      model: primary.family || primary.th_model,
+      style: primary.style || 'ric',
+      color: primary.color,
+      battery: primary.battery || 'Rechargeable',
+      receiver,
+      dome: primary.dome,
       fittingDate: fitting.fitting_date,
-      warrantyExpiry: fitting.warranty_expiry || fitting.warranty_end,
-      serialLeft: left.serial_number || '',
-      serialRight: right.serial_number || '',
+      warrantyExpiry: fitting.warranty_expiry,
+      serialLeft: fitting.serial_left || '',
+      serialRight: fitting.serial_right || '',
     } : DEMO.devices, // Fallback to demo devices if no fitting found
-    carePlan: fitting?.care_plan || data.care_plan || 'complete',
+    carePlan: coverage?.care_plan_type || 'complete',
     appointments,
     notes: data.notes,
     createdAt: data.created_at,
@@ -966,7 +978,7 @@ export default function PatientApp() {
           <div className="card">
             <div className="card-pad">
               {p.payType === "insurance" ? (
-                [[t.covCarrier,p.insurance?.carrier],[t.covPlan,p.insurance?.planGroup],[t.covTpa,p.insurance?.tpa],[t.covTier,p.insurance?.tier],[t.covCopay,t.perAid(`$${p.insurance?.tierPrice?.toLocaleString(lang==="es"?"es-US":"en-US")}`)]].map(([k,v])=>(
+                [[t.covCarrier,p.insurance?.carrier],[t.covPlan,p.insurance?.planGroup],[t.covTpa,p.insurance?.tpa],[t.covTier,p.insurance?.tier],[t.covCopay,p.insurance?.tierPrice!=null?t.perAid(`$${p.insurance.tierPrice.toLocaleString(lang==="es"?"es-US":"en-US")}`):t.notAvailable]].map(([k,v])=>(
                   <div key={k} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #f5f5f7",fontSize:13}}>
                     <span style={{color:"#9ca3af"}}>{k}</span>
                     <span style={{fontWeight:600,color:"#0a1628"}}>{v}</span>
