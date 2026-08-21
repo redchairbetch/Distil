@@ -13,6 +13,7 @@
 import { useState } from 'react'
 import { COLOR, FONT } from '../theme.js'
 import { OUTCOME_REASON_REQUIRED } from '../db.js'
+import { REFERRAL_REASONS, REFERRAL_TYPES, validateReferral } from '../lib/medicalReferral.js'
 
 // Close Appointment disposition modal — the required final step of every
 // visit. Captures the two-layer outcome (device / care plan) that feeds the
@@ -35,19 +36,21 @@ export const CONTEXT_OPTIONS = [
 ]
 
 export const DISPOSITION_OPTIONS = [
-  { id: 'committed',       label: 'Committed today' },
-  { id: 'deferred',        label: 'Decision pending' },
-  { id: 'declined',        label: 'Not proceeding' },
-  { id: 'no_decision',     label: 'No decision this visit' },
-  { id: 'not_a_candidate', label: 'Not a candidate' },
-  { id: 'no_hearing_loss', label: 'Tested — no hearing loss' },
-  { id: 'did_not_test',    label: 'Did not test' },
-  { id: 'not_applicable',  label: 'Not applicable' },
+  { id: 'committed',        label: 'Committed today' },
+  { id: 'deferred',         label: 'Decision pending' },
+  { id: 'declined',         label: 'Not proceeding' },
+  { id: 'no_decision',      label: 'No decision this visit' },
+  { id: 'medical_referral', label: 'Medical referral' },
+  { id: 'not_a_candidate',  label: 'Not a candidate' },
+  { id: 'no_hearing_loss',  label: 'Tested — no hearing loss' },
+  { id: 'did_not_test',     label: 'Did not test' },
+  { id: 'not_applicable',   label: 'Not applicable' },
 ]
 
-// "Did not test" is a device-layer statement about the visit — it has no
-// meaning as a care-plan outcome, so that layer never offers it.
-const CARE_PLAN_DISPOSITION_OPTIONS = DISPOSITION_OPTIONS.filter(o => o.id !== 'did_not_test')
+// "Did not test" and "Medical referral" are device-layer statements about the
+// visit — they have no meaning as care-plan outcomes, so that layer never
+// offers them.
+const CARE_PLAN_DISPOSITION_OPTIONS = DISPOSITION_OPTIONS.filter(o => o.id !== 'did_not_test' && o.id !== 'medical_referral')
 
 export const REASON_OPTIONS = [
   { id: 'price_budget',                   label: 'Budget / price' },
@@ -166,6 +169,8 @@ function ReasonPicker({ options, value, onChange }) {
 //   defaultContext     — 'new_fit' | 'upgrade' | 'care_plan_only'
 //   defaultDevice / defaultDeviceReason / defaultCarePlan / defaultCarePlanReason /
 //   defaultCarePlanSelected — prefills (from wizard state or a stashed pending outcome)
+//   defaultReferral    — { reasons, referralType, referredTo, notes } prefill
+//                        (from a stashed pending outcome)
 //   onSubmit(fields)   — async; parent finalizes/inserts. Rejections surface in the modal.
 //   onCancel()         — go back WITHOUT closing the appointment (nothing written)
 export default function CloseAppointmentModal({
@@ -177,6 +182,7 @@ export default function CloseAppointmentModal({
   defaultCarePlan = null,
   defaultCarePlanReason = null,
   defaultCarePlanSelected = null,
+  defaultReferral = null,
   onSubmit,
   onCancel,
 }) {
@@ -186,6 +192,12 @@ export default function CloseAppointmentModal({
   const [carePlan, setCarePlan] = useState(defaultCarePlan)
   const [carePlanReason, setCarePlanReason] = useState(defaultCarePlanReason)
   const [carePlanSelected, setCarePlanSelected] = useState(defaultCarePlanSelected)
+  // Medical referral capture — feeds the medical_referrals row and the
+  // printable referral document the patient takes to their appointment.
+  const [referralReasons, setReferralReasons] = useState(defaultReferral?.reasons || [])
+  const [referralType, setReferralType] = useState(defaultReferral?.referralType || 'ent')
+  const [referredTo, setReferredTo] = useState(defaultReferral?.referredTo || '')
+  const [referralNotes, setReferralNotes] = useState(defaultReferral?.notes || '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
@@ -198,10 +210,14 @@ export default function CloseAppointmentModal({
     }
     // Medical referral out / normal hearing / no test means there was no care
     // plan decision to make — auto-set that layer, but leave it editable.
-    if (id === 'not_a_candidate' || id === 'no_hearing_loss' || id === 'did_not_test') {
+    if (id === 'medical_referral' || id === 'not_a_candidate' || id === 'no_hearing_loss' || id === 'did_not_test') {
       setCarePlan('not_applicable')
       setCarePlanSelected(null)
     }
+  }
+
+  const toggleReferralReason = (key) => {
+    setReferralReasons(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key])
   }
 
   const setContextSafe = (id) => {
@@ -219,6 +235,10 @@ export default function CloseAppointmentModal({
     if (OUTCOME_REASON_REQUIRED.includes(carePlan) && !reasonOptionsFor(carePlan).some(r => r.id === carePlanReason)) return 'Select a reason for the care plan outcome.'
     if (carePlan === 'committed' && !carePlanSelected) return 'Select which care plan was chosen.'
     if (device === 'not_applicable' && carePlan === 'not_applicable') return 'Device and care plan cannot both be "not applicable".'
+    if (device === 'medical_referral') {
+      const refProblem = validateReferral({ reasons: referralReasons, notes: referralNotes })
+      if (refProblem) return refProblem
+    }
     return null
   })()
 
@@ -234,6 +254,12 @@ export default function CloseAppointmentModal({
         carePlanDisposition: carePlan,
         carePlanReason: OUTCOME_REASON_REQUIRED.includes(carePlan) ? carePlanReason : null,
         carePlanSelected: carePlan === 'committed' ? carePlanSelected : null,
+        // Rides the outcome payload (and the pending-outcome stash) but is
+        // persisted separately: a medical_referrals row + the printable
+        // referral document, both handled by the parent.
+        referral: device === 'medical_referral'
+          ? { reasons: referralReasons, referralType, referredTo: referredTo.trim() || null, notes: referralNotes.trim() || null }
+          : null,
       })
       // Parent unmounts the modal on success — no local state to reset.
     } catch (e) {
@@ -288,6 +314,71 @@ export default function CloseAppointmentModal({
               <ReasonPicker options={reasonOptionsFor(device)} value={deviceReason} onChange={setDeviceReason} />
             )}
           </div>
+
+          {/* Medical referral capture — red-flag reasons + destination. What's
+              checked here prints verbatim on the referral document the patient
+              takes to their medical appointment. */}
+          {device === 'medical_referral' && (
+            <div style={{ background: COLOR.paper, borderRadius: 10, padding: '14px 16px', border: `1.5px solid ${COLOR.teal}` }}>
+              <span style={label}>Reason(s) for referral</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {REFERRAL_REASONS.map(r => {
+                  const checked = referralReasons.includes(r.key)
+                  return (
+                    <label key={r.key} style={{
+                      display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer',
+                      fontSize: 12.5, color: COLOR.ink2, fontFamily: FONT.ui, padding: '3px 2px',
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleReferralReason(r.key)}
+                        style={{ marginTop: 2, accentColor: COLOR.pine }}
+                      />
+                      <span style={{ fontWeight: checked ? 600 : 400, color: checked ? COLOR.ink : COLOR.ink2 }}>{r.label}</span>
+                    </label>
+                  )
+                })}
+              </div>
+
+              <div style={{ marginTop: 12 }}>
+                <span style={{ ...label, marginBottom: 6 }}>Referring to</span>
+                <PillRow options={REFERRAL_TYPES.map(t => ({ id: t.key, label: t.label }))} value={referralType} onChange={setReferralType} />
+                <input
+                  type="text"
+                  value={referredTo}
+                  onChange={e => setReferredTo(e.target.value)}
+                  placeholder="Practice or physician name (optional)"
+                  style={{
+                    marginTop: 8, width: '100%', boxSizing: 'border-box', padding: '8px 10px',
+                    fontSize: 12.5, fontFamily: FONT.ui, borderRadius: 8,
+                    border: `1.5px solid ${COLOR.line}`, color: COLOR.ink,
+                  }}
+                />
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                <span style={{ ...label, marginBottom: 6 }}>Notes for the medical provider</span>
+                <textarea
+                  value={referralNotes}
+                  onChange={e => setReferralNotes(e.target.value)}
+                  rows={2}
+                  placeholder={referralReasons.includes('other_medical_concern')
+                    ? 'Describe the medical concern (required)'
+                    : 'Optional — prints on the referral document'}
+                  style={{
+                    width: '100%', boxSizing: 'border-box', padding: '8px 10px',
+                    fontSize: 12.5, fontFamily: FONT.ui, borderRadius: 8,
+                    border: `1.5px solid ${COLOR.line}`, color: COLOR.ink, resize: 'vertical',
+                  }}
+                />
+              </div>
+
+              <div style={{ marginTop: 8, fontSize: 11.5, color: COLOR.ink3, fontFamily: FONT.ui }}>
+                Closing generates a printable referral document for the patient and archives a copy to the chart.
+              </div>
+            </div>
+          )}
 
           {/* Care plan layer */}
           <div style={{ background: COLOR.paper, borderRadius: 10, padding: '14px 16px' }}>

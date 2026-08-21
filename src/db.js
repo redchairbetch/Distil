@@ -191,7 +191,7 @@ function sanitizeFileName(name) {
  * Args:
  *   blob       — Blob with type 'application/pdf'
  *   fileName   — display name (e.g. "Purchase_Agreement_Smith_Jane_2026-04-29.pdf")
- *   kind       — 'quote' | 'purchase_agreement' | 'kiosk_intake'
+ *   kind       — 'quote' | 'purchase_agreement' | 'kiosk_intake' | 'medical_referral'
  *   metadata   — jsonb snapshot for audit trail (devices, totals, etc.)
  *   returnRow  — when true (default) issue INSERT...RETURNING and return the
  *                row; when false, plain INSERT and return null. Anon kiosk
@@ -214,7 +214,7 @@ export async function uploadPatientDocument({
 }) {
   if (!clinicId) throw new Error('uploadPatientDocument: clinicId is required')
   if (!blob) throw new Error('uploadPatientDocument: blob is required')
-  if (!['quote', 'purchase_agreement', 'kiosk_intake'].includes(kind)) {
+  if (!['quote', 'purchase_agreement', 'kiosk_intake', 'medical_referral'].includes(kind)) {
     throw new Error(`uploadPatientDocument: invalid kind "${kind}"`)
   }
 
@@ -2222,9 +2222,13 @@ export const OUTCOME_CONTEXTS = ['new_fit', 'upgrade', 'care_plan_only']
 // 'no_hearing_loss' = Tested No Loss: thresholds within normal limits (≤20 dB),
 // so there was never a recommendation to accept or decline. 'did_not_test' =
 // no audiometric test happened this visit (e.g. wax removal only) — the
-// wizard's Testing-step fork; the patient stays a prospect. Both are excluded
-// from close-rate denominators alongside not_a_candidate (see lib/reportStats.js).
-export const OUTCOME_DISPOSITIONS = ['committed', 'deferred', 'declined', 'not_a_candidate', 'no_hearing_loss', 'did_not_test', 'no_decision', 'not_applicable']
+// wizard's Testing-step fork; the patient stays a prospect. 'medical_referral'
+// = a red-flag condition requires medical evaluation before amplification —
+// the patient stays a prospect and takes a printable referral document to
+// their medical appointment (reasons live in medical_referrals, not
+// device_reason). All are excluded from close-rate denominators alongside
+// not_a_candidate (see lib/reportStats.js).
+export const OUTCOME_DISPOSITIONS = ['committed', 'deferred', 'declined', 'medical_referral', 'not_a_candidate', 'no_hearing_loss', 'did_not_test', 'no_decision', 'not_applicable']
 export const OUTCOME_REASON_REQUIRED = ['deferred', 'declined', 'did_not_test']
 // Two reason vocabularies share the outcome_reason enum: decline reasons
 // explain a "no" to a recommendation; no-test reasons explain why no
@@ -2369,6 +2373,65 @@ export async function loadFittingInfoForVisits(visitIds = []) {
 // task for insurance_benefit_issue) hangs off this single hook. Deliberately
 // a no-op today — do not put UI-blocking work here.
 function runPostCloseHooks(outcomeRow) { // eslint-disable-line no-unused-vars
+}
+
+
+// ============================================================
+// MEDICAL REFERRALS
+// ============================================================
+// One row per referral-out: the red-flag reasons (multi-select, mirrored by
+// the table's CHECK constraint from lib/medicalReferral.js), where the
+// patient was referred, and the provider's narrative. Backs both the
+// printable referral document (generateReferralPdf.js — archived to
+// patient_documents kind 'medical_referral') and the reason breakdown in
+// Reports. The companion appointment_outcomes row carries the
+// 'medical_referral' device disposition with device_reason NULL.
+
+export async function createMedicalReferral({
+  patientId,
+  clinicId,
+  providerId,
+  visitId = null,
+  referralType = 'ent',
+  reasons = [],
+  notes = null,
+  referredTo = null,
+}) {
+  if (!patientId || !clinicId || !providerId) throw new Error('createMedicalReferral: missing patient, clinic, or provider')
+  if (!Array.isArray(reasons) || !reasons.length) throw new Error('createMedicalReferral: at least one reason is required')
+  const { data, error } = await supabase
+    .from('medical_referrals')
+    .insert({
+      patient_id:    patientId,
+      clinic_id:     clinicId,
+      provider_id:   providerId,
+      visit_id:      visitId,
+      referral_type: referralType,
+      reasons,
+      notes:         notes || null,
+      referred_to:   referredTo || null,
+    })
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+// Referrals for the Reports view — same scope/range semantics as
+// loadAppointmentOutcomes (clinicId null = org-wide; RLS allows org-wide
+// authenticated reads). Throws on error so Reports fails loudly.
+export async function loadMedicalReferrals({ clinicId = null, from = null, to = null } = {}) {
+  let q = supabase
+    .from('medical_referrals')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(5000)
+  if (clinicId) q = q.eq('clinic_id', clinicId)
+  if (from) q = q.gte('created_at', from)
+  if (to) q = q.lte('created_at', to)
+  const { data, error } = await q
+  if (error) throw error
+  return data || []
 }
 
 // ============================================================

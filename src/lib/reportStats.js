@@ -17,12 +17,15 @@
 //
 // Definitions (deliberate, keep in sync with the view's labels):
 // - Close-rate denominator: committed + deferred + declined + no_decision.
-//   not_a_candidate (medical referrals out), no_hearing_loss (Tested No Loss —
-//   thresholds within normal limits, so no recommendation was ever on the
-//   table), did_not_test (the visit ended before testing — wax removal only,
-//   patient declined, etc.) and not_applicable are excluded — they are not
-//   losable opportunities. TNL and did-not-test visits still show up in the
-//   outcome mix as their own categories.
+//   medical_referral (red-flag condition — the sale is paused behind a
+//   medical evaluation, not lost), not_a_candidate (true never-a-candidate
+//   cases), no_hearing_loss (Tested No Loss — thresholds within normal
+//   limits, so no recommendation was ever on the table), did_not_test (the
+//   visit ended before testing — wax removal only, patient declined, etc.)
+//   and not_applicable are excluded — they are not losable opportunities.
+//   Medical-referral, TNL and did-not-test visits still show up in the
+//   outcome mix as their own categories; referral red-flag reasons are
+//   tallied from medical_referrals rows via computeReferralReasonMix.
 // - Care-plan attach candidates: device committed AND the care-plan layer was
 //   in play (≠ not_applicable). Attach = care-plan committed.
 // - Revenue: committed device outcomes only, per-aid price from the payer
@@ -206,6 +209,20 @@ export function computeReportStats(outcomes = [], fittingTypeByVisit = {}, { can
       payerMix,
     },
   };
+}
+
+// Red-flag reason mix across medical_referrals rows (jsonb reasons array —
+// one referral can carry several, so the tally counts reasons, not rows).
+// Feeds the Reports "Medical referral reasons" breakdown.
+export function computeReferralReasonMix(referrals = []) {
+  const mix = {};
+  let total = 0;
+  for (const r of referrals) {
+    const reasons = Array.isArray(r?.reasons) ? r.reasons : [];
+    if (reasons.length) total++;
+    for (const key of reasons) tally(mix, key);
+  }
+  return { mix, referralCount: total };
 }
 
 // Follow-up loop: is contacting queue patients actually converting? Buckets

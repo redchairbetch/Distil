@@ -11,12 +11,13 @@
  */
 
 import React, { useEffect, useMemo, useState } from "react";
-import { loadAppointmentOutcomes, loadFittingInfoForVisits, loadPriceAdjustmentHistory } from "../db.js";
+import { loadAppointmentOutcomes, loadFittingInfoForVisits, loadMedicalReferrals, loadPriceAdjustmentHistory } from "../db.js";
 import {
-  computeReportStats, computeAdjustmentStats, computeFollowUpStats,
+  computeReportStats, computeAdjustmentStats, computeFollowUpStats, computeReferralReasonMix,
   selectOutcomeDrill, selectFollowUpDrill, selectAdjustmentDrill,
   toCsv,
 } from "../lib/reportStats.js";
+import { REFERRAL_REASONS } from "../lib/medicalReferral.js";
 import { BUCKETS, classify } from "./FollowUpQueue.jsx";
 import { ADJUST_REASON_CODES } from "./AdjustPriceModal.jsx";
 
@@ -50,16 +51,21 @@ function rangeToFrom(key) {
 
 const DISPOSITION_LABELS = {
   committed: "Committed", deferred: "Deferred", declined: "Declined",
-  no_decision: "No decision", not_a_candidate: "Not a candidate",
+  no_decision: "No decision", medical_referral: "Medical referral",
+  not_a_candidate: "Not a candidate",
   no_hearing_loss: "Tested — no loss", did_not_test: "Did not test",
   not_applicable: "N/A",
 };
 const DISPOSITION_COLORS = {
   committed: "#0d9488", deferred: "#b45309", declined: "#dc2626",
-  no_decision: "#6b7280", not_a_candidate: "#7c3aed",
+  no_decision: "#6b7280", medical_referral: "#be123c",
+  not_a_candidate: "#7c3aed",
   no_hearing_loss: "#2563eb", did_not_test: "#0891b2",
   not_applicable: "#9ca3af",
 };
+// Red-flag labels for the "Medical referral reasons" breakdown — sourced from
+// the same vocabulary the Close Appointment modal and referral document use.
+const REFERRAL_REASON_LABELS = Object.fromEntries(REFERRAL_REASONS.map(r => [r.key, r.label]));
 const REASON_LABELS = {
   price_budget: "Price / budget",
   spouse_family_consult: "Spouse or family consult",
@@ -595,6 +601,9 @@ export default function Reports({ clinicId, clinicName, staffId, patients = [], 
   // Visits whose sale was cancelled from the Pending Fittings queue —
   // committed revenue excludes them (lib/reportStats.js).
   const [cancelledVisits, setCancelledVisits] = useState({});
+  // medical_referrals rows in range — the red-flag reason breakdown behind
+  // the medical_referral slice of the outcome mix.
+  const [referrals, setReferrals] = useState([]);
   const [adjustments, setAdjustments] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -612,10 +621,17 @@ export default function Reports({ clinicId, clinicName, staffId, patients = [], 
           from: from ? from.toISOString() : null,
         });
         const fitInfo = await loadFittingInfoForVisits(rows.map(r => r.visit_id));
+        // Referral reasons are best-effort: the table may not exist yet on an
+        // un-migrated environment, and the outcome mix stands on its own.
+        const referralRows = await loadMedicalReferrals({
+          clinicId: scope === "clinic" ? clinicId : null,
+          from: from ? from.toISOString() : null,
+        }).catch(e => { console.error("loadMedicalReferrals:", e); return []; });
         if (cancelled) return;
         setOutcomes(rows);
         setFittingTypes(fitInfo.types);
         setCancelledVisits(fitInfo.cancelledVisits);
+        setReferrals(referralRows);
       } catch (e) {
         console.error("Reports load failed:", e);
         if (!cancelled) setError(e?.message || "Failed to load report data.");
@@ -656,6 +672,8 @@ export default function Reports({ clinicId, clinicName, staffId, patients = [], 
     () => computeFollowUpStats(patients, outcomes || [], { from: rangeToFrom(range), classify }),
     [patients, outcomes, range]
   );
+
+  const referralMix = useMemo(() => computeReferralReasonMix(referrals), [referrals]);
 
   // patient_id → the assembled patient object (active-clinic list). Lets a
   // drilled row open the chart when the patient is in the loaded list.
@@ -794,6 +812,18 @@ export default function Reports({ clinicId, clinicName, staffId, patients = [], 
               <BarList counts={stats.deviceReasons} labels={REASON_LABELS}
                 onSelect={(k) => open("outcomes", "device_reason", k)} />
             </Section>
+
+            {/* Renders only once referrals exist in range — the red-flag
+                findings behind the medical_referral outcome slice. A referral
+                can carry several reasons, so bars can sum past the referral
+                count. Selecting any bar opens the referred patients. */}
+            {referralMix.referralCount > 0 && (
+              <Section title="Medical referral reasons"
+                blurb={`Red-flag findings behind ${referralMix.referralCount} referral${referralMix.referralCount === 1 ? "" : "s"} out for medical evaluation (a referral can carry several).`}>
+                <BarList counts={referralMix.mix} labels={REFERRAL_REASON_LABELS}
+                  onSelect={() => open("outcomes", "device_disposition", "medical_referral")} />
+              </Section>
+            )}
 
             <Section title="Care-plan attach by payer"
               blurb="Among committed device outcomes where a care plan was in play. Select a payer for its patients.">
