@@ -35,6 +35,7 @@ import {
 import { tnsTagLabel } from '../tns_tags.js'
 import { flaggedEnvironments, COVERAGE_BY_RANK } from '../listeningSituations.js'
 import { EnvironmentCoverage } from '../components/CoverageBars.jsx'
+import { DEFERRED_RETRO_APR, eligibleTerms, scheduleForTerm } from '../lib/financing.js'
 
 // Narrative §3 — Chapter 3: Recommendation. Patient cost first, always.
 // Retail shown only as "full retail value" anchor. Premium label is banned;
@@ -1175,6 +1176,8 @@ function Zone5({ selectedRank, tiers, pricing, anchorsByKey, payType, carePlans,
         <span style={styles.purchaseTotalValue}>{formatMoney(total)}</span>
       </div>
 
+      {total != null && total > 0 && <PaymentOptions total={total} />}
+
       <div style={styles.purchaseSaveRow}>
         <button type="button" onClick={handleSave} disabled={save.saving} style={styles.saveBtn}>
           {save.saving ? 'Saving…' : 'Save purchase'}
@@ -1182,6 +1185,140 @@ function Zone5({ selectedRank, tiers, pricing, anchorsByKey, payType, carePlans,
         {save.savedAt && <span style={styles.savedChip}>Saved</span>}
         {save.error && <span style={{ color: '#b91c1c', fontSize: 12 }}>{save.error}</span>}
       </div>
+    </div>
+  )
+}
+
+// Spec §8 — provider-facing payment options (backlog #16). Terms + math come
+// from lib/financing.js, the same source as the patient-facing calculator in
+// the wizard pricing reveal. Adds the provider-only piece the spec calls for:
+// an Allegro down payment entered here, shown as its own line and never
+// financed — the term plans recompute on the remaining balance, including the
+// 60-month $2,500+ eligibility gate. HealthiPlan is deliberately absent until
+// its terms are on file (see lib/financing.js).
+//
+// Same transparency rules as the patient calculator: real APR + total of
+// payments + total interest on fixed plans, and the retroactive-interest catch
+// spelled out on deferred plans. Never leads with the smallest monthly.
+const money2 = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+function PaymentOptions({ total }) {
+  const [downRaw, setDownRaw] = useState('')
+  const [months, setMonths] = useState(18) // default: longest 0% deferred window
+
+  const parsed = parseFloat(downRaw)
+  const down = Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), total) : 0
+  const financed = total - down
+
+  const eligible = eligibleTerms(financed)
+  const term = eligible.find(t => t.months === months) || eligible[0]
+  const isDeferred = term.kind === 'deferred'
+  const sched = financed > 0 ? scheduleForTerm(financed, term) : null
+
+  return (
+    <div style={styles.payWrap}>
+      <div style={styles.payHeader}>Payment options</div>
+      <div style={styles.payPartnerNote}>
+        CareCredit / Allegro financing menu. HealthiPlan terms not yet on file.
+      </div>
+
+      <div style={styles.purchaseRowControls}>
+        <span style={styles.controlLabel}>Down pmt</span>
+        <span style={styles.payDollar}>$</span>
+        <input
+          type="number"
+          min="0"
+          step="50"
+          value={downRaw}
+          placeholder="0"
+          onChange={e => setDownRaw(e.target.value)}
+          style={styles.payDownInput}
+        />
+        <span style={styles.payDownNote}>
+          Allegro down payment — paid today, its own line, never financed.
+        </span>
+      </div>
+
+      {down > 0 && (
+        <div style={styles.payFinancedLines}>
+          <div style={styles.payFinancedRow}>
+            <span>Down payment today</span>
+            <span style={{ fontWeight: 600 }}>−{formatMoney(down)}</span>
+          </div>
+          <div style={styles.payFinancedRow}>
+            <span>Amount financed</span>
+            <span style={{ fontWeight: 700, color: COLOR.ink }}>{formatMoney(financed)}</span>
+          </div>
+        </div>
+      )}
+
+      {financed <= 0 ? (
+        <div style={styles.payPaidInFull}>Paid in full today — nothing to finance.</div>
+      ) : (
+        <>
+          <div style={styles.payPillRow}>
+            {eligible.map(t => {
+              const on = t.months === term.months
+              return (
+                <button
+                  key={t.months}
+                  type="button"
+                  onClick={() => setMonths(t.months)}
+                  style={{ ...styles.segBtn, ...(on ? styles.segBtnActive : {}), display: 'flex', alignItems: 'center', gap: 6 }}
+                >
+                  {t.months} mo
+                  <span style={{
+                    ...styles.payBadge,
+                    background: on ? 'rgba(255,255,255,0.18)' : (t.kind === 'deferred' ? '#ccfbf1' : COLOR.bgChip),
+                    color: on ? 'white' : (t.kind === 'deferred' ? COLOR.accent : COLOR.muted),
+                  }}>
+                    {t.kind === 'deferred' ? '0%*' : `${t.apr}%`}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+
+          <div style={styles.payCard}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginBottom: 6 }}>
+              <span style={styles.payMonthly}>
+                ${money2(sched.monthly)}<span style={{ fontSize: 13 }}>/mo</span>
+              </span>
+              <span style={{ fontSize: 12.5, color: COLOR.muted }}>
+                estimated, for {term.months} months
+              </span>
+            </div>
+
+            {isDeferred ? (
+              <div style={{ fontSize: 12.5, color: COLOR.muted, lineHeight: 1.55 }}>
+                <span style={{ color: COLOR.accent, fontWeight: 700 }}>0% interest</span>
+                {' '}if the {formatMoney(financed)} balance is paid in full within {term.months} months.
+                <div style={styles.payWarn}>
+                  If any balance remains after the {term.months}-month window, interest is charged
+                  retroactively from the purchase date at <strong>{DEFERRED_RETRO_APR}% APR</strong>.
+                </div>
+              </div>
+            ) : (
+              <div style={{ fontSize: 12.5, color: COLOR.muted, lineHeight: 1.55 }}>
+                Fixed <strong>{term.apr}% APR</strong> over {term.months} months.
+                <div style={styles.payTotalsRow}>
+                  <span>Total of payments</span>
+                  <span style={{ fontWeight: 700, color: COLOR.ink }}>${money2(sched.total)}</span>
+                </div>
+                <div style={{ ...styles.payTotalsRow, borderTop: 'none', paddingTop: 0, marginTop: 3 }}>
+                  <span>Interest over {term.months} months</span>
+                  <span style={{ fontWeight: 600, color: COLOR.warn }}>${money2(sched.interest)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div style={styles.payFoot}>
+            Estimates only — final terms subject to credit approval.
+            {financed < 2500 ? ' 60-month plan requires $2,500+ financed.' : ''}
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -1703,5 +1840,103 @@ const styles = {
     fontSize: 13,
     fontWeight: 700,
     cursor: 'pointer',
+  },
+  payWrap: {
+    borderTop: `1px solid ${COLOR.line}`,
+    marginTop: 10,
+    paddingTop: 12,
+  },
+  payHeader: {
+    fontSize: 11,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    color: COLOR.muted,
+  },
+  payPartnerNote: {
+    fontSize: 12,
+    color: COLOR.faint,
+    margin: '3px 0 10px',
+  },
+  payDollar: {
+    fontSize: 13,
+    color: COLOR.muted,
+    fontWeight: 600,
+  },
+  payDownInput: {
+    width: 100,
+    padding: '6px 10px',
+    border: `1px solid ${COLOR.line}`,
+    borderRadius: 8,
+    fontSize: 13,
+    color: COLOR.ink,
+  },
+  payDownNote: {
+    fontSize: 11.5,
+    color: COLOR.faint,
+  },
+  payFinancedLines: {
+    margin: '2px 0 10px',
+  },
+  payFinancedRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: 13,
+    color: COLOR.muted,
+    padding: '3px 0',
+  },
+  payPaidInFull: {
+    fontSize: 13,
+    color: COLOR.good,
+    fontWeight: 600,
+    padding: '6px 0 2px',
+  },
+  payPillRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 10,
+  },
+  payBadge: {
+    fontSize: 9.5,
+    fontWeight: 700,
+    padding: '1px 5px',
+    borderRadius: 8,
+  },
+  payCard: {
+    background: COLOR.bgSoft,
+    border: `1px solid ${COLOR.line}`,
+    borderRadius: 10,
+    padding: '12px 14px',
+  },
+  payMonthly: {
+    fontFamily: "'Fraunces', Georgia, serif",
+    fontSize: 24,
+    fontWeight: 600,
+    color: COLOR.ink,
+    whiteSpace: 'nowrap',
+  },
+  payWarn: {
+    marginTop: 6,
+    background: '#fef3c7',
+    border: '1px solid #fde68a',
+    borderRadius: 8,
+    padding: '8px 11px',
+    color: '#92400e',
+    fontSize: 12,
+    lineHeight: 1.5,
+  },
+  payTotalsRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    marginTop: 7,
+    paddingTop: 7,
+    borderTop: `1px solid ${COLOR.line}`,
+  },
+  payFoot: {
+    fontSize: 11,
+    color: COLOR.faint,
+    marginTop: 8,
+    lineHeight: 1.5,
   },
 }
