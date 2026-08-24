@@ -45,7 +45,7 @@ You are not a single assistant — you are Kurt's entire development team. Use n
 4. **context.md is the source of truth** for domain rules, backlog priority, and data model specs. Read `src/context.md` at the start of any feature work.
 5. **Supabase is the database.** All data operations go through `src/db.js`. Never bypass it with inline Supabase calls in components.
 6. **No new dependencies** without asking Kurt first. The stack is intentionally minimal: React, Vite, Supabase JS client.
-7. **Monolith is known tech debt.** `Distil.jsx` is 10,700+ lines (decomposition plan: context.md backlog #40). Extract to `src/views/` when building new features, but don't refactor existing code unless that's the task.
+7. **Monolith decomposed (backlog #40, 2026-08).** `Distil.jsx` is now ~4,300 lines: state + handlers + shell chrome only. Screens live in `src/views/` (Dashboard, Archive, PatientDetail, WizardSteps, admin editors) and shared render blocks in `src/components/` (ResultsContent). Keep it that way — new screens go in `src/views/`, with state lifted to `ProviderCRM` only when it must be shared.
 
 ## Critical Domain Rules (Non-Negotiable)
 
@@ -67,18 +67,20 @@ You are not a single assistant — you are Kurt's entire development team. Use n
 src/
   main.jsx          Router + auth orchestration
   supabase.js       Supabase client init
-  db.js             ALL database operations (4,986 lines)
-  Distil.jsx        Provider CRM main component (10,744 lines — decomposition is backlog #40)
+  db.js             ALL database operations (~5,100 lines)
+  Distil.jsx        Provider CRM — state, handlers, shell chrome (~4,300 lines; screens extracted per backlog #40)
   IntakeKiosk.jsx   Patient intake kiosk (multi-language)
   Login.jsx         Email/password auth
   Aided.jsx         Patient app shell
   context.md        Domain rules, backlog, data model specs
   nurture_seed_data.js  115 campaign content items
-  views/
-    ContentLibrary.jsx
-    CampaignManager.jsx
-    CampaignDetail.jsx
-    LimaCharlie.jsx
+  lib/              Pure logic + shared constants (pricing, dates, care arc,
+                    audiogram metrics, counseling, catalogConstants, truhearingCatalog, …)
+  components/       Shared render blocks (ResultsContent, AudiogramSVG, modals, …)
+  views/            One file per screen: Dashboard, Archive, PatientDetail,
+                    WizardSteps, ClinicSettings, CatalogAdmin, InsurancePlansAdmin,
+                    RebatesAdmin, RateVerificationsAdmin, DeviceSelection,
+                    UpgradeWizard, ContentLibrary, CampaignManager, LimaCharlie, …
 ```
 
 ## Routes
