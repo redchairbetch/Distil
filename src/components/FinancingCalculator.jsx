@@ -12,52 +12,36 @@
 
 import { useState } from "react";
 import { PRICING_T } from "../i18n/pricing.js";
+import {
+  FINANCING_TERMS,
+  DEFERRED_RETRO_APR,
+  fixedSchedule,
+  eligibleTerms,
+  scheduleForTerm,
+} from "../lib/financing.js";
 
 // Patient-facing financing calculator for the pricing reveal (backlog #34, the
-// patient slice of #16 §8). Terms are the clinic's CareCredit / Allegro menu:
-//   • 6 / 12 / 18 mo — DEFERRED INTEREST: 0% *only* if the full balance is paid
-//     within the promo window; otherwise interest is charged retroactively from
-//     the purchase date at 32.99% APR (the deferred-interest "gotcha").
-//   • 24 / 36 / 48 mo — fixed installment APRs.
-//   • 60 mo — fixed, only on purchases of $2,500+.
+// patient slice of #16 §8). Terms + payment math live in lib/financing.js,
+// shared with the provider-facing payment-options panel on the Device
+// Selection screen — edit the menu there, not here.
 //
 // Transparency rule (CLAUDE.md / transparent-patient-language): always show the
 // real APR and the total cost of financing on interest-bearing plans — never
 // just the smallest monthly — and spell out the deferred retroactive charge.
 
-export const FINANCING_TERMS = [
-  { months: 6,  kind: "deferred", apr: 0 },
-  { months: 12, kind: "deferred", apr: 0 },
-  { months: 18, kind: "deferred", apr: 0 },
-  { months: 24, kind: "fixed", apr: 17.90 },
-  { months: 36, kind: "fixed", apr: 18.90 },
-  { months: 48, kind: "fixed", apr: 19.90 },
-  { months: 60, kind: "fixed", apr: 20.90, minTotal: 2500 },
-];
-export const DEFERRED_RETRO_APR = 32.99;
+export { FINANCING_TERMS, DEFERRED_RETRO_APR, fixedSchedule };
 
 const money = (n) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-// Standard amortized monthly payment: M = P·r / (1 − (1+r)^−n), r = APR/12.
-// Returns { monthly, total, interest }.
-export function fixedSchedule(principal, apr, months) {
-  const r = apr / 1200;
-  const monthly = r === 0 ? principal / months : (principal * r) / (1 - Math.pow(1 + r, -months));
-  const total = monthly * months;
-  return { monthly, total, interest: total - principal };
-}
 
 export default function FinancingCalculator({ total, lang = "en" }) {
   const [months, setMonths] = useState(18); // default: longest 0% deferred window
   if (!total || total <= 0) return null;
   const pt = PRICING_T[lang] || PRICING_T.en;
 
-  const eligible = FINANCING_TERMS.filter((t) => !t.minTotal || total >= t.minTotal);
+  const eligible = eligibleTerms(total);
   const term = eligible.find((t) => t.months === months) || eligible[0];
   const isDeferred = term.kind === "deferred";
-  const sched = isDeferred
-    ? { monthly: total / term.months, total, interest: 0 }
-    : fixedSchedule(total, term.apr, term.months);
+  const sched = scheduleForTerm(total, term);
 
   return (
     <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid #EADFC7" }}>
