@@ -56,3 +56,70 @@ export function buildTnlRetestAppointment(fromDate = new Date()) {
     note: TNL_RETEST_NOTE,
   };
 }
+
+
+// ── AUDIOGRAM METRICS ────────────────────────────────────────────────────────
+// PTA / slope / worst-threshold helpers + the roster audiogram summary line.
+// Extracted verbatim from Distil.jsx (backlog #40a — monolith decomposition).
+export const AUDIG_FREQS = [250,500,750,1000,1500,2000,3000,4000,6000,8000];
+// Canonical clinical PTA: 500/1k/2k. Inter-octaves (750/1500) never enter it.
+export function getPTA(t){
+  const fs=[500,1000,2000];
+  const v=fs.map(f=>t?.[f]).filter(x=>x!=null);
+  return v.length?Math.round(v.reduce((a,b)=>a+b)/v.length):null;
+}
+// Four-frequency PTA (adds 4k) — shown alongside canonical PTA, labeled PTA4.
+export function getPTA4(t){
+  const fs=[500,1000,2000,4000];
+  const v=fs.map(f=>t?.[f]).filter(x=>x!=null);
+  return v.length?Math.round(v.reduce((a,b)=>a+b)/v.length):null;
+}
+export function getSlope(t){
+  if(!t||t[500]==null||t[4000]==null)return"";
+  return(t[4000]-t[500])>30?"sloping":(t[4000]-t[500])<-10?"rising":"flat";
+}
+
+
+// ── WORST-THRESHOLD SEVERITY (Change 4) ──────────────────────────────────────
+export function getWorstThresholdSeverity(thresholds){
+  if(!thresholds)return null;
+  const vals=Object.values(thresholds).filter(v=>v!=null);
+  if(!vals.length)return null;
+  const worst=Math.max(...vals);
+  if(worst<=20)return"Normal"; if(worst<=40)return"Mild";
+  if(worst<=55)return"Moderate"; if(worst<=70)return"Moderately Severe";
+  if(worst<=90)return"Severe"; return"Profound";
+}
+export function getWorstThreshold(thresholds){
+  if(!thresholds)return null;
+  const vals=Object.values(thresholds).filter(v=>v!=null);
+  return vals.length?Math.max(...vals):null;
+}
+
+export const summarizeAudiogram = (p) => {
+  if (!p.audiology) return null;
+  const { rightT, leftT } = p.audiology;
+  const avgThreshold = (ear) => {
+    if (!ear) return null;
+    const freqs = [1000, 2000, 4000];
+    const vals = freqs.map(f => ear[f]).filter(v => v != null);
+    return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+  };
+  const classify = (avg) => {
+    if (avg === null) return "\u2014";
+    if (avg <= 25) return "Normal";
+    if (avg <= 40) return "Mild";
+    if (avg <= 55) return "Moderate";
+    if (avg <= 70) return "Mod-Severe";
+    if (avg <= 90) return "Severe";
+    return "Profound";
+  };
+  const rAvg = avgThreshold(rightT);
+  const lAvg = avgThreshold(leftT);
+  const wrsR = p.audiology.unaidedR ? `${p.audiology.unaidedR}%` : "\u2014";
+  const wrsL = p.audiology.unaidedL ? `${p.audiology.unaidedL}%` : "\u2014";
+  return {
+    severity: `${classify(rAvg)} R \u00B7 ${classify(lAvg)} L`,
+    wrs: `WRS ${wrsR} R / ${wrsL} L`,
+  };
+};
