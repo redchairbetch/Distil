@@ -1796,7 +1796,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // (Documents card, kind 'medical_referral'). The appointment_outcomes row
   // is already saved by the caller; failures here must not undo the close,
   // so they surface loudly as an alert instead of throwing.
-  const recordMedicalReferral = async (patient, referral, visitId = null) => {
+  // audiologyOverride: the referral document plots the chart's audiology by
+  // default; the UpgradeWizard fork passes the audiogram captured THIS visit
+  // (the chart still holds the prior test until the next reload).
+  const recordMedicalReferral = async (patient, referral, visitId = null, audiologyOverride = null) => {
     const problems = [];
     try {
       await createMedicalReferral({
@@ -1829,7 +1832,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     }
     let generated = null;
     try {
-      const aud = patient.audiology || null;
+      const aud = audiologyOverride || patient.audiology || null;
       const earSummary = (t, wrs) =>
         (getPTA(t) == null && getPTA4(t) == null && wrs == null) ? null
           : { pta: getPTA(t), pta4: getPTA4(t), wrs: wrs ?? null };
@@ -1959,6 +1962,48 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       refreshDocuments?.();
     }
     setCloseAppointment(null);
+  };
+
+  // Medical referral out of the annual/upgrade visit (UpgradeWizard's Exam
+  // Results fork). The wizard has already saved the assessment + completed
+  // the visit; this records the measured outcome bucket (same rose slice in
+  // Reports as the modal paths — context 'upgrade' is the established-patient
+  // context), persists the medical_referrals row, generates the printable
+  // document from TODAY'S audiogram, and lands back on the profile. The
+  // patient stays active — the journey resumes after clearance — so no
+  // status change and no upgrade outcome is recorded.
+  const handleUpgradeMedicalReferral = async ({ referral, audiology = null, visitId = null }) => {
+    const p = selectedPatient;
+    if (!p) return;
+    const outcome = {
+      patientId: p.id,
+      clinicId,
+      providerId: staffId,
+      visitId: visitId || null,
+      context: "upgrade",
+      deviceDisposition: "medical_referral",
+      deviceReason: null,
+      carePlanDisposition: "not_applicable",
+      carePlanReason: null,
+      carePlanSelected: null,
+      referral,
+      ...buildPayerSnapshot(p),
+    };
+    try {
+      await saveAppointmentOutcome(outcome);
+      clearPendingOutcome(p.id);
+    } catch (e) {
+      // Same recovery as the wizard close: the profile nags until logged.
+      console.error("saveAppointmentOutcome (upgrade referral):", e);
+      stashPendingOutcome(p.id, outcome);
+    }
+    // Prefer the audiogram captured this visit for the document; an untouched
+    // grid (referral before testing) falls back to the chart's audiology.
+    const hasFreshAudio = audiology
+      && (Object.keys(audiology.rightT || {}).length > 0 || Object.keys(audiology.leftT || {}).length > 0);
+    await recordMedicalReferral(p, referral, visitId || null, hasFreshAudio ? audiology : null);
+    await refreshPatients();
+    setView("patient");
   };
 
 
@@ -3986,6 +4031,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 refreshPatients();
                 startUpgradePurchase(selectedPatient, ctx);
               }}
+              onMedicalReferral={handleUpgradeMedicalReferral}
             />
           )}
           {view === "new" && (() => {

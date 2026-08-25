@@ -24,7 +24,9 @@ import {
   PERFORMANCE_TAGS,
 } from "../upgradeReadiness.js";
 import { computeAudiometricDelta, decideReprogramVsUpgrade } from "../reprogramVsUpgradeEngine.js";
+import { validateReferral } from "../lib/medicalReferral.js";
 import AudiogramEntry from "../components/AudiogramEntry.jsx";
+import ReferralCapture from "../components/ReferralCapture.jsx";
 import CareJourney from "./CareJourney.jsx";
 import UpgradeClose from "./UpgradeClose.jsx";
 import DeviceComparison from "./DeviceComparison.jsx";
@@ -118,7 +120,7 @@ function fmtDate(s) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-export default function UpgradeWizard({ patient, clinicId, staffId, plans = [], onExit, onCompleted, onProceedToPurchase }) {
+export default function UpgradeWizard({ patient, clinicId, staffId, plans = [], onExit, onCompleted, onProceedToPurchase, onMedicalReferral }) {
   const fittingDate = patient?.devices?.fittingDate || patient?.carePlanStartDate || null;
   const years = yearsSince(fittingDate);
   const suggestedYear = years != null ? Math.min(5, Math.max(1, Math.round(years))) : 1;
@@ -173,6 +175,13 @@ export default function UpgradeWizard({ patient, clinicId, staffId, plans = [], 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
+  // Medical referral fork (Exam Results): a red-flag finding in today's exam
+  // curtails the flow — the remaining steps collapse into a referral page
+  // that closes the visit behind a medical evaluation. Same capture shape as
+  // the Close Appointment modal's panel (feeds recordMedicalReferral).
+  const [referralActive, setReferralActive] = useState(false);
+  const [referral, setReferral] = useState({ reasons: [], referralType: "ent", referredTo: "", notes: "" });
+
   // Patient self-reported check-in from the kiosk annual/upgrade route (backlog
   // #23). Pre-fills the REVIEW check-in + CURRENT performance tags so the
   // provider confirms/adjusts rather than re-asks. { refId, submittedAt } | null.
@@ -181,9 +190,13 @@ export default function UpgradeWizard({ patient, clinicId, staffId, plans = [], 
   const firstName = patient?.name?.split(" ")[0] || "the patient";
   const isUpgradeYear = journeyYear >= 4;
 
-  const STEPS = isUpgradeYear
-    ? ["Journey Year", "Confirm Details", "Current Aids", "Exam Results", "Journey Review", "Close"]
-    : ["Journey Year", "Confirm Details", "Current Aids", "Exam Results", "Journey Review"];
+  // The referral fork replaces everything after Exam Results — the stepper
+  // shows the curtailed path so the provider sees where the visit now ends.
+  const STEPS = referralActive
+    ? ["Journey Year", "Confirm Details", "Current Aids", "Exam Results", "Medical Referral"]
+    : isUpgradeYear
+      ? ["Journey Year", "Confirm Details", "Current Aids", "Exam Results", "Journey Review", "Close"]
+      : ["Journey Year", "Confirm Details", "Current Aids", "Exam Results", "Journey Review"];
   const topTitle = isUpgradeYear ? "Upgrade Evaluation" : "Annual Care Visit";
 
   const computedTier = useMemo(() => computePerformanceTier({ tags: perfTags }), [perfTags]);
@@ -243,7 +256,7 @@ export default function UpgradeWizard({ patient, clinicId, staffId, plans = [], 
   // Load the audiogram delta once when the provider reaches the review on a Y4–5
   // evaluation (the verdict itself is derived above, synchronously).
   useEffect(() => {
-    if (step !== STEP.REVIEW || !isUpgradeYear || !visitId) { setDeltaState(null); return; }
+    if (step !== STEP.REVIEW || !isUpgradeYear || !visitId || referralActive) { setDeltaState(null); return; }
     let cancelled = false;
     setDeltaLoading(true);
     setDeltaState(null);
@@ -265,7 +278,7 @@ export default function UpgradeWizard({ patient, clinicId, staffId, plans = [], 
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, visitId, isUpgradeYear]);
+  }, [step, visitId, isUpgradeYear, referralActive]);
 
   // Keep the editable rationale synced to the engine draft until the provider
   // edits it (then leave their wording alone).
@@ -334,6 +347,65 @@ export default function UpgradeWizard({ patient, clinicId, staffId, plans = [], 
       console.error("save upgrade audiogram:", e);
       setError(e?.message || "Couldn't save the audiogram.");
     } finally {
+      setBusy(false);
+    }
+  };
+
+  // Exam Results → Medical Referral fork. Save the audiogram first (the
+  // referral document plots today's test), then curtail the flow.
+  const startReferral = async () => {
+    setBusy(true); setError(null);
+    try {
+      await updatePatientAudiology(patient.id, audiology, staffId, visitId);
+      setReferralActive(true);
+      setStep(STEP.REVIEW); // index 4 — rendered as the referral page while the fork is active
+    } catch (e) {
+      console.error("save referral audiogram:", e);
+      setError(e?.message || "Couldn't save the audiogram.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const referralProblem = referralActive
+    ? validateReferral({ reasons: referral.reasons, notes: referral.notes })
+    : null;
+
+  // Close the visit behind the referral: the assessment saves what was
+  // captured before the fork (performance, check-in, today's test) with the
+  // referral marked in responses, the visit completes, and the parent
+  // persists the medical_referrals row + outcome bucket and generates the
+  // printable document. No upgrade outcome is recorded — nothing was offered
+  // or declined; the journey resumes once the patient returns with clearance.
+  const finishWithReferral = async () => {
+    if (referralProblem) { setError(referralProblem); return; }
+    setBusy(true); setError(null);
+    try {
+      const referralFields = {
+        reasons: referral.reasons,
+        referralType: referral.referralType,
+        referredTo: referral.referredTo.trim() || null,
+        notes: referral.notes.trim() || null,
+      };
+      await saveUpgradeAssessment(visitId, patient.id, clinicId, {
+        responses: {
+          journeyYear,
+          satisfaction, environments, featureGaps,
+          benefitRefreshed: false, benefitRefreshedPlan: null,
+          rem: { performed: remDone || null, onTarget: remDone === "yes" ? (remTarget || null) : null },
+          changeNotes, yearsSinceFit: years,
+          medicalReferral: { reasons: referralFields.reasons, referralType: referralFields.referralType, referredTo: referralFields.referredTo },
+        },
+        readinessScore: readiness.score,
+        readinessBand: readiness.band,
+        performanceTier: effectiveTier,
+        performanceTags: perfTags,
+      });
+      await updateVisit(visitId, { notes: changeNotes.trim() || null, status: "completed" });
+      await onMedicalReferral?.({ referral: referralFields, audiology, visitId });
+    } catch (e) {
+      console.error("finish referral visit:", e);
+      setError(e?.message || "Couldn't save the referral.");
       setBusy(false);
     }
   };
@@ -593,7 +665,30 @@ export default function UpgradeWizard({ patient, clinicId, staffId, plans = [], 
             </>
           )}
 
-          {step === STEP.REVIEW && (
+          {/* Medical referral page — the curtailed end of the flow. Rendered at
+              the REVIEW index while the fork is active (the stepper reads
+              "Medical Referral" there). */}
+          {step === STEP.REVIEW && referralActive && (
+            <div className="card" style={{ padding: 24, border: "1.5px solid #fecdd3" }}>
+              <div style={{ display: "inline-block", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#be123c", background: "#ffe4e6", borderRadius: 999, padding: "3px 10px", marginBottom: 10 }}>
+                Medical referral
+              </div>
+              <h2 style={{ margin: "0 0 4px", fontFamily: "'Sora',sans-serif", fontSize: 20 }}>Refer {firstName} for medical evaluation</h2>
+              <p style={{ margin: "0 0 20px", color: "#6b7280", fontSize: 14, lineHeight: 1.6 }}>
+                A red-flag finding in today's exam needs medical evaluation before anything else happens.
+                The rest of this visit is set aside — closing here records the referral, generates the printable
+                referral document for {firstName} to take to their appointment, and archives a copy to the chart.
+                The care journey picks back up when they return with clearance.
+              </p>
+              <ReferralCapture
+                value={referral}
+                onChange={setReferral}
+                hint="Closing the visit generates a printable referral document for the patient and archives a copy to the chart."
+              />
+            </div>
+          )}
+
+          {step === STEP.REVIEW && !referralActive && (
             <div className="card" style={{ padding: 24 }}>
               <h2 style={{ margin: "0 0 4px", fontFamily: "'Sora',sans-serif", fontSize: 20 }}>Care journey review</h2>
               <p style={{ margin: "0 0 20px", color: "#6b7280", fontSize: 14 }}>
@@ -816,7 +911,13 @@ export default function UpgradeWizard({ patient, clinicId, staffId, plans = [], 
           )}
 
           <div className="wizard-nav">
-            <button className="btn-ghost" onClick={() => { if (step === 0) onExit?.(); else setStep((s) => s - 1); }}>
+            <button className="btn-ghost" onClick={() => {
+              if (step === 0) { onExit?.(); return; }
+              // Backing out of the referral page un-curtails the flow — the
+              // provider lands back on Exam Results with everything intact.
+              if (referralActive && step === STEP.REVIEW) setReferralActive(false);
+              setStep((s) => s - 1);
+            }}>
               {step === 0 ? "Cancel" : "← Back"}
             </button>
 
@@ -829,11 +930,32 @@ export default function UpgradeWizard({ patient, clinicId, staffId, plans = [], 
               <button className="btn-primary" onClick={() => setStep((s) => s + 1)}>Continue →</button>
             )}
             {step === STEP.EXAM && (
-              <button className="btn-primary" disabled={busy} style={{ opacity: busy ? 0.4 : 1 }} onClick={saveAudiogramAndNext}>
-                {busy ? "Saving…" : "Save & Continue →"}
+              <div style={{ display: "flex", gap: 10 }}>
+                {/* Red-flag fork: curtails the wizard into the referral page.
+                    Saves today's audiogram first — it plots on the document. */}
+                <button disabled={busy} onClick={startReferral} style={{
+                  padding: "10px 18px", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer",
+                  background: "white", color: "#be123c", border: "1.5px solid #fda4af",
+                  opacity: busy ? 0.4 : 1, fontFamily: "inherit",
+                }}>
+                  ⚠ Medical Referral
+                </button>
+                <button className="btn-primary" disabled={busy} style={{ opacity: busy ? 0.4 : 1 }} onClick={saveAudiogramAndNext}>
+                  {busy ? "Saving…" : "Save & Continue →"}
+                </button>
+              </div>
+            )}
+            {step === STEP.REVIEW && referralActive && (
+              <button disabled={busy || !!referralProblem} title={referralProblem || undefined} onClick={finishWithReferral} style={{
+                padding: "10px 18px", borderRadius: 8, fontSize: 14, fontWeight: 700, fontFamily: "inherit",
+                background: (busy || referralProblem) ? "#e5e7eb" : "#be123c",
+                color: (busy || referralProblem) ? "#9ca3af" : "white",
+                border: "none", cursor: (busy || referralProblem) ? "not-allowed" : "pointer",
+              }}>
+                {busy ? "Saving…" : "✓ Close Visit & Generate Referral"}
               </button>
             )}
-            {step === STEP.REVIEW && (
+            {step === STEP.REVIEW && !referralActive && (
               isUpgradeYear ? (
                 <button className="btn-primary" disabled={deltaLoading} style={{ opacity: deltaLoading ? 0.4 : 1 }} onClick={() => setStep((s) => s + 1)}>
                   {deltaLoading ? "Computing…" : "Continue →"}

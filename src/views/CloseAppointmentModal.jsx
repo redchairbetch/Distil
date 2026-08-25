@@ -13,7 +13,8 @@
 import { useState } from 'react'
 import { COLOR, FONT } from '../theme.js'
 import { OUTCOME_REASON_REQUIRED } from '../db.js'
-import { REFERRAL_REASONS, REFERRAL_TYPES, validateReferral } from '../lib/medicalReferral.js'
+import { validateReferral } from '../lib/medicalReferral.js'
+import ReferralCapture from '../components/ReferralCapture.jsx'
 
 // Close Appointment disposition modal — the required final step of every
 // visit. Captures the two-layer outcome (device / care plan) that feeds the
@@ -194,10 +195,12 @@ export default function CloseAppointmentModal({
   const [carePlanSelected, setCarePlanSelected] = useState(defaultCarePlanSelected)
   // Medical referral capture — feeds the medical_referrals row and the
   // printable referral document the patient takes to their appointment.
-  const [referralReasons, setReferralReasons] = useState(defaultReferral?.reasons || [])
-  const [referralType, setReferralType] = useState(defaultReferral?.referralType || 'ent')
-  const [referredTo, setReferredTo] = useState(defaultReferral?.referredTo || '')
-  const [referralNotes, setReferralNotes] = useState(defaultReferral?.notes || '')
+  const [referral, setReferral] = useState({
+    reasons: defaultReferral?.reasons || [],
+    referralType: defaultReferral?.referralType || 'ent',
+    referredTo: defaultReferral?.referredTo || '',
+    notes: defaultReferral?.notes || '',
+  })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
@@ -216,10 +219,6 @@ export default function CloseAppointmentModal({
     }
   }
 
-  const toggleReferralReason = (key) => {
-    setReferralReasons(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key])
-  }
-
   const setContextSafe = (id) => {
     setContext(id)
     // A care-plan-only visit has no device decision in it.
@@ -236,7 +235,7 @@ export default function CloseAppointmentModal({
     if (carePlan === 'committed' && !carePlanSelected) return 'Select which care plan was chosen.'
     if (device === 'not_applicable' && carePlan === 'not_applicable') return 'Device and care plan cannot both be "not applicable".'
     if (device === 'medical_referral') {
-      const refProblem = validateReferral({ reasons: referralReasons, notes: referralNotes })
+      const refProblem = validateReferral({ reasons: referral.reasons, notes: referral.notes })
       if (refProblem) return refProblem
     }
     return null
@@ -258,7 +257,7 @@ export default function CloseAppointmentModal({
         // persisted separately: a medical_referrals row + the printable
         // referral document, both handled by the parent.
         referral: device === 'medical_referral'
-          ? { reasons: referralReasons, referralType, referredTo: referredTo.trim() || null, notes: referralNotes.trim() || null }
+          ? { reasons: referral.reasons, referralType: referral.referralType, referredTo: referral.referredTo.trim() || null, notes: referral.notes.trim() || null }
           : null,
       })
       // Parent unmounts the modal on success — no local state to reset.
@@ -319,65 +318,11 @@ export default function CloseAppointmentModal({
               checked here prints verbatim on the referral document the patient
               takes to their medical appointment. */}
           {device === 'medical_referral' && (
-            <div style={{ background: COLOR.paper, borderRadius: 10, padding: '14px 16px', border: `1.5px solid ${COLOR.teal}` }}>
-              <span style={label}>Reason(s) for referral</span>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {REFERRAL_REASONS.map(r => {
-                  const checked = referralReasons.includes(r.key)
-                  return (
-                    <label key={r.key} style={{
-                      display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer',
-                      fontSize: 12.5, color: COLOR.ink2, fontFamily: FONT.ui, padding: '3px 2px',
-                    }}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleReferralReason(r.key)}
-                        style={{ marginTop: 2, accentColor: COLOR.pine }}
-                      />
-                      <span style={{ fontWeight: checked ? 600 : 400, color: checked ? COLOR.ink : COLOR.ink2 }}>{r.label}</span>
-                    </label>
-                  )
-                })}
-              </div>
-
-              <div style={{ marginTop: 12 }}>
-                <span style={{ ...label, marginBottom: 6 }}>Referring to</span>
-                <PillRow options={REFERRAL_TYPES.map(t => ({ id: t.key, label: t.label }))} value={referralType} onChange={setReferralType} />
-                <input
-                  type="text"
-                  value={referredTo}
-                  onChange={e => setReferredTo(e.target.value)}
-                  placeholder="Practice or physician name (optional)"
-                  style={{
-                    marginTop: 8, width: '100%', boxSizing: 'border-box', padding: '8px 10px',
-                    fontSize: 12.5, fontFamily: FONT.ui, borderRadius: 8,
-                    border: `1.5px solid ${COLOR.line}`, color: COLOR.ink,
-                  }}
-                />
-              </div>
-
-              <div style={{ marginTop: 10 }}>
-                <span style={{ ...label, marginBottom: 6 }}>Notes for the medical provider</span>
-                <textarea
-                  value={referralNotes}
-                  onChange={e => setReferralNotes(e.target.value)}
-                  rows={2}
-                  placeholder={referralReasons.includes('other_medical_concern')
-                    ? 'Describe the medical concern (required)'
-                    : 'Optional — prints on the referral document'}
-                  style={{
-                    width: '100%', boxSizing: 'border-box', padding: '8px 10px',
-                    fontSize: 12.5, fontFamily: FONT.ui, borderRadius: 8,
-                    border: `1.5px solid ${COLOR.line}`, color: COLOR.ink, resize: 'vertical',
-                  }}
-                />
-              </div>
-
-              <div style={{ marginTop: 8, fontSize: 11.5, color: COLOR.ink3, fontFamily: FONT.ui }}>
-                Closing generates a printable referral document for the patient and archives a copy to the chart.
-              </div>
-            </div>
+            <ReferralCapture
+              value={referral}
+              onChange={setReferral}
+              hint="Closing generates a printable referral document for the patient and archives a copy to the chart."
+            />
           )}
 
           {/* Care plan layer */}
