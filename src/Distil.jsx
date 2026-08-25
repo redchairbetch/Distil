@@ -113,6 +113,7 @@ import {
 } from "./db.js";
 import { downloadPurchaseAgreement } from "./generatePurchaseAgreement.js";
 import { downloadReferralPdf } from "./generateReferralPdf.js";
+import { buildSafetySnapshot } from "./lib/medicalReferral.js";
 import { downloadQuote } from "./generateQuote.js";
 import { buildQuoteSharePayload, QUOTE_SHARE_VALID_DAYS } from "./lib/quoteShare.js";
 
@@ -1812,6 +1813,20 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       console.error("createMedicalReferral:", e);
       problems.push("saving the referral record");
     }
+    // Medical-safety battery from the patient's latest intake — answers
+    // plus the per-question provider notes. Best-effort: a missing or
+    // unloadable intake just omits the section from the document.
+    let safety = null;
+    try {
+      const intakes = await loadIntakesForPatient(patient.id);
+      const latest = intakes[0];
+      if (latest) {
+        const answers = unwrapIntakeAnswers(latest.answers) || {};
+        safety = buildSafetySnapshot(answers, latest.providerNotes || {});
+      }
+    } catch (e) {
+      console.error("load intake for referral document:", e);
+    }
     let generated = null;
     try {
       const aud = patient.audiology || null;
@@ -1820,6 +1835,16 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           : { pta: getPTA(t), pta4: getPTA4(t), wrs: wrs ?? null };
       const audiometry = aud
         ? { right: earSummary(aud.rightT, aud.unaidedR), left: earSummary(aud.leftT, aud.unaidedL) }
+        : null;
+      // Full AC/BC threshold maps for the clinical audiogram panels on the
+      // referral (masking flags included — the symbols differ).
+      const audiogram = aud
+        ? {
+            rightT: aud.rightT || {}, leftT: aud.leftT || {},
+            rightBC: aud.rightBC || {}, leftBC: aud.leftBC || {},
+            rightMask: aud.rightMask || {}, leftMask: aud.leftMask || {},
+            rightBCMask: aud.rightBCMask || {}, leftBCMask: aud.leftBCMask || {},
+          }
         : null;
       generated = downloadReferralPdf({
         patient: { name: patient.name, dob: patient.dob ? fmtDate(patient.dob) : null, phone: patient.phone },
@@ -1830,6 +1855,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         notes: referral.notes || "",
         referredTo: referral.referredTo || "",
         audiometry: (audiometry && (audiometry.right || audiometry.left)) ? audiometry : null,
+        audiogram,
+        safety,
         signatureImageBase64: paSignatureB64,
       });
     } catch (e) {

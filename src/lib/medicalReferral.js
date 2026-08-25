@@ -26,6 +26,8 @@
 // medical_referrals.reasons — keep both in sync.
 // ============================================================
 
+import { FDA_SAFETY_CHECKS } from './intakeReview.js'
+
 export const REFERRAL_REASONS = [
   {
     key: 'ear_deformity',
@@ -93,4 +95,23 @@ export function validateReferral({ reasons = [], notes = '' }) {
     return 'Describe the medical concern in the notes field.'
   }
   return null
+}
+
+// ── Medical-safety snapshot for the referral document ────────────────
+// The referral PDF reproduces the FDA medical-safety battery from the
+// patient's intake (the six medQ_* items) with the patient's answer and
+// any per-question provider note. Answers are tri-state — an unanswered
+// item prints as "Not answered", never silently as "No" (same strictness
+// as fdaSafetyState). Returns one row per battery item, in battery order.
+export function buildSafetySnapshot(answers = {}, providerNotes = {}) {
+  return FDA_SAFETY_CHECKS.map(({ key, label }) => {
+    const v = answers[key]
+    const note = String(providerNotes[key] ?? '').trim()
+    return {
+      key,
+      label,
+      answer: v === true ? 'yes' : v === false ? 'no' : 'unanswered',
+      note: note || null,
+    }
+  })
 }
