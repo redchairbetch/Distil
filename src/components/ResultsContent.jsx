@@ -31,6 +31,19 @@ import { mapComplaintsToFindings } from "../lib/intakeReview.js";
 import { CONSULT_T } from "../i18n/consultation.js";
 import hearingSimUrl from "../assets/audio/hearing-sim.m4a";
 
+// Draw-overlay palette. Yellow/orange/green line up with the audiogram's
+// degree-region colors so a drawn rectangle can echo the category of loss.
+const DRAW_COLORS = [
+  ["#dc2626", "Red"], ["#2563eb", "Blue"], ["#1e293b", "Black"],
+  ["#16a34a", "Green"], ["#eab308", "Yellow"], ["#ea580c", "Orange"],
+];
+
+// "#rrggbb" → rgba() at the given alpha, for the rectangle interior shade.
+const hexToRgba = (hex, a) => {
+  const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${a})`;
+};
+
 export default function ResultsContent({ aud, chiefComplaint, intakeAnswers = null, displayLang, setDisplayLang }) {
   const [phonemeDimMode, setPhonemeDimMode] = useState("both");
   const [dimIntensity, setDimIntensity] = useState(75); // 0 = no dimming, 100 = full fade
@@ -109,9 +122,12 @@ export default function ResultsContent({ aud, chiefComplaint, intakeAnswers = nu
     try { audioCtxRef.current?.close?.(); } catch (e) { /* noop */ }
   }, []);
 
-  // Audiogram drawing overlay state
+  // Audiogram drawing overlay state. Shapes share one undo stack:
+  // pen  → {type:"pen", points:[{x,y}], color, width}
+  // rect → {type:"rect", x0,y0,x1,y1, color, width} (drag-to-size, 20% fill)
   const [drawingEnabled, setDrawingEnabled] = useState(false);
-  const [drawPaths, setDrawPaths] = useState([]);       // [{points, color, width}]
+  const [drawTool, setDrawTool] = useState("pen");      // 'pen' | 'rect'
+  const [drawPaths, setDrawPaths] = useState([]);
   const [drawColor, setDrawColor] = useState("#dc2626");
   const drawCanvasRef = useRef(null);
   const drawingRef = useRef(false);                      // is pointer currently down
@@ -123,7 +139,19 @@ export default function ResultsContent({ aud, chiefComplaint, intakeAnswers = nu
     const ctx = c.getContext("2d");
     ctx.clearRect(0, 0, c.width, c.height);
     const renderPath = (p) => {
-      if (!p || p.points.length < 2) return;
+      if (!p) return;
+      if (p.type === "rect") {
+        const x = Math.min(p.x0, p.x1), y = Math.min(p.y0, p.y1);
+        const w = Math.abs(p.x1 - p.x0), h = Math.abs(p.y1 - p.y0);
+        if (w < 2 || h < 2) return;
+        ctx.fillStyle = hexToRgba(p.color, 0.2);
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = p.width;
+        ctx.strokeRect(x, y, w, h);
+        return;
+      }
+      if (p.points.length < 2) return;
       ctx.beginPath();
       ctx.strokeStyle = p.color;
       ctx.lineWidth = p.width;
@@ -148,15 +176,20 @@ export default function ResultsContent({ aud, chiefComplaint, intakeAnswers = nu
     e.preventDefault();
     drawingRef.current = true;
     const pt = getCanvasPoint(e);
-    currentPathRef.current = { points: [pt], color: drawColor, width: 3 };
+    currentPathRef.current = drawTool === "rect"
+      ? { type: "rect", x0: pt.x, y0: pt.y, x1: pt.x, y1: pt.y, color: drawColor, width: 3 }
+      : { type: "pen", points: [pt], color: drawColor, width: 3 };
     drawCanvasRef.current?.setPointerCapture(e.pointerId);
-  }, [drawColor, getCanvasPoint]);
+  }, [drawColor, drawTool, getCanvasPoint]);
 
   const onDrawPointerMove = useCallback((e) => {
     if (!drawingRef.current || !currentPathRef.current) return;
     e.preventDefault();
-    currentPathRef.current.points.push(getCanvasPoint(e));
-    redrawCanvas(drawPaths, currentPathRef.current);
+    const pt = getCanvasPoint(e);
+    const cur = currentPathRef.current;
+    if (cur.type === "rect") { cur.x1 = pt.x; cur.y1 = pt.y; }
+    else cur.points.push(pt);
+    redrawCanvas(drawPaths, cur);
   }, [drawPaths, getCanvasPoint, redrawCanvas]);
 
   const onDrawPointerUp = useCallback(() => {
@@ -164,9 +197,15 @@ export default function ResultsContent({ aud, chiefComplaint, intakeAnswers = nu
     drawingRef.current = false;
     const finishedPath = currentPathRef.current;
     currentPathRef.current = null;
-    if (finishedPath && finishedPath.points.length >= 2) {
+    // Discard accidental taps: a rect needs real area, a pen stroke ≥2 points.
+    const keep = finishedPath && (finishedPath.type === "rect"
+      ? Math.abs(finishedPath.x1 - finishedPath.x0) >= 6 && Math.abs(finishedPath.y1 - finishedPath.y0) >= 6
+      : finishedPath.points.length >= 2);
+    if (keep) {
       setDrawPaths(prev => [...prev, finishedPath]);
       redrawCanvas([...drawPaths, finishedPath], null);
+    } else {
+      redrawCanvas(drawPaths, null);
     }
   }, [drawPaths, redrawCanvas]);
 
@@ -288,7 +327,19 @@ export default function ResultsContent({ aud, chiefComplaint, intakeAnswers = nu
                   {ct.draw}
                 </button>
                 {drawingEnabled && <>
-                  {[["#dc2626","Red"],["#2563eb","Blue"],["#1e293b","Black"]].map(([c,label])=>(
+                  <div style={{display:"inline-flex",border:"1px solid #d1d5db",borderRadius:6,overflow:"hidden",flexShrink:0}}>
+                    <button onClick={()=>setDrawTool("pen")} title="Freehand"
+                      style={{padding:"4px 8px",border:"none",cursor:"pointer",display:"flex",alignItems:"center",
+                        background:drawTool==="pen"?"#fffbeb":"#fff",color:drawTool==="pen"?"#b45309":"#9ca3af"}}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                    </button>
+                    <button onClick={()=>setDrawTool("rect")} title="Rectangle"
+                      style={{padding:"4px 8px",border:"none",borderLeft:"1px solid #d1d5db",cursor:"pointer",display:"flex",alignItems:"center",
+                        background:drawTool==="rect"?"#fffbeb":"#fff",color:drawTool==="rect"?"#b45309":"#9ca3af"}}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/></svg>
+                    </button>
+                  </div>
+                  {DRAW_COLORS.map(([c,label])=>(
                     <button key={c} onClick={()=>setDrawColor(c)} title={label}
                       style={{width:20,height:20,borderRadius:"50%",border:drawColor===c?"3px solid #f59e0b":"2px solid #d1d5db",background:c,cursor:"pointer",padding:0,flexShrink:0}}/>
                   ))}

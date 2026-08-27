@@ -10,7 +10,7 @@
  * See the LICENSE file at the repository root for full terms.
  */
 
-import React from "react";
+import React, { useState } from "react";
 import { AUDIG_FREQS } from "../audiogramAnalysis.js";
 
 // Audiogram rendering core, extracted verbatim from Distil.jsx so both the
@@ -173,6 +173,10 @@ export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={
   const PW=W-ML-MR, PH=H-MT-MB;
   const fx=f=>ML+(FREQ_POS[f]/FREQ_POS_MAX)*PW;
   const dy=db=>MT+(db-(-10))/130*PH;
+  // Presentation band boxes start hidden — tapping a band's label toggles its
+  // box on/off so the provider reveals lows vs. highs one at a time while
+  // talking, instead of both boxes competing for attention from the start.
+  const [bandOn,setBandOn]=useState({});
   // Presentation mode: desaturated regions/band boxes, half-size threshold
   // symbols — but symbols and connecting lines keep full clinical red/blue so
   // the plot itself pops against the softened background.
@@ -359,15 +363,25 @@ export function AudigramSVG({rightT={},leftT={},rightBC={},leftBC={},rightMask={
           </>}
         </g>
       )}
-      {/* Frequency band boxes — patient-facing framing of lows vs. highs */}
+      {/* Frequency band boxes — patient-facing framing of lows vs. highs.
+          Labels always render in place; the box itself only draws while its
+          label is toggled on (dashed underline = tap affordance when off). */}
       {presentation&&BAND_BOXES.map(b=>{
         const x0=freqToSvgX(b.from,ML,PW)+2, x1=freqToSvgX(b.to,ML,PW)-2;
+        const on=!!bandOn[b.label];
+        const cx0=(x0+x1)/2, half=b.label.length*4.4;
         return(
           <g key={b.label}>
-            <rect x={x0} y={MT+2} width={x1-x0} height={PH-4} rx="9"
-              fill={b.fill} fillOpacity="0.05" stroke={b.stroke} strokeWidth="2" strokeOpacity="0.75"/>
-            <text x={(x0+x1)/2} y={MT+20} fontSize="15" fill={b.text}
-              textAnchor="middle" fontWeight="800" letterSpacing="0.2">{b.label}</text>
+            {on&&<rect x={x0} y={MT+2} width={x1-x0} height={PH-4} rx="9"
+              fill={b.fill} fillOpacity="0.05" stroke={b.stroke} strokeWidth="2" strokeOpacity="0.75"/>}
+            <text x={cx0} y={MT+20} fontSize="15" fill={b.text}
+              textAnchor="middle" fontWeight="800" letterSpacing="0.2"
+              style={{cursor:"pointer",userSelect:"none"}}
+              onClick={e=>{e.stopPropagation();setBandOn(prev=>({...prev,[b.label]:!prev[b.label]}));}}>
+              {b.label}
+            </text>
+            {!on&&<line x1={cx0-half} y1={MT+25} x2={cx0+half} y2={MT+25}
+              stroke={b.stroke} strokeWidth="1.5" strokeOpacity="0.55" strokeDasharray="3 3"/>}
           </g>
         );
       })}
