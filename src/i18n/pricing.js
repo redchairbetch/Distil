@@ -79,18 +79,18 @@ export const PRICING_T = {
     financingFooter: (small) => `Through CareCredit / Allegro, subject to approval.${small ? " A 60-month plan opens up on purchases of $2,500 or more." : ""} We'll walk the exact terms together — no surprises.`,
 
     // ── Technology tier step ──
-    foundCost: "Here's what we found — and what it will cost",
+    // No dollars on this step: prices are captured silently on tier select
+    // and surface exactly once, at the Pricing Reveal on Device Selection.
     foundOptions: "Here's what we found — and your options",
     basedOn: "Based on what you told us and your hearing test.",
-    privateLabelNote: "This choice sets the level of sound processing inside your hearing aids — and your price per aid. On the next step you'll pick the model and style; every model comes with the technology level you choose here.",
-    privatePayNote: "This choice settles your investment level first. On the next step you'll pick the brand, style, and model — whatever you choose there is matched to the technology level you select here.",
+    privateLabelNote: "This choice sets the level of sound processing inside your hearing aids. On the next step you'll pick the model and style; every model comes with the technology level you choose here.",
+    privatePayNote: "This choice settles your technology level first. On the next step you'll pick the brand, style, and model — whatever you choose there is matched to the level you select here.",
     fromIntake: "From your intake — where listening takes the most effort",
     computing: "Computing recommendation…",
     processingLabels: { 5: "top-of-the-line", 3: "mid-line", 1: "essential" },
     recommendedProcessing: (label) => `Recommended: ${label} processing`,
-    priceBands: "Your plan's price bands",
     noCharge: "No Charge",
-    tpaExplain: (tpa) => `${tpa} prices by the specific device rather than a technology level you pick here — every covered device falls into one of the price bands above. On the next step we'll choose the device together, which settles your exact price before style and fit details.`,
+    tpaExplain: (tpa) => `${tpa} works from the specific device rather than a technology level you pick here. On the next step we'll choose the device together — style and fit first, with the investment settled once the device is chosen.`,
     tierUnavailable: "Tier selection isn't available for this plan type. Continue to device selection.",
     recommendedTier: (label) => `Recommended: ${label}`,
     cappedNote: (original, available) => ` The engine flagged a higher tier, but ${original} isn't part of this plan — ${available} is the strongest option available to you.`,
@@ -100,7 +100,6 @@ export const PRICING_T = {
     pickManually: " You can still pick a tier manually below.",
     showAllOptions: "Show all options ▾", hideAllOptions: "Hide all options ▴",
     recommendedForYou: "Recommended for you",
-    savingsLine: (retail, amount, pct) => `Full retail value $${retail} — your plan saves you $${amount} (${pct}%) per aid`,
     whereShowsUp: "Here's where that shows up, situation by situation:",
     noCoverageChart: "Coverage chart not available for this tier label.",
     selectedTick: "✓ Selected",
@@ -203,18 +202,18 @@ export const PRICING_T = {
     financingFooter: (small) => `A través de CareCredit / Allegro, sujeto a aprobación.${small ? " Un plan de 60 meses está disponible en compras de $2,500 o más." : ""} Revisaremos juntos los términos exactos — sin sorpresas.`,
 
     // ── Technology tier step ──
-    foundCost: "Esto es lo que encontramos — y lo que costará",
+    // Sin precios en este paso: el precio se registra silenciosamente al
+    // elegir el nivel y aparece una sola vez, en la Revelación de Precio.
     foundOptions: "Esto es lo que encontramos — y sus opciones",
     basedOn: "Basado en lo que usted nos dijo y en su examen de audición.",
-    privateLabelNote: "Esta elección establece el nivel de procesamiento de sonido dentro de sus audífonos — y su precio por audífono. En el siguiente paso elegirá el modelo y el estilo; cada modelo viene con el nivel de tecnología que elija aquí.",
-    privatePayNote: "Esta elección establece primero su nivel de inversión. En el siguiente paso elegirá la marca, el estilo y el modelo — lo que elija ahí se ajusta al nivel de tecnología que seleccione aquí.",
+    privateLabelNote: "Esta elección establece el nivel de procesamiento de sonido dentro de sus audífonos. En el siguiente paso elegirá el modelo y el estilo; cada modelo viene con el nivel de tecnología que elija aquí.",
+    privatePayNote: "Esta elección establece primero su nivel de tecnología. En el siguiente paso elegirá la marca, el estilo y el modelo — lo que elija ahí se ajusta al nivel que seleccione aquí.",
     fromIntake: "De su formulario — donde escuchar exige más esfuerzo",
     computing: "Calculando la recomendación…",
     processingLabels: { 5: "de gama alta", 3: "de gama media", 1: "esencial" },
     recommendedProcessing: (label) => `Recomendado: procesamiento ${label}`,
-    priceBands: "Las bandas de precio de su plan",
     noCharge: "Sin Costo",
-    tpaExplain: (tpa) => `${tpa} asigna el precio según el dispositivo específico, no según un nivel de tecnología que usted elija aquí — cada dispositivo cubierto cae en una de las bandas de precio de arriba. En el siguiente paso elegiremos el dispositivo juntos, lo que define su precio exacto antes de los detalles de estilo y ajuste.`,
+    tpaExplain: (tpa) => `${tpa} trabaja a partir del dispositivo específico, no de un nivel de tecnología que usted elija aquí. En el siguiente paso elegiremos el dispositivo juntos — primero el estilo y el ajuste, con la inversión definida una vez elegido el dispositivo.`,
     tierUnavailable: "La selección de nivel no está disponible para este tipo de plan. Continúe a la selección de dispositivo.",
     recommendedTier: (label) => `Recomendado: ${label}`,
     cappedNote: (original, available) => ` El sistema señaló un nivel superior, pero ${original} no es parte de este plan — ${available} es la opción más fuerte disponible para usted.`,
@@ -224,7 +223,6 @@ export const PRICING_T = {
     pickManually: " Aún puede elegir un nivel manualmente abajo.",
     showAllOptions: "Ver todas las opciones ▾", hideAllOptions: "Ocultar opciones ▴",
     recommendedForYou: "Recomendado para usted",
-    savingsLine: (retail, amount, pct) => `Valor total de venta $${retail} — su plan le ahorra $${amount} (${pct}%) por audífono`,
     whereShowsUp: "Aquí es donde eso se nota, situación por situación:",
     noCoverageChart: "No hay gráfico de cobertura disponible para este nivel.",
     selectedTick: "✓ Seleccionado",

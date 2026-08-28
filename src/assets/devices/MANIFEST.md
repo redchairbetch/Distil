@@ -44,6 +44,15 @@ charger-only shot (`signia-pure-ix`), and a multi-family lineup image
 (`th7-sr`, `th-custom-cic`). Those keys need manual sourcing like the list
 below.
 
+**Body-style picker (2026-08):** the wizard's Device Selection step now
+renders its body-style cards from these keys (`BODY_STYLE_PHOTO_KEY` in
+`src/lib/catalogConstants.js`): `signia-pure-ax` (RIC), `signia-motion` (BTE),
+`signia-insio-ite/-itc/-cic/-iic` (customs), `signia-silk` (IF). Two of those —
+`signia-motion` and `signia-insio-itc` — are still unsourced (their URL-map
+candidates were rejected above), so BTE and ITC fall back to the last two
+silhouettes until the files land here. Dropping them in also gives every
+catalog row on those keys a photo.
+
 Not covered by that map (source manually): all Widex keys (brand absent from
 the catalog), older generations (`signia-pure-nx`/`-x`/`-ux`, `oticon-opn`,
 `starkey-livio`, `resound-linx-quattro`, `rexton-my-core`), `phonak-naida-infinio`,

@@ -18,6 +18,7 @@
 
 import React from "react";
 import AudiogramEntry from "../components/AudiogramEntry.jsx";
+import BodyStylePicker from "../components/BodyStylePicker.jsx";
 import CommitmentChecklist from "../components/CommitmentChecklist.jsx";
 import ComplexBenefitCalculator from "../components/ComplexBenefitCalculator.jsx";
 import FinancingCalculator from "../components/FinancingCalculator.jsx";
@@ -78,6 +79,10 @@ export default function WizardSteps(props) {
     setShowWizardPaModal, setPaStep, setPaSignatureName, setShowAdjustModal,
     setCloseAppointment,
   } = props;
+  // Which ear's body-style grid is expanded for a per-ear change (the CROS /
+  // asymmetric-fit escape hatch). null = both ears show the compact chip.
+  // Hook lives above the step returns so it runs on every render path.
+  const [expandedStyleGrid, setExpandedStyleGrid] = React.useState(null);
     if (step === 0) return (
       <div className="card">
         <div className="card-title">Patient Information</div>
@@ -430,24 +435,46 @@ export default function WizardSteps(props) {
                 the reveal, and device-driven TPAs price by the device below. ── */}
             {showStd && !directPurchaseActive && form.payType === "private" && form.tier && (
               <div style={{background:"#FBF9F3",border:"1px solid #E4E0D5",borderRadius:8,padding:"10px 14px",marginBottom:16}}>
+                {/* Price deliberately absent — it was captured on tier select
+                    and surfaces once, at the Pricing Reveal below. */}
                 <span style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>
-                  {form.tier} technology{form.tierPrice != null ? ` · $${moneyLabel(form.tierPrice)}/aid` : ""}
+                  {form.tier} technology
                 </span>
                 <span style={{fontSize:12,color:"#6b7280"}}> — chosen in Technology Tier</span>
                 <div style={{fontSize:11.5,color:"#6b7280",marginTop:5,lineHeight:1.45}}>
                   Pick the style and brand below — each model's technology level is matched to this
-                  choice automatically, so the price stays settled while you choose the fit.
+                  choice automatically, so that decision stays settled while you choose the fit.
                 </div>
               </div>
             )}
 
-            {/* ── 1. Body Style (standard catalog + Direct Purchase — TH uses its own style picker) ── */}
-            {showStd && (
+            {/* ── 1. Body Style (standard catalog + Direct Purchase — TH uses its
+                own picker below). The shared picker above seeds both ears, so
+                this collapses to a compact chip with a per-ear "Change" escape
+                hatch (CROS / asymmetric fits); Change expands the full grid for
+                this ear only. ── */}
+            {showStd && (s.style && expandedStyleGrid !== side ? (
+              <div className="field" style={{marginBottom:16}}><label>Body Style</label>
+                <div style={{display:"flex",alignItems:"center",gap:10,border:"1px solid #E4E0D5",background:"#FBF9F3",borderRadius:10,padding:"8px 12px"}}>
+                  {BODY_STYLE_IMG[s.style] && (
+                    <img src={BODY_STYLE_IMG[s.style]} alt="" style={{width:34,height:34,objectFit:"contain",flexShrink:0}} />
+                  )}
+                  <div style={{minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>{BODY_STYLES.find(b=>b.id===s.style)?.label || s.style}</div>
+                    <div style={{fontSize:11,color:"#6b7280"}}>{BODY_STYLES.find(b=>b.id===s.style)?.desc || ""}</div>
+                  </div>
+                  <button className="side-action-btn" style={{marginLeft:"auto",flexShrink:0}}
+                    onClick={(e)=>{ e.stopPropagation(); setExpandedStyleGrid(side); }}>
+                    Change
+                  </button>
+                </div>
+              </div>
+            ) : (
               <div className="field" style={{marginBottom:16}}><label>Body Style</label>
                 <div className="style-grid">
                   {BODY_STYLES.map(bs=>(
                     <div key={bs.id} className={`style-card ${s.style===bs.id?"active":""}`}
-                      onClick={()=>resetSide(side, directPurchaseActive ? {style:bs.id, manufacturer:"Signia"} : {style:bs.id})}>
+                      onClick={()=>{ resetSide(side, directPurchaseActive ? {style:bs.id, manufacturer:"Signia"} : {style:bs.id}); setExpandedStyleGrid(null); }}>
                       {BODY_STYLE_IMG[bs.id] && (
                         <img src={BODY_STYLE_IMG[bs.id]} alt={bs.label}
                           style={{display:"block",margin:"0 auto 6px",width:56,height:56,objectFit:"contain",opacity:s.style===bs.id?1:0.5}} />
@@ -458,7 +485,7 @@ export default function WizardSteps(props) {
                   ))}
                 </div>
               </div>
-            )}
+            ))}
 
             {/* ── 2–6. Standard catalog cascade (also Direct Purchase, Signia-locked) ── */}
             {showStd && (<>
@@ -630,9 +657,7 @@ export default function WizardSteps(props) {
                 <div className="field" style={{marginBottom:16}}><label>Technology Level</label>
                   <div style={{display:"inline-flex",alignItems:"center",gap:8,border:"2px solid #0B4A42",background:"#FBF9F3",borderRadius:8,padding:"8px 12px"}}>
                     <span style={{fontSize:14,fontWeight:700,color:"#0a1628"}}>{s.techLevel} technology</span>
-                    <span style={{fontSize:12,color:"#6b7280"}}>
-                      {d.thTierPrice === 0 ? "No Charge" : `$${d.thTierPrice.toLocaleString()}/aid`} · chosen in Technology Tier
-                    </span>
+                    <span style={{fontSize:12,color:"#6b7280"}}>chosen in Technology Tier</span>
                   </div>
                   <div style={{fontSize:11.5,color:"#6b7280",marginTop:6}}>
                     Every model below comes with {s.techLevel}-level processing at this price. The model number is the platform generation — how recent the chip inside is — not a different technology level.
@@ -640,13 +665,31 @@ export default function WizardSteps(props) {
                 </div>
               )}
 
-              {/* Body Style (card grid — mirrors private-pay imagery) */}
-              {s.techLevel && d.thAvailBodyStyles.length > 0 && (
+              {/* Body Style — seeded by the shared picker above; compact chip
+                  with a per-ear "Change" escape hatch, same as the standard
+                  flow. */}
+              {s.techLevel && d.thAvailBodyStyles.length > 0 && (s.thBodyStyle && expandedStyleGrid !== side ? (
+                <div className="field" style={{marginBottom:16}}><label>Body Style</label>
+                  <div style={{display:"flex",alignItems:"center",gap:10,border:"1px solid #E4E0D5",background:"#FBF9F3",borderRadius:10,padding:"8px 12px"}}>
+                    {(d.thAvailBodyStyles.find(b=>b.id===s.thBodyStyle)?.img) && (
+                      <img src={d.thAvailBodyStyles.find(b=>b.id===s.thBodyStyle).img} alt="" style={{width:34,height:34,objectFit:"contain",flexShrink:0}} />
+                    )}
+                    <div style={{minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:700,color:"#0a1628"}}>{d.thAvailBodyStyles.find(b=>b.id===s.thBodyStyle)?.label || s.thBodyStyle}</div>
+                      <div style={{fontSize:11,color:"#6b7280"}}>{d.thAvailBodyStyles.find(b=>b.id===s.thBodyStyle)?.desc || ""}</div>
+                    </div>
+                    <button className="side-action-btn" style={{marginLeft:"auto",flexShrink:0}}
+                      onClick={(e)=>{ e.stopPropagation(); setExpandedStyleGrid(side); }}>
+                      Change
+                    </button>
+                  </div>
+                </div>
+              ) : (
                 <div className="field" style={{marginBottom:16}}><label>Body Style</label>
                   <div className="style-grid">
                     {d.thAvailBodyStyles.map(bs=>(
                       <div key={bs.id} className={`style-card ${s.thBodyStyle===bs.id?"active":""}`}
-                        onClick={()=>setForm(f=>({...f,[side]:{...f[side], thBodyStyle:bs.id, thModel:"", style:"", color:"", faceplateColor:"", shellColor:"", gainMatrix:"", battery:"", receiverLength:"", receiverPower:"", dome:"", domeCategory:"", domeSize:""}}))}>
+                        onClick={()=>{ setForm(f=>({...f,[side]:{...f[side], thBodyStyle:bs.id, thModel:"", style:"", color:"", faceplateColor:"", shellColor:"", gainMatrix:"", battery:"", receiverLength:"", receiverPower:"", dome:"", domeCategory:"", domeSize:""}})); setExpandedStyleGrid(null); }}>
                         {bs.img && (
                           <img src={bs.img} alt={bs.label}
                             style={{display:"block",margin:"0 auto 6px",width:56,height:56,objectFit:"contain",opacity:s.thBodyStyle===bs.id?1:0.5}} />
@@ -657,7 +700,7 @@ export default function WizardSteps(props) {
                     ))}
                   </div>
                 </div>
-              )}
+              ))}
 
               {/* 3. Model */}
               {s.thBodyStyle && d.thAvailModels.length > 0 && (
@@ -947,6 +990,37 @@ export default function WizardSteps(props) {
         setActiveSide(targetSide);
       };
 
+      // ── Style-first picker (both catalogs) ───────────────────────────────
+      // Opens the step: real Signia packshots + stat bars + audiogram engine
+      // guidance, one click seeds both ears. The TH flow scopes the cards to
+      // what the chosen tier allows; per-ear "Change" chips below stay the
+      // escape hatch for CROS and asymmetric fits.
+      const pickerStyles = thCardFlow
+        ? leftDerived.thAvailBodyStyles
+        : BODY_STYLES.map(bs => ({ id: bs.id, label: bs.label, desc: bs.desc, img: BODY_STYLE_IMG[bs.id] }));
+      const pickerSelected = thCardFlow
+        ? (form.left.thBodyStyle && form.left.thBodyStyle === form.right.thBodyStyle ? form.left.thBodyStyle : null)
+        : (form.left.style && form.left.style === form.right.style ? form.left.style : null);
+      const seedBothEars = (id) => {
+        if (thCardFlow) {
+          // Mirrors the per-ear TH grid's reset (keeps techLevel, wipes the
+          // downstream cascade) — applied to both ears in one update.
+          const wipe = { thBodyStyle:id, thModel:"", style:"", color:"", faceplateColor:"", shellColor:"", gainMatrix:"", battery:"", receiverLength:"", receiverPower:"", dome:"", domeCategory:"", domeSize:"", isCROS:false };
+          setForm(f => ({ ...f, left:{...f.left, ...wipe}, right:{...f.right, ...wipe} }));
+        } else {
+          const seed = directPurchaseActive ? { style:id, manufacturer:"Signia" } : { style:id };
+          resetSide("left", seed);
+          resetSide("right", seed);
+        }
+        setExpandedStyleGrid(null);
+      };
+      const anyStyleChosen = thCardFlow
+        ? !!(form.left.thBodyStyle || form.right.thBodyStyle || form.left.isCROS || form.right.isCROS)
+        : !!(form.left.style || form.right.style);
+      // TH flow with no tier picked yet has no style list — fall back to the
+      // ungated per-ear columns rather than a dead end.
+      const showPicker = pickerStyles.length > 0;
+
       return (
         <>
           <div className="card">
@@ -959,10 +1033,23 @@ export default function WizardSteps(props) {
             )}
             {directPurchaseActive && (
               <div style={{background:"#FBF9F3",border:"1px solid #E4E0D5",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#0B4A42",fontWeight:600}}>
-                🔁 Direct Purchase — Signia portfolio at the {form.tier || "selected"} tier price ({form.tierPrice != null ? `$${form.tierPrice.toLocaleString()}/aid` : "—"}). Tech level is locked to the tier.
+                🔁 Direct Purchase — Signia portfolio at the {form.tier || "selected"} tier price. Tech level is locked to the tier.
               </div>
             )}
 
+            {showPicker && (
+              <BodyStylePicker
+                styles={pickerStyles}
+                selectedId={pickerSelected}
+                onSelect={seedBothEars}
+                audiology={form.audiology}
+                subtitle={thCardFlow ? "Every style shown is covered at the chosen tier — one click sets both ears." : undefined}
+              />
+            )}
+
+            {/* Ear columns appear once a style is chosen (or immediately when
+                the picker can't render, e.g. TH flow before a tier exists). */}
+            {(!showPicker || anyStyleChosen) && (
             <div className="device-columns">
               {/* ── Left Column ── */}
               {renderSideColumn("left")}
@@ -999,6 +1086,7 @@ export default function WizardSteps(props) {
               {/* ── Right Column ── */}
               {renderSideColumn("right")}
             </div>
+            )}
 
             {/* ── Mismatched-manufacturer caution ── */}
             {manufacturerMismatch && (

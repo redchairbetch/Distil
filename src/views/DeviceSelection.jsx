@@ -616,40 +616,9 @@ function TierCard({ rank, tier, pricing, isRecommended, isSelected, onSelect }) 
         </div>
       )}
 
-      {/* Patient-cost-first */}
-      {pricing ? (
-        <div style={styles.priceBlock}>
-          <div style={styles.priceLabel}>Your cost, per aid</div>
-          <div style={styles.priceBig}>{formatMoney(pricing.patientCost)}</div>
-          {pricing.payType === 'private' ? (
-            <div style={styles.priceNote}>Private pay — clinic retail</div>
-          ) : (
-            <>
-              <div style={styles.priceRetail}>
-                full retail value {formatMoney(pricing.retail)}
-              </div>
-              {pricing.isCovered && (
-                <div style={{ ...styles.priceNote, color: COLOR.good }}>
-                  Covered by your plan
-                </div>
-              )}
-              {pricing.isUpgrade && (
-                <div style={styles.priceNote}>
-                  Plan copay + {formatMoney(pricing.upgradeDelta)} upgrade to {label}
-                </div>
-              )}
-              {!pricing.isCovered && !pricing.isUpgrade && (
-                <div style={styles.priceNote}>
-                  Your plan covers this tier at its copay
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      ) : (
-        <div style={{ color: COLOR.faint, fontSize: 13 }}>Pricing unavailable</div>
-      )}
-
+      {/* No dollars on the recommendation cards — the card sells the
+          technology; pricing enters once, in the Zone 5 purchase panel,
+          which keeps computing from the same selected rank. */}
       {tier && <FeatureList tier={tier} />}
     </div>
   )

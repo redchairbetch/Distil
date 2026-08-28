@@ -23,7 +23,6 @@ import {
   flaggedEffortSignals,
 } from "../listeningSituations.js";
 import { EnvironmentCoverage } from "../components/CoverageBars.jsx";
-import { findAnchorForRank, TIER_LABEL_CATALOG_RANK } from "../lib/pricing.js";
 import { PRICING_T } from "../i18n/pricing.js";
 
 // Technology Tier Selection — wizard step between Results and Device
@@ -119,11 +118,6 @@ function rankToProcessingLabel(rank) {
   if (rank === 1) return "essential";
   return null;
 }
-
-// $3,997.50 → "3,997.50", $850 → "850" — whole dollars stay clean, real
-// cents render as cents.
-const money = (n) => Number(n).toLocaleString("en-US",
-  Number.isInteger(Number(n)) ? {} : { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function TierSelection({
   patientId, clinicId,
@@ -229,21 +223,6 @@ export default function TierSelection({
   // losing the recommendation context, and pricing updates downstream.
   const cardsSelectable = !loading && availableTiers.length > 0;
 
-  // Retail anchoring for insurance tiers — the patient's copay is the
-  // headline; the clinic retail anchor renders as "full retail value" WITH
-  // the savings alongside (pricing doctrine: never retail without savings).
-  // Private-pay tier prices ARE the retail anchors, so no comparison there.
-  const savingsFor = (tier) => {
-    if (tier.source !== "insurance" || tier.price == null) return null;
-    const rank = TIER_LABEL_CATALOG_RANK[String(tier.label || "").toLowerCase().trim()];
-    const anchor = findAnchorForRank(retailAnchors, rank);
-    if (!anchor) return null;
-    const retail = parseFloat(anchor.price_per_aid);
-    const amount = retail - tier.price;
-    if (!(retail > 0) || amount <= 0) return null;
-    return { retail, amount, pct: Math.round((amount / retail) * 100) };
-  };
-
   // Adopt the engine's pick as the default selection when no tier is
   // chosen yet, or when the prior choice is no longer valid for the
   // current tier list (e.g. plan changed via back-nav). Once the user
@@ -273,7 +252,7 @@ export default function TierSelection({
       return (
         <div style={{ background: COLOR.card, border: `1px solid ${BORDER}`, borderRadius: 14, padding: 24, boxShadow: SHADOW.md, fontFamily: FONT.ui }}>
           <div style={{ fontFamily: FONT.display, fontSize: 22, fontWeight: 600, color: TEXT, letterSpacing: "0.1px" }}>
-            {pt.foundCost}
+            {pt.foundOptions}
           </div>
           <div style={{ fontSize: 13, color: FAINT, marginTop: 3, marginBottom: 18 }}>
             {pt.basedOn}
@@ -300,28 +279,9 @@ export default function TierSelection({
             </div>
           ) : null}
 
-          {deviceDrivenTiers.length > 0 && (
-            <div style={{ marginTop:18 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: TEAL_DARK, marginBottom: 9 }}>
-                {pt.priceBands}
-              </div>
-              <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
-                {deviceDrivenTiers.map(t => (
-                  <div key={t.label} style={{
-                    display:"flex", alignItems:"baseline", justifyContent:"space-between",
-                    border:`1px solid ${BORDER}`, borderRadius:8, padding:"10px 14px", background:BG_SOFT,
-                  }}>
-                    <span style={{ fontSize:13, fontWeight:600, color:TEXT }}>{t.label}</span>
-                    <span style={{ fontFamily:FONT.display, fontSize:16, fontWeight:700, color:TEXT }}>
-                      {t.price === 0 ? pt.noCharge : t.price != null ? `$${money(t.price)}` : "—"}
-                      {t.price != null && t.price !== 0 && <span style={{ fontSize:11, fontWeight:600, color:MUTED, marginLeft:5 }}>{pt.perAid}</span>}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
+          {/* The plan's price-band list used to render here — pricing now
+              enters the conversation exactly once, at the Pricing Reveal on
+              Device Selection. The bands still price the chosen device there. */}
           <div style={{ marginTop:16, fontSize:12.5, color:MUTED, lineHeight:1.55 }}>
             {pt.tpaExplain(tpaName)}
           </div>
@@ -349,7 +309,6 @@ export default function TierSelection({
           selectable={cardsSelectable}
           blurb={tierBlurbs[tier.label]}
           flagged={flagged}
-          savings={savingsFor(tier)}
           pt={pt}
           lang={lang}
           onSelect={() => onSelectTier(tier.label, tier.price)}
@@ -509,7 +468,7 @@ function RecommendationBanner({ loading, engineError, recommended, rationaleText
   );
 }
 
-function TierCard({ tier, selected, recommended, selectable, blurb, flagged, savings, pt, lang, onSelect }) {
+function TierCard({ tier, selected, recommended, selectable, blurb, flagged, pt, lang, onSelect }) {
   const rank = tierLabelToRank(tier.label);
   const coverage = rank != null ? COVERAGE_BY_RANK[rank] : null;
   const effortCopy = rank != null ? (pt.tierEffort[rank] || TIER_EFFORT_COPY[rank]) : null;
@@ -551,21 +510,10 @@ function TierCard({ tier, selected, recommended, selectable, blurb, flagged, sav
 
       <div style={{ padding:"16px 16px 12px" }}>
         <div style={{ fontFamily:FONT.display, fontSize:19, fontWeight:600, color:TEXT }}>{tier.label}</div>
-        {/* Patient cost is the card's headline number — this step is where
-            the price gets settled, before any body-style conversation. */}
-        <div style={{ marginTop:6, display:"flex", alignItems:"baseline", gap:6, flexWrap:"wrap" }}>
-          <span style={{ fontFamily:FONT.display, fontSize:26, fontWeight:700, color:TEXT }}>
-            {tier.price === 0 ? pt.noCharge : tier.price != null ? `$${money(tier.price)}` : "—"}
-          </span>
-          {tier.price != null && tier.price !== 0 && (
-            <span style={{ fontSize:12, fontWeight:600, color:MUTED }}>{pt.perAid}</span>
-          )}
-        </div>
-        {savings && (
-          <div style={{ marginTop:5, fontSize:12, lineHeight:1.45, color:BRASS_INK }}>
-            {pt.savingsLine(money(savings.retail), money(savings.amount), savings.pct)}
-          </div>
-        )}
+        {/* No dollars on this screen. The tier's price is still captured
+            silently on select (onSelectTier carries it), and enters the
+            conversation exactly once — at the Pricing Reveal on Device
+            Selection. This card sells the technology, not the number. */}
         {/* Listening effort is the tier's primary description (effort pivot) —
             who does the work of separating speech from noise at this level.
             The feature blurb demotes to a secondary line underneath. */}
