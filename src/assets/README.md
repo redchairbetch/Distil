@@ -5,19 +5,18 @@ File names must match the IDs/keys used in the code exactly.
 
 ---
 
-## body-styles/
-One image per body style. Name must match the `id` from BODY_STYLES:
+## body-styles/ (silhouettes — retired)
+Body styles now render real Signia packshots from `devices/` (see
+`BODY_STYLE_PHOTO_KEY` in `src/lib/catalogConstants.js`). Only two silhouettes
+remain, as fallbacks for the photos still awaiting manual sourcing:
 
 ```
-ric.png       ← RIC / miniRITE
-bte.png       ← BTE (Behind-the-ear)
-ite.png       ← ITE (In-the-ear, full shell)
-itc.png       ← ITC (In-the-canal, half shell)
-cic.png       ← CIC (Completely-in-canal)
-iic.png       ← IIC (Invisible-in-canal)
+bte.png       ← fallback until devices/signia-motion.webp lands
+ITC.png       ← fallback until devices/signia-insio-itc.webp lands
 ```
 
-Ideal size: 200x200px transparent PNG. Side-profile or 3/4 view.
+Drop those two `.webp` files into `devices/` and the last silhouettes retire
+themselves — then this folder can be deleted.
 
 ---
 

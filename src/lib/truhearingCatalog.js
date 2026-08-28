@@ -13,12 +13,7 @@
 // TruHearing device-configuration tables. Extracted verbatim from Distil.jsx
 // (backlog #40a — monolith decomposition).
 
-import imgRIC from "../assets/body-styles/RIC.png";
-import imgBTE from "../assets/body-styles/bte.png";
-import imgITE from "../assets/body-styles/ITE.png";
-import imgITC from "../assets/body-styles/ITC.png";
-import imgCIC from "../assets/body-styles/cic.png";
-import imgIIC from "../assets/body-styles/IIC.png";
+import { BODY_STYLE_IMG } from "./catalogConstants.js";
 
 // ── TRUHEARING DEVICE CONFIG ──────────────────────────────────────────────────
 // Encodes the TruHearing website's model/tier/style availability, gain/matrix
@@ -40,17 +35,19 @@ export const TH_STYLES = [
   { id:"sr",     label:"SR (Slim RIC)" },
 ];
 
-// Body-style categories for the TH card picker. Borrows private-pay imagery
-// (BODY_STYLE_IMG). IF uses the IIC image. Each category maps to one or more
-// specific TH_STYLES ids — when multiple, a Variant sub-picker appears after Model.
+// Body-style categories for the TH card picker. Shares the real Signia
+// packshots with the private-pay flow (BODY_STYLE_IMG) — the TH shells are
+// Signia white-labels, so the photos are honest. IF uses the Silk packshot.
+// Each category maps to one or more specific TH_STYLES ids — when multiple,
+// a Variant sub-picker appears after Model.
 export const TH_BODY_STYLES = [
-  { id:"ric", label:"RIC", desc:"Receiver-in-canal · Most popular", img:imgRIC, thStyleIds:["ric","ric_bct","sr"] },
-  { id:"bte", label:"BTE", desc:"Behind-the-ear · Maximum power",    img:imgBTE, thStyleIds:["s_bte","p_bte","sp_bte"] },
-  { id:"ite", label:"ITE", desc:"In-the-ear · Full / half shell",    img:imgITE, thStyleIds:["hs","fs"] },
-  { id:"itc", label:"ITC", desc:"In-the-canal · Half shell",         img:imgITC, thStyleIds:["itc"] },
-  { id:"cic", label:"CIC", desc:"Completely-in-canal",                img:imgCIC, thStyleIds:["cic"] },
-  { id:"iic", label:"IIC", desc:"Invisible-in-canal",                 img:imgIIC, thStyleIds:["iic"] },
-  { id:"if",  label:"IF",  desc:"Instant Fit",                        img:imgIIC, thStyleIds:["if"] },
+  { id:"ric", label:"RIC", desc:"Receiver-in-canal · Most popular", img:BODY_STYLE_IMG.ric, thStyleIds:["ric","ric_bct","sr"] },
+  { id:"bte", label:"BTE", desc:"Behind-the-ear · Maximum power",    img:BODY_STYLE_IMG.bte, thStyleIds:["s_bte","p_bte","sp_bte"] },
+  { id:"ite", label:"ITE", desc:"In-the-ear · Full / half shell",    img:BODY_STYLE_IMG.ite, thStyleIds:["hs","fs"] },
+  { id:"itc", label:"ITC", desc:"In-the-canal · Half shell",         img:BODY_STYLE_IMG.itc, thStyleIds:["itc"] },
+  { id:"cic", label:"CIC", desc:"Completely-in-canal",                img:BODY_STYLE_IMG.cic, thStyleIds:["cic"] },
+  { id:"iic", label:"IIC", desc:"Invisible-in-canal",                 img:BODY_STYLE_IMG.iic, thStyleIds:["iic"] },
+  { id:"if",  label:"IF",  desc:"Instant Fit",                        img:BODY_STYLE_IMG.if, thStyleIds:["if"] },
 ];
 export const TH_STYLE_TO_BODY = Object.fromEntries(
   TH_BODY_STYLES.flatMap(b => b.thStyleIds.map(sid => [sid, b.id]))

@@ -13,13 +13,15 @@
 // Catalog + device-configuration constants shared by the provider CRM.
 // Extracted verbatim from Distil.jsx (backlog #40a — monolith decomposition).
 
-// ── Body style images ──
-import imgRIC from "../assets/body-styles/RIC.png";
-import imgBTE from "../assets/body-styles/bte.png";
-import imgITE from "../assets/body-styles/ITE.png";
-import imgITC from "../assets/body-styles/ITC.png";
-import imgCIC from "../assets/body-styles/cic.png";
-import imgIIC from "../assets/body-styles/IIC.png";
+// ── Body style imagery — real Signia packshots ──
+// Resolved through the shared device-photo store (deviceImages.js) so a body
+// style and the catalog rows for that shell show the same file. Two keys are
+// still awaiting manual sourcing (signia-motion → BTE, signia-insio-itc →
+// ITC); until those files land in src/assets/devices/, the old silhouette
+// fills in — drop the .webp there and the silhouette retires itself.
+import { deviceImageUrl } from "../deviceImages.js";
+import imgBTEFallback from "../assets/body-styles/bte.png";
+import imgITCFallback from "../assets/body-styles/ITC.png";
 
 // ── Manufacturer logos ──
 import logoOticon from "../assets/logos/Oticon.png";
@@ -53,7 +55,22 @@ export const SKIN_TONES = ["Light Beige","Medium Beige","Medium-Dark Beige","Dar
 export const cap = (s) => s ? s[0].toUpperCase() + s.slice(1) : s;
 
 // ── BODY STYLE IMAGE LOOKUP ──────────────────────────────────────────────────
-export const BODY_STYLE_IMG = { ric:imgRIC, bte:imgBTE, ite:imgITE, itc:imgITC, cic:imgCIC, iic:imgIIC, if:imgIIC };
+// One representative Signia packshot per shell (IF uses Silk — the instant-fit
+// shell the TruHearing IF white-labels). Keys are deviceImages image_keys.
+export const BODY_STYLE_PHOTO_KEY = {
+  ric: "signia-pure-ax",
+  bte: "signia-motion",
+  ite: "signia-insio-ite",
+  itc: "signia-insio-itc",
+  cic: "signia-insio-cic",
+  iic: "signia-insio-iic",
+  if:  "signia-silk",
+};
+const BODY_STYLE_FALLBACK = { bte: imgBTEFallback, itc: imgITCFallback };
+export const BODY_STYLE_IMG = Object.fromEntries(
+  Object.entries(BODY_STYLE_PHOTO_KEY).map(([id, key]) =>
+    [id, deviceImageUrl(key) ?? BODY_STYLE_FALLBACK[id] ?? null])
+);
 
 // ── MANUFACTURER LOGO LOOKUP ─────────────────────────────────────────────────
 export const MFR_LOGO = {
