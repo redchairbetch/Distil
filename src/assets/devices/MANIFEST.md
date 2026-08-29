@@ -47,11 +47,21 @@ below.
 **Body-style picker (2026-08):** the wizard's Device Selection step now
 renders its body-style cards from these keys (`BODY_STYLE_PHOTO_KEY` in
 `src/lib/catalogConstants.js`): `signia-pure-ax` (RIC), `signia-motion` (BTE),
-`signia-insio-ite/-itc/-cic/-iic` (customs), `signia-silk` (IF). Two of those —
-`signia-motion` and `signia-insio-itc` — are still unsourced (their URL-map
-candidates were rejected above), so BTE and ITC fall back to the last two
-silhouettes until the files land here. Dropping them in also gives every
-catalog row on those keys a photo.
+`signia-insio-ite/-itc/-cic/-iic` (customs), `signia-silk` (IF).
+`signia-motion` and `signia-insio-itc` were sourced 2026-08-29 from
+signia.net's product-render CDN (Motion Charge&Go M IX beige `led-on`
+1000×1000; Insio ITC IX beige `dir-pb-vc double shadow` 1000×1000) —
+both real packshots, visually vetted, so the last two silhouette fallbacks
+are retired. Note: the earlier "cloud sandbox blocks these CDNs" caveat no
+longer holds — cdn.signia.net fetched fine from the remote session.
+
+**On-ear photos (2026-08-29):** `src/assets/on-ear/<style id>.jpg` holds a
+worn-on-the-ear shot per body style (sourced from Kurt's Drive
+`Distil CRM/Headshots`), resolved by `onEarImageUrl()` in
+`catalogConstants.js` with the same drop-a-file contract as this folder.
+The style cards cycle packshot ↔ on-ear via arrows; ITE reuses the ITC shot
+and IF reuses the Active Pro shot. `styletto.jpg` is committed for the
+future SR/Styletto slot but unreferenced today.
 
 Not covered by that map (source manually): all Widex keys (brand absent from
 the catalog), older generations (`signia-pure-nx`/`-x`/`-ux`, `oticon-opn`,
