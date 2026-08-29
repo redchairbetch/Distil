@@ -132,7 +132,10 @@ function ImageCarousel({ images, alt, blocked }) {
 }
 
 // Fork cards — one component for both fork levels (category + subcategory).
-function BranchCard({ label, desc, img, imgCover, ann, selected, dimmed, onClick }) {
+// `selected` drives the open-path border; `checked` (the chosen style lives
+// under this branch) is what earns the ✓ badge, so browsing another branch
+// never shows a checkmark the patient didn't put there.
+function BranchCard({ label, desc, img, imgCover, ann, selected, checked, dimmed, onClick }) {
   const blocked = ann?.status === "blocked";
   return (
     <div
@@ -159,7 +162,7 @@ function BranchCard({ label, desc, img, imgCover, ann, selected, dimmed, onClick
       <div style={{ fontSize: 14.5, fontWeight: 700, color: "#0a1628" }}>{label}</div>
       <div style={{ fontSize: 11, color: "#6b7280", marginTop: 3, lineHeight: 1.4 }}>{desc}</div>
       <Pill ann={ann} />
-      {selected && (
+      {checked && (
         <div style={{ position: "absolute", top: 8, right: 8, width: 18, height: 18, borderRadius: "50%",
           background: "#0B4A42", color: "#fff", fontSize: 11, fontWeight: 800, lineHeight: "18px", textAlign: "center" }}>
           ✓
@@ -292,6 +295,7 @@ export default function BodyStylePicker({ styles, selectedId, onSelect, audiolog
               imgCover
               ann={annForCategory(cat)}
               selected={categoryId === cat.id}
+              checked={!!selectedId && STYLE_BRANCH[selectedId]?.categoryId === cat.id}
               dimmed={!!categoryId && categoryId !== cat.id}
               onClick={() => pickCategory(cat)}
             />
@@ -312,6 +316,7 @@ export default function BodyStylePicker({ styles, selectedId, onSelect, audiolog
                 img={repStyle?.img || null}
                 ann={annForSub(sub)}
                 selected={subId === sub.id}
+                checked={!!selectedId && STYLE_BRANCH[selectedId]?.id === sub.id}
                 dimmed={!!subId && subId !== sub.id}
                 onClick={() => pickSub(sub)}
               />
@@ -335,8 +340,10 @@ export default function BodyStylePicker({ styles, selectedId, onSelect, audiolog
         </div>
       )}
 
-      {/* Detail panel — full sentences for whatever's selected */}
-      {selectedStyle && (
+      {/* Detail panel — full sentences for the selected style, but only while
+          its own branch is the one open (browsing another branch shouldn't
+          leave a stale RIC blurb under the custom-shell cards). */}
+      {selectedStyle && activeSub && activeSub.styleIds.includes(selectedStyle.id) && (
         <div style={{ marginTop: 12, background: "#FBF9F3", border: "1px solid #E4E0D5", borderRadius: 10,
           padding: "12px 16px" }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#0B4A42", marginBottom: 4 }}>
