@@ -72,6 +72,55 @@ export const BODY_STYLE_IMG = Object.fromEntries(
     [id, deviceImageUrl(key) ?? BODY_STYLE_FALLBACK[id] ?? null])
 );
 
+// ── ON-EAR PHOTO LOOKUP ──────────────────────────────────────────────────────
+// Worn-on-the-ear shot per body style (src/assets/on-ear/<style id>.jpg).
+// Same drop-a-file contract as deviceImages.js: a missing file resolves null
+// and the style card simply shows only its packshot. ITE reuses the ITC shot
+// (full shell / half shell / ITC read the same at this size — Kurt, 2026-08-29)
+// and IF reuses the Active Pro shot (instant-fit shell, same placement).
+const ON_EAR_FILES = import.meta.glob(
+  "../assets/on-ear/*.{png,webp,jpg,jpeg}",
+  { eager: true, import: "default" }
+);
+const onEarByStem = {};
+for (const [path, url] of Object.entries(ON_EAR_FILES)) {
+  onEarByStem[path.replace(/^.*\//, "").replace(/\.[^.]+$/, "")] = url;
+}
+const ON_EAR_REUSE = { ite: "itc", if: "active-pro" };
+export function onEarImageUrl(styleId) {
+  if (!styleId) return null;
+  return onEarByStem[styleId] ?? onEarByStem[ON_EAR_REUSE[styleId]] ?? null;
+}
+
+// ── STYLE TAXONOMY — the forked picker path (Kurt, 2026-08-29) ──────────────
+// Fork 1: where the device lives (Behind The Ear vs In The Ear). Fork 2:
+// coupling family within it. Keyed by the same style ids as BODY_STYLES /
+// TH_BODY_STYLES, so both catalog flows group their (possibly tier-scoped)
+// style lists through one map. The Instant Fit / Custom Molded split only
+// bites for Signia today but is expected to matter more as the catalog grows.
+export const STYLE_CATEGORIES = [
+  { id: "behind", label: "Behind The Ear",
+    desc: "The electronics ride behind the ear — the most power and fitting flexibility",
+    onEarStyleId: "bte" },
+  { id: "inear", label: "In The Ear",
+    desc: "The whole device sits in the ear itself — nothing behind the ear at all",
+    onEarStyleId: "itc" },
+];
+export const STYLE_SUBCATEGORIES = [
+  { id: "ric-family", categoryId: "behind", label: "RIC / RIE / miniRITE",
+    desc: "Speaker sits in the canal on a thin wire · Most popular style", styleIds: ["ric"] },
+  { id: "trad-bte", categoryId: "behind", label: "Traditional BTE",
+    desc: "All electronics behind the ear, sound through a tube · Maximum power", styleIds: ["bte"] },
+  { id: "instant-fit", categoryId: "inear", label: "Instant Fit",
+    desc: "Ready-to-wear soft-tip shell — fits the same day, no impression", styleIds: ["if"] },
+  { id: "custom-molded", categoryId: "inear", label: "Custom Molded",
+    desc: "Shell built from an impression of the patient's own ear", styleIds: ["ite", "itc", "cic", "iic"] },
+];
+// styleId → its subcategory row (and through it the category).
+export const STYLE_BRANCH = Object.fromEntries(
+  STYLE_SUBCATEGORIES.flatMap(sub => sub.styleIds.map(sid => [sid, sub]))
+);
+
 // ── MANUFACTURER LOGO LOOKUP ─────────────────────────────────────────────────
 export const MFR_LOGO = {
   "Oticon":logoOticon, "Phonak":logoPhonak, "Resound":logoResound, "ReSound":logoResound,

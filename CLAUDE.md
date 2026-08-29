@@ -81,6 +81,10 @@ src/
                     WizardSteps, ClinicSettings, CatalogAdmin, InsurancePlansAdmin,
                     RebatesAdmin, RateVerificationsAdmin, DeviceSelection,
                     UpgradeWizard, ContentLibrary, CampaignManager, LimaCharlie, …
+docs/
+  manufacturer-forms/  Blank manufacturer PDFs (earmold/custom order, repair,
+                       L&D, Return for Credit) by manufacturer — see its README
+                       index; raw material for the earmold engine (backlog #42)
 ```
 
 ## Routes
