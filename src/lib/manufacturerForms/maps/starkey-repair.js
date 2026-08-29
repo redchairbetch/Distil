@@ -1,0 +1,50 @@
+// Starkey Repair — flat PDF, vector-text overlay (coordinates from
+// scripts/annotate-form-fields.mjs; tune with scripts/preview-form-fill.mjs).
+// Page 1 is a duplicate copy of page 0 — only page 0 is filled. The serial
+// table rows are LEFT (y375) / RIGHT (y356); the defective-symptom area and
+// warranty tick are per-incident and left to the pen.
+export default {
+  id: "starkey-repair",
+  manufacturer: "starkey",
+  category: "repair",
+  title: "Starkey Repair Form",
+  pdf: "starkey/starkey-repair.pdf",
+  sha256: "b7ecbf8f67b70b95e69eb55869fac56518ec503da67161b513c5d603c56464b1",
+  mode: "overlay",
+  fields: [
+    { logical: "clinic.billTo", page: 0, x: 250, y: 713, maxWidth: 70 },
+    { logical: "clinic.shipTo", page: 0, x: 550, y: 713, size: 7, maxWidth: 58 },
+    { logical: "clinic.address", page: 0, x: 55, y: 686, size: 8, maxWidth: 245 },
+    { logical: "clinic.address", page: 0, x: 365, y: 686, size: 8, maxWidth: 240 },
+    { logical: "provider.name", page: 0, x: 55, y: 645, size: 8, maxWidth: 115 },
+    { logical: "provider.name", page: 0, x: 365, y: 645, size: 8, maxWidth: 110 },
+    { logical: "clinic.phone", page: 0, x: 48, y: 629, size: 8, maxWidth: 120 },
+    { logical: "clinic.phone", page: 0, x: 357, y: 629, size: 8, maxWidth: 118 },
+    { logical: "meta.today", page: 0, x: 552, y: 570, size: 7, maxWidth: 55 },
+    { logical: "po", page: 0, x: 358, y: 542, size: 8, maxWidth: 100 },
+    { logical: "patient.firstName", page: 0, x: 100, y: 427, size: 9, maxWidth: 175 },
+    { logical: "patient.lastName", page: 0, x: 378, y: 427, size: 9, maxWidth: 130 },
+    { logical: "patient.dob", page: 0, x: 445, y: 427, size: 8, maxWidth: 55 },
+    { logical: "meta.today", page: 0, x: 563, y: 427, size: 8, maxWidth: 48 },
+    { logical: "device.left.serial", page: 0, x: 85, y: 375, size: 8, maxWidth: 100 },
+    { logical: "device.right.serial", page: 0, x: 85, y: 356, size: 8, maxWidth: 100 },
+    { logical: "notes", page: 0, x: 325, y: 205, size: 8, maxWidth: 255 },
+    // Page 2 — Custom Hearing Aid Repair variant, identical layout
+    { logical: "clinic.billTo", page: 1, x: 250, y: 710, maxWidth: 70 },
+    { logical: "clinic.shipTo", page: 1, x: 550, y: 710, size: 7, maxWidth: 58 },
+    { logical: "clinic.address", page: 1, x: 55, y: 683, size: 8, maxWidth: 245 },
+    { logical: "clinic.address", page: 1, x: 365, y: 683, size: 8, maxWidth: 240 },
+    { logical: "provider.name", page: 1, x: 55, y: 642, size: 8, maxWidth: 115 },
+    { logical: "provider.name", page: 1, x: 365, y: 642, size: 8, maxWidth: 110 },
+    { logical: "clinic.phone", page: 1, x: 48, y: 626, size: 8, maxWidth: 120 },
+    { logical: "clinic.phone", page: 1, x: 357, y: 626, size: 8, maxWidth: 118 },
+    { logical: "meta.today", page: 1, x: 552, y: 567, size: 7, maxWidth: 55 },
+    { logical: "po", page: 1, x: 358, y: 539, size: 8, maxWidth: 100 },
+    { logical: "patient.firstName", page: 1, x: 100, y: 424, size: 9, maxWidth: 175 },
+    { logical: "patient.lastName", page: 1, x: 378, y: 424, size: 9, maxWidth: 130 },
+    { logical: "patient.dob", page: 1, x: 445, y: 424, size: 8, maxWidth: 55 },
+    { logical: "meta.today", page: 1, x: 563, y: 424, size: 8, maxWidth: 48 },
+    { logical: "device.left.serial", page: 1, x: 85, y: 372, size: 8, maxWidth: 100 },
+    { logical: "device.right.serial", page: 1, x: 85, y: 353, size: 8, maxWidth: 100 },
+  ],
+};

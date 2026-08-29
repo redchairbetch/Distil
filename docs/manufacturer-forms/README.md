@@ -20,8 +20,17 @@ earmold form is the most heavily structured (1,916 fields); Signia's HP
 receiver form is a pure scan (no text layer at all).
 
 When a manufacturer revs a form, replace the file here and re-verify any
-field map built against it — the epic's design says maps are version-stamped
-against the PDF's hash so a silent swap fails loudly.
+field map built against it — maps are version-stamped against the PDF's
+SHA-256 (see `src/lib/manufacturerForms/registry.js`; the drift guard in
+`registry.test.js` fails on a silent swap). Tooling: `scripts/dump-form-fields.mjs`
+prints each PDF's hash + AcroForm field names, `scripts/annotate-form-fields.mjs`
+correlates fields with nearby label text (and dumps text-run coordinates for
+flat forms), and `scripts/preview-form-fill.mjs` renders a sample-filled copy
+for visual verification of overlay maps.
+
+**Known-bad file:** `signia/signia-return-for-credit.pdf` is corrupt (bad
+flate stream — renders blank, unreadable by pdfjs). It is excluded from the
+form registry until a clean copy is re-sourced from Signia/Drive.
 
 ## Index
 

@@ -1,0 +1,41 @@
+// Widex Loss & Damage — AcroForm (Text1-33). The lost-product section splits
+// BTE vs Custom: the styleBucket/isBteFamily routers put the chart's device in
+// the right block. CAMISHA-shell reorder, claim-date and signature fields are
+// per-incident and unmapped.
+export default {
+  id: "widex-loss-damage",
+  manufacturer: "widex",
+  category: "loss_damage",
+  title: "Widex Loss & Damage Claim",
+  pdf: "widex/widex-loss-damage.pdf",
+  sha256: "fa5761dd5fab494f750198fbc425d663183869180ac0bd75d353bb7ed2df7cf2",
+  mode: "acroform",
+  fields: [
+    { logical: "clinic.billTo", target: "Text1" },
+    { logical: "clinic.name", target: "Text2" },
+    { logical: "clinic.street", target: "Text3" },
+    { logical: "clinic.city", target: "Text4" },
+    { logical: "clinic.state", target: "Text5" },
+    { logical: "clinic.zip", target: "Text6" },
+    { logical: "po", target: "Text7" },
+    { logical: "provider.name", target: "Text8" },
+    { logical: "patient.firstName", target: "Text9" },
+    { logical: "clinic.shipTo", target: "Text10" },
+    { logical: "meta.today", target: "Text11" },
+    { logical: "clinic.street", target: "Text12" },
+    { logical: "clinic.city", target: "Text13" },
+    { logical: "clinic.state", target: "Text14" },
+    { logical: "clinic.zip", target: "Text15" },
+    { logical: "clinic.phone", target: "Text16" },
+    { logical: "patient.lastName", target: "Text18" },
+    { logical: "device.primary.isBteFamily", target: "Check Box19", type: "checkbox" },
+    { logical: "device.primary.bteFamilySerial", target: "Text20" },
+    { logical: "device.primary.bteFamilyModel", target: "Text21" },
+    { logical: "device.primary.isCustom", target: "Check Box24", type: "checkbox" },
+    { logical: "device.primary.styleBucket", target: "Check Box25", type: "checkbox", equals: "iic_cic" },
+    { logical: "device.primary.styleBucket", target: "Check Box26", type: "checkbox", equals: "itc" },
+    { logical: "device.primary.styleBucket", target: "Check Box28", type: "checkbox", equals: "ite" },
+    { logical: "device.primary.customSerial", target: "Text29" },
+    { logical: "notes", target: "Text30" },
+  ],
+};

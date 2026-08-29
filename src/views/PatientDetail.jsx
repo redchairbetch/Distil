@@ -22,6 +22,7 @@ import UpgradeTrackingCard from "../components/UpgradeTrackingCard.jsx";
 import CreateQuoteModal from "../components/CreateQuoteModal.jsx";
 import PurchaseAgreementModal from "../components/PurchaseAgreementModal.jsx";
 import SendMessageModal from "../components/SendMessageModal.jsx";
+import FormsModal from "../components/FormsModal.jsx";
 import TnsReasonsPicker from "../components/TnsReasonsPicker.jsx";
 import { AudigramSVG, getDegreeName } from "../components/AudiogramSVG.jsx";
 import IntakeResponsesAccordion from "./IntakeResponsesAccordion.jsx";
@@ -130,6 +131,9 @@ export default function PatientDetail(props) {
     patientMessages, expandedMessageId, setExpandedMessageId, refreshMessages,
     patientNotes, noteDraft, setNoteDraft, noteSaving, handleAddNote, refreshNotes,
   } = props;
+    // Manufacturer Forms modal (backlog #42) — used only from this view, so
+    // its visibility stays local rather than lifted to ProviderCRM.
+    const [showForms, setShowForms] = useState(false);
     const p = selectedPatient;
     if (!p) return null;
     const days = daysUntil(p.devices?.warrantyExpiry||"");
@@ -436,6 +440,18 @@ export default function PatientDetail(props) {
           />
         )}
 
+        {showForms && (
+          <FormsModal
+            patient={p}
+            clinic={paClinic}
+            provider={paProvider}
+            clinicId={clinicId}
+            staffId={staffId}
+            onClose={() => setShowForms(false)}
+            onArchived={() => { refreshDocuments?.(); }}
+          />
+        )}
+
         {showSendNotification && (
           <SendMessageModal
             patient={p}
@@ -672,7 +688,12 @@ export default function PatientDetail(props) {
               <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
                 <div className="detail-card-title" style={{marginBottom:0}}>{p.patientStatus === "tns" ? "Quoted Devices" : "Device Specifications"}</div>
                 {editSection !== "devices" && checkRole(staffRole, ["provider","closer","admin"]) && (
-                  <button className="btn-ghost" style={{marginLeft:"auto",fontSize:11,padding:"4px 10px"}} onClick={startEditDevices}>Edit</button>
+                  <div style={{marginLeft:"auto",display:"flex",gap:6}}>
+                    {p.devices && p.devices.fittingStatus !== "cancelled" && (
+                      <button className="btn-ghost" style={{fontSize:11,padding:"4px 10px"}} onClick={()=>setShowForms(true)}>Forms</button>
+                    )}
+                    <button className="btn-ghost" style={{fontSize:11,padding:"4px 10px"}} onClick={startEditDevices}>Edit</button>
+                  </div>
                 )}
               </div>
               {p.devices?.pendingFitting && (
@@ -1047,14 +1068,17 @@ export default function PatientDetail(props) {
                     const kindLabel = d.kind === 'purchase_agreement' ? 'Purchase Agreement'
                                     : d.kind === 'kiosk_intake' ? 'Intake Form'
                                     : d.kind === 'medical_referral' ? 'Medical Referral'
+                                    : d.kind === 'manufacturer_form' ? 'Manufacturer Form'
                                     : 'Quote';
                     const kindColor = d.kind === 'purchase_agreement' ? '#0a1628'
                                     : d.kind === 'kiosk_intake' ? '#7c3aed'
                                     : d.kind === 'medical_referral' ? '#be123c'
+                                    : d.kind === 'manufacturer_form' ? '#b45309'
                                     : '#15803d';
                     const kindBg    = d.kind === 'purchase_agreement' ? '#e2e8f0'
                                     : d.kind === 'kiosk_intake' ? '#ede9fe'
                                     : d.kind === 'medical_referral' ? '#ffe4e6'
+                                    : d.kind === 'manufacturer_form' ? '#fef3c7'
                                     : '#dcfce7';
                     const sizeKb = d.byte_size ? Math.round(d.byte_size / 1024) : null;
                     return (

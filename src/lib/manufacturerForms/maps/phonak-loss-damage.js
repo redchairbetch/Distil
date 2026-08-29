@@ -1,0 +1,35 @@
+// Phonak Loss & Damage — AcroForm with bare numeric field names, mapped by
+// widget position (scripts/annotate-form-fields.mjs). Single-device form; the
+// Right/Left checkboxes (56/57), cShell serial (60), original invoice (61),
+// loss narrative signature block (64-68) are per-incident and unmapped.
+export default {
+  id: "phonak-loss-damage",
+  manufacturer: "phonak",
+  category: "loss_damage",
+  title: "Phonak Loss & Damage Claim",
+  pdf: "phonak/phonak-loss-damage.pdf",
+  sha256: "6df1eb7b3c476e9b816b9923831432041a0a39c686a8932978e445ed8ff3dcfd",
+  mode: "acroform",
+  fields: [
+    { logical: "clinic.shipTo", target: "39" },
+    { logical: "meta.today", target: "40" },
+    { logical: "clinic.street", target: "41" },
+    { logical: "clinic.city", target: "42" },
+    { logical: "clinic.state", target: "43" },
+    { logical: "clinic.zip", target: "44" },
+    { logical: "clinic.billTo", target: "45" },
+    { logical: "clinic.street", target: "46" },
+    { logical: "clinic.city", target: "47" },
+    { logical: "clinic.state", target: "48" },
+    { logical: "clinic.zip", target: "49" },
+    { logical: "patient.name", target: "50" },
+    { logical: "po", target: "52" },
+    { logical: "provider.name", target: "53" },
+    { logical: "clinic.phone", target: "54" },
+    { logical: "device.primary.model", target: "55" },
+    { logical: "device.primary.serial", target: "58" },
+    { logical: "device.primary.receiver", target: "59" },
+    { logical: "warranty.expiry", target: "62" },
+    { logical: "notes", target: "63" },
+  ],
+};

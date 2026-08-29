@@ -214,7 +214,7 @@ export async function uploadPatientDocument({
 }) {
   if (!clinicId) throw new Error('uploadPatientDocument: clinicId is required')
   if (!blob) throw new Error('uploadPatientDocument: blob is required')
-  if (!['quote', 'purchase_agreement', 'kiosk_intake', 'medical_referral'].includes(kind)) {
+  if (!['quote', 'purchase_agreement', 'kiosk_intake', 'medical_referral', 'manufacturer_form'].includes(kind)) {
     throw new Error(`uploadPatientDocument: invalid kind "${kind}"`)
   }
 
@@ -2578,8 +2578,12 @@ export async function loadClinicSettings(clinicId) {
     name:    data.name,
     address: data.address  || '',
     phone:   data.phone    || '',
+    fax:     data.fax      || '',
     accent:  data.accent_color || '#16a34a',
     defaultBundleMode: data.default_bundle_mode || 'bundled',
+    // Canonical mfr key -> { billTo, shipTo } — consumed by the manufacturer
+    // form fill engine (backlog #42).
+    manufacturerAccounts: data.manufacturer_accounts || {},
   }
 }
 
@@ -2590,7 +2594,9 @@ export async function saveClinicSettings(clinicId, settings) {
       name:         settings.name,
       address:      settings.address,
       phone:        settings.phone,
+      fax:          settings.fax ?? '',
       accent_color: settings.accent,
+      manufacturer_accounts: settings.manufacturerAccounts || {},
     })
     .eq('id', clinicId)
   if (error) console.error('saveClinicSettings:', error)

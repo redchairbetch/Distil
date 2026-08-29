@@ -38,7 +38,9 @@ export const DEFAULT_CLINIC = {
   name: "My Hearing Centers",
   address: "1234 N Hearing Ave, Phoenix, AZ 85012",
   phone: "(602) 555-0100",
+  fax: "",
   accent: "#16a34a", // green
+  manufacturerAccounts: {}, // canonical mfr key -> { billTo, shipTo } (backlog #42)
 };
 
 export const BODY_STYLES = [
