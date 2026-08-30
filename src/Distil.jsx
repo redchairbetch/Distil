@@ -134,6 +134,7 @@ import DueThisWeek from "./views/DueThisWeek.jsx";
 import ProvidersAdmin from "./views/ProvidersAdmin.jsx";
 import EvidenceReview from "./views/EvidenceReview.jsx";
 import NationsCatalog from "./views/NationsCatalog.jsx";
+import EarmoldCatalog from "./views/EarmoldCatalog.jsx";
 import HearingAidCatalog from "./views/HearingAidCatalog.jsx";
 import AdjustmentHistory from "./views/AdjustmentHistory.jsx";
 import CloserLocationPicker from "./views/CloserLocationPicker.jsx";
@@ -550,7 +551,11 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   const EMPTY_SIDE = () => ({
     style:"", manufacturer:"", generation:"", familyId:"", variant:"",
     techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false,
-    thModel:"", thBodyStyle:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:""
+    thModel:"", thBodyStyle:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:"",
+    // Coupling + earmold selection (backlog #42a) — explicit stored state,
+    // no longer the "Custom Earmold" magic string in dome.
+    coupling:"", earmoldStyle:"", earmoldMaterial:"", earmoldColor:"",
+    earmoldVent:"", earmoldVentSize:"", earmoldCanal:"", earmoldNotes:"",
   });
 
   const BLANK_AUDIOLOGY = () => ({
@@ -631,7 +636,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
 
   const upd = (k,v) => setForm(f => ({...f,[k]:v}));
   const updSide = (side, k, v) => setForm(f => ({...f, [side]: {...f[side], [k]: v}}));
-  const resetSide = (side, partial={}) => setForm(f => ({...f, [side]: {style:"", manufacturer:"", generation:"", familyId:"", variant:"", techLevel:"", color:"", battery:"", receiverLength:"", receiverPower:"", dome:"", isCROS:false, thModel:"", faceplateColor:"", shellColor:"", gainMatrix:"", domeCategory:"", domeSize:"", ...partial}}));
+  // Spreads EMPTY_SIDE() so a new side field can never silently drift out of
+  // the reset (the old inline literal had already lost thBodyStyle once).
+  const resetSide = (side, partial={}) => setForm(f => ({...f, [side]: {...EMPTY_SIDE(), ...partial}}));
 
   // Private-label (TruHearing Select) plan detection — must be defined before useEffects that reference it
   const isPrivateLabelPlan = (plan) =>
@@ -1391,7 +1398,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       const thGainLabel = s.gainMatrix || s.receiverPower || "";
       const thGainEntry = s.thModel && s.style ? (TH_GAIN_MATRIX[`${s.thModel}|${s.style}`]||[]).find(g=>g.id===s.gainMatrix) : null;
       const thIsEarmold = thGainEntry?.earmold || false;
-      const thDome = thIsEarmold ? "Custom Earmold" : (s.domeCategory && s.domeSize ? `${s.domeCategory} ${s.domeSize}` : s.domeCategory || s.dome || "");
+      // Coupling is explicit stored state (#42a): the picker's choice wins,
+      // the HP-gain derivation is only the fallback for untouched forms. The
+      // old "Custom Earmold" magic string is no longer written — dome stays a
+      // real dome or blank.
+      const thCoupling = s.coupling || (thIsEarmold ? "earmold" : "");
+      const thDome = thCoupling === "earmold" ? "" : (s.domeCategory && s.domeSize ? `${s.domeCategory} ${s.domeSize}` : s.domeCategory || s.dome || "");
       return {
         manufacturer: "TruHearing",
         // Platform generation follows the MODEL, not the tier: TH7→IX,
@@ -1414,11 +1426,21 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         receiver: isRIC && s.receiverLength && thGainLabel
           ? `Length ${s.receiverLength} · ${thGainLabel}` : "",
         dome: isRIC ? thDome : "",
+        coupling: isRIC ? thCoupling : "",
+        earmoldStyle: s.earmoldStyle || "", earmoldMaterial: s.earmoldMaterial || "",
+        earmoldColor: s.earmoldColor || "", earmoldVent: s.earmoldVent || "",
+        earmoldVentSize: s.earmoldVentSize || "", earmoldCanal: s.earmoldCanal || "",
+        earmoldNotes: s.earmoldNotes || "",
       };
     }
     const fam = catalog.find(e => e.id === s.familyId);
     const pwrLabel = (RECEIVER_POWERS[s.manufacturer]||[]).find(p=>p.id===s.receiverPower)?.label || s.receiverPower;
     const isEarmold = (RECEIVER_POWERS[s.manufacturer]||[]).find(p=>p.id===s.receiverPower)?.earmold;
+    // Coupling applies to dome-capable styles (RIC, BTE); explicit picker
+    // state wins, the HP-receiver derivation is the fallback. The old
+    // "Custom Earmold" magic string in dome is dead (#42a).
+    const hasCoupling = ["ric","bte"].includes(s.style);
+    const coupling = hasCoupling ? (s.coupling || (isEarmold ? "earmold" : "")) : "";
     return {
       manufacturer: s.manufacturer, generation: s.generation, family: fam?.family || "",
       variant: s.variant, techLevel: s.techLevel, style: s.style,
@@ -1426,10 +1448,16 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       receiverLength: s.style==="ric" ? s.receiverLength : "",
       receiverPower: s.style==="ric" ? s.receiverPower : "",
       receiver: s.style==="ric" && s.receiverLength && s.receiverPower ? `Length ${s.receiverLength} · ${pwrLabel}` : "",
-      // Dome is RIC + IF; non-RIC dome-styles (IF) skip the earmold branch (no receiverPower).
-      dome: BODY_STYLES.find(b => b.id === s.style)?.hasDome
-              ? (isEarmold ? "Custom Earmold" : s.dome)
-              : "",
+      // Dome is RIC + IF; an earmold coupling leaves it blank.
+      dome: BODY_STYLES.find(b => b.id === s.style)?.hasDome && coupling !== "earmold" ? s.dome : "",
+      coupling,
+      earmoldStyle: coupling === "earmold" ? (s.earmoldStyle || "") : "",
+      earmoldMaterial: coupling === "earmold" ? (s.earmoldMaterial || "") : "",
+      earmoldColor: coupling === "earmold" ? (s.earmoldColor || "") : "",
+      earmoldVent: coupling === "earmold" ? (s.earmoldVent || "") : "",
+      earmoldVentSize: coupling === "earmold" ? (s.earmoldVentSize || "") : "",
+      earmoldCanal: coupling === "earmold" ? (s.earmoldCanal || "") : "",
+      earmoldNotes: coupling === "earmold" ? (s.earmoldNotes || "") : "",
     };
   };
 
@@ -3682,7 +3710,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 were separately added and produced two Admin sections on merge. */}
             {checkRole(staffRole, ["admin"]) && <>
               <div className="nav-section-label">Admin</div>
-              {[["users","Team","team"],["badge","Providers","providers"],["shield","Insurance Plans","insurance-plans"],["verify","Rate Verifications","rate-verifications"],["percent","Rebates","rebates"],["clipboard","Product Catalog","catalog"],["book","Nations Catalog","nations-catalog"],["book","Evidence Review","evidence"],["settings","Settings","settings"]].map(([icon,label,id])=>(
+              {[["users","Team","team"],["badge","Providers","providers"],["shield","Insurance Plans","insurance-plans"],["verify","Rate Verifications","rate-verifications"],["percent","Rebates","rebates"],["clipboard","Product Catalog","catalog"],["book","Nations Catalog","nations-catalog"],["book","Earmold Catalog","earmold-catalog"],["book","Evidence Review","evidence"],["settings","Settings","settings"]].map(([icon,label,id])=>(
                 <div key={id} className={`nav-item ${view===id?"active":""}`} onClick={()=>setView(id)}>
                   <span className="nav-icon"><Icon name={icon} size={17}/></span>{label}
                 </div>
@@ -3972,6 +4000,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             }} />
           ) : <AdminDenied />)}
           {view === "nations-catalog" && (checkRole(staffRole, ["admin"]) ? <NationsCatalog /> : <AdminDenied />)}
+          {view === "earmold-catalog" && (checkRole(staffRole, ["admin"]) ? <EarmoldCatalog /> : <AdminDenied />)}
           {view === "evidence" && (checkRole(staffRole, ["admin"]) ? <EvidenceReview staffId={staffId} /> : <AdminDenied />)}
           {view === "market-catalog" && <HearingAidCatalog />}
           {view === "team" && (checkRole(staffRole, ["admin"]) ? <TeamAdmin activeClinicId={clinicId} /> : <AdminDenied />)}
