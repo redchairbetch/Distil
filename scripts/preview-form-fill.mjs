@@ -52,6 +52,14 @@ if (grid) {
     if (k.startsWith("warranty.in") || k.endsWith("isBteFamily") || k.endsWith("isCustom")) data[k] = true;
     if (k.endsWith("styleBucket")) data[k] = "iic_cic";
   }
+  // Grid entries: satisfy the FIRST equalsAll combination seen per key so one
+  // style column's ticks render for visual verification.
+  for (const f of map.fields) {
+    if (!f.equalsAll) continue;
+    if (Object.entries(f.equalsAll).every(([k, v]) => data[k] === undefined || data[k] === v)) {
+      for (const [k, v] of Object.entries(f.equalsAll)) data[k] = v;
+    }
+  }
 }
 
 const { bytes: out } = await fillBytes(effectiveMap, data, new Uint8Array(bytes), { enforceHash: false });

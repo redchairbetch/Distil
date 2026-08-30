@@ -6,7 +6,8 @@
 // provider sees in the panel is exactly what lands on paper. Values here are
 // best-effort defaults — a blank is always legal (the engine skips empties).
 
-import { MFR_DISPLAY } from "../manufacturerKeys.js";
+import { MFR_DISPLAY, normalizeMfr } from "../manufacturerKeys.js";
+import { EARMOLD_SEED } from "../earmoldSeed.js";
 
 const fmtDate = (iso) => {
   if (!iso) return "";
@@ -29,6 +30,58 @@ function splitPhone(phone) {
   const digits = (phone || "").replace(/\D/g, "");
   if (digits.length === 10) return { area: digits.slice(0, 3), local: `${digits.slice(3, 6)}-${digits.slice(6)}` };
   return { area: "", local: phone || "" };
+}
+
+// Earmold namespace for one side (backlog #42b). Raw catalog ids feed the
+// grid checkboxes (equalsAll routing); labels resolved from the seed build
+// the human-readable summary that always lands in Special Instructions —
+// the lab gets a complete order even where a grid tick isn't mapped.
+function earmoldEntries(prefix, side) {
+  if (!side || side.coupling !== "earmold") return {};
+  const mfrKey = normalizeMfr(side.manufacturer);
+  const row = EARMOLD_SEED.find((r) => r.manufacturer === mfrKey && r.styleId === side.earmoldStyle) || null;
+  const material = row?.materials?.find((m) => m.id === side.earmoldMaterial) || null;
+  const color = material?.colors?.find((c) => c.id === side.earmoldColor) || null;
+  const vent = row?.vents?.find((v) => v.id === side.earmoldVent) || null;
+  const summary = [
+    row?.styleLabel || side.earmoldStyle,
+    material?.label || side.earmoldMaterial,
+    color?.label || side.earmoldColor,
+    vent ? `${vent.label} vent` : side.earmoldVent && `${side.earmoldVent} vent`,
+    side.earmoldVentSize,
+    side.earmoldCanal && `${side.earmoldCanal} canal`,
+    side.earmoldNotes,
+  ].filter(Boolean).join(" · ");
+  return {
+    [`${prefix}.style`]: side.earmoldStyle || "",
+    [`${prefix}.styleLabel`]: row?.styleLabel || side.earmoldStyle || "",
+    [`${prefix}.material`]: side.earmoldMaterial || "",
+    [`${prefix}.materialLabel`]: material?.label || side.earmoldMaterial || "",
+    [`${prefix}.color`]: side.earmoldColor || "",
+    [`${prefix}.colorLabel`]: color?.label || side.earmoldColor || "",
+    [`${prefix}.vent`]: side.earmoldVent || "",
+    [`${prefix}.ventLabel`]: vent?.label || side.earmoldVent || "",
+    [`${prefix}.ventSize`]: side.earmoldVentSize || "",
+    [`${prefix}.canal`]: side.earmoldCanal || "",
+    [`${prefix}.notes`]: side.earmoldNotes || "",
+    [`${prefix}.summary`]: summary,
+  };
+}
+
+const AUDIO_FREQS = [250, 500, 750, 1000, 1500, 2000, 3000, 4000, 6000, 8000];
+
+function audiogramEntries(audiology) {
+  const out = {};
+  for (const [prefix, map] of [["audiogram.right", audiology?.rightT], ["audiogram.left", audiology?.leftT]]) {
+    for (const f of AUDIO_FREQS) {
+      const v = map?.[f];
+      out[`${prefix}.${f}`] = v == null ? "" : String(v);
+    }
+  }
+  const worst = Math.max(0, ...AUDIO_FREQS.flatMap((f) => [audiology?.rightT?.[f], audiology?.leftT?.[f]]).filter((v) => v != null));
+  out["loss.severity"] =
+    !worst ? "" : worst <= 20 ? "Normal" : worst <= 40 ? "Mild" : worst <= 55 ? "Moderate" : worst <= 70 ? "Moderately Severe" : worst <= 90 ? "Severe" : "Profound";
+  return out;
 }
 
 function ageFromDob(dob) {
@@ -80,6 +133,7 @@ function sideEntries(prefix, side, serial) {
     [`${prefix}.color`]: side.color || side.faceplateColor || "",
     [`${prefix}.serial`]: serial || "",
     [`${prefix}.receiver`]: [side.receiverLength, side.receiverPower].filter(Boolean).join(" / "),
+    [`${prefix}.receiverLength`]: side.receiverLength || "",
   };
 }
 
@@ -87,7 +141,7 @@ function sideEntries(prefix, side, serial) {
 // clinicSettings: loadClinicSettings result (name/address/phone/fax/manufacturerAccounts);
 // clinic/provider: the paClinic/paProvider pair every PDF surface uses;
 // mfrKey: canonical manufacturer key the form belongs to; extras: {po, notes, …}.
-export function buildFormData({ patient, devices, clinic, clinicSettings, provider, mfrKey, extras = {} }) {
+export function buildFormData({ patient, devices, clinic, clinicSettings, provider, mfrKey, audiology = null, extras = {} }) {
   const name = patient?.name || "";
   const sp = name.indexOf(" ");
   const firstName = sp > 0 ? name.slice(0, sp) : name;
@@ -107,6 +161,8 @@ export function buildFormData({ patient, devices, clinic, clinicSettings, provid
   const clinicAddress = clinicSettings?.address || clinic?.address || "";
   const addr = parseAddress(clinicAddress);
   const phone = splitPhone(clinicSettings?.phone || clinic?.phone || "");
+  const emLeft = earmoldEntries("earmold.left", left);
+  const emRight = earmoldEntries("earmold.right", right);
 
   return {
     "patient.name": name,
@@ -127,6 +183,20 @@ export function buildFormData({ patient, devices, clinic, clinicSettings, provid
       devices?.serialRight ? `R: ${devices.serialRight}` : "",
       devices?.serialLeft ? `L: ${devices.serialLeft}` : "",
     ].filter(Boolean).join("   "),
+
+    // Earmold order namespaces (#42b)
+    ...emLeft,
+    ...emRight,
+    "earmold.summary": [
+      emRight["earmold.right.summary"] && `R: ${emRight["earmold.right.summary"]}`,
+      emLeft["earmold.left.summary"] && `L: ${emLeft["earmold.left.summary"]}`,
+    ].filter(Boolean).join("  |  "),
+    ...audiogramEntries(audiology),
+    "hearingAid.makeModel": primary
+      ? `${MFR_DISPLAY[normalizeMfr(primary.manufacturer)] || primary.manufacturer || ""} ${primary.thModel || [primary.family, primary.variant].filter(Boolean).join(" ")}`.trim()
+      : "",
+    "impressions.enclosed": extras.impressionsEnclosed ?? false,
+    "impressions.scanOnFile": extras.scanOnFile ?? false,
 
     "fitting.date": fmtDate(devices?.fittingDate),
     "warranty.expiry": fmtDate(warrantyExpiry),
@@ -188,6 +258,9 @@ export const LOGICAL_LABELS = {
   "device.primary.color": "Device — color",
   "device.primary.serial": "Device — serial #",
   "device.primary.receiver": "Device — receiver",
+  "device.left.receiverLength": "Left — receiver length",
+  "device.right.receiverLength": "Right — receiver length",
+  "device.primary.receiverLength": "Device — receiver length",
   "device.left.modelSerial": "Left — model / serial",
   "device.right.modelSerial": "Right — model / serial",
   "device.primary.modelSerial": "Device — model / serial",
@@ -225,4 +298,30 @@ export const LOGICAL_LABELS = {
   "meta.today": "Today's date",
   "po": "P.O. number",
   "notes": "Comments / special instructions",
+  ...Object.fromEntries(["left", "right"].flatMap((ear) => {
+    const E = ear === "left" ? "Left" : "Right";
+    return [
+      [`earmold.${ear}.style`, `${E} mold — style`],
+      [`earmold.${ear}.styleLabel`, `${E} mold — style name`],
+      [`earmold.${ear}.material`, `${E} mold — material`],
+      [`earmold.${ear}.materialLabel`, `${E} mold — material name`],
+      [`earmold.${ear}.color`, `${E} mold — color`],
+      [`earmold.${ear}.colorLabel`, `${E} mold — color name`],
+      [`earmold.${ear}.vent`, `${E} mold — vent`],
+      [`earmold.${ear}.ventLabel`, `${E} mold — vent name`],
+      [`earmold.${ear}.ventSize`, `${E} mold — vent size`],
+      [`earmold.${ear}.canal`, `${E} mold — canal`],
+      [`earmold.${ear}.notes`, `${E} mold — notes`],
+      [`earmold.${ear}.summary`, `${E} mold — order summary`],
+    ];
+  })),
+  "earmold.summary": "Mold order summary (both ears)",
+  ...Object.fromEntries([250, 500, 750, 1000, 1500, 2000, 3000, 4000, 6000, 8000].flatMap((f) => [
+    [`audiogram.right.${f}`, `AC Right ${f} Hz`],
+    [`audiogram.left.${f}`, `AC Left ${f} Hz`],
+  ])),
+  "loss.severity": "Hearing loss severity",
+  "hearingAid.makeModel": "Hearing aid make/model",
+  "impressions.enclosed": "Impressions enclosed",
+  "impressions.scanOnFile": "Scan on file",
 };
