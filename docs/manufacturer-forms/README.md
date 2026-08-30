@@ -28,9 +28,22 @@ correlates fields with nearby label text (and dumps text-run coordinates for
 flat forms), and `scripts/preview-form-fill.mjs` renders a sample-filled copy
 for visual verification of overlay maps.
 
-**Known-bad file:** `signia/signia-return-for-credit.pdf` is corrupt (bad
-flate stream — renders blank, unreadable by pdfjs). It is excluded from the
-form registry until a clean copy is re-sourced from Signia/Drive.
+**2026-08-30 — Additional forms import** (Drive `Manufacturer Forms/Additional
+forms`, 21 PDFs, all fillable AcroForm): the corrupt
+`signia/signia-return-for-credit.pdf` was **replaced** with a clean SI-22269
+copy; Phonak gained its earmold + SlimTip/cShell 6.0 + Eon 6.0 +
+Lumity/Paradise + Virto order forms; Unitron gained Vivante/Blu/Smile Moxi +
+Stride + Insera eForms; Widex gained Moment/Evoke/Allure order books. Mapped
+in the registry: Signia RFC, Phonak earmold + SlimTip 6.0 + cShell 6.0,
+Unitron Vivante Moxi RIC + Stride BTE, Widex Moment RIC/BTE. Unmapped (device
+orders for platforms not yet in the product catalog, or older-gen variants —
+map on demand): Phonak Eon ×2 / Lumity-Paradise / Virto ×3, Unitron Smile /
+Blu ×2 / Insera, Widex Allure / Evoke ×2 / Moment Custom.
+
+New-platform intel carried by these forms (raw input for the
+next-generation product-catalog backlog item): **Phonak Infinio** (Audéo I
+Sphere / I-R / CROS I-R on the 6.0 forms) and an **"Eon"** variant newer
+still, **Unitron Vivante + Smile**, **Widex Allure**.
 
 ## Index
 

@@ -15,7 +15,9 @@ import { MFR_KEYS, normalizeMfr } from "./manufacturerKeys.js";
 
 // Manufacturers with earmold-requiring receivers but no earmold order form in
 // docs/manufacturer-forms/ yet (Kurt sourcing). Shrink this list as forms land.
-const AWAITING_ORDER_FORM = new Set(["phonak", "unitron", "rexton", "widex"]);
+// 2026-08-30: Phonak/Unitron/Widex forms arrived and are seeded — Rexton is
+// the last one out.
+const AWAITING_ORDER_FORM = new Set(["rexton"]);
 
 describe("coupling fork", () => {
   it("COUPLINGS ids are exactly dome|earmold and ride on the RIC/BTE branches", () => {

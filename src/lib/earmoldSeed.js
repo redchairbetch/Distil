@@ -490,7 +490,273 @@ const relateBteRows = RELATE_BTE_STYLES.map(([styleId, styleLabel], i) => ({
   confidence: "high",
 }));
 
+// ── Phonak (Sonova) — earmold + SlimTip/cShell 6.0 forms (added 2026-08-30) ─
+const SONOVA_SILICONE_COLORS = [
+  "Clear (21) — standard", "Translucent Pink (T)", "Translucent Brown (N)",
+  "Black (06)", "Blue (07)", "Purple (08)", "Red (10)", "Orange (11)", "Green (17)",
+  "White (19)", "Yellow (20)", "Flamingo Pink (5B)", "Jungle Green (2B)",
+  "Galactic Blue Metallic (1B)", "Star Dust Silver Metallic (3B)", "Magic Pink Metallic (4B)",
+].map((c) => ({ id: c.toLowerCase().replace(/[^a-z0-9]+/g, "-"), label: c }));
+
+const PHONAK_BTE_MATERIALS = [
+  { id: "acrylic", label: "Acrylic (AC)", colors: SONOVA_SILICONE_COLORS.slice(0, 3) },
+  { id: "silicone-s70", label: "Silicone (S70)", colors: SONOVA_SILICONE_COLORS, notes: "Solid/metallic colors silicone only" },
+];
+
+const PHONAK_VENTS = [
+  { id: "aov", label: "AOV Acoustically Optimized (audiogram required)" },
+  { id: "large-sav", label: "Large SAV" },
+  { id: "iros-a", label: "IROS A / Semi-IROS" },
+  { id: "large-p30", label: "Large 3.0 mm (P30)" },
+  { id: "medium-p25", label: "Medium 2.5 mm (P25)" },
+  { id: "small-p20", label: "Small 2.0 mm (P20)" },
+  { id: "pressure-p12", label: "Pressure 1.2 mm (P12)" },
+  { id: "none", label: "No vent" },
+];
+
+const PHONAK_BTE_STYLES = [
+  ["cros", "CROS (CB)"], ["canal-lock", "Canal Lock (CL)"], ["canal", "Canal (CU)"],
+  ["semi-skeleton", "Semi Skeleton (SS)"], ["skeleton", "Skeleton (SK)"],
+  ["half-shell", "Half Shell (HC)"], ["full-shell-carved", "Carved Full Shell (SC)"],
+  ["full-shell-uncarved", "Standard Full Shell (SU)"], ["helix-lock", "Helix Lock"],
+];
+
+const phonakBteRows = PHONAK_BTE_STYLES.map(([styleId, styleLabel], i) => ({
+  id: `phonak|${styleId}`,
+  manufacturer: "phonak",
+  formId: "phonak-earmold-order",
+  deviceType: "bte",
+  styleId, styleLabel,
+  materials: PHONAK_BTE_MATERIALS,
+  vents: PHONAK_VENTS,
+  canal: { lengths: ["Short", "Medium (default)", "Long", "Cut as marked"] },
+  tubing: { options: ["13 Regular (13M — standard for acrylic)", "13 Thick wall (13T — standard for silicone)", "13 Dry (13D)", "QuickSnap", "Tube Lock"] },
+  extras: { options: ["Helix lock", "Removal line", "Color dot", "No-glue tubing"] },
+  constraintsNote: null,
+  sortOrder: i,
+  confidence: "high",
+}));
+
+const PHONAK_RIC_SHARED = {
+  vents: [
+    { id: "aov", label: "AOV Acoustically Optimized (standard)" },
+    { id: "customer-mm", label: "Customer-specific vent (mm)" },
+    { id: "none", label: "No vent" },
+  ],
+  canal: {},
+  tubing: { receivers: ["S receiver 6.0", "M receiver 6.0 — standard", "P receiver 6.0"], options: ["Receiver length 00-3 (2 standard; 00 n/a Titanium/CROS)", "Vent style: cavity (standard) / regular"] },
+  extras: { options: ["Helix lock (not silicone)", "Canal lock", "Skeleton lock", "Removal line (standard)"] },
+};
+
+const phonakRicRows = [
+  {
+    id: "phonak|slimtip-acrylic", manufacturer: "phonak", formId: "phonak-slim-tip-cros-tip-6-0-order",
+    deviceType: "ric", styleId: "slimtip-acrylic", styleLabel: "SlimTip 6.0, Acrylic (hollow)",
+    materials: [{ id: "acrylic", label: "Acrylic", colors: [
+      "Clear (21) — standard", "Tan (14)", "Cocoa (22)", "Pink (26)", "Brown (28)", "Blue/Red",
+    ].map((c) => ({ id: c.toLowerCase().replace(/[^a-z0-9]+/g, "-"), label: c })) }],
+    ...PHONAK_RIC_SHARED,
+    constraintsNote: "6.0 receivers — Infinio hearing aids or newer; NOT backward compatible with Lumity (use the Lumity/Paradise custom ear piece form). CeruStop wax protection in tip.",
+    sortOrder: 100, confidence: "high",
+  },
+  {
+    id: "phonak|slimtip-silicone", manufacturer: "phonak", formId: "phonak-slim-tip-cros-tip-6-0-order",
+    deviceType: "ric", styleId: "slimtip-silicone", styleLabel: "SlimTip 6.0, Silicone (solid)",
+    materials: [{ id: "silicone", label: "Silicone", colors: [{ id: "transparent", label: "Transparent" }] }],
+    ...PHONAK_RIC_SHARED,
+    constraintsNote: "Transparent only; no helix lock. 6.0 receivers (Infinio or newer).",
+    sortOrder: 101, confidence: "high",
+  },
+  {
+    id: "phonak|slimtip-titanium", manufacturer: "phonak", formId: "phonak-slim-tip-cros-tip-6-0-order",
+    deviceType: "ric", styleId: "slimtip-titanium", styleLabel: "SlimTip 6.0, Titanium AV",
+    materials: [{ id: "titanium", label: "Titanium", colors: [{ id: "titanium-gray-u0", label: "Titanium Gray (U0)" }] }],
+    ...PHONAK_RIC_SHARED,
+    constraintsNote: "MAV receiver only; length 00 not available; Extended Receiver Saver option. 6.0 (Infinio or newer).",
+    sortOrder: 102, confidence: "high",
+  },
+  {
+    id: "phonak|cros-tip", manufacturer: "phonak", formId: "phonak-slim-tip-cros-tip-6-0-order",
+    deviceType: "ric", styleId: "cros-tip", styleLabel: "CROS Tip 6.0 (hollow)",
+    materials: [{ id: "acrylic", label: "Acrylic", colors: [
+      "Clear (21) — standard", "Tan (14)", "Cocoa (22)", "Pink (26)", "Brown (28)", "Blue/Red",
+    ].map((c) => ({ id: c.toLowerCase().replace(/[^a-z0-9]+/g, "-"), label: c })) }],
+    ...PHONAK_RIC_SHARED,
+    constraintsNote: "CROS transmitter side tip — no wax filter, no receiver. cShell 6.0 orders use the separate cShell form.",
+    sortOrder: 103, confidence: "high",
+  },
+  {
+    id: "phonak|cshell-acrylic", manufacturer: "phonak", formId: "phonak-cshell-6-0-order",
+    deviceType: "ric", styleId: "cshell-acrylic", styleLabel: "cShell 6.0, Acrylic",
+    materials: [{ id: "acrylic", label: "Acrylic", colors: [
+      "Clear (21) — standard", "Tan (14)", "Cocoa (22)", "Pink (26)", "Brown (28)", "Blue/Red",
+    ].map((c) => ({ id: c.toLowerCase().replace(/[^a-z0-9]+/g, "-"), label: c })) }],
+    ...PHONAK_RIC_SHARED,
+    constraintsNote: "Full custom shell for 6.0 receivers (Infinio or newer) — required for UP.",
+    sortOrder: 104, confidence: "high",
+  },
+  {
+    id: "phonak|cshell-titanium", manufacturer: "phonak", formId: "phonak-cshell-6-0-order",
+    deviceType: "ric", styleId: "cshell-titanium", styleLabel: "cShell 6.0, Titanium",
+    materials: [{ id: "titanium", label: "Titanium", colors: [{ id: "titanium-gray-u0", label: "Titanium Gray (U0)" }] }],
+    ...PHONAK_RIC_SHARED,
+    constraintsNote: "Ultra-thin titanium shell for 6.0 receivers (Infinio or newer).",
+    sortOrder: 105, confidence: "high",
+  },
+];
+
+// ── Unitron Vivante — Moxi RIC + Stride BTE order forms (added 2026-08-30) ──
+const UNITRON_RIC_SHARED = {
+  vents: [
+    { id: "intellivent", label: "IntelliVent (audiogram required)" },
+    { id: "vari-pressure", label: "Vari-Vent Pressure 1.2 mm (S12)" },
+    { id: "vari-small", label: "Vari-Vent Small 2.0 mm (S20)" },
+    { id: "vari-medium", label: "Vari-Vent Medium 2.5 mm (S25)" },
+    { id: "vari-large", label: "Vari-Vent Large 3.0 mm (S30)" },
+    { id: "custom-3l", label: "Custom large (3L)" },
+    { id: "none", label: "No vent (X)" },
+  ],
+  canal: {},
+  extras: {
+    waxguard: ["None", "Wax guard (standard for cShell)", "Extended Receiver Tube (cShell)", "Wax Spring (cShell)"],
+    finish: ["Gloss (standard)", "No Lacquer"],
+    options: ["Removal filament (RF)", "Canal lock (CL)", "Skeleton lock (SL)"],
+  },
+};
+const UNITRON_SHELL_COLORS = [
+  "Pink (26)", "Tan (14)", "Cocoa (22)", "Brown (28)", "Clear (21) — default SlimTip",
+  "Blue/Red", "Translucent Pink (T)", "Translucent Brown (N)",
+].map((c) => ({ id: c.toLowerCase().replace(/[^a-z0-9]+/g, "-"), label: c }));
+
+const unitronRicRows = [
+  ["slimtip-hollow", "SlimTip, Hollow (Acrylic)", [{ id: "acrylic", label: "Acrylic", colors: UNITRON_SHELL_COLORS }], "UP not available — cShell required."],
+  ["slimtip-solid", "SlimTip, Solid (Silicone)", [{ id: "silicone", label: "Silicone", colors: [UNITRON_SHELL_COLORS[4]] }], "Clear (21) is the only silicone color."],
+  ["cshell", "cShell (Acrylic)", [{ id: "acrylic", label: "Acrylic", colors: UNITRON_SHELL_COLORS, notes: "Faceplate colors: Pink/Tan/Cocoa/Brown/Clear" }], "Required for UP (132/71) receivers."],
+].map(([styleId, styleLabel, materials, note], i) => ({
+  id: `unitron|${styleId}`,
+  manufacturer: "unitron",
+  formId: "unitron-vivante-moxi-ric-order",
+  deviceType: "ric",
+  styleId, styleLabel, materials,
+  ...UNITRON_RIC_SHARED,
+  tubing: { receivers: ["S (111/47)", "M (114/51) — standard", "P (122/59)", "UP (132/71) — cShell only"], options: ["Receiver length 0-3"] },
+  constraintsNote: `Vivante Moxi platform. ${note}`,
+  sortOrder: i,
+  confidence: "high",
+}));
+
+const UNITRON_BTE_STYLES = [
+  ["full-shell-carved", "Full Shell Carved (SC)"], ["full-shell-uncarved", "Full Shell Uncarved (SU)"],
+  ["skeleton", "Skeleton (SK)"], ["semi-skeleton", "Semi Skeleton (SS)"],
+  ["carved-half-shell", "Carved Half Shell (HC)"], ["canal-lock", "Canal Lock (CL)"],
+  ["canal", "Canal (CU)"], ["cros", "CROS (CB)"], ["helix-lock", "Helix Lock"],
+];
+const unitronBteRows = UNITRON_BTE_STYLES.map(([styleId, styleLabel], i) => ({
+  id: `unitron|bte-${styleId}`,
+  manufacturer: "unitron",
+  formId: "unitron-vivante-stride-bte-order",
+  deviceType: "bte",
+  styleId: `bte-${styleId}`, styleLabel,
+  materials: [
+    { id: "acrylic", label: "Acrylic (AC)", colors: SONOVA_SILICONE_COLORS.slice(0, 3) },
+    { id: "silicone-s70", label: "Silicone (S70)", colors: SONOVA_SILICONE_COLORS, notes: "Solid/metallic colors silicone only" },
+  ],
+  // The Stride BTE form rev keeps the wider vent list the Moxi RIC rev dropped.
+  vents: [
+    ...UNITRON_RIC_SHARED.vents.filter(v => v.id !== "custom-3l" && v.id !== "none"),
+    { id: "parallel", label: "Parallel (circular) 1.2 mm" },
+    { id: "styled-custom", label: "Styled/Custom (3L)" },
+    { id: "iros-a", label: "IROS A / Semi-IROS / 3.0 mm" },
+    { id: "iros-b", label: "IROS B / Full-IROS / 3.0 mm" },
+    { id: "none", label: "No vent (X)" },
+  ],
+  canal: {},
+  tubing: { options: ["13 Regular (13M — standard for acrylic)", "13 Thick wall (13T — standard for silicone)", "13 Dry (13D)"] },
+  extras: {
+    finish: ["Gloss (standard)", "No Lacquer"],
+    options: ["Removal filament (RF)", "Canal lock (CL)"],
+  },
+  constraintsNote: "Vivante Stride platform.",
+  sortOrder: 100 + i,
+  confidence: "high",
+}));
+
+// ── Widex Moment — RIC/BTE custom ear-tip + RITE earmold (added 2026-08-30) ─
+const WIDEX_HARD_COLORS = [
+  { id: "beige", label: "Beige" }, { id: "medium-brown", label: "Medium Brown" }, { id: "clear", label: "Clear" },
+];
+const WIDEX_TIP_VENTS = [
+  { id: "none", label: "Straight — No Vent" },
+  { id: "xs", label: "Straight XS" }, { id: "s", label: "Straight S" },
+  { id: "m", label: "Straight M" }, { id: "l", label: "Straight L" },
+  { id: "xl", label: "Straight XL" }, { id: "xxl", label: "Straight XXL" },
+  { id: "max", label: "Max Vent" }, { id: "open", label: "Open (no venting needed)" },
+  { id: "trench", label: "Trench (default/optimized for soft molds)" },
+  { id: "optimized", label: "Vent Optimized for Anatomy/Audiogram (default)" },
+];
+const WIDEX_TIP_EXTRAS = {
+  options: [
+    "Soft/Hard/Nano hypoallergenic coat", "Retention ring", "Thick removal line",
+    "Canal lock A-G (canal / extended canal / concha / half skeleton / skeleton / helix / full shell)",
+    "Wire/thin-tube length 0-4",
+  ],
+};
+
+const widexRows = [
+  ...[
+    ["open-hard", "Open Hard (S&M receivers only)", "both"],
+    ["hard-hollow", "Hard Hollow", "both"],
+    ["hard-extended", "Hard Extended (solid; Hard Clear only)", "both"],
+    ["soft-tip", "Soft (Clear)", "both"],
+    ["embedded-hard", "Embedded Hard (receiver built in)", "ric"],
+    ["modular-hard", "Modular Hard (RIC 312 D only)", "ric"],
+  ].map(([styleId, styleLabel, deviceType], i) => ({
+    id: `widex|${styleId}`,
+    manufacturer: "widex",
+    formId: "widex-moment-ric-bte-order",
+    deviceType, styleId, styleLabel,
+    materials: styleId === "soft-tip"
+      ? [{ id: "soft", label: "Soft", colors: [{ id: "clear", label: "Clear" }] }]
+      : [{ id: "hard", label: "Hard (acrylic)", colors: styleId === "hard-extended" || styleId.includes("modular") || styleId.includes("embedded") ? [WIDEX_HARD_COLORS[2]] : WIDEX_HARD_COLORS }],
+    vents: WIDEX_TIP_VENTS,
+    canal: {},
+    tubing: { receivers: ["sRIC R D: V.2 M / V.2 P (+ V.2 HP embedded)", "RIC 312 D / RIC 10: S / M / P (+ HP 312 D)", "Thin tube V.2 0.9mm / 1.4mm (BTE R D / BTE 13 D)"] },
+    extras: WIDEX_TIP_EXTRAS,
+    constraintsNote: "Moment platform custom ear-tips (CAMISHA). Modular length -1 to 5.",
+    sortOrder: i,
+    confidence: "high",
+  })),
+  ...[
+    ["rite-hard-half", "RITE Earmold — Hard 1/2 Shell"],
+    ["rite-hard-three-quarter", "RITE Earmold — Hard 3/4 Shell"],
+    ["rite-hard-full", "RITE Earmold — Hard Full Shell"],
+    ["rite-soft-three-quarter", "RITE Earmold — Soft 3/4 Shell"],
+    ["rite-soft-full", "RITE Earmold — Soft Full Shell"],
+  ].map(([styleId, styleLabel], i) => ({
+    id: `widex|${styleId}`,
+    manufacturer: "widex",
+    formId: "widex-moment-ric-bte-order",
+    deviceType: "ric",
+    styleId, styleLabel,
+    materials: styleId.includes("soft")
+      ? [{ id: "soft", label: "Soft", colors: [{ id: "clear", label: "Clear" }] }]
+      : [{ id: "hard", label: "Hard (acrylic)", colors: WIDEX_HARD_COLORS }],
+    vents: WIDEX_TIP_VENTS,
+    canal: {},
+    tubing: { receivers: ["HP (hard only)", "Wired HP (soft only)"] },
+    extras: { options: ["Output extender (hard shell)", "Hypoallergenic coats", "Removal notch (hard)", "Removal line", "Retention ring", "Wire length 0-5"] },
+    constraintsNote: "RITE power earmold — RIC 312 D only, not sRIC R D.",
+    sortOrder: 100 + i,
+    confidence: "high",
+  })),
+];
+
 export const EARMOLD_SEED = [
+  ...phonakBteRows,
+  ...phonakRicRows,
+  ...unitronRicRows,
+  ...unitronBteRows,
+  ...widexRows,
   ...signiaRows,
   ...starkeyBteRows,
   ...starkeyRicRows,
