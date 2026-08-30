@@ -27,14 +27,23 @@ const SAMPLE_KEYS = new Set(
       devices: {
         fittingDate: "2026-01-01", warrantyExpiry: "2030-01-01",
         serialLeft: "L1", serialRight: "R1",
-        left: { manufacturer: "Signia", family: "Pure", variant: "C&G", techLevel: "7IX", style: "ric", color: "Black", receiverLength: "2", receiverPower: "HP" },
-        right: { manufacturer: "Signia", family: "Pure", variant: "C&G", techLevel: "7IX", style: "ric", color: "Black", receiverLength: "2", receiverPower: "HP" },
+        left: {
+          manufacturer: "Signia", family: "Pure", variant: "C&G", techLevel: "7IX", style: "ric", color: "Black", receiverLength: "2", receiverPower: "HP",
+          coupling: "earmold", earmoldStyle: "skeleton", earmoldMaterial: "acrylic", earmoldColor: "clear",
+          earmoldVent: "standard", earmoldVentSize: "2.0 mm", earmoldCanal: "Long", earmoldNotes: "n",
+        },
+        right: {
+          manufacturer: "Signia", family: "Pure", variant: "C&G", techLevel: "7IX", style: "ric", color: "Black", receiverLength: "2", receiverPower: "HP",
+          coupling: "earmold", earmoldStyle: "skeleton", earmoldMaterial: "acrylic", earmoldColor: "clear",
+          earmoldVent: "standard", earmoldVentSize: "2.0 mm", earmoldCanal: "Long", earmoldNotes: "n",
+        },
       },
       clinic: { name: "Clinic", address: "1 St, Town, UT 84770", phone: "(435) 555-0101" },
       clinicSettings: { fax: "(435) 555-0102", manufacturerAccounts: { signia: { billTo: "1", shipTo: "2" } } },
       provider: { fullName: "Dr. Example", activeLicense: "123" },
       mfrKey: "signia",
-      extras: { po: "PO1", notes: "n" },
+      audiology: { rightT: { 1000: 40 }, leftT: { 1000: 45 } },
+      extras: { po: "PO1", notes: "n", impressionsEnclosed: true, scanOnFile: false },
     })
   )
 );

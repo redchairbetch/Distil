@@ -39,6 +39,17 @@ function isOn(entry, value) {
   return value === true || value === "true" || value === "yes" || value === 1 || (typeof value === "string" && value.trim() !== "" && entry.type !== "text");
 }
 
+// Grid checkboxes (style column × option row × ear) fire only when every
+// listed logical key matches — e.g. { "earmold.left.style": "skeleton",
+// "earmold.left.material": "acrylic" }. An entry with equalsAll ignores
+// `logical` for the on-test (it stays as documentation of the primary key).
+function isOnAll(entry, data) {
+  if (entry.equalsAll) {
+    return Object.entries(entry.equalsAll).every(([k, v]) => data[k] === v);
+  }
+  return isOn(entry, data[entry.logical]);
+}
+
 // Browser entry point: loads the bundled blank and enforces the version stamp.
 // pdfAssets uses import.meta.glob (Vite-only), so it's imported lazily here to
 // keep fillBytes usable from node tooling (scripts/, vitest).
@@ -60,15 +71,20 @@ export async function fillBytes(map, data, bytes, { enforceHash = true } = {}) {
     const form = doc.getForm();
     for (const entry of map.fields) {
       const value = data[entry.logical];
-      if (value == null || value === "") continue;
+      if (!entry.equalsAll && (value == null || value === "")) continue;
       try {
         if (entry.type === "checkbox") {
-          if (isOn(entry, value)) form.getCheckBox(entry.target).check();
+          if (isOnAll(entry, data)) form.getCheckBox(entry.target).check();
         } else if (entry.type === "radio") {
           if (isOn(entry, value)) form.getRadioGroup(entry.target).select(entry.on);
         } else {
           const field = form.getTextField(entry.target);
-          field.setText(String(value));
+          let text = String(value);
+          // Respect the field's maxLength: a truncated value on paper beats a
+          // silently dropped one.
+          const max = field.getMaxLength?.();
+          if (max != null && text.length > max) text = text.slice(0, max);
+          field.setText(text);
         }
       } catch (e) {
         // A single bad target must not lose the whole form; the drift test
@@ -82,6 +98,15 @@ export async function fillBytes(map, data, bytes, { enforceHash = true } = {}) {
     const pages = doc.getPages();
     for (const entry of map.fields) {
       const value = data[entry.logical];
+      if (entry.equalsAll) {
+        // Grid tick on a flat form: draw an X at the mapped cell when every
+        // listed logical key matches.
+        if (!isOnAll(entry, data)) continue;
+        const page = pages[entry.page || 0];
+        if (!page) continue;
+        page.drawText("X", { x: entry.x, y: entry.y, size: entry.size || 8, font });
+        continue;
+      }
       if (value == null || value === "") continue;
       const page = pages[entry.page || 0];
       if (!page) continue;

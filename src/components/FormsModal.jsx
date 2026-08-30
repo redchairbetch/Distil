@@ -73,7 +73,11 @@ export default function FormsModal({ patient, clinic, provider, clinicId, staffI
   }, [devices]);
 
   const activeMfr = mfrKey || chartMfrs[0] || null;
-  const forms = activeMfr ? getFormsFor(activeMfr) : [];
+  // Earmold/custom order forms surface only when a side actually carries an
+  // earmold coupling — a repair doesn't need the order catalog in the way.
+  const hasEarmold = devices?.left?.coupling === "earmold" || devices?.right?.coupling === "earmold";
+  const forms = (activeMfr ? getFormsFor(activeMfr) : [])
+    .filter((m) => hasEarmold || (m.category !== "earmold_order" && m.category !== "custom_order"));
   const selectedForm = FORM_REGISTRY.find((m) => m.id === formId) || null;
 
   // Logical keys the selected map actually uses, deduped in map order.
@@ -94,6 +98,7 @@ export default function FormsModal({ patient, clinic, provider, clinicId, staffI
         clinicSettings,
         provider,
         mfrKey: map.manufacturer,
+        audiology: patient?.audiology || null,
       })
     );
   };

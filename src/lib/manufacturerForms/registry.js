@@ -9,6 +9,9 @@
 import oticonRepair from "./maps/oticon-repair.js";
 import oticonReturnForCredit from "./maps/oticon-return-for-credit.js";
 import oticonLossDamage from "./maps/oticon-loss-damage.js";
+import oticonSiriusEarmoldOrder from "./maps/oticon-sirius-earmold-order.js";
+import oticonRiteEarmoldOrderUpdated from "./maps/oticon-rite-earmold-order-updated.js";
+import oticonRiteCordaEarmoldOrder from "./maps/oticon-rite-corda-earmold-order.js";
 import phonakRepair from "./maps/phonak-repair.js";
 import phonakServiceForm from "./maps/phonak-service-form.js";
 import phonakLossDamage from "./maps/phonak-loss-damage.js";
@@ -17,18 +20,28 @@ import phonakReturnForCreditLdClaim from "./maps/phonak-return-for-credit-ld-cla
 import phonakFmReturnForCredit from "./maps/phonak-fm-return-for-credit.js";
 import signiaRepair from "./maps/signia-repair.js";
 import signiaLossDamage from "./maps/signia-loss-damage.js";
+import signiaRic30CustomEarmoldOrder from "./maps/signia-ric-3-0-custom-earmold-order.js";
 import rextonRepair from "./maps/rexton-repair.js";
 import rextonLossDamage from "./maps/rexton-loss-damage.js";
 import rextonReturnForCredit from "./maps/rexton-return-for-credit.js";
 import resoundRepair from "./maps/resound-repair.js";
 import resoundLossDamage from "./maps/resound-loss-damage.js";
+import resoundRieCustomEarmoldOrder from "./maps/resound-rie-custom-earmold-order.js";
+import resoundBteCustomEarmoldOrder from "./maps/resound-bte-custom-earmold-order.js";
 import starkeyRepair from "./maps/starkey-repair.js";
 import starkeyLossDamage from "./maps/starkey-loss-damage.js";
 import starkeyReturnForCredit from "./maps/starkey-return-for-credit.js";
+import starkeyEarmoldOrder from "./maps/starkey-earmold-order.js";
+import starkeyEarmoldCustomOrder from "./maps/starkey-earmold-custom-order.js";
 import widexRepair from "./maps/widex-repair.js";
 import widexLossDamage from "./maps/widex-loss-damage.js";
 import widexReturnForCredit from "./maps/widex-return-for-credit.js";
 import unitronRepairLdRfc from "./maps/unitron-repair-ld-rfc.js";
+import relate40BteEarmoldOrder from "./maps/relate-4-0-bte-earmold-order.js";
+import relate40RicCustomEarPieceOrder from "./maps/relate-4-0-ric-custom-ear-piece-order.js";
+import relate50IteRCustomOrder from "./maps/relate-5-0-ite-r-custom-order.js";
+import relate5010NwOmniOrder from "./maps/relate-5-0-10-nw-omni-order.js";
+import relateOneTimeCourtesyReplacement from "./maps/relate-one-time-courtesy-replacement.js";
 
 export const FORM_CATEGORIES = {
   repair: "Repair",
@@ -42,6 +55,9 @@ export const FORM_REGISTRY = [
   oticonRepair,
   oticonReturnForCredit,
   oticonLossDamage,
+  oticonSiriusEarmoldOrder,
+  oticonRiteEarmoldOrderUpdated,
+  oticonRiteCordaEarmoldOrder,
   phonakRepair,
   phonakServiceForm,
   phonakLossDamage,
@@ -50,18 +66,28 @@ export const FORM_REGISTRY = [
   phonakFmReturnForCredit,
   signiaRepair,
   signiaLossDamage,
+  signiaRic30CustomEarmoldOrder,
   rextonRepair,
   rextonLossDamage,
   rextonReturnForCredit,
   resoundRepair,
   resoundLossDamage,
+  resoundRieCustomEarmoldOrder,
+  resoundBteCustomEarmoldOrder,
   starkeyRepair,
   starkeyLossDamage,
   starkeyReturnForCredit,
+  starkeyEarmoldOrder,
+  starkeyEarmoldCustomOrder,
   widexRepair,
   widexLossDamage,
   widexReturnForCredit,
   unitronRepairLdRfc,
+  relate40BteEarmoldOrder,
+  relate40RicCustomEarPieceOrder,
+  relate50IteRCustomOrder,
+  relate5010NwOmniOrder,
+  relateOneTimeCourtesyReplacement,
 ];
 
 export function getFormsFor(mfrKey, category) {
