@@ -1,0 +1,37 @@
+// Oticon Return for Credit — AcroForm. The device block is an L:/R: grid:
+// row 1 model, row 2 style, row 3 serial. Return-reason checkboxes
+// (Check Box3.*) are per-incident and deliberately unmapped.
+export default {
+  id: "oticon-return-for-credit",
+  manufacturer: "oticon",
+  category: "return_credit",
+  title: "Oticon Return for Credit",
+  pdf: "oticon/oticon-return-for-credit.pdf",
+  sha256: "c6a11a12d7efa1dd244f09b6f1f773fe4bc2d11bd169dd16a10ab75a79850c7e",
+  mode: "acroform",
+  fields: [
+    { logical: "clinic.shipTo", target: "Ship To Information" },
+    { logical: "clinic.billTo", target: "Bill To Information" },
+    { logical: "meta.today", target: "Todays Date" },
+    { logical: "fitting.date", target: "Fitting Date" },
+    { logical: "provider.name", target: "Fitters Name" },
+    { logical: "clinic.phoneArea", target: "Text2" },
+    { logical: "clinic.phoneLocal", target: "undefined" },
+    { logical: "po", target: "Purchase Order" },
+    { logical: "clinic.name", target: "Company Name" },
+    { logical: "clinic.street", target: "Address" },
+    { logical: "clinic.city", target: "City" },
+    { logical: "clinic.state", target: "State" },
+    { logical: "clinic.zip", target: "Zip" },
+    { logical: "patient.firstName", target: "First Name" },
+    { logical: "patient.lastName", target: "Last Name" },
+    { logical: "patient.age", target: "Age" },
+    { logical: "device.left.model", target: "L" },
+    { logical: "device.right.model", target: "R" },
+    { logical: "device.left.style", target: "L_2" },
+    { logical: "device.right.style", target: "R_2" },
+    { logical: "device.left.serial", target: "L_3" },
+    { logical: "device.right.serial", target: "R_3" },
+    { logical: "notes", target: "Comments 1" },
+  ],
+};

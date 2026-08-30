@@ -19,6 +19,7 @@ import React from "react";
 import { checkRole } from "../lib/staffUtils.js";
 import { formatMoney } from "../lib/format.js";
 import { seedDefaultCampaign, backfillCampaignEnrollment } from "../db.js";
+import { MFR_KEYS, MFR_DISPLAY } from "../lib/manufacturerKeys.js";
 
 const ACCENT_COLORS = [
   { label:"Green",   value:"#16a34a" },
@@ -91,6 +92,10 @@ export default function ClinicSettings({
               <input value={clinicDraft.phone} onChange={e=>setClinicDraft(d=>({...d,phone:e.target.value}))} placeholder="(555) 555-5555" />
             </div>
             <div className="settings-field">
+              <label>Fax</label>
+              <input value={clinicDraft.fax || ""} onChange={e=>setClinicDraft(d=>({...d,fax:e.target.value}))} placeholder="(555) 555-5556" />
+            </div>
+            <div className="settings-field">
               <label>Accent Color</label>
               <div className="color-options">
                 {ACCENT_COLORS.map(c=>(
@@ -124,6 +129,37 @@ export default function ClinicSettings({
                 {sigErr && <div style={{fontSize:12,color:"#ef4444",marginTop:6}}>{sigErr}</div>}
               </div>
             </div>
+          </div>
+
+
+          <div className="settings-section">
+            <div className="settings-title">Manufacturer Accounts</div>
+            <div style={{fontSize:12,color:"#9ca3af",marginBottom:12,lineHeight:1.5}}>
+              Bill-to and ship-to account numbers per manufacturer. These auto-fill the
+              repair, loss &amp; damage, and order forms generated from a patient's chart.
+              Leave a manufacturer blank if you don't hold an account. Saved with Save Settings below.
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"110px 1fr 1fr",gap:"6px 10px",alignItems:"center",fontSize:10,color:"#9ca3af",fontWeight:700,textTransform:"uppercase",letterSpacing:0.5}}>
+              <div></div><div>Bill-to account #</div><div>Ship-to account #</div>
+            </div>
+            {MFR_KEYS.map(k => {
+              const acct = clinicDraft.manufacturerAccounts?.[k] || {};
+              const setAcct = (field, value) => setClinicDraft(d => ({
+                ...d,
+                manufacturerAccounts: {
+                  ...(d.manufacturerAccounts || {}),
+                  [k]: { ...(d.manufacturerAccounts?.[k] || {}), [field]: value },
+                },
+              }));
+              const cellStyle = {padding:"6px 10px",borderRadius:6,border:"1px solid #E4E0D5",fontSize:13,fontFamily:"'Sora',sans-serif"};
+              return (
+                <div key={k} style={{display:"grid",gridTemplateColumns:"110px 1fr 1fr",gap:"6px 10px",alignItems:"center",marginTop:6}}>
+                  <div style={{fontSize:13,fontWeight:600,color:"#374151"}}>{MFR_DISPLAY[k]}</div>
+                  <input style={cellStyle} value={acct.billTo || ""} onChange={e=>setAcct("billTo", e.target.value)} placeholder="—" />
+                  <input style={cellStyle} value={acct.shipTo || ""} onChange={e=>setAcct("shipTo", e.target.value)} placeholder="same as bill-to" />
+                </div>
+              );
+            })}
           </div>
 
 
