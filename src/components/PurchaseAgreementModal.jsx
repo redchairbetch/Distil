@@ -313,6 +313,9 @@ export default function PurchaseAgreementModal({
         next.dome = ''; next.thModel = ''
         next.faceplateColor = ''; next.shellColor = ''
         next.gainMatrix = ''; next.domeCategory = ''; next.domeSize = ''
+        next.coupling = ''; next.earmoldStyle = ''; next.earmoldMaterial = ''
+        next.earmoldColor = ''; next.earmoldVent = ''; next.earmoldVentSize = ''
+        next.earmoldCanal = ''; next.earmoldNotes = ''
       }
       if (field === 'style') {
         next.manufacturer = ''; next.generation = ''; next.familyId = ''

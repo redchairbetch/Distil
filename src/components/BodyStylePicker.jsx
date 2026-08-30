@@ -208,7 +208,10 @@ function StyleCard({ style, ann, selected, onSelect }) {
   );
 }
 
-export default function BodyStylePicker({ styles, selectedId, onSelect, audiology, subtitle }) {
+// onSelect(styleId, couplingId?) — couplingId is passed only when the user
+// picks a coupling card (backlog #42a); style-only selections leave it
+// undefined so callers can keep any existing coupling.
+export default function BodyStylePicker({ styles, selectedId, selectedCoupling, onSelect, audiology, subtitle }) {
   const rec = useMemo(() => recommendBodyStyles(audiology), [audiology]);
   const selectedStyle = styles.find((s) => s.id === selectedId) || null;
   const selectedAnn = selectedId ? rec.byStyle[selectedId] : null;
@@ -337,6 +340,33 @@ export default function BodyStylePicker({ styles, selectedId, onSelect, audiolog
               onSelect={() => onSelect(s.id)}
             />
           ))}
+        </div>
+      )}
+
+      {/* Coupling fork (#42a) — how a RIC/BTE meets the ear. Appears once the
+          branch's style is chosen (one-style branches auto-select, so this is
+          the next click). A suggested default for both ears; the per-ear
+          cascade can still override side by side. */}
+      {activeSub?.couplings && selectedId && activeSub.styleIds.includes(selectedId) && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: "#0a1628", marginBottom: 8 }}>
+            How should it sit in the ear?
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+            {activeSub.couplings.map((c) => (
+              <BranchCard
+                key={c.id}
+                label={c.label}
+                desc={c.desc}
+                img={null}
+                ann={null}
+                selected={selectedCoupling === c.id}
+                checked={selectedCoupling === c.id}
+                dimmed={!!selectedCoupling && selectedCoupling !== c.id}
+                onClick={() => onSelect(selectedId, c.id)}
+              />
+            ))}
+          </div>
         </div>
       )}
 

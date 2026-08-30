@@ -958,6 +958,17 @@ function assembleSide(s) {
     gainMatrix:     s.gain_matrix     || '',
     domeCategory:   s.dome_category   || '',
     domeSize:       s.dome_size       || '',
+    // Coupling + earmold selection (backlog #42a). Legacy shim: before the
+    // coupling column existed, an earmold was recorded only as the literal
+    // dome string 'Custom Earmold' — those rows must read as earmold forever.
+    coupling:       s.coupling || (s.dome === 'Custom Earmold' ? 'earmold' : ''),
+    earmoldStyle:    s.earmold_style     || '',
+    earmoldMaterial: s.earmold_material  || '',
+    earmoldColor:    s.earmold_color     || '',
+    earmoldVent:     s.earmold_vent      || '',
+    earmoldVentSize: s.earmold_vent_size || '',
+    earmoldCanal:    s.earmold_canal     || '',
+    earmoldNotes:    s.earmold_notes     || '',
   }
 }
 
@@ -1353,6 +1364,14 @@ function buildSideRow(fittingId, ear, side) {
     gain_matrix:     side.gainMatrix      || null,
     dome_category:   side.domeCategory    || null,
     dome_size:       side.domeSize        || null,
+    coupling:          side.coupling        || null,
+    earmold_style:     side.earmoldStyle    || null,
+    earmold_material:  side.earmoldMaterial || null,
+    earmold_color:     side.earmoldColor    || null,
+    earmold_vent:      side.earmoldVent     || null,
+    earmold_vent_size: side.earmoldVentSize || null,
+    earmold_canal:     side.earmoldCanal    || null,
+    earmold_notes:     side.earmoldNotes    || null,
   }
 }
 
@@ -2600,6 +2619,54 @@ export async function saveClinicSettings(clinicId, settings) {
     })
     .eq('id', clinicId)
   if (error) console.error('saveClinicSettings:', error)
+}
+
+
+// ============================================================
+// EARMOLD CATALOG (backlog #42a)
+// ============================================================
+
+// Module cache — the catalog is reference data; one fetch per session.
+let _earmoldCatalogCache = null
+
+// Returns all active earmold_catalog rows (camelCase), falling back to the
+// bundled seed (src/lib/earmoldSeed.js — kept at parity with the table) when
+// the DB is unreachable. Callers filter by manufacturer/deviceType.
+export async function loadEarmoldCatalog() {
+  if (_earmoldCatalogCache) return _earmoldCatalogCache
+  try {
+    const { data, error } = await supabase
+      .from('earmold_catalog')
+      .select('*')
+      .eq('active', true)
+      .order('manufacturer')
+      .order('sort_order')
+    if (error) throw error
+    if (data?.length) {
+      _earmoldCatalogCache = data.map(r => ({
+        id: r.id,
+        manufacturer: r.manufacturer,
+        formId: r.form_id,
+        deviceType: r.device_type,
+        styleId: r.style_id,
+        styleLabel: r.style_label,
+        materials: r.materials || [],
+        vents: r.vents || [],
+        canal: r.canal || {},
+        tubing: r.tubing || {},
+        extras: r.extras || {},
+        constraintsNote: r.constraints_note || '',
+        sortOrder: r.sort_order,
+        confidence: r.confidence,
+      }))
+      return _earmoldCatalogCache
+    }
+  } catch (e) {
+    console.error('loadEarmoldCatalog (falling back to bundled seed):', e)
+  }
+  const { EARMOLD_SEED } = await import('./lib/earmoldSeed.js')
+  _earmoldCatalogCache = EARMOLD_SEED
+  return _earmoldCatalogCache
 }
 
 

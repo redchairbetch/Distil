@@ -894,12 +894,22 @@ export default function PatientDetail(props) {
                     const pwrLabel = isTH
                       ? (side.gainMatrix || side.receiverPower || "—")
                       : ((RECEIVER_POWERS[side.manufacturer]||[]).find(pw=>pw.id===side.receiverPower)?.label || side.receiverPower || "—");
-                    const isEm = isTH
-                      ? false
-                      : (RECEIVER_POWERS[side.manufacturer]||[]).find(pw=>pw.id===side.receiverPower)?.earmold;
-                    const domeVal = isTH
+                    // Stored coupling wins (#42a) — assembleSide shims legacy
+                    // 'Custom Earmold' dome rows to coupling='earmold'. The
+                    // receiver-power fallback covers pre-#42a standard-catalog
+                    // sides; TH sides previously hardcoded isEm=false here
+                    // (inconsistent with the wizard review) — the stored
+                    // coupling now answers for both flows.
+                    const isEm = side.coupling
+                      ? side.coupling === "earmold"
+                      : (isTH ? false : (RECEIVER_POWERS[side.manufacturer]||[]).find(pw=>pw.id===side.receiverPower)?.earmold);
+                    const emVal = "Custom Earmold" + (side.earmoldStyle
+                      ? ` — ${[side.earmoldStyle, side.earmoldMaterial, side.earmoldVent && `${side.earmoldVent} vent`].filter(Boolean).join(" · ")}`
+                      : "");
+                    const domeVal = isEm ? emVal
+                      : isTH
                       ? (side.domeCategory && side.domeSize ? `${side.domeCategory} ${side.domeSize}` : side.domeCategory || side.dome || "N/A")
-                      : (isEm ? "Custom Earmold" : (side.dome || "N/A"));
+                      : (side.dome || "N/A");
                     return (
                       <div key={idx}>
                         <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#6b7280",marginBottom:6,paddingBottom:4,borderBottom:"1px solid #E4E0D5"}}>{sideLabel}</div>

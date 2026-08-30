@@ -23,6 +23,7 @@ import CommitmentChecklist from "../components/CommitmentChecklist.jsx";
 import ComplexBenefitCalculator from "../components/ComplexBenefitCalculator.jsx";
 import FinancingCalculator from "../components/FinancingCalculator.jsx";
 import LangToggle from "../components/LangToggle.jsx";
+import EarmoldPicker from "../components/EarmoldPicker.jsx";
 import ResultsContent from "../components/ResultsContent.jsx";
 import VerifyRateCard from "../components/VerifyRateCard.jsx";
 import CareExpectations from "./CareExpectations.jsx";
@@ -57,6 +58,63 @@ import {
   createProviderIntake, logAnalyticsEvent, updateIntakeAnswers,
   updateIntakeAssessment, updateIntakeProviderNotes,
 } from "../db.js";
+
+// ── Coupling UI (#42a) — dome vs custom earmold, per ear ────────────────────
+// Explicit stored state on the side (s.coupling); an HP/earmold receiver
+// locks the choice to earmold. Selecting a chip clears the other branch's
+// fields so a stale dome never rides along with a mold order (and vice versa).
+function CouplingChips({ side, s, updSide, requiresEarmold }) {
+  const effective = s.coupling || (requiresEarmold ? "earmold" : "dome");
+  const pick = (val) => {
+    updSide(side, "coupling", val);
+    if (val === "earmold") { updSide(side, "dome", ""); updSide(side, "domeCategory", ""); updSide(side, "domeSize", ""); }
+    else for (const k of ["earmoldStyle","earmoldMaterial","earmoldColor","earmoldVent","earmoldVentSize","earmoldCanal","earmoldNotes"]) updSide(side, k, "");
+  };
+  const chip = (val, label, disabled) => (
+    <button type="button" disabled={disabled}
+      onClick={() => !disabled && pick(val)}
+      title={disabled ? "This receiver power requires a custom earmold" : undefined}
+      style={{
+        padding:"5px 14px", borderRadius:20, fontSize:12, fontWeight:600,
+        border:`1.5px solid ${effective===val ? "#0B4A42" : "#E4E0D5"}`,
+        background: effective===val ? "#E7F1EE" : "white",
+        color: disabled ? "#c4bfb2" : effective===val ? "#0B4A42" : "#6b7280",
+        cursor: disabled ? "not-allowed" : "pointer",
+      }}>
+      {label}
+    </button>
+  );
+  return (
+    <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:8}}>
+      <span style={{fontSize:11, fontWeight:700, color:"#8B8577", textTransform:"uppercase", letterSpacing:"0.05em"}}>Coupling</span>
+      {chip("dome", "Standard Dome", requiresEarmold)}
+      {chip("earmold", "Custom Earmold", false)}
+    </div>
+  );
+}
+
+// Standard-catalog coupling block: chips + the dome select or earmold picker.
+function CouplingSection({ side, s, updSide, requiresEarmold, availDomes, deviceType }) {
+  const effective = s.coupling || (requiresEarmold ? "earmold" : "dome");
+  return (
+    <div className="field" style={{marginBottom:0, marginTop:12}}>
+      <CouplingChips side={side} s={s} updSide={updSide} requiresEarmold={requiresEarmold} />
+      {effective === "earmold" ? (
+        <EarmoldPicker side={side} sd={s} updSide={updSide} deviceType={deviceType} />
+      ) : deviceType === "ric" ? (
+        <>
+          <label>Dome Type</label>
+          <select value={s.dome} onChange={e=>updSide(side,"dome",e.target.value)}>
+            <option value="">Select…</option>
+            {availDomes.map(dm=><option key={dm}>{dm}</option>)}
+          </select>
+        </>
+      ) : (
+        <div style={{fontSize:12, color:"#6b7280"}}>Slim-tube / standard tubing coupling — no custom mold ordered.</div>
+      )}
+    </div>
+  );
+}
 
 export default function WizardSteps(props) {
   const {
@@ -847,28 +905,34 @@ export default function WizardSteps(props) {
                 </div>
               )}
 
-              {/* 8. Domes (RIC/RIC+BCT/SR — not for earmold) */}
+              {/* 8. Coupling — domes or custom earmold (RIC/RIC+BCT/SR).
+                  TH aids are Signia-built, so the earmold picker resolves to
+                  the Signia catalog + order form (Kurt, 2026-08-29). */}
               {s.style && d.thHasReceiver && s.gainMatrix && (
-                d.thRequiresEarmold ? (
-                  <div style={{background:"#fef9c3",border:"1px solid #fde047",borderRadius:8,padding:"10px 14px",marginBottom:16,fontSize:13,color:"#854d0e",fontWeight:600}}>
-                    🦻 Earmold required — dome not applicable (HP encased receiver)
+                (s.coupling || (d.thRequiresEarmold ? "earmold" : "dome")) === "earmold" ? (
+                  <div style={{marginBottom:16}}>
+                    <CouplingChips side={side} s={s} updSide={updSide} requiresEarmold={d.thRequiresEarmold} />
+                    <EarmoldPicker side={side} sd={s} updSide={updSide} deviceType="ric" />
                   </div>
                 ) : (
-                  <div className="field-grid" style={{marginBottom:16}}>
-                    <div className="field"><label>Dome Category</label>
-                      <select value={s.domeCategory} onChange={e=>setForm(f=>({...f,[side]:{...f[side], domeCategory:e.target.value, domeSize:""}}))}>
-                        <option value="">Select...</option>
-                        {Object.keys(TH_DOMES).map(cat=><option key={cat} value={cat}>{cat}</option>)}
-                      </select>
-                    </div>
-                    {s.domeCategory && TH_DOMES[s.domeCategory] && (
-                      <div className="field"><label>Dome Size</label>
-                        <select value={s.domeSize} onChange={e=>updSide(side,"domeSize",e.target.value)}>
+                  <div style={{marginBottom:16}}>
+                    <CouplingChips side={side} s={s} updSide={updSide} requiresEarmold={d.thRequiresEarmold} />
+                    <div className="field-grid" style={{marginBottom:0}}>
+                      <div className="field"><label>Dome Category</label>
+                        <select value={s.domeCategory} onChange={e=>setForm(f=>({...f,[side]:{...f[side], domeCategory:e.target.value, domeSize:""}}))}>
                           <option value="">Select...</option>
-                          {TH_DOMES[s.domeCategory].map(sz=><option key={sz} value={sz}>{sz}</option>)}
+                          {Object.keys(TH_DOMES).map(cat=><option key={cat} value={cat}>{cat}</option>)}
                         </select>
                       </div>
-                    )}
+                      {s.domeCategory && TH_DOMES[s.domeCategory] && (
+                        <div className="field"><label>Dome Size</label>
+                          <select value={s.domeSize} onChange={e=>updSide(side,"domeSize",e.target.value)}>
+                            <option value="">Select...</option>
+                            {TH_DOMES[s.domeCategory].map(sz=><option key={sz} value={sz}>{sz}</option>)}
+                          </select>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )
               )}
@@ -924,7 +988,9 @@ export default function WizardSteps(props) {
                     <select value={s.receiverPower} onChange={e=>{
                       const pw=e.target.value;
                       updSide(side,"receiverPower",pw);
-                      if((RECEIVER_POWERS[s.manufacturer]||[]).find(p=>p.id===pw)?.earmold) updSide(side,"dome","");
+                      // An HP/earmold power auto-suggests the earmold coupling
+                      // and clears the now-inapplicable dome (#42a).
+                      if((RECEIVER_POWERS[s.manufacturer]||[]).find(p=>p.id===pw)?.earmold){ updSide(side,"dome",""); updSide(side,"coupling","earmold"); }
                     }}>
                       <option value="">Select…</option>
                       {availPowers.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}
@@ -932,21 +998,18 @@ export default function WizardSteps(props) {
                   </div>
                 </div>
                 {s.receiverPower && (
-                  <div className="field" style={{marginBottom:0,marginTop:12}}>
-                    {requiresEarmold ? (
-                      <div style={{background:"#fef9c3",border:"1px solid #fde047",borderRadius:8,padding:"10px 14px",fontSize:13,color:"#854d0e",fontWeight:600}}>
-                        🦻 Earmold required — dome not applicable
-                      </div>
-                    ) : (
-                      <><label>Dome Type</label>
-                        <select value={s.dome} onChange={e=>updSide(side,"dome",e.target.value)}>
-                          <option value="">Select…</option>
-                          {availDomes.map(dm=><option key={dm}>{dm}</option>)}
-                        </select>
-                      </>
-                    )}
-                  </div>
+                  <CouplingSection side={side} s={s} updSide={updSide}
+                    requiresEarmold={requiresEarmold} availDomes={availDomes} deviceType="ric" />
                 )}
+              </>
+            )}
+
+            {/* ── BTE coupling — traditional BTEs couple via tube + earmold (#42a) ── */}
+            {showStd && s.style === "bte" && s.techLevel && (
+              <>
+                <div style={{height:1,background:"#F0EDE3",margin:"4px 0 16px"}} />
+                <CouplingSection side={side} s={s} updSide={updSide}
+                  requiresEarmold={false} availDomes={availDomes} deviceType="bte" />
               </>
             )}
 
@@ -979,13 +1042,16 @@ export default function WizardSteps(props) {
       // Copy `src` onto the opposite side as a CROS transmitter. TH flow flags
       // isCROS and strips receiver/gain/dome (transmitters have none); the
       // standard catalog flow keeps its variant-string mechanism.
+      // A CROS transmitter never takes an earmold — coupling + mold fields
+      // are stripped along with the receiver/dome (#42a).
+      const CROS_STRIP = { coupling:"", earmoldStyle:"", earmoldMaterial:"", earmoldColor:"", earmoldVent:"", earmoldVentSize:"", earmoldCanal:"", earmoldNotes:"" };
       const copyAsCros = (src, targetSide) => {
         if (thCardFlow) {
-          setForm(f=>({...f,[targetSide]:{...src, isCROS:true, variant:"", gainMatrix:"", receiverLength:"", receiverPower:"", dome:"", domeCategory:"", domeSize:""}}));
+          setForm(f=>({...f,[targetSide]:{...src, isCROS:true, variant:"", gainMatrix:"", receiverLength:"", receiverPower:"", dome:"", domeCategory:"", domeSize:"", ...CROS_STRIP}}));
         } else {
           const crosFam = catalog.find(e => e.id === src.familyId);
           const crosVariant = crosFam?.variants.find(v=>v.toLowerCase().includes("cros")) || "CROS";
-          setForm(f=>({...f,[targetSide]:{...src, variant:crosVariant, receiverLength:"", receiverPower:"", dome:""}}));
+          setForm(f=>({...f,[targetSide]:{...src, variant:crosVariant, receiverLength:"", receiverPower:"", dome:"", ...CROS_STRIP}}));
         }
         setActiveSide(targetSide);
       };
@@ -1001,14 +1067,26 @@ export default function WizardSteps(props) {
       const pickerSelected = thCardFlow
         ? (form.left.thBodyStyle && form.left.thBodyStyle === form.right.thBodyStyle ? form.left.thBodyStyle : null)
         : (form.left.style && form.left.style === form.right.style ? form.left.style : null);
-      const seedBothEars = (id) => {
+      // couplingId (dome|earmold) arrives from the picker's coupling fork
+      // (#42a) as a suggested default for both ears. A style-only pick
+      // (couplingId undefined) keeps any coupling already chosen.
+      const seedBothEars = (id, couplingId) => {
         if (thCardFlow) {
           // Mirrors the per-ear TH grid's reset (keeps techLevel, wipes the
           // downstream cascade) — applied to both ears in one update.
           const wipe = { thBodyStyle:id, thModel:"", style:"", color:"", faceplateColor:"", shellColor:"", gainMatrix:"", battery:"", receiverLength:"", receiverPower:"", dome:"", domeCategory:"", domeSize:"", isCROS:false };
+          if (couplingId !== undefined) wipe.coupling = couplingId;
           setForm(f => ({ ...f, left:{...f.left, ...wipe}, right:{...f.right, ...wipe} }));
+        } else if (couplingId !== undefined && (form.left.style === id || form.right.style === id)) {
+          // Coupling click after the style is already seeded — set coupling
+          // without wiping the cascade the provider may have started.
+          setForm(f => ({ ...f,
+            left: f.left.style === id ? { ...f.left, coupling: couplingId } : f.left,
+            right: f.right.style === id ? { ...f.right, coupling: couplingId } : f.right,
+          }));
         } else {
           const seed = directPurchaseActive ? { style:id, manufacturer:"Signia" } : { style:id };
+          if (couplingId !== undefined) seed.coupling = couplingId;
           resetSide("left", seed);
           resetSide("right", seed);
         }
@@ -1041,6 +1119,7 @@ export default function WizardSteps(props) {
               <BodyStylePicker
                 styles={pickerStyles}
                 selectedId={pickerSelected}
+                selectedCoupling={form.left.coupling || form.right.coupling || ""}
                 onSelect={seedBothEars}
                 audiology={form.audiology}
                 subtitle={thCardFlow ? "Every style shown is covered at the chosen tier — one click sets both ears." : undefined}
@@ -1734,10 +1813,18 @@ export default function WizardSteps(props) {
         const pwrLabel = isTH
           ? ((TH_GAIN_MATRIX[`${d.thModel}|${d.style}`]||[]).find(g=>g.id===d.gainMatrix)?.label || d.gainMatrix || "—")
           : ((RECEIVER_POWERS[d.manufacturer]||[]).find(p=>p.id===d.receiverPower)?.label || "—");
-        const isEm = isTH
-          ? ((TH_GAIN_MATRIX[`${d.thModel}|${d.style}`]||[]).find(g=>g.id===d.gainMatrix)?.earmold || false)
-          : ((RECEIVER_POWERS[d.manufacturer]||[]).find(p=>p.id===d.receiverPower)?.earmold || false);
-        const thDome = isEm ? "Custom Earmold" : (d.domeCategory && d.domeSize ? `${d.domeCategory} ${d.domeSize}` : d.domeCategory || d.dome || "—");
+        // Stored coupling wins; the receiver/gain derivation is only the
+        // legacy fallback for sides saved before #42a.
+        const isEm = d.coupling
+          ? d.coupling === "earmold"
+          : (isTH
+            ? ((TH_GAIN_MATRIX[`${d.thModel}|${d.style}`]||[]).find(g=>g.id===d.gainMatrix)?.earmold || false)
+            : ((RECEIVER_POWERS[d.manufacturer]||[]).find(p=>p.id===d.receiverPower)?.earmold || false));
+        // Earmold summary from the catalog selection — "Custom Earmold — Skeleton · acrylic · standard vent"
+        const emSummary = "Custom Earmold" + (d.earmoldStyle
+          ? ` — ${[d.earmoldStyle, d.earmoldMaterial, d.earmoldColor, d.earmoldVent && `${d.earmoldVent} vent`].filter(Boolean).join(" · ")}`
+          : " (details TBD)");
+        const thDome = isEm ? emSummary : (d.domeCategory && d.domeSize ? `${d.domeCategory} ${d.domeSize}` : d.domeCategory || d.dome || "—");
         const styleLabel = BODY_STYLES.find(s=>s.id===d.style)?.label || d.style || "—";
         const thMod = TH_MODELS.find(m => m.id === d.thModel);
         // Platform generation follows the MODEL (TH7→IX, TH6→AX, TH5→X);
@@ -1781,8 +1868,8 @@ export default function WizardSteps(props) {
                 [d.receiverLength||"—", "Receiver Length"],
                 [pwrLabel, "Receiver Power"],
               ] : []),
-              ...(!isTH && BODY_STYLES.find(b=>b.id===d.style)?.hasDome ? [
-                [isEm?"Custom Earmold":(d.dome||"—"), "Dome / Coupling"],
+              ...(!isTH && (BODY_STYLES.find(b=>b.id===d.style)?.hasDome || d.style === "bte") ? [
+                [isEm ? emSummary : (d.dome||"—"), "Dome / Coupling"],
               ] : []),
             ].map(([v,k])=>(
               <div className="review-row" key={k}><span className="review-key">{k}</span><span className="review-val">{v}</span></div>

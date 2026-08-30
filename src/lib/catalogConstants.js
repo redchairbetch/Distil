@@ -108,11 +108,26 @@ export const STYLE_CATEGORIES = [
     desc: "The whole device sits in the ear itself — nothing behind the ear at all",
     onEarStyleId: "itc" },
 ];
+// How a behind-the-ear device couples to the ear canal (backlog #42a). The
+// fork #41 deliberately left out — now the earmold catalog exists there is
+// something to sell behind the "Custom Earmold" card. Rendered by
+// BodyStylePicker as a third card row under the RIC/BTE branches; the choice
+// seeds `coupling` on both sides (a suggested default the per-ear cascade can
+// still override).
+export const COUPLINGS = [
+  { id: "dome", label: "Standard Dome",
+    desc: "Soft ready-made tip — fitted the same day, easily swapped" },
+  { id: "earmold", label: "Custom Earmold",
+    desc: "Molded from an impression of the ear — best seal, retention, and power" },
+];
+
 export const STYLE_SUBCATEGORIES = [
   { id: "ric-family", categoryId: "behind", label: "RIC / RIE / miniRITE",
-    desc: "Speaker sits in the canal on a thin wire · Most popular style", styleIds: ["ric"] },
+    desc: "Speaker sits in the canal on a thin wire · Most popular style", styleIds: ["ric"],
+    couplings: COUPLINGS },
   { id: "trad-bte", categoryId: "behind", label: "Traditional BTE",
-    desc: "All electronics behind the ear, sound through a tube · Maximum power", styleIds: ["bte"] },
+    desc: "All electronics behind the ear, sound through a tube · Maximum power", styleIds: ["bte"],
+    couplings: COUPLINGS },
   { id: "instant-fit", categoryId: "inear", label: "Instant Fit",
     desc: "Ready-to-wear soft-tip shell — fits the same day, no impression", styleIds: ["if"] },
   { id: "custom-molded", categoryId: "inear", label: "Custom Molded",
