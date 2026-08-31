@@ -3,8 +3,9 @@
 // exact bytes of its blank. registry.test.js walks this list and fails loudly
 // on a missing PDF, a stale hash, or a bad AcroForm target.
 //
-// Known gap: signia/signia-return-for-credit.pdf is a corrupt file (bad flate
-// stream — renders blank); it is excluded until a clean copy is sourced.
+// 2026-08-30: the corrupt signia-return-for-credit.pdf was replaced with a
+// clean fillable copy (SI-22269) and mapped; the Additional-forms import
+// added Phonak/Unitron/Widex earmold order forms.
 
 import oticonRepair from "./maps/oticon-repair.js";
 import oticonReturnForCredit from "./maps/oticon-return-for-credit.js";
@@ -18,9 +19,13 @@ import phonakLossDamage from "./maps/phonak-loss-damage.js";
 import phonakReturnForCredit from "./maps/phonak-return-for-credit.js";
 import phonakReturnForCreditLdClaim from "./maps/phonak-return-for-credit-ld-claim.js";
 import phonakFmReturnForCredit from "./maps/phonak-fm-return-for-credit.js";
+import phonakEarmoldOrder from "./maps/phonak-earmold-order.js";
+import phonakSlimTipCrosTip60Order from "./maps/phonak-slim-tip-cros-tip-6-0-order.js";
+import phonakCshell60Order from "./maps/phonak-cshell-6-0-order.js";
 import signiaRepair from "./maps/signia-repair.js";
 import signiaLossDamage from "./maps/signia-loss-damage.js";
 import signiaRic30CustomEarmoldOrder from "./maps/signia-ric-3-0-custom-earmold-order.js";
+import signiaReturnForCredit from "./maps/signia-return-for-credit.js";
 import rextonRepair from "./maps/rexton-repair.js";
 import rextonLossDamage from "./maps/rexton-loss-damage.js";
 import rextonReturnForCredit from "./maps/rexton-return-for-credit.js";
@@ -36,7 +41,10 @@ import starkeyEarmoldCustomOrder from "./maps/starkey-earmold-custom-order.js";
 import widexRepair from "./maps/widex-repair.js";
 import widexLossDamage from "./maps/widex-loss-damage.js";
 import widexReturnForCredit from "./maps/widex-return-for-credit.js";
+import widexMomentRicBteOrder from "./maps/widex-moment-ric-bte-order.js";
 import unitronRepairLdRfc from "./maps/unitron-repair-ld-rfc.js";
+import unitronVivanteMoxiRicOrder from "./maps/unitron-vivante-moxi-ric-order.js";
+import unitronVivanteStrideBteOrder from "./maps/unitron-vivante-stride-bte-order.js";
 import relate40BteEarmoldOrder from "./maps/relate-4-0-bte-earmold-order.js";
 import relate40RicCustomEarPieceOrder from "./maps/relate-4-0-ric-custom-ear-piece-order.js";
 import relate50IteRCustomOrder from "./maps/relate-5-0-ite-r-custom-order.js";
@@ -64,9 +72,13 @@ export const FORM_REGISTRY = [
   phonakReturnForCredit,
   phonakReturnForCreditLdClaim,
   phonakFmReturnForCredit,
+  phonakEarmoldOrder,
+  phonakSlimTipCrosTip60Order,
+  phonakCshell60Order,
   signiaRepair,
   signiaLossDamage,
   signiaRic30CustomEarmoldOrder,
+  signiaReturnForCredit,
   rextonRepair,
   rextonLossDamage,
   rextonReturnForCredit,
@@ -82,7 +94,10 @@ export const FORM_REGISTRY = [
   widexRepair,
   widexLossDamage,
   widexReturnForCredit,
+  widexMomentRicBteOrder,
   unitronRepairLdRfc,
+  unitronVivanteMoxiRicOrder,
+  unitronVivanteStrideBteOrder,
   relate40BteEarmoldOrder,
   relate40RicCustomEarPieceOrder,
   relate50IteRCustomOrder,
