@@ -17,13 +17,15 @@
 // sweep. verify_jwt:false — the function self-authenticates against
 // get_cron_auth_secret().
 //
-// SAFETY LATCH: real sends require the EMAIL_LIVE=true function secret,
-// which should only be set once a sending domain is verified in Resend
-// (until then Resend rejects sends to anyone but the account owner anyway).
+// SAFETY LATCH: real sends require the EMAIL_LIVE=true function secret.
 // Without it the function is a dry-run: it reports what WOULD send and
 // mutates nothing. A manual invocation can pass { testTo } to deliver one
-// [TEST]-prefixed sample email (to the Resend account owner's address)
-// without touching any delivery rows.
+// [TEST]-prefixed sample email without touching any delivery rows.
+//
+// Sending domain: distil.lol, verified in Resend 2026-07-16. Outbound goes
+// out as care@distil.lol (RESEND_FROM secret overrides if ever needed);
+// frontdesk@distil.lol is reserved for the future inbound reply-ingest
+// webhook (see context.md, two-way patient messaging).
 //
 // Modes:
 //   cron default {}            → live? drain up to `limit` : dry-run report
@@ -96,7 +98,7 @@ Deno.serve(async (req) => {
 
   const apiKey = Deno.env.get('RESEND_API_KEY');
   if (!apiKey) return json({ error: 'RESEND_API_KEY is not configured' }, 500);
-  const fromAddress = Deno.env.get('RESEND_FROM') || 'onboarding@resend.dev';
+  const fromAddress = Deno.env.get('RESEND_FROM') || 'care@distil.lol';
   const live = Deno.env.get('EMAIL_LIVE') === 'true';
 
   const body = await req.json().catch(() => ({}));
