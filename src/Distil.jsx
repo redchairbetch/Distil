@@ -178,6 +178,10 @@ import PatientDetail from "./views/PatientDetail.jsx";
 import ResultsContent from "./components/ResultsContent.jsx";
 import WizardSteps from "./views/WizardSteps.jsx";
 
+// Below this width the left nav becomes a fixed overlay (iPad and narrower)
+// instead of an in-flow column. Must match the @media blocks in `styles`.
+const NAV_OVERLAY_QUERY = "(max-width: 1024px)";
+
 export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = [], onClinicSwitched }) {
   const [clinic, setClinic] = useState(DEFAULT_CLINIC);
   const [clinicDraft, setClinicDraft] = useState(DEFAULT_CLINIC);
@@ -220,6 +224,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // Provider prompter drawer — open by default, toggleable via the handle
   // pinned to the right edge of the screen. Provider-only.
   const [prompterOpen, setPrompterOpen] = useState(true);
+  // Left nav drawer — same handle pattern as the prompter, pinned to the left
+  // edge. Starts collapsed at iPad width so the content gets the whole screen
+  // when the provider is walking a patient through it.
+  const [navOpen, setNavOpen] = useState(() => !window.matchMedia(NAV_OVERLAY_QUERY).matches);
+  // At overlay width the nav covers the content, so picking a destination
+  // should also dismiss it; on desktop it stays put.
+  const closeNavIfOverlay = () => { if (window.matchMedia(NAV_OVERLAY_QUERY).matches) setNavOpen(false); };
   // Bumped after createProviderIntake mints a fresh row, so the loader
   // useEffect re-fires and picks up the new intake without waiting on a
   // step transition.
@@ -2369,9 +2380,19 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Sora', sans-serif; background: #F4F1EA; }
-    .app { display: flex; height: 100vh; overflow: hidden; }
-    /* SIDEBAR */
-    .sidebar { width: 260px; background: #0C211E; display: flex; flex-direction: column; flex-shrink: 0; }
+    .app { display: flex; height: 100vh; height: 100dvh; overflow: hidden; }
+    /* SIDEBAR — collapsible like the prompter drawer. Desktop: in-flow column
+       that slides off via negative margin so the content reflows to full
+       width. Overlay width (see NAV_OVERLAY_QUERY): fixed drawer over the
+       content with a tap-to-close scrim. */
+    .sidebar { width: 260px; background: #0C211E; display: flex; flex-direction: column; flex-shrink: 0; margin-left: 0; transition: margin-left 220ms ease, transform 220ms ease; }
+    .app.nav-closed .sidebar { margin-left: -260px; }
+    .nav-scrim { display: none; }
+    @media (max-width: 1024px) {
+      .sidebar { position: fixed; top: 0; left: 0; bottom: 0; z-index: 9998; transform: translateX(0); box-shadow: 8px 0 24px rgba(0,0,0,0.3); }
+      .app.nav-closed .sidebar { margin-left: 0; transform: translateX(-100%); box-shadow: none; }
+      .app:not(.nav-closed) .nav-scrim { display: block; position: fixed; inset: 0; z-index: 9997; background: rgba(12,33,30,0.5); }
+    }
     .sidebar-logo { padding: 24px 20px 20px; border-bottom: 1px solid rgba(255,255,255,0.07); }
     .logo-badge { font-size: 10px; font-weight: 600; letter-spacing: 2px; color: #C79A3F; text-transform: uppercase; margin-bottom: 6px; }
     .logo-name { font-size: 18px; font-weight: 700; color: white; line-height: 1.2; }
@@ -2383,6 +2404,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     .nav-item.active { background: rgba(216,169,63,0.12); color: #D8A93F; border-left-color: #C79A3F; }
     .nav-section-label { padding: 14px 20px 6px; font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(255,255,255,0.3); }
     .nav-icon { width: 20px; display: flex; align-items: center; justify-content: center; }
+    @media (max-width: 1024px) {
+      /* Bigger tap targets + tighter chrome at iPad width */
+      .nav-item { padding: 13px 20px; }
+      .topbar { padding: 14px 16px; }
+      .content { padding: 20px 16px; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .search-input { width: 160px; }
+    }
     .sidebar-footer { padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.07); font-size: 11px; color: rgba(255,255,255,0.3); }
     /* MAIN */
     .main { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
@@ -3623,7 +3652,38 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         </div>
       )}
 
-      <div className="app">
+      <div className={`app${navOpen ? "" : " nav-closed"}`}>
+        {/* Scrim behind the overlay nav at iPad width — tap to dismiss */}
+        <div className="nav-scrim" onClick={() => setNavOpen(false)} />
+        {/* Nav toggle handle — mirrors the prompter's handle on the opposite
+            edge, so the sidebar can be re-opened after collapse */}
+        <button
+          type="button"
+          onClick={() => setNavOpen(o => !o)}
+          title={navOpen ? "Hide menu" : "Show menu"}
+          style={{
+            position: "fixed",
+            top: "50%",
+            left: navOpen ? 260 : 0,
+            transform: "translateY(-50%)",
+            zIndex: 9998,
+            width: 36, height: 96,
+            background: "#0C211E", color: "white",
+            border: "none",
+            borderRadius: "0 8px 8px 0",
+            cursor: "pointer",
+            fontFamily: "'Sora',sans-serif",
+            fontWeight: 700, fontSize: 11,
+            letterSpacing: "0.06em",
+            writingMode: "vertical-rl",
+            textOrientation: "mixed",
+            padding: "10px 4px",
+            boxShadow: "4px 0 12px rgba(0,0,0,0.15)",
+            transition: "left 220ms ease",
+          }}
+        >
+          {navOpen ? "HIDE" : "MENU"}
+        </button>
         <div className="sidebar">
           <div className="sidebar-logo">
             <div className="logo-badge">Distil</div>
@@ -3661,6 +3721,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 onClick={()=>{
                   if(id==="dashboard"||id==="patients") setView("dashboard");
                   else setView(id);
+                  closeNavIfOverlay();
                 }}>
                 <span className="nav-icon"><Icon name={icon} size={17}/></span>{label}
                 {badge > 0 && (
@@ -3673,7 +3734,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             {/* Provider reflection tool — own price-adjustment history (spec §6/§11).
                 Not admin-gated: anyone who can adjust a price sees their own log. */}
             {checkRole(staffRole, ["provider","closer","admin"]) && (
-              <div className={`nav-item ${view==="adjustments"?"active":""}`} onClick={()=>setView("adjustments")}>
+              <div className={`nav-item ${view==="adjustments"?"active":""}`} onClick={()=>{setView("adjustments");closeNavIfOverlay();}}>
                 <span className="nav-icon"><Icon name="tag" size={17}/></span>My Adjustments
               </div>
             )}
@@ -3683,7 +3744,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             {checkRole(staffRole, ["admin"]) && <>
               <div className="nav-section-label">Admin</div>
               {[["users","Team","team"],["badge","Providers","providers"],["shield","Insurance Plans","insurance-plans"],["verify","Rate Verifications","rate-verifications"],["percent","Rebates","rebates"],["clipboard","Product Catalog","catalog"],["book","Nations Catalog","nations-catalog"],["book","Evidence Review","evidence"],["settings","Settings","settings"]].map(([icon,label,id])=>(
-                <div key={id} className={`nav-item ${view===id?"active":""}`} onClick={()=>setView(id)}>
+                <div key={id} className={`nav-item ${view===id?"active":""}`} onClick={()=>{setView(id);closeNavIfOverlay();}}>
                   <span className="nav-icon"><Icon name={icon} size={17}/></span>{label}
                 </div>
               ))}
@@ -3691,7 +3752,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           </div>
           {/* Intake queue button */}
           <div style={{padding:"12px 14px",borderTop:"1px solid rgba(255,255,255,0.07)"}}>
-            <button onClick={() => setShowIntakeQueue(true)} style={{
+            <button onClick={() => { setShowIntakeQueue(true); closeNavIfOverlay(); }} style={{
               width:"100%", background:"rgba(27,138,122,0.1)", border:"1px solid rgba(27,138,122,0.25)",
               borderRadius:8, padding:"10px 14px", cursor:"pointer", display:"flex",
               alignItems:"center", justifyContent:"space-between", fontFamily:"'Sora',sans-serif",
