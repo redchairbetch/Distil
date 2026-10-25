@@ -24,8 +24,8 @@
 // device→tier resolution stays in nationsCoverageTier() (lib/pricing.js) keyed
 // on product_catalog families, and tier copays come from the insurance_plans
 // row (Aetna · Nations Hearing). Beltone/Bernafon/Unitron rows are shown for
-// completeness but MHC doesn't dispense them (Beltone needs proprietary
-// software auth we lack — see CLAUDE.md).
+// completeness but most clinics don't dispense them (Beltone needs proprietary
+// software auth — a per-clinic setting, see CLAUDE.md).
 
 // Tier order (Standard → Specialty) lives in lib/pricing.js as
 // NATIONS_TIER_ORDER — import from there; not duplicated here.

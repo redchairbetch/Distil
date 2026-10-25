@@ -20,6 +20,7 @@ import { checkRole } from "../lib/staffUtils.js";
 import { formatMoney } from "../lib/format.js";
 import { seedDefaultCampaign, backfillCampaignEnrollment } from "../db.js";
 import { MFR_KEYS, MFR_DISPLAY } from "../lib/manufacturerKeys.js";
+import { PROPRIETARY_SOFTWARE_MFRS, PROPRIETARY_SOFTWARE_LABELS } from "../lib/catalogVisibility.js";
 
 const ACCENT_COLORS = [
   { label:"Green",   value:"#16a34a" },
@@ -30,9 +31,10 @@ const ACCENT_COLORS = [
   { label:"Teal",    value:"#0d9488" },
 ];
 
-// Beltone deliberately excluded — we lack proprietary auth (Rexton-only per CLAUDE.md).
-// 'standard' is the manufacturer-agnostic retail tier for clinic-wide pricing
-// (kept first so existing legacy rows are immediately visible/editable).
+// Proprietary-software brands (Beltone) are appended per clinic below, only
+// once the clinic is authorized for them (lib/catalogVisibility). 'standard'
+// is the manufacturer-agnostic retail tier for clinic-wide pricing (kept first
+// so existing legacy rows are immediately visible/editable).
 const MANUFACTURER_CLASSES = [
   { value:"standard", label:"Standard (general retail)" },
   { value:"signia",   label:"Signia"  },
@@ -54,6 +56,17 @@ export default function ClinicSettings({
   deleteConfirmText, setDeleteConfirmText, deleteBusy, deleteError, setDeleteError,
   deleteDone, setDeleteDone, handleDeletePatient,
 }) {
+  const proprietaryAuth = clinicDraft.proprietarySoftwareAuth || [];
+  const classOptions = [
+    ...MANUFACTURER_CLASSES,
+    ...PROPRIETARY_SOFTWARE_MFRS
+      .filter(k => proprietaryAuth.includes(k) || anchorsClass === k)
+      .map(k => ({ value: k, label: PROPRIETARY_SOFTWARE_LABELS[k].brand })),
+  ];
+  const toggleProprietary = (k, on) => setClinicDraft(d => {
+    const cur = d.proprietarySoftwareAuth || [];
+    return { ...d, proprietarySoftwareAuth: on ? [...new Set([...cur, k])] : cur.filter(x => x !== k) };
+  });
   return (
     <>
       <div className="topbar">
@@ -163,6 +176,29 @@ export default function ClinicSettings({
           </div>
 
 
+          {checkRole(staffRole, ["admin"]) && (
+          <div className="settings-section">
+            <div className="settings-title">Proprietary Fitting Software</div>
+            <div style={{fontSize:12,color:"#9ca3af",marginBottom:12,lineHeight:1.5}}>
+              Some brands can only be programmed with their own fitting software. Turn a brand on
+              only if this clinic is authorized for that software — its devices then appear in the
+              device pickers, quotes, and purchase agreements, priced from the Retail Anchors below
+              (defaults are filled in the first time you save). Saved with Save Settings below.
+            </div>
+            {PROPRIETARY_SOFTWARE_MFRS.map(k => {
+              const { brand, software } = PROPRIETARY_SOFTWARE_LABELS[k];
+              return (
+                <label key={k} style={{display:"flex",alignItems:"center",gap:10,fontSize:13,color:"#374151",cursor:"pointer",marginTop:6}}>
+                  <input type="checkbox" checked={proprietaryAuth.includes(k)}
+                    onChange={e => toggleProprietary(k, e.target.checked)} />
+                  <span><b>{brand}</b> — authorized for {software}</span>
+                </label>
+              );
+            })}
+          </div>
+          )}
+
+
           <div className="settings-section">
             <div className="settings-title">Campaign Administration</div>
             <div style={{fontSize:12,color:"#9ca3af",marginBottom:12}}>Set up the default nurture campaign and backfill existing patients.</div>
@@ -192,7 +228,7 @@ export default function ClinicSettings({
                 onChange={e => setAnchorsClass(e.target.value)}
                 style={{padding:"6px 10px",borderRadius:6,border:"1px solid #E4E0D5",fontSize:13,fontFamily:"'Sora',sans-serif",background:"white"}}
               >
-                {MANUFACTURER_CLASSES.map(c => (
+                {classOptions.map(c => (
                   <option key={c.value} value={c.value}>{c.label}</option>
                 ))}
               </select>

@@ -53,7 +53,7 @@ You are not a single assistant — you are Kurt's entire development team. Use n
 - **TH5 BTE:** Always available regardless of plan tier
 - **Normal hearing threshold:** 20 dB (not 25 dB)
 - **Banned terms in patient-facing UI:** "Neurotechnology" (trademarked), "Trial"/"Demo" (use "adaptation period"/"evaluation")
-- **Beltone:** Requires proprietary software auth we lack — Rexton-only designation
+- **Beltone:** Requires Solus Max (proprietary fitting software). Per-clinic gate, not a global ban (2026-10): Beltone families show only at clinics whose `clinics.proprietary_software_auth` includes `beltone` (Settings → Proprietary Fitting Software, admin). Every device picker goes through `lib/catalogVisibility.isCatalogEntryVisible` — never re-filter the catalog inline. Pricing is per pair 17 $6,499 · 9 $5,999 · 6 $4,999 · 4 $4,499; Commence (3/2) not catalogued
 - **HIPAA consent:** Verbatim MHC legal language with scroll-to-bottom gating
 - **Intake IDs:** Format `MHC-YYYYMMDD-XXXXX`
 - **Calendar feature:** Deliberately dropped. Clinics have scheduling tools. Distil uses `next_appointment_date` field only.

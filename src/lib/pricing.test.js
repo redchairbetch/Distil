@@ -19,6 +19,7 @@ import {
   DIRECT_PURCHASE_TIER_LEVEL, directPurchaseLockedTech, resolveClassRetailPerAid,
   TIER_LABEL_CATALOG_RANK, tierMatchedTech,
 } from "./pricing.js";
+import { DEFAULT_RETAIL_ANCHORS } from "./catalogConstants.js";
 
 // Minimal fixtures mirroring the real data shapes.
 const CATALOG = [
@@ -99,6 +100,7 @@ describe("manufacturerToClass", () => {
   it("maps known manufacturers case-insensitively", () => {
     expect(manufacturerToClass("Signia")).toBe("signia");
     expect(manufacturerToClass("REXTON")).toBe("rexton");
+    expect(manufacturerToClass("Beltone")).toBe("beltone");
   });
   it("falls back to standard for private-label and unknown brands", () => {
     expect(manufacturerToClass("TruHearing")).toBe("standard");
@@ -264,6 +266,22 @@ describe("resolveClassRetailPerAid (managed-care savings anchor)", () => {
     expect(r.fallbackUsed).toBe(false);
     expect(r.realRetail).toBe(false);
     expect(r.price).toBe(4997.5); // standard rank-5
+  });
+
+  it("prices Beltone off its own seeded anchors (per pair → per aid)", () => {
+    // The defaults seeded when a clinic enables Beltone; sort_order 1 = rank 5.
+    const beltone = DEFAULT_RETAIL_ANCHORS.beltone.map((a, i) => ({ ...a, sort_order: i + 1 }));
+    const localCatalog = [{ id: "bel-illuminate-mrie", manufacturer: "Beltone" }];
+    const localTiers = [["17", 5], ["9", 4], ["6", 3], ["4", 2]]
+      .map(([tierName, tierRank]) => ({ productCatalogId: "bel-illuminate-mrie", tierName, tierRank }));
+    const o = { catalog: localCatalog, productCatalogTiers: localTiers, anchorsByClass: { ...ANCHORS, beltone } };
+    const pairOf = (lvl) => 2 * resolveClassRetailPerAid({ familyId: "bel-illuminate-mrie", techLevel: lvl }, o).price;
+    expect(pairOf("17")).toBe(6499);
+    expect(pairOf("9")).toBe(5999);
+    expect(pairOf("6")).toBe(4999);
+    expect(pairOf("4")).toBe(4499);
+    const r = resolveClassRetailPerAid({ familyId: "bel-illuminate-mrie", techLevel: "17" }, o);
+    expect(r).toMatchObject({ class: "beltone", rank: 5, fallbackUsed: false, realRetail: true });
   });
 
   it("returns null for CROS units and insufficient config", () => {

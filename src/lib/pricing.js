@@ -45,6 +45,7 @@ export function manufacturerToClass(name) {
   if (m === 'widex')   return 'widex';
   if (m === 'rexton')  return 'rexton';
   if (m === 'resound') return 'resound';
+  if (m === 'beltone') return 'beltone';
   return 'standard';
 }
 

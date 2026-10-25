@@ -41,6 +41,21 @@ export const DEFAULT_CLINIC = {
   fax: "",
   accent: "#16a34a", // green
   manufacturerAccounts: {}, // canonical mfr key -> { billTo, shipTo } (backlog #42)
+  proprietarySoftwareAuth: [], // brand keys this clinic can fit, e.g. ['beltone'] (lib/catalogVisibility)
+};
+
+// Retail anchors seeded for a proprietary-software brand the first time a
+// clinic enables it (db.seedRetailAnchorsIfEmpty), so a newly authorized
+// clinic never silently prices the brand off the 'standard' fallback. PER AID,
+// sort 1 = top tier (rank 5). Beltone list pricing is per pair (Kurt,
+// 2026-10-17): 17 $6,499 · 9 $5,999 · 6 $4,999 · 4 $4,499 the pair.
+export const DEFAULT_RETAIL_ANCHORS = {
+  beltone: [
+    { label:"17", price_per_aid:3249.50 },
+    { label:"9",  price_per_aid:2999.50 },
+    { label:"6",  price_per_aid:2499.50 },
+    { label:"4",  price_per_aid:2249.50 },
+  ],
 };
 
 export const BODY_STYLES = [
@@ -597,10 +612,9 @@ export const CATALOG_DEFAULT = [
 
 
   // ── REXTON (WSAudiology sister brand to Signia) ───────────────────────────
-  // Rexton (WSAudiology's value brand; Rexton-only per CLAUDE.md — no Beltone
-  // proprietary auth). `generation` (IX / AX) is kept purely as the dome key —
-  // getDomeOptions routes Rexton through the Signia Gen-3 sleeve set. The
-  // patient-facing platform name (Reach / BiCore) lives in the DB's
+  // Rexton (WSAudiology's value brand). `generation` (IX / AX) is kept purely
+  // as the dome key — getDomeOptions routes Rexton through the Signia Gen-3
+  // sleeve set. The patient-facing platform name (Reach / BiCore) lives in the DB's
   // display_generation column and is rendered on the #16 device screen, not
   // from this fallback. MHC dispenses tech levels 80/60/40/20 only (no 30).
   // Mirrors migration 023 — keep in sync (this is a fallback; the live screen
@@ -667,6 +681,50 @@ export const CATALOG_DEFAULT = [
     techLevels:["80","60","40"],
     colors:["Beige","Brown","Black"],
     battery:["Size 10"], active:true, notes:"BiCore platform (predecessor). Instant-fit Click CIC, size 10 zinc-air. No direct wireless streaming. Premium tiers only." },
+
+
+  // ── BELTONE (GN — sister brand to ReSound) ────────────────────────────────
+  // Fit only with Solus Max, so every row is requiresProprietarySoftware and
+  // shows only at clinics that list 'beltone' in proprietary_software_auth
+  // (lib/catalogVisibility). Tech levels 17/9/6/4 = tier ranks 5/4/3/2;
+  // Commence (3/2) is deliberately not catalogued. RIEs take SureFit3 (SF3)
+  // receivers — LP/MP/HP or embedded UP. Source: Beltone trainer product sheet
+  // (Oct 2026). Mirrors migration 20261025120000 — keep in sync (fallback).
+  { id:"bel-illuminate-mrie", manufacturer:"Beltone", generation:"Illuminate",
+    family:"Illuminate miniRIE 62", styles:["ric"],
+    variants:["Standard","CROS"],
+    techLevels:["17","9","6","4"],
+    colors:[],
+    battery:["Rechargeable"], active:true, requiresProprietarySoftware:true,
+    notes:"Style 62. Illuminate CROS pairs with another RIE only; trainer guidance: pair CROS with level 9 or below (17 performs best paired with another 17)." },
+  { id:"bel-illuminate-rie-312", manufacturer:"Beltone", generation:"Illuminate",
+    family:"Illuminate RIE 63", styles:["ric"],
+    variants:["Standard"],
+    techLevels:["17","9","6","4"],
+    colors:[],
+    battery:["Size 312"], active:true, requiresProprietarySoftware:true,
+    notes:"Style 63 (ReSound RIE 61 equivalent)." },
+  { id:"bel-illuminate-rie-13", manufacturer:"Beltone", generation:"Illuminate",
+    family:"Illuminate RIE 64", styles:["ric"],
+    variants:["Standard"],
+    techLevels:["17","9","6","4"],
+    colors:[],
+    battery:["Size 13"], active:true, requiresProprietarySoftware:true,
+    notes:"Style 64 (ReSound RIE 62 equivalent)." },
+  { id:"bel-illuminate-custom", manufacturer:"Beltone", generation:"Illuminate",
+    family:"Illuminate Custom", styles:["ite","itc","cic"],
+    variants:["ITE","ITC","CIC"],
+    techLevels:["17","9","6","4"],
+    colors:SKIN_TONES,
+    battery:["Rechargeable","Size 312","Size 10"], active:true, requiresProprietarySoftware:true,
+    notes:"All customs available LP/MP/HP/UP. ITE/ITC: rechargeable or 312. CIC: size 10." },
+  { id:"bel-boost-max-s", manufacturer:"Beltone", generation:"Boost Max S",
+    family:"Boost Max S BTE", styles:["bte"],
+    variants:["Standard"],
+    techLevels:["17","9","6","4"],
+    colors:[],
+    battery:["Rechargeable"], active:true, requiresProprietarySoftware:true,
+    notes:"Rechargeable power BTE (ReSound Enzo IA equivalent)." },
 
 
   // ── TRUHEARING SELECT (Private-label WSAudiology products) ─────────────────
@@ -804,6 +862,11 @@ export const RECEIVER_POWERS = {
             {id:"MP",label:"Medium Power (MP)",earmold:false},
             {id:"HP",label:"High Power (HP)",  earmold:false},
             {id:"UP",label:"Ultra Power (UP)", earmold:true }],
+  // Beltone SureFit3 (SF3) receivers; UP is the embedded (earmold) receiver.
+  Beltone: [{id:"LP",label:"SF3 Low Power (LP)",  earmold:false},
+            {id:"MP",label:"SF3 Medium Power (MP)",earmold:false},
+            {id:"HP",label:"SF3 High Power (HP)",  earmold:false},
+            {id:"UP",label:"SF3 Ultra Power (UP, embedded)", earmold:true }],
   Starkey: [{id:"S", label:"Standard (S)",    earmold:false},
             {id:"M", label:"Medium (M)",       earmold:false},
             {id:"P", label:"Power (P)",        earmold:false},
@@ -853,6 +916,11 @@ export function getDomeOptions(manufacturer, generation) {
               "Double BasePad S","Double BasePad M","Double BasePad L",
               "Power BasePad S","Power BasePad M"],
     Resound: ["Open Dome S","Open Dome M","Open Dome L",
+              "Tulip Dome S","Tulip Dome M","Tulip Dome L",
+              "Closed Dome S","Closed Dome M","Closed Dome L",
+              "Power Dome S","Power Dome M","Power Dome L"],
+    // SureFit3 domes (GN — same sleeve family as ReSound).
+    Beltone: ["Open Dome S","Open Dome M","Open Dome L",
               "Tulip Dome S","Tulip Dome M","Tulip Dome L",
               "Closed Dome S","Closed Dome M","Closed Dome L",
               "Power Dome S","Power Dome M","Power Dome L"],

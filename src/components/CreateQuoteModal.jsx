@@ -16,6 +16,7 @@ import { uploadPatientDocument, logPriceAdjustment, createQuoteShare } from '../
 import { buildQuoteSharePayload, QUOTE_SHARE_VALID_DAYS } from '../lib/quoteShare.js'
 import { ADJUST_REASON_CODES } from '../views/AdjustPriceModal.jsx'
 import { nationsCoverageTier, deriveEarPrice } from '../lib/pricing.js'
+import { isCatalogEntryVisible } from '../lib/catalogVisibility.js'
 
 // Custom-quote modal launched from the patient profile (the sole quote entry
 // point — the saved-config "Generate Quote" button was retired). Lets the
@@ -142,6 +143,7 @@ export default function CreateQuoteModal({
   catalog = [],
   insurancePlans = [],
   productCatalogTiers = [],
+  proprietaryAuth = [],
   anchorsByClass = {},
   resolveRetailPerAid,
   onClose,
@@ -191,8 +193,8 @@ export default function CreateQuoteModal({
       && fam.techLevels.every(t => nationsCoverageTier(fam, t) === null)
   const techOffPlan = (fam, t) => isNations && nationsCoverageTier(fam, t) === null
   const activeCatalog = useMemo(
-    () => catalog.filter(e => e.active && (!e.tpa || e.tpa === quoteTpa)),
-    [catalog, quoteTpa]
+    () => catalog.filter(e => isCatalogEntryVisible(e, { tpa: quoteTpa, proprietaryAuth })),
+    [catalog, quoteTpa, proprietaryAuth]
   )
 
   const planCarriers = useMemo(

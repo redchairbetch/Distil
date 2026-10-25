@@ -25,15 +25,20 @@ const fmtUsd = (n) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 0
 
 // Brands MHC dispenses get plain rows; the rest (Beltone/Bernafon/Unitron —
 // covered by Nations but not serviceable by MHC; Beltone needs proprietary
-// software auth we lack) are dimmed with a badge so nobody quotes them.
-const MHC_BRANDS = new Set(["Signia", "Phonak", "Oticon", "Starkey", "Widex", "ReSound", "Rexton"]);
+// software auth most clinics lack) are dimmed with a badge so nobody quotes
+// them. A clinic authorized for Beltone (proprietaryAuth) sees it undimmed.
+const MHC_BRANDS = ["Signia", "Phonak", "Oticon", "Starkey", "Widex", "ReSound", "Rexton"];
 
 const TIER_COLOR = {
   Standard: "#6b7280", Select: "#0e7490", "Superior Plus": "#7c3aed",
   Advanced: "#b45309", "Advanced Plus": "#c2410c", Specialty: "#0a1628",
 };
 
-export default function NationsCatalog() {
+export default function NationsCatalog({ proprietaryAuth = [] }) {
+  const dispensedBrands = useMemo(() => new Set([
+    ...MHC_BRANDS,
+    ...(proprietaryAuth.includes("beltone") ? ["Beltone"] : []),
+  ]), [proprietaryAuth]);
   const [search, setSearch] = useState("");
   const [brand, setBrand] = useState("all");
   const [tier, setTier] = useState("all");
@@ -42,8 +47,8 @@ export default function NationsCatalog() {
     const set = new Set(NATIONS_CATALOG.map(([b]) => b));
     // MHC-dispensed brands first, then the rest alphabetically.
     return [...set].sort((a, b) =>
-      (MHC_BRANDS.has(b) - MHC_BRANDS.has(a)) || a.localeCompare(b));
-  }, []);
+      (dispensedBrands.has(b) - dispensedBrands.has(a)) || a.localeCompare(b));
+  }, [dispensedBrands]);
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -101,7 +106,7 @@ export default function NationsCatalog() {
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <button style={pillStyle(brand === "all")} onClick={() => setBrand("all")}>All brands</button>
             {brands.map((b) => (
-              <button key={b} style={{ ...pillStyle(brand === b), ...(MHC_BRANDS.has(b) ? {} : { color: brand === b ? "#fff" : "#9ca3af" }) }}
+              <button key={b} style={{ ...pillStyle(brand === b), ...(dispensedBrands.has(b) ? {} : { color: brand === b ? "#fff" : "#9ca3af" }) }}
                 onClick={() => setBrand(brand === b ? "all" : b)}>
                 {b}
               </button>
@@ -118,7 +123,7 @@ export default function NationsCatalog() {
             <div style={{ padding: "22px 14px", fontSize: 13, color: "#6b7280" }}>No devices match. Clear the search or filters.</div>
           )}
           {rows.map(([b, model, t]) => {
-            const dispensed = MHC_BRANDS.has(b);
+            const dispensed = dispensedBrands.has(b);
             const p = NATIONS_TIER_PRICING[t];
             return (
               <div key={model} style={{ display: "grid", gridTemplateColumns: "110px 1fr 130px 100px 90px", padding: "8px 14px", borderBottom: "1px solid #f3f4f6", fontSize: 12.5, alignItems: "center", opacity: dispensed ? 1 : 0.55 }}>

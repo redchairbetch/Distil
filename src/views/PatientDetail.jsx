@@ -109,6 +109,7 @@ export default function PatientDetail(props) {
   const {
     selectedPatient, setSelectedPatient, setView, clinic, clinicId, staffId, staffRole,
     myClinics, staffProfile, catalog, activePlans, productCatalogTiers, retailAnchorsByClass,
+    proprietaryAuth = [],
     clinicSwitching, handleClinicSwitch,
     archiveBusy, handleArchivePatient, handleRestorePatient,
     checkinBusy, handleCreateCheckinCode,
@@ -412,6 +413,7 @@ export default function PatientDetail(props) {
             clinicId={clinicId}
             staffId={staffId}
             catalog={catalog}
+            proprietaryAuth={proprietaryAuth}
             insurancePlans={activePlans}
             productCatalogTiers={productCatalogTiers}
             anchorsByClass={retailAnchorsByClass}
@@ -472,6 +474,7 @@ export default function PatientDetail(props) {
             clinicId={clinicId}
             staffId={staffId}
             catalog={catalog}
+            proprietaryAuth={proprietaryAuth}
             insurancePlans={activePlans}
             productCatalogTiers={productCatalogTiers}
             anchorsByClass={retailAnchorsByClass}
