@@ -35,7 +35,7 @@ import logoWidex from "../assets/logos/Widex.png";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
 export const DEFAULT_CLINIC = {
-  name: "My Hearing Centers",
+  name: "Distil Hearing",
   address: "1234 N Hearing Ave, Phoenix, AZ 85012",
   phone: "(602) 555-0100",
   fax: "",

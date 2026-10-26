@@ -18,6 +18,7 @@ import {
   setProviderClinics,
   saveClinicAdmin,
 } from "../db.js";
+import { shortClinicName } from "../lib/brand.js";
 
 // Admin-only "Providers & Locations" manager (closer-role initiative, PR B).
 // Lets an admin fill in the dispensing providers seeded without a license,
@@ -332,7 +333,7 @@ export default function ProvidersAdmin() {
             {d.clinicIds.length === 0 && <span style={{ fontSize: 12, color: "#9ca3af" }}>Not assigned to any clinic yet.</span>}
             {d.clinicIds.map(cid => (
               <span key={cid} style={st.chip}>
-                {clinicsById[cid]?.name?.replace("My Hearing Centers – ", "") || "Unknown"}
+                {shortClinicName(clinicsById[cid]?.name) || "Unknown"}
                 <span style={{ cursor: "pointer", fontWeight: 800 }} onClick={() => set({ clinicIds: d.clinicIds.filter(x => x !== cid) })}>×</span>
               </span>
             ))}
@@ -343,7 +344,7 @@ export default function ProvidersAdmin() {
               {assignCandidates.map(c => (
                 <div key={c.id} onClick={() => { set({ clinicIds: [...d.clinicIds, c.id] }); setClinicQuery(""); }}
                   style={{ padding: "8px 10px", fontSize: 13, cursor: "pointer", borderBottom: "1px solid #f3f4f6" }}>
-                  {c.name.replace("My Hearing Centers – ", "")} {c.clinic_code && <span style={{ color: "#9ca3af" }}>#{c.clinic_code}</span>}
+                  {shortClinicName(c.name)} {c.clinic_code && <span style={{ color: "#9ca3af" }}>#{c.clinic_code}</span>}
                 </div>
               ))}
             </div>
@@ -366,7 +367,7 @@ export default function ProvidersAdmin() {
       <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #f3f4f6" }}>
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 10, marginBottom: 12 }}>
           <div><label style={st.label}>Location Name</label>
-            <input style={st.input} value={d.name} onChange={e => set({ name: e.target.value })} placeholder="My Hearing Centers – City" />
+            <input style={st.input} value={d.name} onChange={e => set({ name: e.target.value })} placeholder="Distil Hearing – City" />
           </div>
           <div><label style={st.label}>Clinic Code</label>
             <input style={st.input} value={d.clinic_code} onChange={e => set({ clinic_code: e.target.value })} placeholder="e.g. 5509" />

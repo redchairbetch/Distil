@@ -17,6 +17,7 @@
 // ============================================================
 
 import { jsPDF } from 'jspdf'
+import { clinicName, drawPdfBrandMark, fitPdfFontSize } from './lib/brand.js'
 
 // ── Constants ────────────────────────────────────────────────
 const PAGE_W = 612   // US Letter width in pts (8.5")
@@ -243,18 +244,20 @@ export function generateQuote({
   // ═══════════════════════════════════════════════════════════
 
   // ── Header ──
+  const hx = MARGIN + drawPdfBrandMark(doc, MARGIN, y - 14, 42, 10)
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(18)
+  const hName = clinicName(clinic).toUpperCase()
+  doc.setFontSize(fitPdfFontSize(doc, hName, PAGE_W - MARGIN - 150 - hx, 18))
   doc.setTextColor(...NAVY)
-  doc.text('MY HEARING CENTERS', MARGIN, y)
+  doc.text(hName, hx, y)
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   doc.setTextColor(...GRAY)
   y += 16
-  doc.text(clinic.address || '', MARGIN, y)
+  doc.text(clinic.address || '', hx, y)
   y += 12
-  doc.text(clinic.phone || '', MARGIN, y)
+  doc.text(clinic.phone || '', hx, y)
 
   // Title — right-aligned
   doc.setFont('helvetica', 'bold')

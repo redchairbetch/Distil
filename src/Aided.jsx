@@ -14,6 +14,7 @@ import { useState, useEffect } from "react";
 import { supabase } from './supabase.js'
 import { listInboxMessages, markMessageRead, countUnreadMessages, sendPatientReply, setPatientLanguage } from './db.js'
 import { T } from './i18n/aided.js'
+import { BRAND_NAME } from './lib/brand.js'
 
 // ── DEMO PATIENT (shown when no real data exists yet) ─────────────────────────
 const DEMO = {
@@ -21,7 +22,7 @@ const DEMO = {
   name: "Sarah Mitchell",
   dob: "1958-04-12",
   phone: "(602) 555-0182",
-  location: "My Hearing Centers – Phoenix, AZ",
+  location: "Distil Hearing – Phoenix, AZ",
   payType: "insurance",
   insurance: { carrier: "Humana", planGroup: "Humana TruHearing Advanced", tpa: "TruHearing", tier: "Premium", tierPrice: 1299 },
   devices: {
@@ -366,7 +367,7 @@ function initialPatient() {
 
 export default function PatientApp() {
   const [patient, setPatient] = useState(initialPatient);
-  const [clinicName, setClinicName] = useState("My Hearing Centers");
+  const [clinicName, setClinicName] = useState(BRAND_NAME);
   const [tab, setTab] = useState(() => {
     const t = new URLSearchParams(window.location.search).get('tab');
     return ['home','devices','care','schedule','inbox','help'].includes(t) ? t : 'home';

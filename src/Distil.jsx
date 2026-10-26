@@ -177,6 +177,7 @@ import Archive from "./views/Archive.jsx";
 import PatientDetail from "./views/PatientDetail.jsx";
 import ResultsContent from "./components/ResultsContent.jsx";
 import WizardSteps from "./views/WizardSteps.jsx";
+import { BRAND_NAME, BRAND_MARK, clinicName, shortClinicName } from "./lib/brand.js";
 
 // Below this width the left nav becomes a fixed overlay (iPad and narrower)
 // instead of an in-flow column. Must match the @media blocks in `styles`.
@@ -3700,7 +3701,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               <div style={{fontSize:9,fontWeight:700,letterSpacing:2,color:"rgba(255,255,255,0.4)",textTransform:"uppercase",marginBottom:3}}>Dispensing Location</div>
               {closerProvider ? (
                 <div style={{fontSize:12,color:"rgba(255,255,255,0.85)",fontWeight:600,lineHeight:1.35}}>
-                  {(closerClinic?.name||"").replace("My Hearing Centers – ","")}
+                  {shortClinicName(closerClinic?.name)}
                   <div style={{fontWeight:400,color:"rgba(255,255,255,0.55)"}}>under {closerProvider.full_name} · tap to change</div>
                 </div>
               ) : (
@@ -3781,13 +3782,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                   fontFamily:"'Sora',sans-serif",fontSize:12,fontWeight:600,color:"rgba(255,255,255,0.85)"}}>
                 {myClinics.map(c => (
                   <option key={c.id} value={c.id} style={{color:"#0a1628"}}>
-                    {c.name.replace(/^My Hearing Centers\s*[–-]\s*/,"")}
+                    {shortClinicName(c.name)}
                   </option>
                 ))}
               </select>
             ) : (
               <div style={{fontSize:12,fontWeight:600,color:"rgba(255,255,255,0.6)",padding:"2px 0"}}>
-                {clinic.name?.replace(/^My Hearing Centers\s*[–-]\s*/,"") || "—"}
+                {shortClinicName(clinic.name) || "—"}
               </div>
             )}
           </div>
@@ -4298,9 +4299,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                     <div style={{background:"white",width:700,margin:"0 auto",padding:"40px 48px 80px",boxShadow:"0 0 80px rgba(0,0,0,0.4)"}}>
                       {/* Header */}
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-                        <div>
-                          <div style={{fontFamily:"'Sora',sans-serif",fontWeight:800,fontSize:16,color:"#0a1628"}}>MY HEARING CENTERS</div>
-                          <div style={{fontSize:11,color:"#6b7280"}}>{clinicObj?.address}  ·  {clinicObj?.phone}</div>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <img src={BRAND_MARK} alt={BRAND_NAME} style={{height:34}} />
+                          <div>
+                            <div style={{fontFamily:"'Sora',sans-serif",fontWeight:800,fontSize:16,color:"#0a1628",textTransform:"uppercase"}}>{clinicName(clinicObj)}</div>
+                            <div style={{fontSize:11,color:"#6b7280"}}>{clinicObj?.address}  ·  {clinicObj?.phone}</div>
+                          </div>
                         </div>
                         <div style={{textAlign:"right"}}>
                           <div style={{fontFamily:"'Sora',sans-serif",fontWeight:800,fontSize:14,color:"#0a1628"}}>HEARING AID PURCHASE AGREEMENT</div>
@@ -4378,10 +4382,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                       <div style={ss.body}>The manufacturer warrants patient's hearing aid(s) to be free from defects in workmanship and materials for a period of {cpWarranty} year(s) from date of delivery and agrees to make all necessary repairs without charge to patient during the warranty period. The manufacturer provides a one-time loss and damage replacement during the warranty period at a cost of $275 per hearing aid.</div>
 
                       <div style={ss.section}>100% Satisfaction Guaranteed</div>
-                      <div style={ss.body}>Patient has a right to cancel this agreement for any reason within 60 days. Patient is entitled to receive a full refund of any payment made for the hearing aid within 30 days of returning the hearing aid to MHC in normal working condition. MHC may refuse to provide a refund for a hearing aid that has been lost or damaged beyond repair while in the patient's possession.</div>
+                      <div style={ss.body}>Patient has a right to cancel this agreement for any reason within 60 days. Patient is entitled to receive a full refund of any payment made for the hearing aid within 30 days of returning the hearing aid to {BRAND_NAME} in normal working condition. {BRAND_NAME} may refuse to provide a refund for a hearing aid that has been lost or damaged beyond repair while in the patient's possession.</div>
 
                       <div style={ss.section}>Patient Responsibility</div>
-                      <div style={ss.body}>Patient is responsible to carefully follow all rehabilitation instructions and communicate with the provider on the progress with adjustments. During this time MHC may make any needed adjustments on the hearing aid(s) for the benefit of the patient's listening and hearing comfort. Patient should realize that adjusting to hearing aids is not an overnight experience and may take time. Patient also agrees to allow themselves time to adjust and allows MHC to assist them in their hearing rehabilitation. If MHC believes that, during the rehabilitation period, a different choice of circuitry, model, or choice of hearing aid(s) is better suited to the patient's needs, no extra cost will be incurred by the patient unless an upgrade of quality, model, or style is chosen. Suggested rehabilitation time is a minimum of 30 days. Additional time may be granted subject to approval by MHC.</div>
+                      <div style={ss.body}>Patient is responsible to carefully follow all rehabilitation instructions and communicate with the provider on the progress with adjustments. During this time {BRAND_NAME} may make any needed adjustments on the hearing aid(s) for the benefit of the patient's listening and hearing comfort. Patient should realize that adjusting to hearing aids is not an overnight experience and may take time. Patient also agrees to allow themselves time to adjust and allows {BRAND_NAME} to assist them in their hearing rehabilitation. If {BRAND_NAME} believes that, during the rehabilitation period, a different choice of circuitry, model, or choice of hearing aid(s) is better suited to the patient's needs, no extra cost will be incurred by the patient unless an upgrade of quality, model, or style is chosen. Suggested rehabilitation time is a minimum of 30 days. Additional time may be granted subject to approval by {BRAND_NAME}.</div>
 
                       {/* Signature section */}
                       <div style={{height:1,background:"#E4E0D5",margin:"24px 0"}}/>

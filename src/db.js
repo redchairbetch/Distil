@@ -3325,8 +3325,9 @@ export async function acceptIntake(intakeId) {
   if (error) console.error('acceptIntake:', error)
 }
 
-// Mint a patient-facing intake reference ID: MHC-YYYYMMDD-XXXXX (format is a
-// fixed domain rule — do not change it). Random part uses crypto when
+// Mint a patient-facing intake reference ID: DH-YYYYMMDD-XXXXX (format is a
+// fixed domain rule — do not change it). Intakes minted before the Distil
+// Hearing rebrand (2026-10) keep their legacy MHC- prefix; nothing parses it. Random part uses crypto when
 // available; a unique expression index on intakes backs this up, and the
 // kiosk regenerates + retries on the (rare) same-day collision.
 export function genIntakeId() {
@@ -3341,7 +3342,7 @@ export function genIntakeId() {
   } else {
     rand = Math.random().toString(36).substring(2,7).toUpperCase()
   }
-  return `MHC-${datePart}-${rand}`
+  return `DH-${datePart}-${rand}`
 }
 
 // Create a fresh intake row tagged source='provider' for a patient who

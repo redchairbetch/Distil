@@ -47,6 +47,7 @@ import {
   setAppointmentStatus,
   updatePatientStatus,
 } from "../db.js";
+import { shortClinicName } from "../lib/brand.js";
 
 function PatientCampaignCard({ patient, staffId: sid }) {
     const [campaigns, setCampaigns] = useState([]);
@@ -151,7 +152,7 @@ export default function PatientDetail(props) {
             {assignedElsewhere && (
               <button className="btn-ghost" style={{fontSize:11,marginLeft:"auto"}} disabled={clinicSwitching}
                 onClick={() => handleClinicSwitch(p.clinicId)}>
-                {clinicSwitching ? "Switching…" : `Switch to ${(p.location||"").replace(/^My Hearing Centers\s*[–-]\s*/,"") || "that clinic"}`}
+                {clinicSwitching ? "Switching…" : `Switch to ${shortClinicName(p.location) || "that clinic"}`}
               </button>
             )}
           </div>
