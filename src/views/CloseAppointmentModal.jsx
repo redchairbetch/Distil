@@ -79,7 +79,6 @@ const reasonOptionsFor = (disposition) =>
 // App-internal care plan vocabulary (see wizard CARE_PLAN_OPTIONS).
 export const CARE_PLAN_CHOICES = [
   { id: 'complete', label: 'Complete Care+' },
-  { id: 'punch',    label: 'MHC Punch Card' },
   { id: 'paygo',    label: 'Standard Billing' },
 ]
 

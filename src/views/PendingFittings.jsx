@@ -50,7 +50,7 @@ const FITTING_TYPE_LABELS = {
 
 const CARE_PLAN_LABELS = {
   complete: "Complete Care+",
-  punch: "MHC Punch Card",
+  punch: "Punch Card (legacy)",
   paygo: "Standard Billing",
 };
 

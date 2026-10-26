@@ -38,7 +38,6 @@ const WHITE = [255, 255, 255]
 // the description text below, not encoded as a year count).
 const CARE_PLAN_META = {
   paygo:    { label: 'Standard Billing', warrantyYears: 3, price: null, ldCost: 275 },
-  punch:    { label: 'MHC Punch Card',   warrantyYears: 3, coverageYears: 4, price: 575,  ldCost: 275 },
   complete: { label: 'Complete Care+',   warrantyYears: 4, coverageYears: 4, price: 1250, ldCost: 275 },
 }
 
@@ -266,8 +265,6 @@ export function generatePurchaseAgreement({
     doc.text('Bundled with your device purchase — no separate charge', M, y)
   } else if (carePlan === 'complete') {
     doc.text('Unlimited visits for the life of your aids · 4-year warranty & loss/damage coverage (extended year included)', M, y)
-  } else if (carePlan === 'punch') {
-    doc.text('Prepaid visit package · Locked-in visit pricing · 3-year manufacturer warranty', M, y)
   } else {
     doc.text('Pay per visit as needed · No upfront commitment · 3-year manufacturer warranty', M, y)
   }

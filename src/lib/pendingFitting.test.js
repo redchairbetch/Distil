@@ -54,7 +54,7 @@ describe("warrantyYearsFor", () => {
   });
 
   it("gives insurance without Complete Care+ the 3-year manufacturer term", () => {
-    expect(warrantyYearsFor("insurance", "punch")).toBe(3);
+    expect(warrantyYearsFor("insurance", "paygo")).toBe(3);
     expect(warrantyYearsFor("insurance", "paygo")).toBe(3);
     expect(warrantyYearsFor("insurance", null)).toBe(3);
   });

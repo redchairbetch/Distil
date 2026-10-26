@@ -366,7 +366,6 @@ export default function QuoteView({ token }) {
     : qt.planCompare
   const planCols = [
     { id: 'paygo', label: qt.planLabels.paygo },
-    { id: 'punch', label: qt.planLabels.punch },
     { id: 'complete', label: qt.planLabels.complete },
   ]
 
@@ -453,9 +452,7 @@ export default function QuoteView({ token }) {
               ? qt.planDescBundled
               : q.selectedCarePlan === 'complete'
                 ? qt.planDescComplete
-                : q.selectedCarePlan === 'punch'
-                  ? qt.planDescPunch
-                  : qt.planDescPaygo}
+                : qt.planDescPaygo}
           </div>
         </div>
         <div style={{ marginTop: 10 }}>

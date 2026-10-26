@@ -39,24 +39,22 @@ const GREEN = [22, 163, 74]
 // adjustments / triage are unlimited for the life of the hearing aids.
 export const CARE_PLAN_META = {
   paygo:    { label: 'Standard Billing', warrantyYears: 3, coverageYears: 0, price: null, ldCost: 275 },
-  punch:    { label: 'MHC Punch Card',  warrantyYears: 3, coverageYears: 4, price: 575,  ldCost: 275 },
   complete: { label: 'Complete Care+',  warrantyYears: 4, coverageYears: 4, price: 1250, ldCost: 275 },
 }
 
 // Plan comparison data — feature-by-feature side-by-side, no anchor math
 export const PLAN_COMPARE = [
-  { label: 'Cost',                 paygo: '$65 per visit', punch: '$575 prepaid',         complete: '$1,250' },
-  { label: 'Office Visits',        paygo: 'Per visit',     punch: 'All visits (4 yrs)',   complete: 'Unlimited (lifetime)' },
-  { label: 'Cleanings',            paygo: 'Per visit',     punch: 'All included (4 yrs)', complete: 'Unlimited (lifetime)' },
-  { label: 'Adjustments & Triage', paygo: 'Per visit',     punch: 'All included (4 yrs)', complete: 'Unlimited (lifetime)' },
-  { label: 'Warranty',             paygo: '3 years',       punch: '3 years',              complete: '4 years' },
-  { label: 'Loss & Damage',        paygo: '$275/aid (3 yrs)', punch: '$275/aid (3 yrs)',   complete: '$275/aid (4 yrs)' },
+  { label: 'Cost',                 paygo: '$65 per visit',    complete: '$1,250' },
+  { label: 'Office Visits',        paygo: 'Per visit',        complete: 'Unlimited (lifetime)' },
+  { label: 'Cleanings',            paygo: 'Per visit',        complete: 'Unlimited (lifetime)' },
+  { label: 'Adjustments & Triage', paygo: 'Per visit',        complete: 'Unlimited (lifetime)' },
+  { label: 'Warranty',             paygo: '3 years',          complete: '4 years' },
+  { label: 'Loss & Damage',        paygo: '$275/aid (3 yrs)', complete: '$275/aid (4 yrs)' },
 ]
 
 // Coverage dot data per plan — 15 visits over the 4-year lifecycle:
 // 9 routine cleanings (large dots) + 6 triage visits (small dots).
-// The punch card covers the full 4-year window; only the Year 4+ visit
-// falls outside it. Complete Care+ is unlimited for the life of the aids.
+// Complete Care+ is unlimited for the life of the aids.
 const VISIT_TYPES = [
   'clean','triage','clean','triage','clean',
   'clean','triage','clean','triage','clean',
@@ -64,7 +62,6 @@ const VISIT_TYPES = [
 ]
 const PLAN_COV = {
   paygo:    Array(15).fill('oop'),
-  punch:    [...Array(14).fill('inc'), 'oop'],
   complete: Array(15).fill('inc'),
 }
 const COV_COLORS = {
@@ -445,8 +442,6 @@ export function generateQuote({
     doc.text('Bundled with your device purchase — no separate charge', MARGIN + 14, y + 34)
   } else if (selectedCarePlan === 'complete') {
     doc.text('Unlimited visits for the life of your aids · 4-year warranty & loss/damage coverage', MARGIN + 14, y + 34)
-  } else if (selectedCarePlan === 'punch') {
-    doc.text('Prepaid visit package · Locked-in visit pricing · 3-year warranty', MARGIN + 14, y + 34)
   } else {
     doc.text('Pay per visit as needed · No upfront commitment · 3-year warranty', MARGIN + 14, y + 34)
   }
@@ -494,15 +489,15 @@ export function generateQuote({
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(9)
   doc.setTextColor(...GRAY)
-  doc.text('Compare all three plans to find the best fit for your needs and budget.', MARGIN, y)
+  doc.text('Compare both plans to find the best fit for your needs and budget.', MARGIN, y)
   y += 24
 
   // ── Comparison Table ──
   const tableX = MARGIN
   const labelColW = 130
-  const planColW = (CONTENT_W - labelColW) / 3
-  const planIds = ['paygo', 'punch', 'complete']
-  const planLabels = ['Standard Billing', 'MHC Punch Card', 'Complete Care+']
+  const planIds = ['paygo', 'complete']
+  const planLabels = planIds.map(id => CARE_PLAN_META[id].label)
+  const planColW = (CONTENT_W - labelColW) / planIds.length
 
   // Header row
   doc.setFillColor(...NAVY)
@@ -553,11 +548,9 @@ export function generateQuote({
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(8)
     doc.setTextColor(...BLACK)
-    doc.text(row.paygo, tableX + labelColW + 8, y + 5)
-    doc.text(row.punch, tableX + labelColW + planColW + 8, y + 5)
-    // Complete column may have longer text
-    const compLines = wrapText(doc, row.complete, planColW - 16)
-    doc.text(compLines[0], tableX + labelColW + 2 * planColW + 8, y + 5)
+    planIds.forEach((id, i) => {
+      doc.text(wrapText(doc, row[id], planColW - 16)[0], tableX + labelColW + i * planColW + 8, y + 5)
+    })
 
     y += rowH
   })
@@ -570,7 +563,7 @@ export function generateQuote({
   doc.setFontSize(10)
   doc.setTextColor(...NAVY)
   doc.text('HEARING JOURNEY — 4-YEAR LIFECYCLE', MARGIN, y)
-  y += 6
+  y += 13
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(8)
   doc.setTextColor(...GRAY)
@@ -579,13 +572,13 @@ export function generateQuote({
   doc.text('Color shows what each plan covers.', MARGIN, y)
   y += 18
 
-  // Draw 3 rows of dots — cleanings render larger than triage visits so the
+  // Draw one row of dots per plan — cleanings render larger than triage visits so the
   // graphic matches the visit math a patient would do (9 + 6 = 15).
   const dotR = { clean: 5, triage: 3.5 }
   const dotSpacing = 27
   const dotStartX = MARGIN + 110
-  const rowLabels = ['Standard Billing', 'MHC Punch Card', 'Complete Care+']
-  const rowKeys = ['paygo', 'punch', 'complete']
+  const rowLabels = planLabels
+  const rowKeys = planIds
 
   rowKeys.forEach((key, ri) => {
     const ry = y + ri * 30
@@ -617,7 +610,7 @@ export function generateQuote({
   })
 
   // Year markers — directly under the dot rows so they read as a timeline
-  y += 78
+  y += rowKeys.length * 30 - 12
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(7)
   doc.setTextColor(...MED_GRAY)

@@ -871,6 +871,5 @@ export function getDomeOptions(manufacturer, generation) {
 export const CARE_PLANS = [
   { id:"paygo", label:"Standard Billing", price:"$65 per visit" },
   { id:"complete", label:"Complete Care+", price:"$1,250" },
-  { id:"punch", label:"MHC Punch Card", price:"$575" },
 ];
 export const VISIT_TYPES = ["New Fitting","2-Week Follow-Up","4-Week Follow-Up","Quarterly Clean & Check","Annual Exam","Triage / Adjustment","Repair Appointment","Other"];

@@ -44,8 +44,6 @@ import {
   unarchivePatient,
   setActiveClinic,
   savePatient,
-  loadPunch,
-  savePunch,
   loadClinicSettings,
   saveClinicSettings,
   loadProductCatalog,
@@ -237,9 +235,6 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   // step transition.
   const [intakeRefreshKey, setIntakeRefreshKey] = useState(0);
   const [saveToast, setSaveToast] = useState(false);
-  const [punchData, setPunchData] = useState({ cleanings: 0, appointments: 0, log: [] });
-  const [punchConfirm, setPunchConfirm] = useState(null);
-  const [punchSuccess, setPunchSuccess] = useState(null);
 
   // ── Patient detail inline edit state ─────────────────────────────────────
   // editSection: 'contact' | 'coverage' | 'devices' | 'campaign' | null
@@ -1941,7 +1936,6 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     discardWizardDraft();
     setCloseAppointment(null);
     setSelectedPatient(patient);
-    setPunchData({ cleanings: 0, appointments: 0, log: [] });
     setView("patient");
   };
 
@@ -2325,7 +2319,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           fittingDate: "2025-03-03", warrantyExpiry: warrantyDate("2025-03-03", 3), serialLeft: genId(), serialRight: genId(),
         },
         audiology: { rightT:{500:45,1000:55,2000:65,4000:75,8000:80}, leftT:{500:50,1000:60,2000:70,4000:80,8000:85}, rightBC:{}, leftBC:{}, rightMask:{}, leftMask:{}, rightBCMask:{}, leftBCMask:{}, tinnitusRight:false, tinnitusLeft:false, unaidedR:58, unaidedL:52, aidedR:84, aidedL:80, sinBin:12 },
-        carePlan: "punch", appointments: [], notes: "Moderate-to-severe bilateral. Needs follow-up on left dome fit.",
+        carePlan: "paygo", appointments: [], notes: "Moderate-to-severe bilateral. Needs follow-up on left dome fit.",
       },
       {
         id: genId(), location: clinic.name, createdAt: new Date().toISOString(),
@@ -2448,7 +2442,6 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     .badge.insurance { background: #dbeafe; color: #1d4ed8; }
     .badge.private { background: #F4EAD4; color: #6E4E16; }
     .badge.complete { background: #E2EFEA; color: #0C4A40; }
-    .badge.punch { background: #e0f2fe; color: #0c4a6e; }
     .badge.paygo { background: #F0EDE3; color: #6b7280; }
     .warranty-bar { height: 4px; background: #E4E0D5; border-radius: 2px; margin-top: 4px; overflow: hidden; width: 80px; }
     .warranty-fill { height: 100%; border-radius: 2px; background: #1B8A7A; }
@@ -2566,34 +2559,6 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     .save-success { background: #E2EFEA; color: #0C4A40; border-radius: 8px; padding: 10px 16px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
     .save-error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 8px; padding: 10px 16px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
     .distil-badge { font-size: 9px; font-weight: 700; letter-spacing: 2px; color: rgba(255,255,255,0.3); text-transform: uppercase; margin-bottom: 2px; }
-    /* PUNCH CARD */
-    .punch-panel { background: linear-gradient(135deg, #0B4A42 0%, #0E5A50 100%); border-radius: 14px; padding: 24px; color: white; }
-    .punch-panel-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
-    .punch-panel-title { font-size: 16px; font-weight: 700; }
-    .punch-panel-sub { font-size: 12px; opacity: 0.45; margin-top: 3px; }
-    .punch-remaining { text-align: right; }
-    .punch-remaining-num { font-size: 32px; font-weight: 800; color: #1B8A7A; line-height: 1; }
-    .punch-remaining-label { font-size: 10px; opacity: 0.45; margin-top: 2px; letter-spacing: 1px; text-transform: uppercase; }
-    .punch-row { margin-bottom: 20px; }
-    .punch-row-label { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; opacity: 0.45; margin-bottom: 10px; display: flex; justify-content: space-between; }
-    .punch-row-label span { color: #1B8A7A; opacity: 1; }
-    .punch-dots { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
-    .punch-dot { width: 26px; height: 26px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
-    .punch-dot.used { background: #1B8A7A; border-color: #1B8A7A; color: #0a1628; }
-    .punch-actions { display: flex; align-items: center; gap: 10px; }
-    .punch-btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 600; color: white; cursor: pointer; font-family: 'Sora',sans-serif; transition: background 0.15s; }
-    .punch-btn:hover { background: rgba(255,255,255,0.18); }
-    .punch-btn:disabled { opacity: 0.25; cursor: default; }
-    .punch-btn.confirm { background: #1B8A7A; color: #0a1628; border-color: #1B8A7A; }
-    .punch-btn.confirm:hover { background: #0F6E56; }
-    .punch-undo { font-size: 11px; color: rgba(255,255,255,0.3); cursor: pointer; text-decoration: underline; }
-    .punch-success { background: rgba(27,138,122,0.15); border: 1px solid rgba(27,138,122,0.3); border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 700; color: #1B8A7A; display: flex; align-items: center; gap: 8px; }
-    .punch-divider { height: 1px; background: rgba(255,255,255,0.08); margin: 16px 0; }
-    .punch-log-title { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; opacity: 0.35; margin-bottom: 10px; }
-    .punch-log-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 12px; }
-    .punch-log-row:last-child { border-bottom: none; }
-    .punch-log-type { opacity: 0.6; }
-    .punch-log-date { opacity: 0.35; font-size: 11px; }
     /* CATALOG EDITOR */
     .catalog-wrap { max-width: 860px; }
     .catalog-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; }
@@ -3185,43 +3150,6 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
 
 
   // Wizard 8-step renderer → views/WizardSteps.jsx (backlog #40c).
-
-
-  // Load punch data when patient changes
-  useEffect(() => {
-    if (selectedPatient?.id) {
-      loadPunch(selectedPatient.id).then(setPunchData);
-      setPunchConfirm(null);
-      setPunchSuccess(null);
-    }
-  }, [selectedPatient?.id]);
-
-
-  const handlePunch = async (type) => {
-    const key = type === "cleaning" ? "cleanings" : "appointments";
-    const limit = type === "cleaning" ? 12 : 16;
-    if (punchData[key] >= limit) return;
-    const entry = { type, date: new Date().toISOString(), by: location };
-    const next = { ...punchData, [key]: punchData[key] + 1, log: [...(punchData.log||[]), entry] };
-    await savePunch(selectedPatient.id, next);
-    setPunchData(next);
-    setPunchConfirm(null);
-    setPunchSuccess(type);
-    setTimeout(() => setPunchSuccess(null), 2500);
-  };
-
-
-  const handleUndoPunch = async (type) => {
-    const key = type === "cleaning" ? "cleanings" : "appointments";
-    if (punchData[key] <= 0) return;
-    const log = [...(punchData.log||[])];
-    // Remove last entry of this type
-    const lastIdx = log.map(e=>e.type).lastIndexOf(type);
-    if (lastIdx > -1) log.splice(lastIdx, 1);
-    const next = { ...punchData, [key]: punchData[key] - 1, log };
-    await savePunch(selectedPatient.id, next);
-    setPunchData(next);
-  };
 
 
   // ── SETTINGS ──────────────────────────────────────────────────────────────
@@ -3942,7 +3870,6 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               startEditContact, startEditCoverage, startEditDevices, startEditCampaign,
               saveEditContact, saveEditCoverage, saveEditDevices, saveEditCampaign, cancelEdit,
               getSideDerived,
-              punchData, punchConfirm, setPunchConfirm, punchSuccess, handlePunch, handleUndoPunch,
               patientCampaigns, campaignTimelineOpen, setCampaignTimelineOpen,
               patientDocuments, setPatientDocuments, refreshDocuments,
               patientMessages, expandedMessageId, setExpandedMessageId, refreshMessages,
@@ -4282,10 +4209,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                 const effPerAid = (form.priceOverridePerAid ?? form.tierPrice) || 0;
                 const devTotal = effPerAid*ac;
                 const cpId = form.carePlan||"complete";
-                const cpLabel = cpId==="complete"?"Complete Care+":(cpId==="punch"?"MHC Punch Card":"Standard Billing");
-                const cpPrice = cpId==="complete"?1250:(cpId==="punch"?575:0);
+                const cpLabel = cpId==="complete"?"Complete Care+":"Standard Billing";
+                const cpPrice = cpId==="complete"?1250:0;
                 const cpWarranty = cpId==="complete"?4:3;
-                const cpDesc = cpId==="complete"?"Unlimited office visits, cleanings, adjustments & triage for the life of your hearing aids · 4-year warranty & loss/damage coverage":(cpId==="punch"?"All visits and cleanings covered for 4 years · 3-year manufacturer warranty":"$65 per visit · Annual exams covered");
+                const cpDesc = cpId==="complete"?"Unlimited office visits, cleanings, adjustments & triage for the life of your hearing aids · 4-year warranty & loss/damage coverage":"$65 per visit · Annual exams covered";
                 // Private pay bundles the care plan into the per-aid retail price,
                 // so the total reflects devices only and the plan renders as "Included".
                 const isPrivate = form.payType === 'private';
@@ -4430,7 +4357,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                               const rightEarP = rightRec ? ((ovr != null && rightEarPrice?.source !== 'cros') ? ovr : (rightEarPrice?.price ?? pricePerAid)) : null;
                               // Private pay bundles the care plan into the per-aid retail price.
                               const isPrivate = form.payType === 'private';
-                              const carePlanCost = isPrivate ? 0 : (cpId === 'complete' ? 1250 : cpId === 'punch' ? 575 : 0);
+                              const carePlanCost = isPrivate ? 0 : (cpId === 'complete' ? 1250 : 0);
                               if (closerNeedsLocation) { alert("Set your dispensing location in the sidebar before generating a purchase agreement."); setShowCloserPicker(true); return; } const { blob, fileName } = downloadPurchaseAgreement({
                                 patient:{name:pName,address:form.address,phone:form.phone,dob:form.dob},
                                 devices:{fittingType:fType,left:leftRec,right:rightRec},

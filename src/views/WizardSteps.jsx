@@ -1487,7 +1487,7 @@ export default function WizardSteps(props) {
             const aidTotal = perEarSum > 0 ? perEarSum : (effPerAid != null ? effPerAid * aidCount : null);
             // Standard Billing has no upfront commitment — $65/visit billed as
             // care is delivered, so grand total = device total only.
-            const cpCostFor = (id) => id === "paygo" ? 0 : id === "punch" ? 575 : 1250;
+            const cpCostFor = (id) => id === "paygo" ? 0 : 1250;
             const selectedPlan = CARE_PLANS.find(c => c.id === form.carePlan);
             const cpCost = form.carePlan ? cpCostFor(form.carePlan) : null;
             const grandTotal = aidTotal != null && cpCost != null
@@ -1576,7 +1576,7 @@ export default function WizardSteps(props) {
       // Device totals and the PA/quote fork live at the end of Device
       // Selection (step 6), once devices actually exist.
 
-      // Three peer options. Internal ids ('paygo' | 'punch' | 'complete')
+      // Two peer options. Internal ids ('paygo' | 'complete')
       // are preserved for downstream code; only the patient-facing labels
       // change here.
       const CARE_PLAN_OPTIONS = [
@@ -1590,18 +1590,6 @@ export default function WizardSteps(props) {
             "Three-year manufacturer warranty",
             "No upfront commitment",
             "Pay per visit as needed",
-          ],
-        },
-        {
-          id: "punch",
-          title: "MHC Punch Card",
-          flag: "most savings",
-          price: "$575 prepaid (save $400)",
-          bestFor: "Best for low-maintenance ears and predictable care needs",
-          items: [
-            "Three-year manufacturer warranty",
-            "Prepaid visit package",
-            "Locked-in visit pricing",
           ],
         },
         {
@@ -1644,7 +1632,7 @@ export default function WizardSteps(props) {
               it. Visit counts derive from CARE_ARC. */}
           <CareExpectations bridgeToPlans={form.payType !== "private"} lang={displayLang} />
 
-          {/* Plan selector — three peer options, no pre-selection */}
+          {/* Plan selector — peer options, no pre-selection */}
           <div className="card">
             {form.payType !== "private" && (<>
             <div style={{marginBottom:20,fontFamily:"'DM Sans',sans-serif"}}>
