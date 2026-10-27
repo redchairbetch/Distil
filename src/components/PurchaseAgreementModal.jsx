@@ -24,6 +24,7 @@ import {
 import { ADJUST_REASON_CODES } from '../views/AdjustPriceModal.jsx'
 import { nationsCoverageTier, deriveEarPrice, CROS_PRICE_PER_UNIT } from '../lib/pricing.js'
 import { estimateFitDate, warrantyYearsFor } from '../lib/pendingFitting.js'
+import { isCatalogEntryVisible } from '../lib/catalogVisibility.js'
 
 // Full purchase-agreement flow launched from the patient profile (or handed
 // off from the Custom Quote via `initialState`). Replaces the old read-only
@@ -156,6 +157,7 @@ export default function PurchaseAgreementModal({
   catalog = [],
   insurancePlans = [],
   productCatalogTiers = [],
+  proprietaryAuth = [],
   anchorsByClass = {},
   resolveRetailPerAid,
   initialState = null,          // hand-off from the Custom Quote modal
@@ -200,8 +202,8 @@ export default function PurchaseAgreementModal({
       && fam.techLevels.every(t => nationsCoverageTier(fam, t) === null)
   const techOffPlan = (fam, t) => isNations && nationsCoverageTier(fam, t) === null
   const activeCatalog = useMemo(
-    () => catalog.filter(e => e.active && (!e.tpa || e.tpa === quoteTpa)),
-    [catalog, quoteTpa]
+    () => catalog.filter(e => isCatalogEntryVisible(e, { tpa: quoteTpa, proprietaryAuth })),
+    [catalog, quoteTpa, proprietaryAuth]
   )
 
   const planCarriers = useMemo(

@@ -23,6 +23,7 @@ import { runRecommendationEngine } from './recommendationEngine.js'
 import { LEGACY_DEVICES_DEFAULT } from './legacyDevices.js'
 import { messagePreview } from './lib/comms.js'
 import { warrantyDate } from './lib/dates.js'
+import { DEFAULT_RETAIL_ANCHORS } from './lib/catalogConstants.js'
 
 
 // ============================================================
@@ -2534,6 +2535,10 @@ export async function loadClinicSettings(clinicId) {
     // Canonical mfr key -> { billTo, shipTo } — consumed by the manufacturer
     // form fill engine (backlog #42).
     manufacturerAccounts: data.manufacturer_accounts || {},
+    // Brand keys this clinic holds proprietary fitting-software auth for
+    // (e.g. ['beltone'] = Solus Max). Gates those brands' catalog families —
+    // see lib/catalogVisibility.
+    proprietarySoftwareAuth: data.proprietary_software_auth || [],
   }
 }
 
@@ -2547,6 +2552,7 @@ export async function saveClinicSettings(clinicId, settings) {
       fax:          settings.fax ?? '',
       accent_color: settings.accent,
       manufacturer_accounts: settings.manufacturerAccounts || {},
+      proprietary_software_auth: settings.proprietarySoftwareAuth || [],
     })
     .eq('id', clinicId)
   if (error) console.error('saveClinicSettings:', error)
@@ -2578,6 +2584,7 @@ export async function loadProductCatalog() {
     battery:      row.battery_options || [],
     active:       row.active,
     tpa:          row.tpa          || null,
+    requiresProprietarySoftware: row.requires_proprietary_software || false,
     notes:        row.notes        || '',
     imageKey:     row.image_key    || null,
     // Optional per-family display metadata (stored in product_catalog.metadata):
@@ -2609,6 +2616,7 @@ function toCatalogRow(item) {
     colors:          item.colors          || [],
     notes:           item.notes           ?? null,
     tpa:             item.tpa             || null,
+    requires_proprietary_software: item.requiresProprietarySoftware || false,
     active:          item.active          ?? true,
   }
 }
@@ -4581,6 +4589,29 @@ export async function saveRetailAnchors(clinicId, manufacturerClass, anchors) {
     if (upErr) { console.error('saveRetailAnchors upsert:', upErr); return { success: false, error: upErr } }
   }
   return { success: true }
+}
+
+// Seed a class's default anchors (DEFAULT_RETAIL_ANCHORS) for a clinic that
+// has none yet — run when a clinic enables a proprietary-software brand, so its
+// devices price off real anchors instead of the 'standard' fallback. Never
+// overwrites rows a clinic already has. Returns the class's rows after seeding
+// ([] on error or when no defaults exist for the class).
+export async function seedRetailAnchorsIfEmpty(clinicId, manufacturerClass) {
+  const defaults = DEFAULT_RETAIL_ANCHORS[manufacturerClass]
+  if (!clinicId || !defaults?.length) return []
+  const existing = await loadRetailAnchors(clinicId, manufacturerClass)
+  if (existing.length) return existing
+  const rows = defaults.map((a, i) => ({
+    id:                 crypto.randomUUID(),
+    clinic_id:          clinicId,
+    manufacturer_class: manufacturerClass,
+    label:              a.label,
+    price_per_aid:      a.price_per_aid,
+    sort_order:         i + 1,
+  }))
+  const { error } = await supabase.from('clinic_retail_anchors').insert(rows)
+  if (error) { console.error('seedRetailAnchorsIfEmpty:', error); return [] }
+  return loadRetailAnchors(clinicId, manufacturerClass)
 }
 
 export async function loadPricingReveal(clinicId, patientId) {

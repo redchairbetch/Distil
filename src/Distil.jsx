@@ -24,6 +24,7 @@ import {
   isSideCros, nationsCoverageTier, deriveEarPrice, pickBaselinePerAid,
   directPurchaseLockedTech, resolveClassRetailPerAid, tierMatchedTech,
 } from "./lib/pricing.js";
+import { isCatalogEntryVisible } from "./lib/catalogVisibility.js";
 
 // Body-style images + manufacturer logos now load via lib/catalogConstants.js
 // (BODY_STYLE_IMG / MFR_LOGO) and lib/truhearingCatalog.js (TH_BODY_STYLES).
@@ -66,6 +67,7 @@ import {
   loadAllRetailAnchors,
   loadProductCatalogTiers,
   saveRetailAnchors,
+  seedRetailAnchorsIfEmpty,
   updatePatientContact,
   updateInsuranceCoverage,
   updateDeviceFitting,
@@ -2748,14 +2750,15 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
 
 
   // Catalog-driven cascade derived values — computed per side
-  const activeCatalog = catalog.filter(e => e.active);
-  // TPA exclusivity: a product carrying a tpa (e.g. Relate → 'UHCH') is only
-  // visible to patients on that TPA; tpa-less products show for everyone. This
-  // keeps Relate UHCH-only and TruHearing's rows (tpa:"TruHearing") out of the
-  // cascade for private-pay / UHCH / other-insurance patients. TruHearing-plan
-  // patients never reach this cascade — they get the TH card flow
+  // Selection gate (lib/catalogVisibility): TPA exclusivity — a product
+  // carrying a tpa (e.g. Relate → 'UHCH') is only visible to patients on that
+  // TPA, which keeps Relate UHCH-only and TruHearing's rows (tpa:"TruHearing")
+  // out of the cascade for private-pay / UHCH / other-insurance patients — plus
+  // proprietary-software auth (Beltone only at Solus Max clinics). TruHearing-
+  // plan patients never reach this cascade — they get the TH card flow
   // (isPrivateLabel), which reads TH_MODELS/TH_AVAILABILITY, not the catalog.
-  const visibleCatalog = activeCatalog.filter(e => !e.tpa || e.tpa === form.tpa);
+  const proprietaryAuth = clinic.proprietarySoftwareAuth || [];
+  const visibleCatalog = catalog.filter(e => isCatalogEntryVisible(e, { tpa: form.tpa, proprietaryAuth }));
   const getSideDerived = (sd) => {
     // Direct Purchase scopes the standard cascade to Signia only, and hides
     // families that don't offer the tier's locked level (Active IX has no 5/3).
@@ -3158,6 +3161,14 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   const handleClinicSave = async () => {
     setClinic(clinicDraft);
     try { await saveClinicSettings(clinicId, clinicDraft); } catch {}
+    // A newly authorized proprietary brand gets its default retail anchors so
+    // it never prices off the 'standard' fallback (no-op if rows exist).
+    for (const k of clinicDraft.proprietarySoftwareAuth || []) {
+      try {
+        const rows = await seedRetailAnchorsIfEmpty(clinicId, k);
+        if (rows.length) setRetailAnchorsByClass(prev => ({ ...prev, [k]: rows }));
+      } catch {}
+    }
     setClinicSaved(true);
     setTimeout(() => setClinicSaved(false), 3000);
   };
@@ -3854,6 +3865,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             <PatientDetail {...{
               selectedPatient, setSelectedPatient, setView, clinic, clinicId, staffId, staffRole,
               myClinics, staffProfile, catalog, activePlans, productCatalogTiers, retailAnchorsByClass,
+              proprietaryAuth,
               clinicSwitching, handleClinicSwitch,
               archiveBusy, handleArchivePatient, handleRestorePatient,
               checkinBusy, handleCreateCheckinCode,
@@ -3960,7 +3972,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               insSaved, setInsSaved, insError, setInsError,
             }} />
           ) : <AdminDenied />)}
-          {view === "nations-catalog" && (checkRole(staffRole, ["admin"]) ? <NationsCatalog /> : <AdminDenied />)}
+          {view === "nations-catalog" && (checkRole(staffRole, ["admin"]) ? <NationsCatalog proprietaryAuth={proprietaryAuth} /> : <AdminDenied />)}
           {view === "evidence" && (checkRole(staffRole, ["admin"]) ? <EvidenceReview staffId={staffId} /> : <AdminDenied />)}
           {view === "market-catalog" && <HearingAidCatalog />}
           {view === "team" && (checkRole(staffRole, ["admin"]) ? <TeamAdmin activeClinicId={clinicId} /> : <AdminDenied />)}
