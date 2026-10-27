@@ -20,6 +20,7 @@ import {
   adminResetPassword,
   loadActiveClinics,
 } from "../db.js";
+import { shortClinicName } from "../lib/brand.js";
 
 // Admin-only "Team" manager (multi-clinic initiative). Lets an admin manage
 // Distil logins without leaving the app: edit roles, assign staff to the
@@ -45,7 +46,7 @@ const ROLES = [
   ["closer", "Closer"],
 ];
 
-const shortClinic = (name) => (name || "").replace(/^My Hearing Centers\s*[–-]\s*/, "");
+const shortClinic = shortClinicName;
 
 export default function TeamAdmin({ activeClinicId }) {
   const [team, setTeam] = useState([]);
@@ -253,7 +254,7 @@ export default function TeamAdmin({ activeClinicId }) {
                   <>
                     <div>
                       <label style={st.label}>Email</label>
-                      <input style={st.input} value={draft.email} onChange={e => setDraft({ ...draft, email: e.target.value })} placeholder="name@myhearingcenters.com" />
+                      <input style={st.input} value={draft.email} onChange={e => setDraft({ ...draft, email: e.target.value })} placeholder="name@yourclinic.com" />
                     </div>
                     <div>
                       <label style={st.label}>Temp Password</label>

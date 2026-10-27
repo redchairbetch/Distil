@@ -1,7 +1,7 @@
 # Distil — Claude Code Project Instructions
 
 ## Who You're Working With
-Kurt — hearing care specialist at My Hearing Centers (WSAudiology subsidiary). New developer, one-man team. Be direct, opinionated, and explain reasoning before writing code. Skip encouragement. Ask clarifying questions before large tasks.
+Kurt — hearing care specialist and Distil's founder (no longer affiliated with My Hearing Centers/WSAudiology as of 2026-10). New developer, one-man team. Be direct, opinionated, and explain reasoning before writing code. Skip encouragement. Ask clarifying questions before large tasks.
 
 ## How to Operate — Virtual Dev Team
 
@@ -56,6 +56,10 @@ You are not a single assistant — you are Kurt's entire development team. Use n
 - **Beltone:** Requires Solus Max (proprietary fitting software). Per-clinic gate, not a global ban (2026-10): Beltone families show only at clinics whose `clinics.proprietary_software_auth` includes `beltone` (Settings → Proprietary Fitting Software, admin). Every device picker goes through `lib/catalogVisibility.isCatalogEntryVisible` — never re-filter the catalog inline. Pricing is per pair 17 $6,499 · 9 $5,999 · 6 $4,999 · 4 $4,499; Commence (3/2) not catalogued
 - **HIPAA consent:** Verbatim MHC legal language with scroll-to-bottom gating
 - **Intake IDs:** Format `MHC-YYYYMMDD-XXXXX`
+- **Beltone:** Requires proprietary software auth we lack — Rexton-only designation
+- **Branding (white-label):** Practice name + logo live in `src/lib/brand.js` only. Documents/screens print the clinic's DB name and fall back to `BRAND_NAME` ("Distil Hearing"); legal copy names `BRAND_NAME`. Never hard-code a practice name or reintroduce My Hearing Centers/MHC branding.
+- **HIPAA consent:** Verbatim legal language (naming Distil Hearing via `BRAND_NAME`) with scroll-to-bottom gating
+- **Intake IDs:** Format `DH-YYYYMMDD-XXXXX` (pre-2026-10 intakes keep a legacy `MHC-` prefix)
 - **Calendar feature:** Deliberately dropped. Clinics have scheduling tools. Distil uses `next_appointment_date` field only.
 - **Care plan default:** Complete Care+ (opt-out, not opt-in)
 - **CROS pricing:** $1,250/unit flat everywhere EXCEPT TruHearing — TH CROS transmitters bill at the coordinating technology level's instrument price (the plan's tier copay, e.g. $850 Premium / $550 Advanced)

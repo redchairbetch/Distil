@@ -13,9 +13,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { submitIntake, uploadPatientDocument, redeemUpgradeCheckinCode, genIntakeId } from "./db.js";
 import { generateIntakePdf } from "./generateIntakePdf.js";
+import { BRAND_NAME, BRAND_MARK, loadBrandLogoDataUrl } from "./lib/brand.js";
 
 // Manufacturer logos for the current-hearing-aids brand picker. Only the
-// lines MHC sees most often carry a logo; everything else routes through the
+// lines the clinic sees most often carry a logo; everything else routes through the
 // "Other" text reveal.
 import logoOticon from "./assets/logos/Oticon.png";
 import logoPhonak from "./assets/logos/Phonak.png";
@@ -24,43 +25,6 @@ import logoRexton from "./assets/logos/Rexton.png";
 import logoSignia from "./assets/logos/Signia.png";
 import logoStarkey from "./assets/logos/Starkey.png";
 import logoWidex from "./assets/logos/Widex.png";
-
-// MHC logo for the intake-PDF header. Resolved via import.meta.glob so the
-// build picks up whichever extension lives in src/assets/logos/MHC.* —
-// drop a PNG/SVG/JPG with that base name and it's used automatically.
-// Prefers PNG over SVG when both are present — jsPDF embeds a raster
-// image more predictably than a vector at the small header size.
-const MHC_LOGO_URL = (() => {
-  const matches = import.meta.glob('./assets/logos/MHC.*', {
-    eager: true, query: '?url', import: 'default',
-  });
-  const order = ['.png', '.jpg', '.jpeg', '.webp', '.svg'];
-  for (const ext of order) {
-    const hit = Object.entries(matches).find(([k]) => k.toLowerCase().endsWith(ext));
-    if (hit) return hit[1];
-  }
-  return null;
-})();
-
-// Convert the bundled logo URL to a data URL so jsPDF can embed it via
-// addImage at PDF-generation time without a separate network round-trip.
-// Returns null on failure — generateIntakePdf falls back to a text
-// wordmark in that case.
-async function imageUrlToDataUrl(url) {
-  if (!url) return null;
-  try {
-    const blob = await fetch(url).then(r => r.ok ? r.blob() : Promise.reject(new Error('logo fetch failed')));
-    return await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  } catch (e) {
-    console.warn('Intake logo load failed, falling back to text wordmark:', e);
-    return null;
-  }
-}
 
 // Clinic ID is set via environment variable so the kiosk knows
 // which clinic to write intakes to without requiring a login.
@@ -154,7 +118,7 @@ const T = {
     secPersonal: "About You", secMedical: "Medical History",
     secHearing: "Hearing History", secConsent: "Privacy & Consent",
 
-    welcomeTitle: "Welcome to", welcomeBrand: "My Hearing Centers",
+    welcomeTitle: "Welcome to", welcomeBrand: BRAND_NAME,
     welcomeBody: "This form takes about 5–7 minutes to complete.\nPlease answer all questions as honestly and completely as possible — your responses help us provide the best care for you.",
 
     nameTitle: "Let's start with your name.",
@@ -305,14 +269,14 @@ const T = {
 
     insTitle: "Insurance Billing Acknowledgment",
     insScrollNote: "Please scroll through the entire acknowledgment before continuing.",
-    insText: "I understand I am responsible for my deductible, co-pays, and/or money my insurance company says that I owe. I authorize the release of any medical information to my personal physician and to the insurance company if needed to process any claims and benefits either to myself or to the party who accepts assignment.\n\nI authorize payment of medical benefits to be made directly to My Hearing Centers for services rendered. This authorization shall remain in effect until otherwise stated in writing.\n\nBy signature below, I acknowledge that I have read and fully understand the above statements and I give approval for use of my information and digital signature in electronic order processing, should I decide to purchase hearing devices.",
+    insText: "I understand I am responsible for my deductible, co-pays, and/or money my insurance company says that I owe. I authorize the release of any medical information to my personal physician and to the insurance company if needed to process any claims and benefits either to myself or to the party who accepts assignment.\n\nI authorize payment of medical benefits to be made directly to " + BRAND_NAME + " for services rendered. This authorization shall remain in effect until otherwise stated in writing.\n\nBy signature below, I acknowledge that I have read and fully understand the above statements and I give approval for use of my information and digital signature in electronic order processing, should I decide to purchase hearing devices.",
     insAgreeLabel: "I have read and agree to the Insurance Billing terms",
 
     sigTitle: "Your Signature",
     sigCert: "By signing below, I certify that the information I provided above is accurate and correct to the best of my knowledge. I further acknowledge that I have read and understand the privacy policy and I consent to the use of the information for business purposes. I understand that a copy of this policy will be presented to me upon request.",
     sigClear: "Clear", sigHere: "Sign here →",
 
-    tyTitle: "Thank You!", tyBrand: "My Hearing Centers",
+    tyTitle: "Thank You!", tyBrand: BRAND_NAME,
     tyBody: "Your intake form has been received and saved. Please return this iPad to the front desk — we'll be right with you.",
     tyId: "Intake Reference ID:",
 
@@ -408,7 +372,7 @@ const T = {
     secPersonal: "Sobre Usted", secMedical: "Historia Médica",
     secHearing: "Historia Auditiva", secConsent: "Privacidad y Consentimiento",
 
-    welcomeTitle: "Bienvenido a", welcomeBrand: "My Hearing Centers",
+    welcomeTitle: "Bienvenido a", welcomeBrand: BRAND_NAME,
     welcomeBody: "Este formulario tarda aproximadamente 5–7 minutos en completarse.\nPor favor responda todas las preguntas de forma honesta y completa — sus respuestas nos ayudan a brindarle la mejor atención.",
 
     nameTitle: "Comencemos con su nombre.",
@@ -559,14 +523,14 @@ const T = {
 
     insTitle: "Reconocimiento de Seguro y Facturación",
     insScrollNote: "Por favor desplace hacia abajo para leer el reconocimiento completo antes de continuar.",
-    insText: "Entiendo que soy responsable de mi deducible, copagos y/o dinero que mi compañía de seguros diga que debo. Autorizo la divulgación de cualquier información médica a mi médico personal y a la compañía de seguros si es necesario para procesar cualquier reclamación y beneficios ya sea para mí mismo o para la parte que acepta la cesión.\n\nAutorizo el pago de beneficios médicos directamente a My Hearing Centers por los servicios prestados. Esta autorización permanecerá en vigor hasta que se indique lo contrario por escrito.\n\nAl firmar a continuación, reconozco que he leído y entendido completamente las declaraciones anteriores y doy mi aprobación para el uso de mi información y firma digital en el procesamiento de pedidos electrónicos, si decido comprar dispositivos auditivos.",
+    insText: "Entiendo que soy responsable de mi deducible, copagos y/o dinero que mi compañía de seguros diga que debo. Autorizo la divulgación de cualquier información médica a mi médico personal y a la compañía de seguros si es necesario para procesar cualquier reclamación y beneficios ya sea para mí mismo o para la parte que acepta la cesión.\n\nAutorizo el pago de beneficios médicos directamente a " + BRAND_NAME + " por los servicios prestados. Esta autorización permanecerá en vigor hasta que se indique lo contrario por escrito.\n\nAl firmar a continuación, reconozco que he leído y entendido completamente las declaraciones anteriores y doy mi aprobación para el uso de mi información y firma digital en el procesamiento de pedidos electrónicos, si decido comprar dispositivos auditivos.",
     insAgreeLabel: "He leído y acepto los términos de Seguro y Facturación",
 
     sigTitle: "Su Firma",
     sigCert: "Al firmar a continuación, certifico que la información que proporcioné anteriormente es precisa y correcta según mi leal saber y entender. Además, reconozco que he leído y entiendo la política de privacidad y doy mi consentimiento para el uso de la información para fines comerciales. Entiendo que se me presentará una copia de esta política cuando la solicite.",
     sigClear: "Borrar", sigHere: "Firme aquí →",
 
-    tyTitle: "¡Gracias!", tyBrand: "My Hearing Centers",
+    tyTitle: "¡Gracias!", tyBrand: BRAND_NAME,
     tyBody: "Su formulario de admisión ha sido recibido y guardado. Por favor devuelva este iPad a la recepción — en un momento estaremos con usted.",
     tyId: "ID de Referencia:",
 
@@ -1503,7 +1467,7 @@ export default function IntakeKiosk() {
     // specially: a PK conflict on a retry means the FIRST attempt actually
     // landed and only its response was lost (treat as success — same row
     // UUID every attempt makes the insert idempotent); a display-ID conflict
-    // means a same-day MHC-ref collision (regenerate and go again).
+    // means a same-day intake-ref collision (regenerate and go again).
     let displayId = intakeId;
     let lastErr = null;
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -1537,7 +1501,7 @@ export default function IntakeKiosk() {
     // matched — linkIntakeToPatient backfills patient_id) rather than popping
     // a download on the kiosk: the chart copy is the compliance record, and
     // an iPad download the patient can't retrieve was just noise.
-    const logoDataUrl = await imageUrlToDataUrl(MHC_LOGO_URL);
+    const logoDataUrl = await loadBrandLogoDataUrl();
     const doc = generateIntakePdf({
       answers, intakeId: displayId, signatureDataUrl: sigDataUrl, timestamp, lang, T,
       logoDataUrl, clinic: CLINIC_INFO,
@@ -1607,7 +1571,7 @@ export default function IntakeKiosk() {
     return (
       <div style={{ fontFamily: font, backgroundColor: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
         <div style={{ background: C.card, borderRadius: 20, padding: "48px 40px", maxWidth: 520, width: "100%", boxShadow: "0 4px 30px rgba(10,123,140,0.10)", textAlign: "center" }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: C.teal, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>)) MY HEARING CENTERS</div>
+          <img src={BRAND_MARK} alt={BRAND_NAME} style={{ height: 44, display: "block", margin: "0 auto 8px" }} />
           <h1 style={{ fontFamily: serif, fontSize: 28, color: C.text, margin: "0 0 12px" }}>{dt.draftTitle}</h1>
           <p style={{ fontSize: 16, color: C.muted, lineHeight: 1.6, marginBottom: 32 }}>{dt.draftBody}</p>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -1632,7 +1596,7 @@ export default function IntakeKiosk() {
       <div style={{ fontFamily: font, backgroundColor: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
         <div style={{ background: C.card, borderRadius: 20, padding: "48px 40px", maxWidth: 520, width: "100%", boxShadow: "0 4px 30px rgba(10,123,140,0.10)", textAlign: "center" }}>
           <div style={{ marginBottom: 32 }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: C.teal, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>)) MY HEARING CENTERS</div>
+            <img src={BRAND_MARK} alt={BRAND_NAME} style={{ height: 44, display: "block", margin: "0 auto 8px" }} />
             <h1 style={{ fontFamily: serif, fontSize: 30, color: C.text, margin: "0 0 12px" }}>Welcome</h1>
             <p style={{ fontSize: 16, color: C.muted, lineHeight: 1.6 }}>Please select your preferred language to begin.</p>
           </div>
@@ -1656,7 +1620,7 @@ export default function IntakeKiosk() {
     return (
       <div style={{ fontFamily: font, backgroundColor: C.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
         <div style={{ background: C.card, borderRadius: 20, padding: "48px 40px", maxWidth: 560, width: "100%", boxShadow: "0 4px 30px rgba(10,123,140,0.10)", textAlign: "center" }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: C.teal, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>)) MY HEARING CENTERS</div>
+          <img src={BRAND_MARK} alt={BRAND_NAME} style={{ height: 44, display: "block", margin: "0 auto 8px" }} />
           <h1 style={{ fontFamily: serif, fontSize: 28, color: C.text, margin: "0 0 12px" }}>{t.modePromptTitle}</h1>
           <p style={{ fontSize: 16, color: C.muted, lineHeight: 1.6, marginBottom: 32 }}>{t.modePromptBody}</p>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -1688,7 +1652,7 @@ export default function IntakeKiosk() {
   // ── Step Renderers ───────────────────────────────────────────────────────────
   if (step.type === "welcome") return card(
     <div style={{ textAlign: "center", padding: "8px 0 4px" }}>
-      <div style={{ fontSize: 13, fontWeight: 800, color: C.teal, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 20 }}>)) MY HEARING CENTERS</div>
+      <img src={BRAND_MARK} alt={BRAND_NAME} style={{ height: 44, display: "block", margin: "0 auto 20px" }} />
       <h1 style={{ fontFamily: serif, fontSize: 34, color: C.text, margin: "0 0 16px", lineHeight: 1.2 }}>{isUpgrade ? t.upgWelcomeTitle : t.welcomeTitle}<br /><span style={{ color: C.teal }}>{t.welcomeBrand}</span></h1>
       <p style={{ fontSize: 17, color: C.muted, lineHeight: 1.7, whiteSpace: "pre-line", marginBottom: isUpgrade ? 24 : 36, maxWidth: 460, margin: isUpgrade ? "0 auto 24px" : "0 auto 36px" }}>{isUpgrade ? t.upgWelcomeBody : t.welcomeBody}</p>
       {isUpgrade && (

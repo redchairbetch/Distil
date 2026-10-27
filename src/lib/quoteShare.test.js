@@ -70,11 +70,11 @@ describe('buildQuoteSharePayload', () => {
       pricePerAid: 850,
       leftPrice: 1250,
       rightPrice: 850,
-      selectedCarePlan: 'punch',
+      selectedCarePlan: 'complete',
       payType: 'insurance',
     })
     expect(p.pricing.deviceTotal).toBe(2100)
-    expect(p.pricing.total).toBe(2100 + 575)
+    expect(p.pricing.total).toBe(2100 + 1250)
     expect(p.devices.left.isCROS).toBe(true)
   })
 

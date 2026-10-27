@@ -16,6 +16,7 @@
 // ============================================================
 
 import { jsPDF } from 'jspdf'
+import { BRAND_NAME, clinicName, drawPdfBrandMark, fitPdfFontSize } from './lib/brand.js'
 
 // ── Constants ────────────────────────────────────────────────
 const PAGE_W = 612
@@ -37,7 +38,6 @@ const WHITE = [255, 255, 255]
 // the description text below, not encoded as a year count).
 const CARE_PLAN_META = {
   paygo:    { label: 'Standard Billing', warrantyYears: 3, price: null, ldCost: 275 },
-  punch:    { label: 'MHC Punch Card',   warrantyYears: 3, coverageYears: 4, price: 575,  ldCost: 275 },
   complete: { label: 'Complete Care+',   warrantyYears: 4, coverageYears: 4, price: 1250, ldCost: 275 },
 }
 
@@ -100,15 +100,17 @@ export function generatePurchaseAgreement({
   let y = M
 
   // ── HEADER ──
+  const hx = M + drawPdfBrandMark(doc, M, y - 11, 25)
   doc.setFont('helvetica', 'bold')
-  doc.setFontSize(14)
+  const hName = clinicName(clinic).toUpperCase()
+  doc.setFontSize(fitPdfFontSize(doc, hName, PAGE_W - M - 252 - hx, 14, 7.5))
   doc.setTextColor(...NAVY)
-  doc.text('MY HEARING CENTERS', M, y)
+  doc.text(hName, hx, y)
 
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(7.5)
   doc.setTextColor(...GRAY)
-  doc.text(`${clinic.address || ''}  ·  ${clinic.phone || ''}`, M, y + 12)
+  doc.text(`${clinic.address || ''}  ·  ${clinic.phone || ''}`, hx, y + 12)
 
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(12)
@@ -263,8 +265,6 @@ export function generatePurchaseAgreement({
     doc.text('Bundled with your device purchase — no separate charge', M, y)
   } else if (carePlan === 'complete') {
     doc.text('Unlimited visits for the life of your aids · 4-year warranty & loss/damage coverage (extended year included)', M, y)
-  } else if (carePlan === 'punch') {
-    doc.text('Prepaid visit package · Locked-in visit pricing · 3-year manufacturer warranty', M, y)
   } else {
     doc.text('Pay per visit as needed · No upfront commitment · 3-year manufacturer warranty', M, y)
   }
@@ -280,7 +280,7 @@ export function generatePurchaseAgreement({
   doc.text(fmt$(totalPurchasePrice), PAGE_W - M - 10, y + 10, { align: 'right' })
   y += 28
 
-  // ── TERMS (original MHC legal verbiage) ──
+  // ── TERMS (legal verbiage; BRAND_NAME is the contracting practice) ──
   const termFS = 5.8  // font size to fit one page
   const termLH = 7    // line height
 
@@ -304,7 +304,7 @@ export function generatePurchaseAgreement({
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(termFS)
   doc.setTextColor(...BLACK)
-  const satText = `Patient has a right to cancel this agreement for any reason within 60 days. Patient is entitled to receive a full refund of any payment made for the hearing aid within 30 days of returning the hearing aid to MHC in normal working condition. MHC may refuse to provide a refund for a hearing aid that has been lost or damaged beyond repair while in the patient's possession.`
+  const satText = `Patient has a right to cancel this agreement for any reason within 60 days. Patient is entitled to receive a full refund of any payment made for the hearing aid within 30 days of returning the hearing aid to ${BRAND_NAME} in normal working condition. ${BRAND_NAME} may refuse to provide a refund for a hearing aid that has been lost or damaged beyond repair while in the patient's possession.`
   wrapText(doc, satText, CW).forEach(line => { doc.text(line, M, y); y += termLH })
   y += 3
 
@@ -316,7 +316,7 @@ export function generatePurchaseAgreement({
   doc.setFont('helvetica', 'normal')
   doc.setFontSize(termFS)
   doc.setTextColor(...BLACK)
-  const respText = `Patient is responsible to carefully follow all rehabilitation instructions and communicate with the provider on the progress with adjustments. During this time MHC may make any needed adjustments on the hearing aid(s) for the benefit of the patient's listening and hearing comfort. Patient should realize that adjusting to hearing aids is not an overnight experience and may take time. Patient also agrees to allow themselves time to adjust and allows MHC to assist them in their hearing rehabilitation. If MHC believes that, during the rehabilitation period, a different choice of circuitry, model, or choice of hearing aid(s) is better suited to the patient's needs, no extra cost will be incurred by the patient unless an upgrade of quality, model, or style is chosen. Suggested rehabilitation time is a minimum of 30 days. Additional time may be granted subject to approval by MHC.`
+  const respText = `Patient is responsible to carefully follow all rehabilitation instructions and communicate with the provider on the progress with adjustments. During this time ${BRAND_NAME} may make any needed adjustments on the hearing aid(s) for the benefit of the patient's listening and hearing comfort. Patient should realize that adjusting to hearing aids is not an overnight experience and may take time. Patient also agrees to allow themselves time to adjust and allows ${BRAND_NAME} to assist them in their hearing rehabilitation. If ${BRAND_NAME} believes that, during the rehabilitation period, a different choice of circuitry, model, or choice of hearing aid(s) is better suited to the patient's needs, no extra cost will be incurred by the patient unless an upgrade of quality, model, or style is chosen. Suggested rehabilitation time is a minimum of 30 days. Additional time may be granted subject to approval by ${BRAND_NAME}.`
   wrapText(doc, respText, CW).forEach(line => { doc.text(line, M, y); y += termLH })
   y += 6
 
@@ -362,7 +362,7 @@ export function generatePurchaseAgreement({
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(6)
   doc.setTextColor(...MED_GRAY)
-  doc.text('MHC PROVIDER', provX + 8, y + 9)
+  doc.text('PROVIDER', provX + 8, y + 9)
   if (signatureImageBase64) {
     try { doc.addImage(signatureImageBase64, 'PNG', provX + 8, y + 11, 80, 22) }
     catch { doc.setFont('helvetica', 'bolditalic'); doc.setFontSize(12); doc.setTextColor(...NAVY); doc.text(provider.fullName, provX + 8, y + 26) }

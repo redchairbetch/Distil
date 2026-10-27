@@ -66,7 +66,6 @@ function normalizeStyle(cat, manufacturer, style) {
 // arrangement — Standard Billing (paygo) is the no-plan option.
 const CARE_PLAN_OPTIONS = [
   { id: 'complete', label: 'Complete Care+',   price: 1250 },
-  { id: 'punch',    label: 'MHC Punch Card',   price: 575  },
   { id: 'paygo',    label: 'Standard Billing ($65/visit)', price: 0 },
 ]
 

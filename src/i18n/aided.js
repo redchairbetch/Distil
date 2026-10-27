@@ -4,7 +4,7 @@
 // key → string dictionaries, looked up with `T[lang] || T.en`. Strings that
 // need interpolation are functions. Spanish terminology follows the kiosk's
 // es block (formal usted register, "audífonos"); product names stay in
-// English everywhere ("Complete Care+", "MHC Punch Card", "Aided").
+// English everywhere ("Complete Care+", "Aided").
 //
 // src/i18n/ is the home for patient-facing dictionaries — the kiosk keeps its
 // own inline table and remains the terminology source of truth.
@@ -42,8 +42,6 @@ export const T = {
     actionCleanGuide: "Clean Guide", actionGetHelp: "Get Help",
     actionSchedule: "Schedule", actionDeviceInfo: "Device Info",
     carePlanLabel: "Care Plan",
-    punchMiniSub: (n) => `Punched at each visit · ${n} visits remaining`,
-    punchMiniCleanings: "Cleanings", punchMiniAppts: "Appts",
     achievementsLabel: "Achievements",
 
     // ── Devices ──
@@ -63,14 +61,6 @@ export const T = {
     // ── Care ──
     cleaningAndCare: "Cleaning & Care",
     dailyRoutine: "Daily Routine",
-    myPunchCard: "My Punch Card",
-    punchedBySpecialist: "Punched by your specialist at each visit",
-    punchLeft: (n) => `${n} left`,
-    punchCleanings: "🧹 Cleanings", punchAppointments: "📅 Appointments",
-    punchUsedOf: (used, total) => `${used}/${total} used`,
-    punchAllCleaningsUsed: (total) => `All ${total} cleaning visits used ✓`,
-    punchAllApptsUsed: (total) => `All ${total} appointment visits used ✓`,
-    punchAllUsed: "🎉 All visits used! Your clinic will be in touch about next steps.",
     cleaningChecklist: "Cleaning Checklist",
     reset: "Reset",
     allDone: "✓ All done! Great job caring for your devices.",
@@ -127,7 +117,7 @@ export const T = {
     quickTroubleshooting: "Quick Troubleshooting",
 
     // ── Content ──
-    carePlanLabels: { complete: "Complete Care+", punch: "MHC Punch Card", paygo: "Standard Billing" },
+    carePlanLabels: { complete: "Complete Care+", paygo: "Standard Billing" },
     cleaningSteps: [
       { icon: "🪮", title: "Wipe the shell", desc: "Use the soft dry cloth to gently wipe the outer surface of both hearing aids. Never use water or cleaning sprays." },
       { icon: "🔍", title: "Check the microphone ports", desc: "Use the small brush to clear any debris from the microphone openings on top of the device." },
@@ -190,8 +180,6 @@ export const T = {
     actionCleanGuide: "Guía de Limpieza", actionGetHelp: "Obtener Ayuda",
     actionSchedule: "Citas", actionDeviceInfo: "Mi Dispositivo",
     carePlanLabel: "Plan de Cuidado",
-    punchMiniSub: (n) => `Se marca en cada visita · ${n} visitas restantes`,
-    punchMiniCleanings: "Limpiezas", punchMiniAppts: "Citas",
     achievementsLabel: "Logros",
 
     // ── Devices ──
@@ -211,14 +199,6 @@ export const T = {
     // ── Care ──
     cleaningAndCare: "Limpieza y Cuidado",
     dailyRoutine: "Rutina Diaria",
-    myPunchCard: "Mi Tarjeta de Visitas",
-    punchedBySpecialist: "Su especialista la marca en cada visita",
-    punchLeft: (n) => `${n} restantes`,
-    punchCleanings: "🧹 Limpiezas", punchAppointments: "📅 Citas",
-    punchUsedOf: (used, total) => `${used}/${total} usadas`,
-    punchAllCleaningsUsed: (total) => `Las ${total} visitas de limpieza usadas ✓`,
-    punchAllApptsUsed: (total) => `Las ${total} citas usadas ✓`,
-    punchAllUsed: "🎉 ¡Todas las visitas usadas! Su clínica se comunicará con usted sobre los próximos pasos.",
     cleaningChecklist: "Lista de Limpieza",
     reset: "Reiniciar",
     allDone: "✓ ¡Todo listo! Excelente trabajo cuidando sus dispositivos.",
@@ -275,7 +255,7 @@ export const T = {
     quickTroubleshooting: "Solución Rápida de Problemas",
 
     // ── Content ──
-    carePlanLabels: { complete: "Complete Care+", punch: "MHC Punch Card", paygo: "Facturación Estándar" },
+    carePlanLabels: { complete: "Complete Care+", paygo: "Facturación Estándar" },
     cleaningSteps: [
       { icon: "🪮", title: "Limpie la carcasa", desc: "Use el paño suave y seco para limpiar con cuidado la superficie exterior de ambos audífonos. Nunca use agua ni aerosoles de limpieza." },
       { icon: "🔍", title: "Revise los puertos del micrófono", desc: "Use el cepillo pequeño para retirar cualquier residuo de las aberturas del micrófono en la parte superior del dispositivo." },

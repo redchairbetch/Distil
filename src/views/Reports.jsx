@@ -85,7 +85,7 @@ const REASON_LABELS = {
 const CONTEXT_LABELS = { new_fit: "New fittings", upgrade: "Upgrades", care_plan_only: "Care-plan only" };
 const CONTEXT_LABELS_SHORT = { new_fit: "New fit", upgrade: "Upgrade", care_plan_only: "Care plan" };
 const PAYER_LABELS = { tpa: "TPA", direct_purchase: "Direct Purchase", other_insurance: "Other insurance", private_pay: "Private pay" };
-const CARE_PLAN_LABELS = { complete: "Complete Care+", punch: "MHC Punch Card", paygo: "Standard Billing" };
+const CARE_PLAN_LABELS = { complete: "Complete Care+", punch: "Punch Card (legacy)", paygo: "Standard Billing" };
 const ADJ_REASON_LABELS = Object.fromEntries(ADJUST_REASON_CODES.map(r => [r.code, r.label]));
 
 const BUCKET_LABELS = Object.fromEntries(BUCKETS.map(b => [b.key, b.label]));

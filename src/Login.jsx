@@ -12,6 +12,7 @@
 
 import { useState } from "react";
 import { signIn } from "./db.js";
+import { BRAND_NAME, BRAND_LOGO_WHITE } from "./lib/brand.js";
 
 export default function Login({ onLogin }) {
   const [email, setEmail]       = useState("");
@@ -108,8 +109,8 @@ export default function Login({ onLogin }) {
         }
 
         .login-logo-mark {
-          width: 72px;
-          height: 72px;
+          width: 120px;
+          height: auto;
           filter: drop-shadow(0 2px 8px rgba(234,172,21,0.15));
         }
 
@@ -226,20 +227,9 @@ export default function Login({ onLogin }) {
         <div className="login-card">
 
           <div className="login-logo-wrap">
-            {/* MHC globe logo mark — white on dark */}
-            <svg className="login-logo-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <mask id="mhcMask">
-                  <circle cx="50" cy="50" r="48" fill="white"/>
-                  <ellipse cx="8" cy="50" rx="22" ry="30" fill="black"/>
-                  <path d="M 28 2 C 46 30 46 70 30 98" stroke="black" strokeWidth="7" fill="none"/>
-                  <path d="M 60 2 C 74 30 74 70 64 98" stroke="black" strokeWidth="7" fill="none"/>
-                </mask>
-              </defs>
-              <circle cx="50" cy="50" r="48" fill="white" mask="url(#mhcMask)"/>
-            </svg>
+            <img className="login-logo-mark" src={BRAND_LOGO_WHITE} alt={BRAND_NAME} />
             <div>
-              <div className="login-org">My Hearing Centers</div>
+              <div className="login-org">{BRAND_NAME}</div>
               <div className="login-title">Provider Portal</div>
               <div className="login-sub">Sign in to access your clinic dashboard</div>
             </div>
@@ -251,7 +241,7 @@ export default function Login({ onLogin }) {
               <input
                 className="login-input"
                 type="email"
-                placeholder="you@myhearingcenters.com"
+                placeholder="you@yourclinic.com"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 onKeyDown={handleKey}
@@ -284,7 +274,7 @@ export default function Login({ onLogin }) {
           </button>
 
           <div className="login-footer">
-            Powered by Distil · My Hearing Centers
+            Powered by Distil
             <div style={{ marginTop: 6 }}>© 2026 Kurt Mooney · All rights reserved</div>
           </div>
 

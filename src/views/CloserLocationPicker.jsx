@@ -12,6 +12,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { loadActiveClinics, getClinicProviders } from "../db.js";
+import { shortClinicName } from "../lib/brand.js";
 
 // Closer-role PR C: the dispensing-location picker. An event specialist picks
 // the clinic they're working that day, then the local provider it dispenses
@@ -43,7 +44,7 @@ export default function CloserLocationPicker({ onClose, onSelect }) {
     finally { setLoadingP(false); }
   };
 
-  const shortName = (n) => (n || "").replace("My Hearing Centers – ", "");
+  const shortName = shortClinicName;
   const licSummary = (lic) => {
     const states = Object.keys(lic || {});
     return states.length ? states.map(s => `${s} ${lic[s]}`).join(" · ") : null;

@@ -47,6 +47,7 @@ import {
   setAppointmentStatus,
   updatePatientStatus,
 } from "../db.js";
+import { shortClinicName } from "../lib/brand.js";
 
 function PatientCampaignCard({ patient, staffId: sid }) {
     const [campaigns, setCampaigns] = useState([]);
@@ -126,7 +127,6 @@ export default function PatientDetail(props) {
     startEditContact, startEditCoverage, startEditDevices, startEditCampaign,
     saveEditContact, saveEditCoverage, saveEditDevices, saveEditCampaign, cancelEdit,
     getSideDerived,
-    punchData, punchConfirm, setPunchConfirm, punchSuccess, handlePunch, handleUndoPunch,
     patientCampaigns, campaignTimelineOpen, setCampaignTimelineOpen,
     patientDocuments, setPatientDocuments, refreshDocuments,
     patientMessages, expandedMessageId, setExpandedMessageId, refreshMessages,
@@ -152,7 +152,7 @@ export default function PatientDetail(props) {
             {assignedElsewhere && (
               <button className="btn-ghost" style={{fontSize:11,marginLeft:"auto"}} disabled={clinicSwitching}
                 onClick={() => handleClinicSwitch(p.clinicId)}>
-                {clinicSwitching ? "Switching…" : `Switch to ${(p.location||"").replace(/^My Hearing Centers\s*[–-]\s*/,"") || "that clinic"}`}
+                {clinicSwitching ? "Switching…" : `Switch to ${shortClinicName(p.location) || "that clinic"}`}
               </button>
             )}
           </div>
@@ -1395,118 +1395,6 @@ export default function PatientDetail(props) {
                 </div>
               );
             })}
-
-            {/* PUNCH CARD PANEL — only for punch plan patients */}
-            {p.carePlan === "punch" && (() => {
-              const cleanLeft = 12 - punchData.cleanings;
-              const apptLeft = 16 - punchData.appointments;
-              const totalLeft = cleanLeft + apptLeft;
-              const recentLog = [...(punchData.log||[])].reverse().slice(0, 6);
-              return (
-                <div className="detail-card full">
-                  <div className="detail-card-title">Punch Card</div>
-                  <div className="punch-panel">
-                    <div className="punch-panel-header">
-                      <div>
-                        <div className="punch-panel-title">MHC Punch Card</div>
-                        <div className="punch-panel-sub">Log a visit during the appointment · Patient sees balance update live</div>
-                      </div>
-                      <div className="punch-remaining">
-                        <div className="punch-remaining-num">{totalLeft}</div>
-                        <div className="punch-remaining-label">visits left</div>
-                      </div>
-                    </div>
-
-
-                    {/* CLEANINGS */}
-                    <div className="punch-row">
-                      <div className="punch-row-label">
-                        🧹 Cleanings
-                        <span>{punchData.cleanings}/12 used · {cleanLeft} remaining</span>
-                      </div>
-                      <div className="punch-dots">
-                        {Array.from({length:12},(_,i)=>(
-                          <div key={i} className={`punch-dot ${i < punchData.cleanings ? "used":""}`}>{i < punchData.cleanings ? "✓":""}</div>
-                        ))}
-                      </div>
-                      <div className="punch-actions">
-                        {punchSuccess === "cleaning" ? (
-                          <div className="punch-success">✓ Cleaning visit punched!</div>
-                        ) : punchConfirm === "cleaning" ? (
-                          <>
-                            <button className="punch-btn confirm" onClick={()=>handlePunch("cleaning")}>Confirm punch</button>
-                            <button className="punch-btn" onClick={()=>setPunchConfirm(null)}>Cancel</button>
-                          </>
-                        ) : (
-                          <>
-                            <button className="punch-btn" disabled={cleanLeft === 0} onClick={()=>setPunchConfirm("cleaning")}>
-                              {cleanLeft === 0 ? "All used" : "Punch cleaning visit"}
-                            </button>
-                            {punchData.cleanings > 0 && <span className="punch-undo" onClick={()=>handleUndoPunch("cleaning")}>undo last</span>}
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-
-                    <div className="punch-divider" />
-
-
-                    {/* APPOINTMENTS */}
-                    <div className="punch-row" style={{marginBottom:0}}>
-                      <div className="punch-row-label">
-                        📅 Appointments
-                        <span>{punchData.appointments}/16 used · {apptLeft} remaining</span>
-                      </div>
-                      <div className="punch-dots">
-                        {Array.from({length:16},(_,i)=>(
-                          <div key={i} className={`punch-dot ${i < punchData.appointments ? "used":""}`}>{i < punchData.appointments ? "✓":""}</div>
-                        ))}
-                      </div>
-                      <div className="punch-actions">
-                        {punchSuccess === "appointment" ? (
-                          <div className="punch-success">✓ Appointment visit punched!</div>
-                        ) : punchConfirm === "appointment" ? (
-                          <>
-                            <button className="punch-btn confirm" onClick={()=>handlePunch("appointment")}>Confirm punch</button>
-                            <button className="punch-btn" onClick={()=>setPunchConfirm(null)}>Cancel</button>
-                          </>
-                        ) : (
-                          <>
-                            <button className="punch-btn" disabled={apptLeft === 0} onClick={()=>setPunchConfirm("appointment")}>
-                              {apptLeft === 0 ? "All used" : "Punch appointment visit"}
-                            </button>
-                            {punchData.appointments > 0 && <span className="punch-undo" onClick={()=>handleUndoPunch("appointment")}>undo last</span>}
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-
-                    {/* VISIT LOG */}
-                    {recentLog.length > 0 && (
-                      <>
-                        <div className="punch-divider" />
-                        <div className="punch-log-title">Recent Visit Log</div>
-                        {recentLog.map((entry,i)=>(
-                          <div className="punch-log-row" key={i}>
-                            <span className="punch-log-type">{entry.type === "cleaning" ? "🧹 Cleaning" : "📅 Appointment"}</span>
-                            <span className="punch-log-date">{new Date(entry.date).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"})}</span>
-                          </div>
-                        ))}
-                      </>
-                    )}
-
-
-                    {totalLeft === 0 && (
-                      <div style={{marginTop:16,background:"rgba(27,138,122,0.1)",border:"1px solid rgba(27,138,122,0.2)",borderRadius:10,padding:"12px 16px",fontSize:13,color:"#1B8A7A",fontWeight:600,textAlign:"center"}}>
-                        All 28 visits used · Discuss renewal options with patient
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
 
             {/* ── INTAKE RESPONSES ─────────────────────────────────────── */}
             <IntakeResponsesAccordion patientId={p.id} />

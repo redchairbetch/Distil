@@ -22,6 +22,7 @@ import { fmtDate, daysUntil } from "../lib/dates.js";
 import { summarizeAudiogram } from "../lib/audiogram.js";
 import { CARE_PLANS } from "../lib/catalogConstants.js";
 import { STEPS } from "../lib/wizardSteps.js";
+import { shortClinicName } from "../lib/brand.js";
 
 export default function Dashboard({
   clinic, clinicId, staffId, patients,
@@ -311,7 +312,7 @@ export default function Dashboard({
                           {quoteViewBadge(p.id)}
                           {searchScope === "global" && p.location && (
                             <span style={{background:p.clinicId===clinicId?"#dcfce7":"#e0e7ff",color:p.clinicId===clinicId?"#15803d":"#3730a3",borderRadius:99,padding:"1px 7px",fontSize:10,fontWeight:700}}>
-                              {p.location.replace(/^My Hearing Centers\s*[–-]\s*/,"")}
+                              {shortClinicName(p.location)}
                             </span>
                           )}
                         </div>
