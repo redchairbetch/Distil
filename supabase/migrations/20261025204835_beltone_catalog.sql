@@ -25,7 +25,7 @@
 --
 -- DEPLOY ORDER: product_catalog rows land active = FALSE. Code deployed before
 -- this PR doesn't know the proprietary gate and would show Beltone to every
--- clinic. 20261025120100_activate_beltone_catalog.sql flips them on and must be
+-- clinic. 20261027120000_activate_beltone_catalog.sql flips them on and must be
 -- applied only after the gating code is live.
 --
 -- Legacy chain (device_platforms, for the old-vs-new comparator): Beltone is
