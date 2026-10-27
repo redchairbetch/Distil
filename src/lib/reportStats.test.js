@@ -178,7 +178,7 @@ describe("computeReportStats — revenue & tier mix", () => {
   it("counts care-plan revenue as a separate purchase, except bundled private-pay Complete Care+", () => {
     const stats = computeReportStats([
       outcome(),                                                                    // TPA + Complete Care+ → +1250
-      outcome({ care_plan_selected: "punch" }),                                     // TPA + MHC Care Card → +575
+      outcome({ care_plan_selected: "punch" }),                                     // TPA + legacy punch card → +575
       outcome({ payer_type: "private_pay", payer_plan_snapshot: { private_pay_tier: "Advanced", private_pay_price_per_aid: 3000 } }),               // private + CC+ bundled → +0
       outcome({ payer_type: "private_pay", care_plan_selected: "punch", payer_plan_snapshot: { private_pay_tier: "Advanced", private_pay_price_per_aid: 3000 } }), // private + Care Card → +575
       outcome({ care_plan_disposition: "declined", care_plan_reason: "price_budget", care_plan_selected: null }), // care plan lost → +0

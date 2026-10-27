@@ -4,7 +4,7 @@
 // the language rides inside the quote-share payload (`payload.lang`), frozen
 // at share time from the wizard's display language; old shares without the
 // field render English. The quote PDF itself stays English (deferred — legal
-// review). Product names (Complete Care+, MHC Punch Card, Distil) and the
+// review). Product names (Complete Care+, Distil) and the
 // stored counseling sections render as-is.
 //
 // Copy rules hold in both languages: patient cost first, retail only as
@@ -48,18 +48,17 @@ export const QUOTE_T = {
     noCharge: "No charge", perVisit65: "$65 per visit",
     planDescBundled: "Bundled with your device purchase — no separate charge.",
     planDescComplete: "Unlimited visits for the life of your aids · 4-year warranty & loss/damage coverage",
-    planDescPunch: "Prepaid visit package · locked-in visit pricing · 3-year warranty",
     planDescPaygo: "Pay per visit as needed · no upfront commitment · 3-year warranty",
-    seeCompare: "See how the three care plans compare",
-    planLabels: { paygo: "Standard Billing", punch: "MHC Punch Card", complete: "Complete Care+" },
+    seeCompare: "See how the care plans compare",
+    planLabels: { paygo: "Standard Billing", complete: "Complete Care+" },
     includedWithDevicesCell: "Included with devices",
     planCompare: [
-      { label: "Cost",                 paygo: "$65 per visit", punch: "$575 prepaid",         complete: "$1,250" },
-      { label: "Office Visits",        paygo: "Per visit",     punch: "All visits (4 yrs)",   complete: "Unlimited (lifetime)" },
-      { label: "Cleanings",            paygo: "Per visit",     punch: "All included (4 yrs)", complete: "Unlimited (lifetime)" },
-      { label: "Adjustments & Triage", paygo: "Per visit",     punch: "All included (4 yrs)", complete: "Unlimited (lifetime)" },
-      { label: "Warranty",             paygo: "3 years",       punch: "3 years",              complete: "4 years" },
-      { label: "Loss & Damage",        paygo: "$275/aid (3 yrs)", punch: "$275/aid (3 yrs)",  complete: "$275/aid (4 yrs)" },
+      { label: "Cost",                 paygo: "$65 per visit", complete: "$1,250" },
+      { label: "Office Visits",        paygo: "Per visit", complete: "Unlimited (lifetime)" },
+      { label: "Cleanings",            paygo: "Per visit", complete: "Unlimited (lifetime)" },
+      { label: "Adjustments & Triage", paygo: "Per visit", complete: "Unlimited (lifetime)" },
+      { label: "Warranty",             paygo: "3 years", complete: "4 years" },
+      { label: "Loss & Damage",        paygo: "$275/aid (3 yrs)", complete: "$275/aid (4 yrs)" },
     ],
     totalInvestment: "Total Investment",
     devicesLine: (bilateral) => `Devices (${bilateral ? "pair" : "single"})`,
@@ -132,18 +131,17 @@ export const QUOTE_T = {
     noCharge: "Sin costo", perVisit65: "$65 por visita",
     planDescBundled: "Incluido con la compra de sus dispositivos — sin cargo adicional.",
     planDescComplete: "Visitas ilimitadas durante la vida de sus audífonos · garantía de 4 años y cobertura por pérdida/daño",
-    planDescPunch: "Paquete prepagado de visitas · precio de visita fijo · garantía de 3 años",
     planDescPaygo: "Pague por visita según necesite · sin compromiso inicial · garantía de 3 años",
-    seeCompare: "Vea cómo se comparan los tres planes de cuidado",
-    planLabels: { paygo: "Facturación Estándar", punch: "MHC Punch Card", complete: "Complete Care+" },
+    seeCompare: "Vea cómo se comparan los planes de cuidado",
+    planLabels: { paygo: "Facturación Estándar", complete: "Complete Care+" },
     includedWithDevicesCell: "Incluido con los dispositivos",
     planCompare: [
-      { label: "Costo",                 paygo: "$65 por visita", punch: "$575 prepagado",          complete: "$1,250" },
-      { label: "Visitas de Oficina",    paygo: "Por visita",     punch: "Todas las visitas (4 años)", complete: "Ilimitadas (de por vida)" },
-      { label: "Limpiezas",             paygo: "Por visita",     punch: "Todas incluidas (4 años)",  complete: "Ilimitadas (de por vida)" },
-      { label: "Ajustes y Revisiones",  paygo: "Por visita",     punch: "Todos incluidos (4 años)",  complete: "Ilimitados (de por vida)" },
-      { label: "Garantía",              paygo: "3 años",         punch: "3 años",                    complete: "4 años" },
-      { label: "Pérdida y Daño",        paygo: "$275/audífono (3 años)", punch: "$275/audífono (3 años)", complete: "$275/audífono (4 años)" },
+      { label: "Costo",                 paygo: "$65 por visita", complete: "$1,250" },
+      { label: "Visitas de Oficina",    paygo: "Por visita", complete: "Ilimitadas (de por vida)" },
+      { label: "Limpiezas",             paygo: "Por visita", complete: "Ilimitadas (de por vida)" },
+      { label: "Ajustes y Revisiones",  paygo: "Por visita", complete: "Ilimitados (de por vida)" },
+      { label: "Garantía",              paygo: "3 años", complete: "4 años" },
+      { label: "Pérdida y Daño",        paygo: "$275/audífono (3 años)", complete: "$275/audífono (4 años)" },
     ],
     totalInvestment: "Inversión Total",
     devicesLine: (bilateral) => `Dispositivos (${bilateral ? "par" : "uno"})`,

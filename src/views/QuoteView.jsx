@@ -28,6 +28,7 @@
 import { useState, useEffect } from 'react'
 import { fetchSharedQuote } from '../db.js'
 import { COLOR, FONT, SHADOW, RADIUS } from '../theme.js'
+import { clinicName } from '../lib/brand.js'
 import {
   CARE_PLAN_META,
   FREQS, FREQ_POS, FREQ_POS_MAX, INTER_OCTAVES, DEGREE_REGIONS, getPTA, getPTA4, getDegreeName,
@@ -365,7 +366,6 @@ export default function QuoteView({ token }) {
     : qt.planCompare
   const planCols = [
     { id: 'paygo', label: qt.planLabels.paygo },
-    { id: 'punch', label: qt.planLabels.punch },
     { id: 'complete', label: qt.planLabels.complete },
   ]
 
@@ -380,7 +380,7 @@ export default function QuoteView({ token }) {
           <div style={{
             fontSize: 11, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase',
             color: COLOR.tealInk,
-          }}>{clinic?.name || 'My Hearing Centers'}</div>
+          }}>{clinicName(clinic)}</div>
           <h1 style={{
             fontFamily: FONT.display, fontSize: 30, fontWeight: 600, margin: '10px 0 6px', color: COLOR.ink,
           }}>{qt.docTitle}</h1>
@@ -452,9 +452,7 @@ export default function QuoteView({ token }) {
               ? qt.planDescBundled
               : q.selectedCarePlan === 'complete'
                 ? qt.planDescComplete
-                : q.selectedCarePlan === 'punch'
-                  ? qt.planDescPunch
-                  : qt.planDescPaygo}
+                : qt.planDescPaygo}
           </div>
         </div>
         <div style={{ marginTop: 10 }}>

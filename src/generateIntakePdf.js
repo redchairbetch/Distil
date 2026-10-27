@@ -28,6 +28,7 @@
 // ============================================================
 
 import { jsPDF } from 'jspdf'
+import { BRAND_NAME } from './lib/brand.js'
 
 // ── Geometry ─────────────────────────────────────────────────
 const PAGE_W = 612
@@ -265,7 +266,7 @@ function drawLogo(doc, x, y, maxH, maxW, logoDataUrl) {
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(15)
   doc.setTextColor(...TEAL)
-  doc.text(')) MY HEARING CENTERS', x, y + 13)
+  doc.text(BRAND_NAME.toUpperCase(), x, y + 13)
   return 16
 }
 

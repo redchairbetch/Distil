@@ -14,8 +14,8 @@ import { describe, it, expect } from "vitest";
 import { genIntakeId } from "./db.js";
 
 describe("genIntakeId", () => {
-  it("matches the non-negotiable MHC-YYYYMMDD-XXXXX format", () => {
-    expect(genIntakeId()).toMatch(/^MHC-\d{8}-[A-Z0-9]{5}$/);
+  it("matches the non-negotiable DH-YYYYMMDD-XXXXX format", () => {
+    expect(genIntakeId()).toMatch(/^DH-\d{8}-[A-Z0-9]{5}$/);
   });
 
   it("stamps today's local date", () => {

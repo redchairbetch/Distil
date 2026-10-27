@@ -281,7 +281,8 @@ function snapPerAid(o) {
 // bundled into the per-aid device retail (generateQuote private-pay path:
 // "Complete Care+ is bundled into the per-aid retail price"), so it adds
 // nothing on top there; on insurance/TPA sales it's a separate purchase. The
-// MHC Care Card ('punch') is always a separate purchase.
+// Legacy punch card ('punch', retired 2026-10) is kept so historical
+// outcomes still count; it was always a separate purchase.
 export const CARE_PLAN_REVENUE = { complete: 1250, punch: 575, paygo: 0 };
 
 export function carePlanRevenueOf(o = {}) {

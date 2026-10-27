@@ -916,7 +916,7 @@ function assemblePatient(row) {
     archivedAt: row.archived_at || null,
     archivedBy: row.archived_by || null,
 
-    // Follow-up queue inputs (populated by savePunch + provider edits).
+    // Follow-up queue inputs (last_visit_date set at fitting; provider edits).
     lastVisitDate:        row.last_visit_date         || null,
     followUpStatus:       row.follow_up_status        || 'none',
     followUpContactedAt:  row.follow_up_contacted_date || null,
@@ -2435,56 +2435,6 @@ export async function loadMedicalReferrals({ clinicId = null, from = null, to = 
 }
 
 // ============================================================
-// PUNCH CARDS
-// ============================================================
-
-export async function loadPunch(patientId) {
-  try {
-    const { data, error } = await supabase
-      .from('punch_cards')
-      .select('*')
-      .eq('patient_id', patientId)
-      .single()
-    if (error || !data) return { cleanings: 0, appointments: 0, log: [] }
-    return {
-      cleanings:    data.cleanings,
-      appointments: data.appointments,
-      log:          data.log || [],
-    }
-  } catch { return { cleanings: 0, appointments: 0, log: [] } }
-}
-
-export async function savePunch(patientId, punchData) {
-  const log = punchData.log || []
-  const { error } = await supabase
-    .from('punch_cards')
-    .upsert({
-      patient_id:   patientId,
-      cleanings:    punchData.cleanings,
-      appointments: punchData.appointments,
-      log,
-      updated_at:   new Date().toISOString(),
-    }, { onConflict: 'patient_id' })
-  if (error) console.error('savePunch:', error)
-
-  // Mirror the most recent appointment punch onto patients.last_visit_date
-  // so the follow-up queue can filter on a single column without scanning
-  // every patient's punch_card.log jsonb. Falls back to NULL on undo of the
-  // last appointment so the queue treats them as never-visited.
-  let lastVisit = null
-  for (const entry of log) {
-    if (entry?.type !== 'appointment' || !entry.date) continue
-    if (!lastVisit || new Date(entry.date) > new Date(lastVisit)) lastVisit = entry.date
-  }
-  const { error: pErr } = await supabase
-    .from('patients')
-    .update({ last_visit_date: lastVisit })
-    .eq('id', patientId)
-  if (pErr) console.error('savePunch: last_visit_date sync:', pErr)
-}
-
-
-// ============================================================
 // FOLLOW-UP QUEUE
 // ============================================================
 
@@ -3325,8 +3275,9 @@ export async function acceptIntake(intakeId) {
   if (error) console.error('acceptIntake:', error)
 }
 
-// Mint a patient-facing intake reference ID: MHC-YYYYMMDD-XXXXX (format is a
-// fixed domain rule — do not change it). Random part uses crypto when
+// Mint a patient-facing intake reference ID: DH-YYYYMMDD-XXXXX (format is a
+// fixed domain rule — do not change it). Intakes minted before the Distil
+// Hearing rebrand (2026-10) keep their legacy MHC- prefix; nothing parses it. Random part uses crypto when
 // available; a unique expression index on intakes backs this up, and the
 // kiosk regenerates + retries on the (rare) same-day collision.
 export function genIntakeId() {
@@ -3341,7 +3292,7 @@ export function genIntakeId() {
   } else {
     rand = Math.random().toString(36).substring(2,7).toUpperCase()
   }
-  return `MHC-${datePart}-${rand}`
+  return `DH-${datePart}-${rand}`
 }
 
 // Create a fresh intake row tagged source='provider' for a patient who
@@ -4699,7 +4650,7 @@ export async function loadPricingReveal(clinicId, patientId) {
 // PURCHASE CONFIGURATION
 // ============================================================
 
-// Care plan catalog for a clinic — Complete Care+, punch card, pay-as-you-go.
+// Care plan catalog for a clinic — Complete Care+, pay-as-you-go (punch card retired 2026-10).
 // Zone 5 uses the Complete Care+ price for the bundled care-plan line item.
 export async function loadCarePlanCatalog(clinicId) {
   const { data, error } = await supabase

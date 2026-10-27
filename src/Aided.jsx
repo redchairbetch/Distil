@@ -14,6 +14,7 @@ import { useState, useEffect } from "react";
 import { supabase } from './supabase.js'
 import { listInboxMessages, markMessageRead, countUnreadMessages, sendPatientReply, setPatientLanguage } from './db.js'
 import { T } from './i18n/aided.js'
+import { BRAND_NAME } from './lib/brand.js'
 
 // ── DEMO PATIENT (shown when no real data exists yet) ─────────────────────────
 const DEMO = {
@@ -21,7 +22,7 @@ const DEMO = {
   name: "Sarah Mitchell",
   dob: "1958-04-12",
   phone: "(602) 555-0182",
-  location: "My Hearing Centers – Phoenix, AZ",
+  location: "Distil Hearing – Phoenix, AZ",
   payType: "insurance",
   insurance: { carrier: "Humana", planGroup: "Humana TruHearing Advanced", tpa: "TruHearing", tier: "Premium", tierPrice: 1299 },
   devices: {
@@ -31,7 +32,7 @@ const DEMO = {
     warrantyExpiry: "2027-11-14",
     serialLeft: "SG4A8F2", serialRight: "SG4A8F3",
   },
-  carePlan: "punch",
+  carePlan: "complete",
   appointments: [
     { date: new Date(Date.now() + 5*86400000).toISOString().split("T")[0], type: "Quarterly Clean & Check" },
     { date: new Date(Date.now() + 42*86400000).toISOString().split("T")[0], type: "Annual Exam" },
@@ -366,7 +367,7 @@ function initialPatient() {
 
 export default function PatientApp() {
   const [patient, setPatient] = useState(initialPatient);
-  const [clinicName, setClinicName] = useState("My Hearing Centers");
+  const [clinicName, setClinicName] = useState(BRAND_NAME);
   const [tab, setTab] = useState(() => {
     const t = new URLSearchParams(window.location.search).get('tab');
     return ['home','devices','care','schedule','inbox','help'].includes(t) ? t : 'home';
@@ -385,8 +386,6 @@ export default function PatientApp() {
   const [replyError, setReplyError] = useState(null);
   const [checkedSteps, setCheckedSteps] = useState({});
   const [expandedTip, setExpandedTip] = useState(null);
-  const [punchUsed, setPunchUsed] = useState({ cleanings: 0, appointments: 0 });
-  const [punchConfirm, setPunchConfirm] = useState(null); // "cleaning" | "appointment" | null
   const [achievements, setAchievements] = useState([]);
   const [dobVerified, setDobVerified] = useState(() =>
     typeof window !== 'undefined' && localStorage.getItem('aided_dob_verified') === 'true'
@@ -405,23 +404,6 @@ export default function PatientApp() {
     (typeof window !== 'undefined' && localStorage.getItem('aided_lang')) || 'en'
   );
   const t = T[lang] || T.en;
-
-  // Load punch card state from Supabase (or skip for demo patient)
-  useEffect(() => {
-    if (!patient || patient.id === 'DEMO01') return;
-    (async () => {
-      try {
-        const { data } = await supabase
-          .from('punch_card_usage')
-          .select('cleanings, appointments')
-          .eq('patient_id', patient.id)
-          .single();
-        if (data) {
-          setPunchUsed({ cleanings: data.cleanings, appointments: data.appointments });
-        }
-      } catch {}
-    })();
-  }, [patient?.id]);
 
   // Load achievements from Supabase (skip for demo patient)
   useEffect(() => {
@@ -504,37 +486,6 @@ export default function PatientApp() {
       }
     })();
   }, [expandedInboxId, inboxMessages]);
-
-  const savePunch = async (next) => {
-    setPunchUsed(next);
-    if (!patient || patient.id === 'DEMO01') return; // Don't persist demo data
-    try {
-      await supabase.from('punch_card_usage').upsert({
-        patient_id: patient.id,
-        cleanings: next.cleanings,
-        appointments: next.appointments,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'patient_id' });
-    } catch (err) {
-      console.warn('Punch card save failed:', err);
-    }
-  };
-
-  const usePunch = async (type) => {
-    const key = type === "cleaning" ? "cleanings" : "appointments";
-    const limit = type === "cleaning" ? 12 : 16;
-    if (punchUsed[key] >= limit) return;
-    const next = { ...punchUsed, [key]: punchUsed[key] + 1 };
-    await savePunch(next);
-    setPunchConfirm(null);
-  };
-
-  const undoPunch = async (type) => {
-    const key = type === "cleaning" ? "cleanings" : "appointments";
-    if (punchUsed[key] <= 0) return;
-    const next = { ...punchUsed, [key]: punchUsed[key] - 1 };
-    await savePunch(next);
-  };
 
   useEffect(() => {
     const loadPatient = async (patientId) => {
@@ -758,36 +709,6 @@ export default function PatientApp() {
     .nav-tab-label { font-size: 10px; font-weight: 600; color: #9ca3af; letter-spacing: 0.3px; }
     .nav-tab.active .nav-tab-label { color: #0a1628; }
     .nav-tab.active .nav-tab-icon { transform: scale(1.1); }
-    /* PUNCH CARD */
-    .punch-card { background: linear-gradient(135deg, #1a3050 0%, #0a1628 100%); border-radius: 18px; padding: 20px; color: white; }
-    .punch-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
-    .punch-card-title { font-size: 18px; font-weight: 800; }
-    .punch-card-sub { font-size: 11px; opacity: 0.5; margin-top: 3px; }
-    .punch-card-badge { background: rgba(74,222,128,0.15); border: 1px solid rgba(74,222,128,0.3); border-radius: 20px; padding: 4px 12px; font-size: 11px; font-weight: 700; color: #4ade80; }
-    .punch-section { margin-bottom: 16px; }
-    .punch-section-label { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; opacity: 0.5; text-transform: uppercase; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-    .punch-dots { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
-    .punch-dot { width: 28px; height: 28px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-size: 13px; transition: all 0.2s; cursor: default; }
-    .punch-dot.used { background: #4ade80; border-color: #4ade80; }
-    .punch-use-btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 7px 14px; font-size: 12px; font-weight: 600; color: white; cursor: pointer; font-family: 'Plus Jakarta Sans', sans-serif; transition: background 0.15s; }
-    .punch-use-btn:hover { background: rgba(255,255,255,0.18); }
-    .punch-use-btn:disabled { opacity: 0.3; cursor: default; }
-    .punch-confirm-bar { background: rgba(74,222,128,0.12); border: 1px solid rgba(74,222,128,0.25); border-radius: 10px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
-    .punch-confirm-text { font-size: 12px; color: #4ade80; font-weight: 600; }
-    .punch-confirm-btns { display: flex; gap: 8px; }
-    .punch-confirm-yes { background: #4ade80; color: #0a1628; border: none; border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: 'Plus Jakarta Sans', sans-serif; }
-    .punch-confirm-no { background: transparent; color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; font-family: 'Plus Jakarta Sans', sans-serif; }
-    .punch-undo { font-size: 11px; color: rgba(255,255,255,0.35); cursor: pointer; text-decoration: underline; margin-left: 8px; }
-    .punch-exhausted { text-align: center; padding: 8px; font-size: 12px; color: #4ade80; font-weight: 700; }
-    /* HOME PUNCH MINI */
-    .punch-mini { background: linear-gradient(135deg,#1a3050,#0a1628); border-radius: 16px; padding: 16px 18px; color: white; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
-    .punch-mini-left { }
-    .punch-mini-title { font-size: 14px; font-weight: 700; }
-    .punch-mini-sub { font-size: 11px; opacity: 0.5; margin-top: 2px; }
-    .punch-mini-pills { display: flex; gap: 10px; }
-    .punch-mini-pill { text-align: center; }
-    .punch-mini-num { font-size: 20px; font-weight: 800; color: #4ade80; }
-    .punch-mini-label { font-size: 9px; opacity: 0.5; letter-spacing: 0.5px; text-transform: uppercase; }
     .profile-id { font-size: 10px; font-weight: 600; color: #16a34a; font-family: monospace; background: rgba(22,163,74,0.1); padding: 2px 8px; border-radius: 10px; margin-top: 4px; display: inline-block; }
     /* SECTION PADDING TOP */
     .pt-section { padding-top: 20px; }
@@ -868,24 +789,6 @@ export default function PatientApp() {
 
         <div className="section">
           <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>{t.carePlanLabel}</div>
-          {p.carePlan === "punch" ? (
-            <div className="punch-mini" onClick={()=>setTab("care")}>
-              <div className="punch-mini-left">
-                <div className="punch-mini-title">MHC Punch Card</div>
-                <div className="punch-mini-sub">{t.punchMiniSub((12 - punchUsed.cleanings) + (16 - punchUsed.appointments))}</div>
-              </div>
-              <div className="punch-mini-pills">
-                <div className="punch-mini-pill">
-                  <div className="punch-mini-num">{12 - punchUsed.cleanings}</div>
-                  <div className="punch-mini-label">{t.punchMiniCleanings}</div>
-                </div>
-                <div className="punch-mini-pill">
-                  <div className="punch-mini-num">{16 - punchUsed.appointments}</div>
-                  <div className="punch-mini-label">{t.punchMiniAppts}</div>
-                </div>
-              </div>
-            </div>
-          ) : (
             <div className="card">
               <div className="card-pad" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div>
@@ -895,7 +798,6 @@ export default function PatientApp() {
                 <div style={{fontSize:28}}>✅</div>
               </div>
             </div>
-          )}
         </div>
 
         {/* Achievements — only show if the patient has earned any */}
@@ -1006,66 +908,6 @@ export default function PatientApp() {
           <div className="header-name">{t.dailyRoutine}</div>
         </div>
         <div className="scroll-content">
-
-          {/* PUNCH CARD — read-only for patients, punched by clinic */}
-          {p.carePlan === "punch" && (() => {
-            const cleanLeft = 12 - punchUsed.cleanings;
-            const apptLeft = 16 - punchUsed.appointments;
-            const totalLeft = cleanLeft + apptLeft;
-            const allUsed = totalLeft === 0;
-            return (
-              <div className="section pt-section">
-                <div className="card-label" style={{paddingLeft:4,marginBottom:8}}>MHC Punch Card</div>
-                <div className="punch-card">
-                  <div className="punch-card-header">
-                    <div>
-                      <div className="punch-card-title">{t.myPunchCard}</div>
-                      <div className="punch-card-sub">{t.punchedBySpecialist}</div>
-                    </div>
-                    <div className="punch-card-badge">{t.punchLeft(totalLeft)}</div>
-                  </div>
-
-                  {/* CLEANINGS */}
-                  <div className="punch-section">
-                    <div className="punch-section-label">
-                      <span>{t.punchCleanings}</span>
-                      <span style={{color:"#4ade80"}}>{t.punchUsedOf(punchUsed.cleanings, 12)}</span>
-                    </div>
-                    <div className="punch-dots">
-                      {Array.from({length:12},(_,i) => (
-                        <div key={i} className={`punch-dot ${i < punchUsed.cleanings ? "used" : ""}`}>
-                          {i < punchUsed.cleanings ? "✓" : ""}
-                        </div>
-                      ))}
-                    </div>
-                    {cleanLeft === 0 && <div className="punch-exhausted">{t.punchAllCleaningsUsed(12)}</div>}
-                  </div>
-
-                  {/* APPOINTMENTS */}
-                  <div className="punch-section" style={{marginBottom:0}}>
-                    <div className="punch-section-label">
-                      <span>{t.punchAppointments}</span>
-                      <span style={{color:"#4ade80"}}>{t.punchUsedOf(punchUsed.appointments, 16)}</span>
-                    </div>
-                    <div className="punch-dots">
-                      {Array.from({length:16},(_,i) => (
-                        <div key={i} className={`punch-dot ${i < punchUsed.appointments ? "used" : ""}`}>
-                          {i < punchUsed.appointments ? "✓" : ""}
-                        </div>
-                      ))}
-                    </div>
-                    {apptLeft === 0 && <div className="punch-exhausted">{t.punchAllApptsUsed(16)}</div>}
-                  </div>
-
-                  {allUsed && (
-                    <div style={{marginTop:14,background:"rgba(74,222,128,0.1)",borderRadius:10,padding:"12px",textAlign:"center",fontSize:13,color:"#4ade80",fontWeight:700}}>
-                      {t.punchAllUsed}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
 
           <div className="section pt-section">
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>

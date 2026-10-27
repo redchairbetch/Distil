@@ -67,7 +67,6 @@ function normalizeStyle(cat, manufacturer, style) {
 
 const CARE_PLAN_OPTIONS = [
   { id: 'complete', label: 'Complete Care+', price: 1250 },
-  { id: 'punch',    label: 'Punch Card',     price: 575  },
   { id: '',         label: 'None',           price: 0    },
 ]
 

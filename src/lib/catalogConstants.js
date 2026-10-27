@@ -35,7 +35,7 @@ import logoWidex from "../assets/logos/Widex.png";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
 export const DEFAULT_CLINIC = {
-  name: "My Hearing Centers",
+  name: "Distil Hearing",
   address: "1234 N Hearing Ave, Phoenix, AZ 85012",
   phone: "(602) 555-0100",
   fax: "",
@@ -871,6 +871,5 @@ export function getDomeOptions(manufacturer, generation) {
 export const CARE_PLANS = [
   { id:"paygo", label:"Standard Billing", price:"$65 per visit" },
   { id:"complete", label:"Complete Care+", price:"$1,250" },
-  { id:"punch", label:"MHC Punch Card", price:"$575" },
 ];
 export const VISIT_TYPES = ["New Fitting","2-Week Follow-Up","4-Week Follow-Up","Quarterly Clean & Check","Annual Exam","Triage / Adjustment","Repair Appointment","Other"];

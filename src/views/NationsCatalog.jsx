@@ -23,10 +23,10 @@ import { NATIONS_CATALOG, NATIONS_TIER_PRICING } from "../nations_catalog_data.j
 
 const fmtUsd = (n) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 0 });
 
-// Brands MHC dispenses get plain rows; the rest (Beltone/Bernafon/Unitron —
-// covered by Nations but not serviceable by MHC; Beltone needs proprietary
+// Brands the practice dispenses get plain rows; the rest (Beltone/Bernafon/Unitron —
+// covered by Nations but not serviceable here; Beltone needs proprietary
 // software auth we lack) are dimmed with a badge so nobody quotes them.
-const MHC_BRANDS = new Set(["Signia", "Phonak", "Oticon", "Starkey", "Widex", "ReSound", "Rexton"]);
+const DISPENSED_BRANDS = new Set(["Signia", "Phonak", "Oticon", "Starkey", "Widex", "ReSound", "Rexton"]);
 
 const TIER_COLOR = {
   Standard: "#6b7280", Select: "#0e7490", "Superior Plus": "#7c3aed",
@@ -40,9 +40,9 @@ export default function NationsCatalog() {
 
   const brands = useMemo(() => {
     const set = new Set(NATIONS_CATALOG.map(([b]) => b));
-    // MHC-dispensed brands first, then the rest alphabetically.
+    // Dispensed brands first, then the rest alphabetically.
     return [...set].sort((a, b) =>
-      (MHC_BRANDS.has(b) - MHC_BRANDS.has(a)) || a.localeCompare(b));
+      (DISPENSED_BRANDS.has(b) - DISPENSED_BRANDS.has(a)) || a.localeCompare(b));
   }, []);
 
   const rows = useMemo(() => {
@@ -101,7 +101,7 @@ export default function NationsCatalog() {
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <button style={pillStyle(brand === "all")} onClick={() => setBrand("all")}>All brands</button>
             {brands.map((b) => (
-              <button key={b} style={{ ...pillStyle(brand === b), ...(MHC_BRANDS.has(b) ? {} : { color: brand === b ? "#fff" : "#9ca3af" }) }}
+              <button key={b} style={{ ...pillStyle(brand === b), ...(DISPENSED_BRANDS.has(b) ? {} : { color: brand === b ? "#fff" : "#9ca3af" }) }}
                 onClick={() => setBrand(brand === b ? "all" : b)}>
                 {b}
               </button>
@@ -118,14 +118,14 @@ export default function NationsCatalog() {
             <div style={{ padding: "22px 14px", fontSize: 13, color: "#6b7280" }}>No devices match. Clear the search or filters.</div>
           )}
           {rows.map(([b, model, t]) => {
-            const dispensed = MHC_BRANDS.has(b);
+            const dispensed = DISPENSED_BRANDS.has(b);
             const p = NATIONS_TIER_PRICING[t];
             return (
               <div key={model} style={{ display: "grid", gridTemplateColumns: "110px 1fr 130px 100px 90px", padding: "8px 14px", borderBottom: "1px solid #f3f4f6", fontSize: 12.5, alignItems: "center", opacity: dispensed ? 1 : 0.55 }}>
                 <div style={{ fontWeight: 600, color: "#0a1628" }}>{b}</div>
                 <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11.5, color: "#374151", wordBreak: "break-all" }}>
                   {model}
-                  {!dispensed && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#b45309", background: "#fef3c7", borderRadius: 10, padding: "1px 7px", fontFamily: "'Sora',sans-serif" }}>NOT DISPENSED BY MHC</span>}
+                  {!dispensed && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#b45309", background: "#fef3c7", borderRadius: 10, padding: "1px 7px", fontFamily: "'Sora',sans-serif" }}>NOT DISPENSED</span>}
                 </div>
                 <div><span style={{ fontSize: 11, fontWeight: 700, color: TIER_COLOR[t] }}>{t}</span></div>
                 <div style={{ textAlign: "right", fontWeight: 600, color: "#0a1628" }}>{fmtUsd(p.copayPerAid)}</div>
@@ -138,7 +138,7 @@ export default function NationsCatalog() {
         <div style={{ fontSize: 11.5, color: "#9ca3af", marginTop: 10, lineHeight: 1.6 }}>
           Source: NationsBenefits Hearing Aids Pricing Catalog (Drive · Distil CRM/Insurance, 2026-07-06).
           Copays are flat per tier — every device in a tier costs the patient the same. Pair pricing is exactly 2× the per-aid values.
-          Dimmed brands are covered by Nations but not dispensed by MHC.
+          Dimmed brands are covered by Nations but not dispensed by this practice.
         </div>
       </div>
     </>
