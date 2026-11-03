@@ -11,7 +11,11 @@
  */
 
 import React, { useMemo, useState } from "react";
-import { confirmDeviceFitting, cancelPendingFitting } from "../db.js";
+import {
+  confirmDeviceFitting, cancelPendingFitting,
+  createDeviceUnits, transitionDeviceUnit, fitUnitsForFitting, unwindUnitsForFitting,
+} from "../db.js";
+import { rfcDeadline, unitMatchesSide, unitLabel, STATUS_BY_ID } from "../lib/inventory.js";
 import { buildCareArc } from "../lib/careArc.js";
 import { FITTING_OVERDUE_DAYS, CANCEL_REASONS } from "../lib/pendingFitting.js";
 
@@ -75,7 +79,17 @@ export function countPendingFittings(patients) {
   return n;
 }
 
-export default function PendingFittings({ patients, staffId, clinicId, onSelectPatient, onRefresh }) {
+// Which ears a fitting needs physical units for. CROS/BiCROS is two units
+// (aid + transmitter) — whichever sides are on record.
+export function earsFor(p) {
+  const d = p.devices || {};
+  if (d.fittingType === "monaural_left") return ["left"];
+  if (d.fittingType === "monaural_right") return ["right"];
+  const ears = ["left", "right"].filter(e => d[e]);
+  return ears.length ? ears : ["left", "right"];
+}
+
+export default function PendingFittings({ patients, staffId, clinicId, onSelectPatient, onRefresh, units = [], onRefreshUnits, manufacturerAccounts = {} }) {
   const [busyId, setBusyId] = useState(null);
   const [fitDates, setFitDates] = useState({});   // patientId -> chosen fit date
   const [notice, setNotice] = useState(null);      // { kind: 'ok'|'warn'|'error', text }
@@ -91,12 +105,19 @@ export default function PendingFittings({ patients, staffId, clinicId, onSelectP
 
   const today = todayISO();
 
+  const unitsFor = (p) => units.filter(u => p._ids?.fittingId && u.fitting_id === p._ids.fittingId);
+
   const handleConfirm = async (p) => {
     const fitDate = fitDates[p.id] || today;
     if (!p._ids?.fittingId) {
       setNotice({ kind: "error", text: `${p.name}: no fitting record id on the chart — refresh and try again.` });
       return;
     }
+    // Soft gate: confirming without serials is allowed (devices fit from a
+    // loaner, inventory not set up yet) but shouldn't happen by accident.
+    const linked = unitsFor(p);
+    const missing = earsFor(p).filter(e => !linked.some(u => u.ear === e && u.serial_number && ["reserved", "in_stock"].includes(u.status)));
+    if (missing.length && !window.confirm(`No received device with a serial for the ${missing.join(" and ")} ear${missing.length > 1 ? "s" : ""}. Confirm the fitting anyway? (You can add serials on the chart later.)`)) return;
     setBusyId(p.id);
     setNotice(null);
     try {
@@ -114,10 +135,13 @@ export default function PendingFittings({ patients, staffId, clinicId, onSelectP
         clinicId,
         appointments: arc,
       });
-      if (res.warnings?.length) {
+      const inv = await fitUnitsForFitting(p._ids.fittingId, linked, { staffId, patientId: p.id });
+      const warnings = [...(res.warnings || []), ...inv.warnings];
+      if (onRefreshUnits) onRefreshUnits();
+      if (warnings.length) {
         setNotice({
           kind: "warn",
-          text: `${p.name}: fitting confirmed and warranty set through ${fmtShort(res.warrantyExpiry)}, but these didn't save — ${res.warnings.join("; ")}. Check the chart.`,
+          text: `${p.name}: fitting confirmed and warranty set through ${fmtShort(res.warrantyExpiry)}, but these didn't save — ${warnings.join("; ")}. Check the chart.`,
         });
       } else {
         setNotice({
@@ -158,6 +182,9 @@ export default function PendingFittings({ patients, staffId, clinicId, onSelectP
         staffId,
         clinicId,
       });
+      const inv = await unwindUnitsForFitting(p._ids.fittingId, unitsFor(p), { staffId, note: `Sale cancelled: ${cancelReason}` });
+      if (inv.warnings.length) res.warnings = [...(res.warnings || []), ...inv.warnings];
+      if (onRefreshUnits) onRefreshUnits();
       const reasonLabel = CANCEL_REASONS.find(r => r.id === cancelReason)?.label || cancelReason;
       let text = `${p.name}: sale cancelled (${reasonLabel}).`
         + (res.revertedToTns ? " Patient returned to tested-not-sold." : " Patient keeps their current devices on record.");
@@ -290,6 +317,16 @@ export default function PendingFittings({ patients, staffId, clinicId, onSelectP
               </div>
             </div>
 
+            <DeviceUnitsPanel
+              p={p}
+              linked={unitsFor(p)}
+              stock={units.filter(u => u.status === "in_stock")}
+              clinicId={clinicId}
+              staffId={staffId}
+              manufacturerAccounts={manufacturerAccounts}
+              onChanged={onRefreshUnits}
+            />
+
             {canceling && (
               <div style={{
                 marginTop: 12, paddingTop: 12, borderTop: "1px solid #f3f4f6",
@@ -345,4 +382,114 @@ export default function PendingFittings({ patients, staffId, clinicId, onSelectP
       </div>
     </div>
   );
+}
+
+// ── Devices for this sale: order → receive (serial) → ready to fit ──────────
+function DeviceUnitsPanel({ p, linked, stock, clinicId, staffId, manufacturerAccounts, onChanged }) {
+  const [busy, setBusy] = useState(null);
+  const [err, setErr] = useState(null);
+  const [serials, setSerials] = useState({});   // ear -> draft serial
+  const [assigning, setAssigning] = useState(null); // ear with the stock picker open
+  const ears = earsFor(p);
+  const fittingId = p._ids?.fittingId;
+  const sideFor = ear => p.devices?.[ear] ? { ...p.devices[ear], ear } : { manufacturer: p.devices?.manufacturer, family: p.devices?.family, techLevel: p.devices?.techLevel, ear };
+  const sideIdFor = ear => (ear === "left" ? p._ids?.leftSideId : p._ids?.rightSideId) || null;
+
+  const run = async (key, fn) => {
+    setBusy(key); setErr(null);
+    try { await fn(); if (onChanged) await onChanged(); }
+    catch (e) { setErr(e?.message || "Save failed."); }
+    finally { setBusy(null); }
+  };
+
+  const order = (earList) => run("order", () => createDeviceUnits(clinicId, earList.map(ear => {
+    const sd = sideFor(ear);
+    return {
+      purpose: "patient_order", status: "on_order",
+      manufacturer: sd.manufacturer || p.devices?.manufacturer || "Unknown",
+      family: sd.family || null, tech_level: sd.techLevel || null, style: sd.style || null,
+      color: sd.color || null, ear,
+      patient_id: p.id, fitting_id: fittingId, side_id: sideIdFor(ear),
+      ordered_at: todayISO(),
+    };
+  }), { staffId, eventType: "ordered" }));
+
+  const receive = (u) => run(u.id, () => {
+    const serial = (serials[u.ear] || "").trim();
+    if (!serial) throw new Error("Enter the serial number first.");
+    const recv = todayISO();
+    return transitionDeviceUnit(u, "reserved", {
+      eventType: "received", staffId,
+      fields: { serial_number: serial, received_at: recv, rfc_deadline: rfcDeadline(recv, u.manufacturer, manufacturerAccounts) },
+    });
+  });
+
+  const assign = (ear, unit) => run(unit.id, async () => {
+    await transitionDeviceUnit(unit, "reserved", {
+      eventType: "reserved", staffId, patientId: p.id,
+      fields: { patient_id: p.id, fitting_id: fittingId, side_id: sideIdFor(ear), ear: unit.ear || ear },
+    });
+    setAssigning(null);
+  });
+
+  if (!fittingId) return null;
+  const unordered = ears.filter(e => !linked.some(u => u.ear === e && !["retired", "returned_for_credit", "lost_damaged"].includes(u.status)));
+
+  return (
+    <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed #e5e7eb" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: "#9ca3af" }}>Devices</span>
+        {unordered.length > 1 && (
+          <button disabled={!!busy} onClick={() => order(unordered)} style={pfBtn("#1d4ed8")}>{busy === "order" ? "Ordering…" : `Order ${unordered.length === 2 ? "both" : "all"}`}</button>
+        )}
+        {err && <span style={{ fontSize: 12, color: "#ef4444", fontWeight: 600 }}>{err}</span>}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+        {ears.map(ear => {
+          const u = linked.find(x => x.ear === ear && !["retired", "returned_for_credit", "lost_damaged"].includes(x.status));
+          const st = u ? STATUS_BY_ID[u.status] : null;
+          const matches = stock.filter(s => unitMatchesSide(s, sideFor(ear)));
+          return (
+            <div key={ear} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12 }}>
+              <span style={{ width: 44, fontWeight: 700, color: ear === "left" ? "#1d4ed8" : "#dc2626" }}>{ear === "left" ? "Left" : "Right"}</span>
+              {!u && (
+                <>
+                  <span style={{ color: "#9ca3af" }}>Not ordered</span>
+                  <button disabled={!!busy} onClick={() => order([ear])} style={pfBtn("#1d4ed8")}>Order</button>
+                  <button disabled={!!busy} onClick={() => setAssigning(assigning === ear ? null : ear)} style={pfBtn("#0f766e")}>
+                    From stock{matches.length ? ` (${matches.length} match)` : ""}
+                  </button>
+                  {assigning === ear && (
+                    <select defaultValue="" onChange={e => { const unit = stock.find(s => s.id === e.target.value); if (unit) assign(ear, unit); }} style={pfInput}>
+                      <option value="" disabled>Pick a unit…</option>
+                      {matches.length > 0 && <optgroup label="Matches this fitting">{matches.map(s => <option key={s.id} value={s.id}>{unitLabel(s)}</option>)}</optgroup>}
+                      <optgroup label="All in stock">{stock.filter(s => !matches.includes(s)).map(s => <option key={s.id} value={s.id}>{unitLabel(s)}</option>)}</optgroup>
+                    </select>
+                  )}
+                </>
+              )}
+              {u && (
+                <>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 12, background: st?.bg, color: st?.color, textTransform: "uppercase" }}>{st?.label}</span>
+                  <span style={{ color: "#374151" }}>{unitLabel(u)}</span>
+                  {u.status === "on_order" && (
+                    <>
+                      <input value={serials[ear] || ""} onChange={e => setSerials(s => ({ ...s, [ear]: e.target.value }))} placeholder="Serial on arrival" style={pfInput} />
+                      <button disabled={busy === u.id} onClick={() => receive(u)} style={pfBtn("#7c3aed")}>{busy === u.id ? "Saving…" : "Receive"}</button>
+                    </>
+                  )}
+                  {u.status === "reserved" && <span style={{ color: "#16a34a", fontWeight: 600 }}>✓ Ready to fit</span>}
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const pfInput = { padding: "5px 8px", border: "1px solid #E4E0D5", borderRadius: 6, fontFamily: "'Sora',sans-serif", fontSize: 12, outline: "none", background: "white" };
+function pfBtn(color) {
+  return { fontSize: 11, fontWeight: 600, padding: "4px 10px", background: "white", color, border: `1px solid ${color}`, borderRadius: 6, cursor: "pointer", fontFamily: "'Sora',sans-serif" };
 }

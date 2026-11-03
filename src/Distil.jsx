@@ -1699,7 +1699,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           directPurchase: !!form.directPurchase,
           insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
           privatePay,
-          devices: (isTnl || isDnt || isReferral) ? null : { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: null, pendingFitting: paCommitted, warrantyYears: paCommitted ? years : null, recordedAt: new Date().toISOString(), serialLeft: genId(), serialRight: genId() },
+          devices: (isTnl || isDnt || isReferral) ? null : { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: null, pendingFitting: paCommitted, warrantyYears: paCommitted ? years : null, recordedAt: new Date().toISOString(), serialLeft: null, serialRight: null },
           audiology: form.audiology,
           carePlan: carePlan,
           appointments: finalizeAppointments,
@@ -1743,8 +1743,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         warrantyExpiry: null,
         pendingFitting: paCommitted,
         warrantyYears: paCommitted ? years : null,
-        serialLeft: genId(),
-        serialRight: genId(),
+        // Real serials arrive with the devices (Pending Fittings → receive);
+        // never invent placeholders — the manufacturer forms print them.
+        serialLeft: null,
+        serialRight: null,
       },
       audiology: form.audiology,
       carePlan: (isTnl || isDnt || isReferral) ? null : (form.payType === "insurance" ? form.carePlan : null),
@@ -4037,6 +4039,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               clinicId={clinicId}
               onSelectPatient={(p) => { setSelectedPatient(p); setView("patient"); }}
               onRefresh={refreshPatients}
+              units={deviceUnits}
+              onRefreshUnits={refreshUnits}
+              manufacturerAccounts={clinic?.manufacturerAccounts || {}}
             />
           )}
           {view === "upgrade" && selectedPatient && (
@@ -4210,7 +4215,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                                 const rightRec = buildSideRecord(form.right);
                                 const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
                                 const fittingType = leftRec && rightRec ? (isCROS ? "cros_bicros" : "bilateral") : leftRec ? "monaural_left" : "monaural_right";
-                                await updatePatientDevices(wizardPatientId, { left: leftRec, right: rightRec, fittingType, serialLeft: genId(), serialRight: genId() }, staffId, wizardVisitId);
+                                await updatePatientDevices(wizardPatientId, { left: leftRec, right: rightRec, fittingType, serialLeft: null, serialRight: null }, staffId, wizardVisitId);
                                 setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
                               }
                             } catch(e) { console.error("incremental save:", e); }

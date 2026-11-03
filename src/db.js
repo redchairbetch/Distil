@@ -5312,3 +5312,48 @@ export async function logUnitEvent(unit, eventType, { staffId = null, documentId
     document_id: documentId, meta, note,
   }])
 }
+
+// Confirm-fitting hook: every unit linked to this fitting that's received
+// (reserved / in_stock) moves to fitted, and the serials are written onto
+// device_fittings.serial_left/right — the display copy the chart and the
+// manufacturer-forms engine read. Best-effort per unit: returns warnings
+// instead of throwing, because the fitting itself is already confirmed.
+export async function fitUnitsForFitting(fittingId, units = [], { staffId = null, patientId = null } = {}) {
+  const warnings = []
+  const serials = {}
+  for (const u of units.filter(x => x.fitting_id === fittingId)) {
+    if (u.status === 'reserved' || u.status === 'in_stock') {
+      try {
+        await transitionDeviceUnit(u, 'fitted', { eventType: 'fitted', staffId, patientId, fields: { patient_id: patientId || u.patient_id } })
+      } catch (e) { warnings.push(`${u.ear || 'unit'} ${u.serial_number || ''}: ${e.message}`.trim()) ; continue }
+    }
+    if (u.ear && u.serial_number && (u.status === 'reserved' || u.status === 'in_stock' || u.status === 'fitted')) {
+      serials[u.ear === 'left' ? 'serial_left' : 'serial_right'] = u.serial_number
+    }
+  }
+  if (Object.keys(serials).length) {
+    try { await updateDeviceFitting(fittingId, serials) }
+    catch (e) { warnings.push(`serials on fitting: ${e.message}`) }
+  }
+  return { warnings, serials }
+}
+
+// Cancel-sale hook: unwind the order. Not yet received → retired (order
+// cancelled). Received patient orders → return-for-credit queue (the RFC
+// tab can still send one back to stock instead). Stock units that had been
+// assigned go back on the shelf.
+export async function unwindUnitsForFitting(fittingId, units = [], { staffId = null, note = null } = {}) {
+  const warnings = []
+  for (const u of units.filter(x => x.fitting_id === fittingId)) {
+    try {
+      if (u.status === 'on_order') {
+        await transitionDeviceUnit(u, 'retired', { eventType: 'order_cancelled', staffId, note })
+      } else if (u.status === 'reserved' && u.purpose === 'patient_order') {
+        await transitionDeviceUnit(u, 'rfc_pending', { eventType: 'rfc_started', staffId, note: note || 'Sale cancelled before fitting' })
+      } else if (u.status === 'reserved') {
+        await transitionDeviceUnit(u, 'in_stock', { eventType: 'unreserved', staffId, note, fields: { patient_id: null, fitting_id: null, side_id: null } })
+      }
+    } catch (e) { warnings.push(`${u.ear || 'unit'}: ${e.message}`) }
+  }
+  return { warnings }
+}
