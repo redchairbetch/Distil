@@ -96,6 +96,7 @@ import {
   updateAppointment,
   setAppointmentStatus,
   loadQuoteViewSignals,
+  listDeviceUnits,
   logAnalyticsEvent,
   listMessagesForPatient,
   listPatientNotes,
@@ -127,6 +128,7 @@ import CampaignManager from "./views/CampaignManager.jsx";
 import LimaCharlie from "./views/LimaCharlie.jsx";
 import FollowUpQueue, { countFollowUpPatients } from "./views/FollowUpQueue.jsx";
 import PendingFittings, { countPendingFittings } from "./views/PendingFittings.jsx";
+import Inventory, { countInventoryAlerts } from "./views/Inventory.jsx";
 import { warrantyYearsFor, estimateFitDate } from "./lib/pendingFitting.js";
 import CommsInbox from "./views/CommsInbox.jsx";
 import DueThisWeek from "./views/DueThisWeek.jsx";
@@ -679,9 +681,16 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   const refreshQuoteSignals = () =>
     loadQuoteViewSignals(clinicId).then(setQuoteViewSignals).catch(() => {});
 
+  // Serialized device inventory (backlog #44) — shared by the Inventory view,
+  // its sidebar badge, Pending Fittings (order/receive/assign) and the chart.
+  const [deviceUnits, setDeviceUnits] = useState([]);
+  const refreshUnits = () =>
+    listDeviceUnits(clinicId).then(setDeviceUnits).catch(() => {});
+
   useEffect(() => {
     loadAllPatients(clinicId).then(p => { setPatients(p); setLoading(false); });
     refreshQuoteSignals();
+    refreshUnits();
     (async () => {
       try {
         if (clinicId) {
@@ -3652,9 +3661,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             {/* "Schedule" deliberately absent: calendaring was dropped as a product
                 decision — clinics have scheduling tools; Distil tracks
                 next_appointment_date only. */}
-            {[["dashboard","Dashboard","dashboard"],["users","Patients","patients"],["clock","Pending Fittings","pending-fittings"],["bell","Follow-up","followup"],["archive","Archive","archive"],["chart","Reports","reports"],["compare","Compare Devices","compare"],["clipboard","Market Catalog","market-catalog"],["campaign","Campaigns","campaigns"],["book","Content Library","content"],["medal","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
+            {[["dashboard","Dashboard","dashboard"],["users","Patients","patients"],["clock","Pending Fittings","pending-fittings"],["bell","Follow-up","followup"],["box","Inventory","inventory"],["archive","Archive","archive"],["chart","Reports","reports"],["compare","Compare Devices","compare"],["clipboard","Market Catalog","market-catalog"],["campaign","Campaigns","campaigns"],["book","Content Library","content"],["medal","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
               const badge = id === "followup" ? countFollowUpPatients(patients)
                 : id === "pending-fittings" ? countPendingFittings(patients)
+                : id === "inventory" ? countInventoryAlerts(deviceUnits)
                 : 0;
               return (
               <div key={id} className={`nav-item ${view===id||(id==="dashboard"&&view==="new")||(id==="patients"&&(view==="dashboard"||view==="patient"))?"active":""}`}
@@ -4007,6 +4017,17 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               clinicName={clinic?.name}
               onSelectPatient={(p) => { setSelectedPatient(p); setView("patient"); }}
               onRefresh={refreshPatients}
+            />
+          )}
+          {view === "inventory" && (
+            <Inventory
+              units={deviceUnits}
+              onRefresh={refreshUnits}
+              clinicId={clinicId}
+              staffId={staffId}
+              patients={patients}
+              manufacturerAccounts={clinic?.manufacturerAccounts || {}}
+              onSelectPatient={(p) => { setSelectedPatient(p); setView("patient"); }}
             />
           )}
           {view === "pending-fittings" && (

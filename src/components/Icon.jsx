@@ -35,6 +35,7 @@ const PATHS = {
   archive: <><rect x="3.5" y="4" width="17" height="4" rx="1"/><path d="M5 8v10.5a1.5 1.5 0 0 0 1.5 1.5h11a1.5 1.5 0 0 0 1.5-1.5V8"/><path d="M9.6 12h4.8"/></>,
   verify: <><circle cx="12" cy="12" r="8.5"/><path d="m8.4 12 2.4 2.4 4.8-5"/></>,
   clock: <><circle cx="12" cy="12" r="8.5"/><path d="M12 7.2V12l3.2 2.2"/></>,
+  box: <><path d="M3.5 7.5 12 3.5l8.5 4v9L12 20.5l-8.5-4Z"/><path d="M3.5 7.5 12 11.5l8.5-4"/><path d="M12 11.5v9"/></>,
 };
 
 export default function Icon({ name, size = 18, strokeWidth = 1.75, style }) {

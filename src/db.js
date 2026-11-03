@@ -23,6 +23,7 @@ import { runRecommendationEngine } from './recommendationEngine.js'
 import { LEGACY_DEVICES_DEFAULT } from './legacyDevices.js'
 import { messagePreview } from './lib/comms.js'
 import { warrantyDate } from './lib/dates.js'
+import { canTransition } from './lib/inventory.js'
 
 
 // ============================================================
@@ -5183,4 +5184,131 @@ export async function loadPersonalizationInputs(patientId) {
     intake:     intakeRes.data || null,
     tnsOutcome: tnsRes.data || null,
   }
+}
+
+
+// ============================================================
+// SERIALIZED DEVICE INVENTORY (backlog #44)
+// ============================================================
+// device_units = one physical aid; device_unit_events = its append-only
+// history. Every status change goes through transitionDeviceUnit, which
+// enforces lib/inventory.js ALLOWED_TRANSITIONS and writes the event row.
+// Writes are clinic-scoped by RLS (my_clinic_id()).
+
+export async function listDeviceUnits(clinicId, { statuses } = {}) {
+  let q = supabase.from('device_units').select('*').order('created_at', { ascending: false })
+  if (clinicId) q = q.eq('clinic_id', clinicId)
+  if (statuses?.length) q = q.in('status', statuses)
+  const { data, error } = await q
+  if (error) { console.error('listDeviceUnits:', error); return [] }
+  return data || []
+}
+
+export async function listUnitsForPatient(patientId) {
+  const { data, error } = await supabase
+    .from('device_units')
+    .select('*')
+    .eq('patient_id', patientId)
+    .order('created_at', { ascending: false })
+  if (error) { console.error('listUnitsForPatient:', error); return [] }
+  return data || []
+}
+
+export async function listUnitsForFittings(fittingIds = []) {
+  if (!fittingIds.length) return []
+  const { data, error } = await supabase
+    .from('device_units')
+    .select('*')
+    .in('fitting_id', fittingIds)
+  if (error) { console.error('listUnitsForFittings:', error); return [] }
+  return data || []
+}
+
+export async function listUnitEvents(unitIds = []) {
+  if (!unitIds.length) return []
+  const { data, error } = await supabase
+    .from('device_unit_events')
+    .select('*')
+    .in('unit_id', unitIds)
+    .order('occurred_at', { ascending: false })
+  if (error) { console.error('listUnitEvents:', error); return [] }
+  return data || []
+}
+
+async function insertUnitEvents(rows) {
+  if (!rows.length) return
+  const { error } = await supabase.from('device_unit_events').insert(rows)
+  if (error) console.error('device_unit_events insert:', error)
+}
+
+// Create one or more units. `units` are DB-shaped rows (snake_case) minus
+// clinic_id. Each gets a creation event (`eventType`, default 'created').
+export async function createDeviceUnits(clinicId, units, { staffId = null, eventType = 'created', note = null } = {}) {
+  if (!units?.length) return []
+  const rows = units.map(u => ({ ...u, clinic_id: clinicId }))
+  const { data, error } = await supabase.from('device_units').insert(rows).select('*')
+  if (error) {
+    if (error.code === '23505') throw new Error('That serial number is already in inventory for this manufacturer.')
+    throw error
+  }
+  await insertUnitEvents((data || []).map(u => ({
+    unit_id: u.id, clinic_id: clinicId, staff_id: staffId, patient_id: u.patient_id,
+    event_type: eventType, from_status: null, to_status: u.status, note,
+  })))
+  return data || []
+}
+
+// Move a unit to a new status. `fields` are extra columns to set in the same
+// update (serial, patient, fitting, dates). The update is conditional on the
+// unit still being in `unit.status`, so two tabs can't double-move it.
+export async function transitionDeviceUnit(unit, toStatus, { eventType, staffId = null, patientId, documentId = null, meta = {}, note = null, fields = {} } = {}) {
+  if (!canTransition(unit.status, toStatus)) {
+    throw new Error(`A unit that is ${unit.status.replace(/_/g, ' ')} can't move to ${toStatus.replace(/_/g, ' ')}.`)
+  }
+  const { data, error } = await supabase
+    .from('device_units')
+    .update({ ...fields, status: toStatus })
+    .eq('id', unit.id)
+    .eq('status', unit.status)
+    .select('*')
+  if (error) {
+    if (error.code === '23505') throw new Error('That serial number is already in inventory for this manufacturer.')
+    throw error
+  }
+  if (!data?.length) throw new Error('This unit changed since you loaded it — refresh and try again.')
+  const updated = data[0]
+  await insertUnitEvents([{
+    unit_id: unit.id, clinic_id: updated.clinic_id, staff_id: staffId,
+    patient_id: patientId !== undefined ? patientId : updated.patient_id,
+    event_type: eventType || toStatus, from_status: unit.status, to_status: toStatus,
+    document_id: documentId, meta, note,
+  }])
+  return updated
+}
+
+// Edit non-status fields (serial, cost, order ref, deadlines, notes).
+export async function updateDeviceUnit(unit, fields, { staffId = null, note = null } = {}) {
+  const { data, error } = await supabase
+    .from('device_units').update(fields).eq('id', unit.id).select('*').single()
+  if (error) {
+    if (error.code === '23505') throw new Error('That serial number is already in inventory for this manufacturer.')
+    throw error
+  }
+  if (fields.serial_number !== undefined && fields.serial_number !== unit.serial_number) {
+    await insertUnitEvents([{
+      unit_id: unit.id, clinic_id: data.clinic_id, staff_id: staffId, patient_id: data.patient_id,
+      event_type: 'serial_updated', from_status: data.status, to_status: data.status,
+      meta: { from: unit.serial_number || null, to: fields.serial_number || null }, note,
+    }])
+  }
+  return data
+}
+
+// A history entry with no status change (form generated, free note).
+export async function logUnitEvent(unit, eventType, { staffId = null, documentId = null, meta = {}, note = null } = {}) {
+  await insertUnitEvents([{
+    unit_id: unit.id, clinic_id: unit.clinic_id, staff_id: staffId, patient_id: unit.patient_id,
+    event_type: eventType, from_status: unit.status, to_status: unit.status,
+    document_id: documentId, meta, note,
+  }])
 }
