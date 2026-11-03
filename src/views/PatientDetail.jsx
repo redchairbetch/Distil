@@ -23,6 +23,7 @@ import CreateQuoteModal from "../components/CreateQuoteModal.jsx";
 import PurchaseAgreementModal from "../components/PurchaseAgreementModal.jsx";
 import SendMessageModal from "../components/SendMessageModal.jsx";
 import FormsModal from "../components/FormsModal.jsx";
+import DeviceUnitsCard from "../components/DeviceUnitsCard.jsx";
 import TnsReasonsPicker from "../components/TnsReasonsPicker.jsx";
 import { AudigramSVG, getDegreeName } from "../components/AudiogramSVG.jsx";
 import IntakeResponsesAccordion from "./IntakeResponsesAccordion.jsx";
@@ -109,6 +110,7 @@ function PatientCampaignCard({ patient, staffId: sid }) {
 
 export default function PatientDetail(props) {
   const {
+    deviceUnits = [], refreshUnits,
     selectedPatient, setSelectedPatient, setView, clinic, clinicId, staffId, staffRole,
     myClinics, staffProfile, catalog, activePlans, productCatalogTiers, retailAnchorsByClass,
     clinicSwitching, handleClinicSwitch,
@@ -450,6 +452,8 @@ export default function PatientDetail(props) {
             staffId={staffId}
             onClose={() => setShowForms(false)}
             onArchived={() => { refreshDocuments?.(); }}
+            units={deviceUnits.filter(u => u.patient_id === p.id)}
+            onUnitsChanged={async () => { await refreshUnits?.(); }}
           />
         )}
 
@@ -941,6 +945,17 @@ export default function PatientDetail(props) {
                       <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val" style={k==="Warranty Status"&&p.devices?.warrantyExpiry?{color:days<0?"#ef4444":days<90?"#f59e0b":"#16a34a"}:{}}>{v||"—"}</span></div>
                     ))}
                   </div>
+                  {/* Physical units: repair / loaner / RFC / L&D (backlog #44) */}
+                  {checkRole(staffRole, ["provider","closer","admin","care_coordinator"]) && (
+                    <DeviceUnitsCard
+                      patient={p}
+                      units={deviceUnits.filter(u => u.patient_id === p.id)}
+                      allUnits={deviceUnits}
+                      clinicId={clinicId}
+                      staffId={staffId}
+                      onChanged={async () => { await refreshUnits?.(); await refreshPatients?.(); }}
+                    />
+                  )}
                 </>
               )}
             </div>

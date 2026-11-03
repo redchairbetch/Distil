@@ -3875,6 +3875,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           )}
           {view === "patient" && (
             <PatientDetail {...{
+              deviceUnits, refreshUnits,
               selectedPatient, setSelectedPatient, setView, clinic, clinicId, staffId, staffRole,
               myClinics, staffProfile, catalog, activePlans, productCatalogTiers, retailAnchorsByClass,
               clinicSwitching, handleClinicSwitch,

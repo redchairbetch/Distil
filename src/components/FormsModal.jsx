@@ -12,7 +12,8 @@ import { FORM_REGISTRY, FORM_CATEGORIES, getFormsFor } from "../lib/manufacturer
 import { fillForm, FormVersionError } from "../lib/manufacturerForms/fillEngine.js";
 import { buildFormData, LOGICAL_LABELS } from "../lib/manufacturerForms/formData.js";
 import { MFR_KEYS, MFR_DISPLAY, normalizeMfr } from "../lib/manufacturerKeys.js";
-import { loadClinicSettings, uploadPatientDocument } from "../db.js";
+import { loadClinicSettings, uploadPatientDocument, transitionDeviceUnit, logUnitEvent } from "../db.js";
+import { unitLabel } from "../lib/inventory.js";
 
 const C = {
   ink: "#0a1628",
@@ -47,7 +48,14 @@ const chipStyle = (active) => ({
   fontWeight: active ? 600 : 400,
 });
 
-export default function FormsModal({ patient, clinic, provider, clinicId, staffId, onClose, onArchived }) {
+// Form category → the device move it usually accompanies (backlog #44).
+const CATEGORY_MOVE = {
+  repair:        { from: ["fitted"], to: "in_repair",   event: "repair_sent", label: "Mark sent for repair" },
+  return_credit: { from: ["fitted", "reserved", "in_stock"], to: "rfc_pending", event: "rfc_started", label: "Start return for credit" },
+  loss_damage:   { from: ["fitted", "loaned_out"], to: null, event: "form_generated", label: "Log L&D form on device" },
+};
+
+export default function FormsModal({ patient, clinic, provider, clinicId, staffId, onClose, onArchived, units = [], onUnitsChanged }) {
   const devices = patient?.devices || null;
   const [clinicSettings, setClinicSettings] = useState(null);
   const [mfrKey, setMfrKey] = useState(null);
@@ -115,8 +123,9 @@ export default function FormsModal({ patient, clinic, provider, clinicId, staffI
       const fileName = [last, first, selectedForm.id, date].filter(Boolean).join("_") + ".pdf";
       const url = URL.createObjectURL(blob);
 
+      let documentId = null;
       try {
-        await uploadPatientDocument({
+        const doc = await uploadPatientDocument({
           patientId: patient.id,
           clinicId,
           staffId,
@@ -130,13 +139,14 @@ export default function FormsModal({ patient, clinic, provider, clinicId, staffI
             sha256: selectedForm.sha256,
           },
         });
+        documentId = doc?.id || null;
         onArchived?.();
       } catch (e) {
         console.error("FormsModal archive:", e);
         warnings.push("The form generated but could not be archived to the patient's documents. Print/download still works.");
       }
 
-      setResult({ fileName, url, blob, warnings });
+      setResult({ fileName, url, blob, warnings, documentId, category: selectedForm.category, formId: selectedForm.id });
     } catch (e) {
       console.error("FormsModal generate:", e);
       setError(
@@ -276,6 +286,7 @@ export default function FormsModal({ patient, clinic, provider, clinicId, staffI
               {result.warnings.map((w, i) => (
                 <div key={i} style={{ color: C.amber, marginTop: 4 }}>⚠ {w}</div>
               ))}
+              <UnitEventLogger result={result} units={units} staffId={staffId} onDone={onUnitsChanged} />
             </div>
           )}
 
@@ -305,6 +316,41 @@ export default function FormsModal({ patient, clinic, provider, clinicId, staffI
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// After a repair / RFC / L&D form: record the matching move on the physical
+// unit(s), with the archived form attached to the event.
+function UnitEventLogger({ result, units, staffId, onDone }) {
+  const move = CATEGORY_MOVE[result.category];
+  const [done, setDone] = useState({});
+  const [err, setErr] = useState(null);
+  if (!move) return null;
+  const eligible = units.filter(u => move.from.includes(u.status));
+  if (!eligible.length) return null;
+  const apply = async (u) => {
+    setErr(null);
+    try {
+      const meta = { formId: result.formId };
+      if (move.to) await transitionDeviceUnit(u, move.to, { eventType: move.event, staffId, documentId: result.documentId, meta });
+      else await logUnitEvent(u, move.event, { staffId, documentId: result.documentId, meta, note: "Loss & damage claim form" });
+      setDone(d => ({ ...d, [u.id]: true }));
+      await onDone?.();
+    } catch (e) { setErr(e?.message || "Could not update the device."); }
+  };
+  return (
+    <div style={{ marginTop: 10, paddingTop: 8, borderTop: "1px solid #bbf7d0", color: C.ink }}>
+      <div style={{ fontSize: 11.5, fontWeight: 600, marginBottom: 6 }}>Update inventory?</div>
+      {eligible.map(u => (
+        <div key={u.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, marginBottom: 4 }}>
+          <span style={{ flex: 1 }}>{unitLabel(u)}</span>
+          {done[u.id]
+            ? <span style={{ color: "#166534", fontWeight: 600 }}>✓ Logged</span>
+            : <button onClick={() => apply(u)} style={{ fontSize: 11, padding: "3px 10px", border: `1px solid ${C.accent}`, color: C.accent, background: "white", borderRadius: 6, cursor: "pointer", fontWeight: 600 }}>{move.label}</button>}
+        </div>
+      ))}
+      {err && <div style={{ color: "#991b1b", fontSize: 12 }}>{err}</div>}
     </div>
   );
 }
