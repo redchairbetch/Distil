@@ -23,6 +23,7 @@ import { runRecommendationEngine } from './recommendationEngine.js'
 import { LEGACY_DEVICES_DEFAULT } from './legacyDevices.js'
 import { messagePreview } from './lib/comms.js'
 import { warrantyDate } from './lib/dates.js'
+import { canTransition } from './lib/inventory.js'
 
 
 // ============================================================
@@ -857,6 +858,8 @@ function assemblePatient(row) {
       // here when it's the patient's sole fitting — see liveFittings above).
       fittingStatus:  fitting.fitting_status || 'fitted',
       pendingFitting: fitting.fitting_status === 'pending',
+      // 'legacy_fastpath' = aids fit before Distil (no care arc was built).
+      recordSource:   fitting.record_source || null,
       warrantyYears:  fitting.warranty_years ?? null,
       recordedAt:     fitting.created_at || null,
       cancelledAt:    fitting.cancelled_at || null,
@@ -922,6 +925,20 @@ function assemblePatient(row) {
     followUpContactedAt:  row.follow_up_contacted_date || null,
     followUpOutcome:      row.follow_up_outcome       || '',
     followUpNotes:        row.follow_up_notes         || '',
+    // Recall signals (follow-up queue): quote-link opens and medical
+    // referrals awaiting clearance. Embedded in PATIENT_SELECT so the queue,
+    // its sidebar badge, and Reports all classify from the same data.
+    quoteShares: (row.quote_shares || []).map(q => ({
+      viewCount:    q.view_count || 0,
+      lastViewedAt: q.last_viewed_at || null,
+      expiresAt:    q.expires_at || null,
+      revokedAt:    q.revoked_at || null,
+      createdAt:    q.created_at || null,
+    })),
+    medicalReferrals: (row.medical_referrals || []).map(r => ({ createdAt: r.created_at, referredTo: r.referred_to || '' })),
+    // Outreach guardrails (recall foundations, 2026-11).
+    doNotContact:         row.do_not_contact === true,
+    contactPreference:    row.contact_preference      || '',
 
     // Year-4 / off-warranty upgrade tracking.
     carePlanStartDate:    row.care_plan_start_date    || null,
@@ -935,6 +952,8 @@ function assemblePatient(row) {
       type: a.appointment_type,
       note: a.notes,
       status: a.status,
+      // Due (arc/recall-generated) vs booked (patient agreed to the date).
+      isBooked: a.is_booked === true,
     })),
   }
 }
@@ -978,7 +997,9 @@ const PATIENT_SELECT = `
     *,
     audiogram_thresholds(*)
   ),
-  appointments(*)
+  appointments(*),
+  quote_shares(view_count, last_viewed_at, expires_at, revoked_at, created_at),
+  medical_referrals(created_at, referred_to)
 `
 
 // Load all patients for one clinic, assembled into UI shape. The explicit
@@ -1291,6 +1312,7 @@ export async function savePatient(patient, staffId, clinicId) {
       staff_id:         staffId,
       appointment_date: appt.date,
       appointment_type: appt.type || null,
+      notes:            appt.note || null,
       status:           'scheduled',
     }))
     const { error } = await supabase.from('appointments').insert(apptRows)
@@ -2450,13 +2472,17 @@ export const FOLLOW_UP_OUTCOMES = [
   { id: 'no_answer', label: 'No answer' },
   { id: 'scheduled', label: 'Visit scheduled' },
   { id: 'declined',  label: 'Declined / do not contact' },
+  { id: 'sent',      label: 'Letter / message sent' },
 ]
 
 // Record a follow-up contact attempt. Throws on failure so the queue can
 // show it. When staffId+clinicId are provided the attempt is also appended
 // to the patient_notes interaction log (best-effort — the log entry never
 // blocks the queue update).
-export async function markFollowUpContacted(patientId, { outcome, note, staffId, clinicId } = {}) {
+// Every attempt is also appended to patient_contacts (the attempt history
+// the call list counts for escalation). That insert is best-effort like the
+// note — the queue update is the operative write.
+export async function markFollowUpContacted(patientId, { outcome, note, staffId, clinicId, channel = 'call', reason = null } = {}) {
   const { error } = await supabase
     .from('patients')
     .update({
@@ -2467,6 +2493,18 @@ export async function markFollowUpContacted(patientId, { outcome, note, staffId,
     })
     .eq('id', patientId)
   if (error) { console.error('markFollowUpContacted:', error); throw error }
+  if (staffId && clinicId && outcome) {
+    const { error: cErr } = await supabase.from('patient_contacts').insert({
+      patient_id: patientId,
+      clinic_id:  clinicId,
+      staff_id:   staffId,
+      channel,
+      reason,
+      outcome,
+      note: note || null,
+    })
+    if (cErr) console.error('markFollowUpContacted contact log:', cErr)
+  }
   if (staffId && clinicId) {
     const label = FOLLOW_UP_OUTCOMES.find(o => o.id === outcome)?.label || 'Contacted'
     try {
@@ -2477,6 +2515,41 @@ export async function markFollowUpContacted(patientId, { outcome, note, staffId,
       })
     } catch (e) { console.error('markFollowUpContacted note:', e) }
   }
+}
+
+// Outreach attempt history. One patient (chart) or the whole clinic since a
+// date (call list attempt counts). Returns newest first.
+export async function loadPatientContacts(patientId) {
+  const { data, error } = await supabase
+    .from('patient_contacts')
+    .select('id, channel, reason, outcome, note, created_at, staff_id')
+    .eq('patient_id', patientId)
+    .order('created_at', { ascending: false })
+  if (error) { console.error('loadPatientContacts:', error); return [] }
+  return data || []
+}
+
+export async function loadClinicContacts(clinicId, sinceIso) {
+  let q = supabase
+    .from('patient_contacts')
+    .select('patient_id, channel, reason, outcome, created_at')
+    .eq('clinic_id', clinicId)
+    .order('created_at', { ascending: false })
+  if (sinceIso) q = q.gte('created_at', sinceIso)
+  const { data, error } = await q
+  if (error) { console.error('loadClinicContacts:', error); return [] }
+  return data || []
+}
+
+// Outreach preferences on the chart. doNotContact removes the patient from
+// every outreach bucket (and, later, from automated reminders).
+export async function updateContactPreferences(patientId, { doNotContact, contactPreference }) {
+  const fields = {}
+  if (doNotContact !== undefined) fields.do_not_contact = !!doNotContact
+  if (contactPreference !== undefined) fields.contact_preference = contactPreference || null
+  if (!Object.keys(fields).length) return
+  const { error } = await supabase.from('patients').update(fields).eq('id', patientId)
+  if (error) throw error
 }
 
 // Reset a patient's follow-up tracking — used when a buckets-they-fell-into
@@ -3673,7 +3746,10 @@ export async function updateDeviceSide(sideId, fields) {
 // pending-fitting writers: 'scheduled' | 'completed' | 'cancelled'.
 // Writes are clinic-scoped by RLS (staff_see_own_clinic_appointments).
 
-export async function addAppointment(patientId, clinicId, { date, type, note }, staffId = null) {
+// A hand-added row defaults to BOOKED — a provider typing in a date is
+// recording an agreed visit. Arc / recall generators insert unbooked rows
+// (is_booked defaults false in the DB).
+export async function addAppointment(patientId, clinicId, { date, type, note, isBooked = true }, staffId = null) {
   const { data, error } = await supabase
     .from('appointments')
     .insert({
@@ -3684,11 +3760,12 @@ export async function addAppointment(patientId, clinicId, { date, type, note }, 
       appointment_type: type || null,
       notes: note || null,
       status: 'scheduled',
+      is_booked: !!isBooked,
     })
-    .select('id, appointment_date, appointment_type, notes, status')
+    .select('id, appointment_date, appointment_type, notes, status, is_booked')
     .single()
   if (error) throw error
-  return { id: data.id, date: data.appointment_date, type: data.appointment_type, note: data.notes, status: data.status }
+  return { id: data.id, date: data.appointment_date, type: data.appointment_type, note: data.notes, status: data.status, isBooked: data.is_booked === true }
 }
 
 export async function updateAppointment(apptId, { date, type, note }) {
@@ -3703,10 +3780,80 @@ export async function updateAppointment(apptId, { date, type, note }) {
   if (error) throw error
 }
 
+// Completing a visit advances patients.last_visit_date (forward only — a
+// back-dated completion never rewinds a newer visit). Before 2026-11 only
+// confirmDeviceFitting wrote last_visit_date, so the follow-up queue's
+// stale-visit bucket ran on stale data. The mirror is best-effort: the status
+// change is the record; a failed mirror is logged, not thrown.
 export async function setAppointmentStatus(apptId, status) {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('appointments')
     .update({ status })
+    .eq('id', apptId)
+    .select('patient_id, appointment_date')
+    .single()
+  if (error) throw error
+  if (status === 'completed' && data?.patient_id && data.appointment_date) {
+    try { await advanceLastVisitDate(data.patient_id, data.appointment_date) }
+    catch (e) { console.error('setAppointmentStatus last_visit_date:', e) }
+  }
+}
+
+// Move last_visit_date forward to `visitDate` if it's newer (and not in the
+// future — a completed row dated tomorrow is a data-entry slip, clamp to now).
+export async function advanceLastVisitDate(patientId, visitDate) {
+  let when = new Date(visitDate)
+  if (Number.isNaN(when.getTime())) return
+  const now = new Date()
+  if (when > now) when = now
+  const iso = when.toISOString()
+  const { error } = await supabase
+    .from('patients')
+    .update({ last_visit_date: iso })
+    .eq('id', patientId)
+    .or(`last_visit_date.is.null,last_visit_date.lt."${iso}"`)
+  if (error) throw error
+}
+
+// Insert generated DUE (unbooked) appointments for one patient, skipping any
+// type+date already on the chart — the same idempotency guard finalize and
+// confirmDeviceFitting use, so a double-click or re-run never duplicates.
+// Used by recall coverage: legacy-fit care arcs and TNS annual retests.
+// Returns the number of rows inserted.
+export async function insertDueAppointments(patientId, clinicId, staffId, appts = []) {
+  if (!appts.length) return 0
+  const { data: existing, error: exErr } = await supabase
+    .from('appointments')
+    .select('appointment_type, appointment_date')
+    .eq('patient_id', patientId)
+  if (exErr) throw exErr
+  const have = new Set((existing || []).map(a => `${a.appointment_type}|${String(a.appointment_date).split('T')[0]}`))
+  const rows = appts
+    .filter(a => a.date && !have.has(`${a.type}|${a.date}`))
+    .map(a => ({
+      patient_id: patientId,
+      clinic_id: clinicId,
+      staff_id: staffId,
+      appointment_date: a.date,
+      appointment_type: a.type || null,
+      notes: a.note || null,
+      status: 'scheduled',
+      is_booked: false,
+    }))
+  if (!rows.length) return 0
+  const { error } = await supabase.from('appointments').insert(rows)
+  if (error) throw error
+  return rows.length
+}
+
+// Toggle due ↔ booked. Booking can also move the date (the patient agreed to
+// a different day than the arc suggested).
+export async function setAppointmentBooked(apptId, isBooked, date) {
+  const fields = { is_booked: !!isBooked }
+  if (date) fields.appointment_date = date
+  const { error } = await supabase
+    .from('appointments')
+    .update(fields)
     .eq('id', apptId)
   if (error) throw error
 }
@@ -5037,4 +5184,176 @@ export async function loadPersonalizationInputs(patientId) {
     intake:     intakeRes.data || null,
     tnsOutcome: tnsRes.data || null,
   }
+}
+
+
+// ============================================================
+// SERIALIZED DEVICE INVENTORY (backlog #44)
+// ============================================================
+// device_units = one physical aid; device_unit_events = its append-only
+// history. Every status change goes through transitionDeviceUnit, which
+// enforces lib/inventory.js ALLOWED_TRANSITIONS and writes the event row.
+// Writes are clinic-scoped by RLS (my_clinic_id()).
+
+export async function listDeviceUnits(clinicId, { statuses } = {}) {
+  let q = supabase.from('device_units').select('*').order('created_at', { ascending: false })
+  if (clinicId) q = q.eq('clinic_id', clinicId)
+  if (statuses?.length) q = q.in('status', statuses)
+  const { data, error } = await q
+  if (error) { console.error('listDeviceUnits:', error); return [] }
+  return data || []
+}
+
+export async function listUnitsForPatient(patientId) {
+  const { data, error } = await supabase
+    .from('device_units')
+    .select('*')
+    .eq('patient_id', patientId)
+    .order('created_at', { ascending: false })
+  if (error) { console.error('listUnitsForPatient:', error); return [] }
+  return data || []
+}
+
+export async function listUnitsForFittings(fittingIds = []) {
+  if (!fittingIds.length) return []
+  const { data, error } = await supabase
+    .from('device_units')
+    .select('*')
+    .in('fitting_id', fittingIds)
+  if (error) { console.error('listUnitsForFittings:', error); return [] }
+  return data || []
+}
+
+export async function listUnitEvents(unitIds = []) {
+  if (!unitIds.length) return []
+  const { data, error } = await supabase
+    .from('device_unit_events')
+    .select('*')
+    .in('unit_id', unitIds)
+    .order('occurred_at', { ascending: false })
+  if (error) { console.error('listUnitEvents:', error); return [] }
+  return data || []
+}
+
+async function insertUnitEvents(rows) {
+  if (!rows.length) return
+  const { error } = await supabase.from('device_unit_events').insert(rows)
+  if (error) console.error('device_unit_events insert:', error)
+}
+
+// Create one or more units. `units` are DB-shaped rows (snake_case) minus
+// clinic_id. Each gets a creation event (`eventType`, default 'created').
+export async function createDeviceUnits(clinicId, units, { staffId = null, eventType = 'created', note = null } = {}) {
+  if (!units?.length) return []
+  const rows = units.map(u => ({ ...u, clinic_id: clinicId }))
+  const { data, error } = await supabase.from('device_units').insert(rows).select('*')
+  if (error) {
+    if (error.code === '23505') throw new Error('That serial number is already in inventory for this manufacturer.')
+    throw error
+  }
+  await insertUnitEvents((data || []).map(u => ({
+    unit_id: u.id, clinic_id: clinicId, staff_id: staffId, patient_id: u.patient_id,
+    event_type: eventType, from_status: null, to_status: u.status, note,
+  })))
+  return data || []
+}
+
+// Move a unit to a new status. `fields` are extra columns to set in the same
+// update (serial, patient, fitting, dates). The update is conditional on the
+// unit still being in `unit.status`, so two tabs can't double-move it.
+export async function transitionDeviceUnit(unit, toStatus, { eventType, staffId = null, patientId, documentId = null, meta = {}, note = null, fields = {} } = {}) {
+  if (!canTransition(unit.status, toStatus)) {
+    throw new Error(`A unit that is ${unit.status.replace(/_/g, ' ')} can't move to ${toStatus.replace(/_/g, ' ')}.`)
+  }
+  const { data, error } = await supabase
+    .from('device_units')
+    .update({ ...fields, status: toStatus })
+    .eq('id', unit.id)
+    .eq('status', unit.status)
+    .select('*')
+  if (error) {
+    if (error.code === '23505') throw new Error('That serial number is already in inventory for this manufacturer.')
+    throw error
+  }
+  if (!data?.length) throw new Error('This unit changed since you loaded it — refresh and try again.')
+  const updated = data[0]
+  await insertUnitEvents([{
+    unit_id: unit.id, clinic_id: updated.clinic_id, staff_id: staffId,
+    patient_id: patientId !== undefined ? patientId : updated.patient_id,
+    event_type: eventType || toStatus, from_status: unit.status, to_status: toStatus,
+    document_id: documentId, meta, note,
+  }])
+  return updated
+}
+
+// Edit non-status fields (serial, cost, order ref, deadlines, notes).
+export async function updateDeviceUnit(unit, fields, { staffId = null, note = null } = {}) {
+  const { data, error } = await supabase
+    .from('device_units').update(fields).eq('id', unit.id).select('*').single()
+  if (error) {
+    if (error.code === '23505') throw new Error('That serial number is already in inventory for this manufacturer.')
+    throw error
+  }
+  if (fields.serial_number !== undefined && fields.serial_number !== unit.serial_number) {
+    await insertUnitEvents([{
+      unit_id: unit.id, clinic_id: data.clinic_id, staff_id: staffId, patient_id: data.patient_id,
+      event_type: 'serial_updated', from_status: data.status, to_status: data.status,
+      meta: { from: unit.serial_number || null, to: fields.serial_number || null }, note,
+    }])
+  }
+  return data
+}
+
+// A history entry with no status change (form generated, free note).
+export async function logUnitEvent(unit, eventType, { staffId = null, documentId = null, meta = {}, note = null } = {}) {
+  await insertUnitEvents([{
+    unit_id: unit.id, clinic_id: unit.clinic_id, staff_id: staffId, patient_id: unit.patient_id,
+    event_type: eventType, from_status: unit.status, to_status: unit.status,
+    document_id: documentId, meta, note,
+  }])
+}
+
+// Confirm-fitting hook: every unit linked to this fitting that's received
+// (reserved / in_stock) moves to fitted, and the serials are written onto
+// device_fittings.serial_left/right — the display copy the chart and the
+// manufacturer-forms engine read. Best-effort per unit: returns warnings
+// instead of throwing, because the fitting itself is already confirmed.
+export async function fitUnitsForFitting(fittingId, units = [], { staffId = null, patientId = null } = {}) {
+  const warnings = []
+  const serials = {}
+  for (const u of units.filter(x => x.fitting_id === fittingId)) {
+    if (u.status === 'reserved' || u.status === 'in_stock') {
+      try {
+        await transitionDeviceUnit(u, 'fitted', { eventType: 'fitted', staffId, patientId, fields: { patient_id: patientId || u.patient_id } })
+      } catch (e) { warnings.push(`${u.ear || 'unit'} ${u.serial_number || ''}: ${e.message}`.trim()) ; continue }
+    }
+    if (u.ear && u.serial_number && (u.status === 'reserved' || u.status === 'in_stock' || u.status === 'fitted')) {
+      serials[u.ear === 'left' ? 'serial_left' : 'serial_right'] = u.serial_number
+    }
+  }
+  if (Object.keys(serials).length) {
+    try { await updateDeviceFitting(fittingId, serials) }
+    catch (e) { warnings.push(`serials on fitting: ${e.message}`) }
+  }
+  return { warnings, serials }
+}
+
+// Cancel-sale hook: unwind the order. Not yet received → retired (order
+// cancelled). Received patient orders → return-for-credit queue (the RFC
+// tab can still send one back to stock instead). Stock units that had been
+// assigned go back on the shelf.
+export async function unwindUnitsForFitting(fittingId, units = [], { staffId = null, note = null } = {}) {
+  const warnings = []
+  for (const u of units.filter(x => x.fitting_id === fittingId)) {
+    try {
+      if (u.status === 'on_order') {
+        await transitionDeviceUnit(u, 'retired', { eventType: 'order_cancelled', staffId, note })
+      } else if (u.status === 'reserved' && u.purpose === 'patient_order') {
+        await transitionDeviceUnit(u, 'rfc_pending', { eventType: 'rfc_started', staffId, note: note || 'Sale cancelled before fitting' })
+      } else if (u.status === 'reserved') {
+        await transitionDeviceUnit(u, 'in_stock', { eventType: 'unreserved', staffId, note, fields: { patient_id: null, fitting_id: null, side_id: null } })
+      }
+    } catch (e) { warnings.push(`${u.ear || 'unit'}: ${e.message}`) }
+  }
+  return { warnings }
 }
