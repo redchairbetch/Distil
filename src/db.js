@@ -922,6 +922,9 @@ function assemblePatient(row) {
     followUpContactedAt:  row.follow_up_contacted_date || null,
     followUpOutcome:      row.follow_up_outcome       || '',
     followUpNotes:        row.follow_up_notes         || '',
+    // Outreach guardrails (recall foundations, 2026-11).
+    doNotContact:         row.do_not_contact === true,
+    contactPreference:    row.contact_preference      || '',
 
     // Year-4 / off-warranty upgrade tracking.
     carePlanStartDate:    row.care_plan_start_date    || null,
@@ -935,6 +938,8 @@ function assemblePatient(row) {
       type: a.appointment_type,
       note: a.notes,
       status: a.status,
+      // Due (arc/recall-generated) vs booked (patient agreed to the date).
+      isBooked: a.is_booked === true,
     })),
   }
 }
@@ -2456,7 +2461,10 @@ export const FOLLOW_UP_OUTCOMES = [
 // show it. When staffId+clinicId are provided the attempt is also appended
 // to the patient_notes interaction log (best-effort — the log entry never
 // blocks the queue update).
-export async function markFollowUpContacted(patientId, { outcome, note, staffId, clinicId } = {}) {
+// Every attempt is also appended to patient_contacts (the attempt history
+// the call list counts for escalation). That insert is best-effort like the
+// note — the queue update is the operative write.
+export async function markFollowUpContacted(patientId, { outcome, note, staffId, clinicId, channel = 'call', reason = null } = {}) {
   const { error } = await supabase
     .from('patients')
     .update({
@@ -2467,6 +2475,18 @@ export async function markFollowUpContacted(patientId, { outcome, note, staffId,
     })
     .eq('id', patientId)
   if (error) { console.error('markFollowUpContacted:', error); throw error }
+  if (staffId && clinicId && outcome) {
+    const { error: cErr } = await supabase.from('patient_contacts').insert({
+      patient_id: patientId,
+      clinic_id:  clinicId,
+      staff_id:   staffId,
+      channel,
+      reason,
+      outcome,
+      note: note || null,
+    })
+    if (cErr) console.error('markFollowUpContacted contact log:', cErr)
+  }
   if (staffId && clinicId) {
     const label = FOLLOW_UP_OUTCOMES.find(o => o.id === outcome)?.label || 'Contacted'
     try {
@@ -2477,6 +2497,41 @@ export async function markFollowUpContacted(patientId, { outcome, note, staffId,
       })
     } catch (e) { console.error('markFollowUpContacted note:', e) }
   }
+}
+
+// Outreach attempt history. One patient (chart) or the whole clinic since a
+// date (call list attempt counts). Returns newest first.
+export async function loadPatientContacts(patientId) {
+  const { data, error } = await supabase
+    .from('patient_contacts')
+    .select('id, channel, reason, outcome, note, created_at, staff_id')
+    .eq('patient_id', patientId)
+    .order('created_at', { ascending: false })
+  if (error) { console.error('loadPatientContacts:', error); return [] }
+  return data || []
+}
+
+export async function loadClinicContacts(clinicId, sinceIso) {
+  let q = supabase
+    .from('patient_contacts')
+    .select('patient_id, channel, reason, outcome, created_at')
+    .eq('clinic_id', clinicId)
+    .order('created_at', { ascending: false })
+  if (sinceIso) q = q.gte('created_at', sinceIso)
+  const { data, error } = await q
+  if (error) { console.error('loadClinicContacts:', error); return [] }
+  return data || []
+}
+
+// Outreach preferences on the chart. doNotContact removes the patient from
+// every outreach bucket (and, later, from automated reminders).
+export async function updateContactPreferences(patientId, { doNotContact, contactPreference }) {
+  const fields = {}
+  if (doNotContact !== undefined) fields.do_not_contact = !!doNotContact
+  if (contactPreference !== undefined) fields.contact_preference = contactPreference || null
+  if (!Object.keys(fields).length) return
+  const { error } = await supabase.from('patients').update(fields).eq('id', patientId)
+  if (error) throw error
 }
 
 // Reset a patient's follow-up tracking — used when a buckets-they-fell-into
@@ -3673,7 +3728,10 @@ export async function updateDeviceSide(sideId, fields) {
 // pending-fitting writers: 'scheduled' | 'completed' | 'cancelled'.
 // Writes are clinic-scoped by RLS (staff_see_own_clinic_appointments).
 
-export async function addAppointment(patientId, clinicId, { date, type, note }, staffId = null) {
+// A hand-added row defaults to BOOKED — a provider typing in a date is
+// recording an agreed visit. Arc / recall generators insert unbooked rows
+// (is_booked defaults false in the DB).
+export async function addAppointment(patientId, clinicId, { date, type, note, isBooked = true }, staffId = null) {
   const { data, error } = await supabase
     .from('appointments')
     .insert({
@@ -3684,11 +3742,12 @@ export async function addAppointment(patientId, clinicId, { date, type, note }, 
       appointment_type: type || null,
       notes: note || null,
       status: 'scheduled',
+      is_booked: !!isBooked,
     })
-    .select('id, appointment_date, appointment_type, notes, status')
+    .select('id, appointment_date, appointment_type, notes, status, is_booked')
     .single()
   if (error) throw error
-  return { id: data.id, date: data.appointment_date, type: data.appointment_type, note: data.notes, status: data.status }
+  return { id: data.id, date: data.appointment_date, type: data.appointment_type, note: data.notes, status: data.status, isBooked: data.is_booked === true }
 }
 
 export async function updateAppointment(apptId, { date, type, note }) {
@@ -3703,10 +3762,49 @@ export async function updateAppointment(apptId, { date, type, note }) {
   if (error) throw error
 }
 
+// Completing a visit advances patients.last_visit_date (forward only — a
+// back-dated completion never rewinds a newer visit). Before 2026-11 only
+// confirmDeviceFitting wrote last_visit_date, so the follow-up queue's
+// stale-visit bucket ran on stale data. The mirror is best-effort: the status
+// change is the record; a failed mirror is logged, not thrown.
 export async function setAppointmentStatus(apptId, status) {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('appointments')
     .update({ status })
+    .eq('id', apptId)
+    .select('patient_id, appointment_date')
+    .single()
+  if (error) throw error
+  if (status === 'completed' && data?.patient_id && data.appointment_date) {
+    try { await advanceLastVisitDate(data.patient_id, data.appointment_date) }
+    catch (e) { console.error('setAppointmentStatus last_visit_date:', e) }
+  }
+}
+
+// Move last_visit_date forward to `visitDate` if it's newer (and not in the
+// future — a completed row dated tomorrow is a data-entry slip, clamp to now).
+export async function advanceLastVisitDate(patientId, visitDate) {
+  let when = new Date(visitDate)
+  if (Number.isNaN(when.getTime())) return
+  const now = new Date()
+  if (when > now) when = now
+  const iso = when.toISOString()
+  const { error } = await supabase
+    .from('patients')
+    .update({ last_visit_date: iso })
+    .eq('id', patientId)
+    .or(`last_visit_date.is.null,last_visit_date.lt."${iso}"`)
+  if (error) throw error
+}
+
+// Toggle due ↔ booked. Booking can also move the date (the patient agreed to
+// a different day than the arc suggested).
+export async function setAppointmentBooked(apptId, isBooked, date) {
+  const fields = { is_booked: !!isBooked }
+  if (date) fields.appointment_date = date
+  const { error } = await supabase
+    .from('appointments')
+    .update(fields)
     .eq('id', apptId)
   if (error) throw error
 }

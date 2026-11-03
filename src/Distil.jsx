@@ -871,7 +871,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     const parts = (p.name || "").trim().split(/\s+/);
     const lastName  = parts.length > 1 ? parts.pop() : "";
     const firstName = parts.join(" ");
-    setEditDraft({ firstName, lastName, phone: p.phone || "", email: p.email || "", dob: p.dob || "", payType: p.payType || "insurance", preferredLanguage: p.preferredLanguage || "en", notes: p.notes || "" });
+    setEditDraft({ firstName, lastName, phone: p.phone || "", email: p.email || "", dob: p.dob || "", payType: p.payType || "insurance", preferredLanguage: p.preferredLanguage || "en", notes: p.notes || "", contactPreference: p.contactPreference || "", doNotContact: !!p.doNotContact });
     setEditSection("contact");
     setEditError(null);
     setEditSuccess(null);
@@ -889,10 +889,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         pay_type:   editDraft.payType,
         preferred_language: editDraft.preferredLanguage || "en",
         notes:      editDraft.notes  || null,
+        contact_preference: editDraft.contactPreference || null,
+        do_not_contact:     !!editDraft.doNotContact,
       });
       const newName = [editDraft.firstName, editDraft.lastName].filter(Boolean).join(" ");
-      setSelectedPatient(p => ({ ...p, name: newName, phone: editDraft.phone, email: editDraft.email, dob: editDraft.dob, payType: editDraft.payType, preferredLanguage: editDraft.preferredLanguage, notes: editDraft.notes }));
-      setPatients(prev => prev.map(pt => pt.id === selectedPatient.id ? { ...pt, name: newName, phone: editDraft.phone, email: editDraft.email } : pt));
+      const outreach = { contactPreference: editDraft.contactPreference || "", doNotContact: !!editDraft.doNotContact };
+      setSelectedPatient(p => ({ ...p, name: newName, phone: editDraft.phone, email: editDraft.email, dob: editDraft.dob, payType: editDraft.payType, preferredLanguage: editDraft.preferredLanguage, notes: editDraft.notes, ...outreach }));
+      setPatients(prev => prev.map(pt => pt.id === selectedPatient.id ? { ...pt, name: newName, phone: editDraft.phone, email: editDraft.email, ...outreach } : pt));
       setEditSuccess("Saved");
       setTimeout(() => { setEditSection(null); setEditSuccess(null); }, 1400);
     } catch (err) {

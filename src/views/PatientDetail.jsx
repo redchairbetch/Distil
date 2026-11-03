@@ -45,6 +45,7 @@ import {
   addAppointment,
   updateAppointment,
   setAppointmentStatus,
+  setAppointmentBooked,
   updatePatientStatus,
 } from "../db.js";
 import { shortClinicName } from "../lib/brand.js";
@@ -565,6 +566,18 @@ export default function PatientDetail(props) {
                       ))}
                     </div>
                   </div>
+                  <div style={{marginBottom:10}}>
+                    <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:6}}>Outreach</label>
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                      {[["","No preference"],["phone","Phone call"],["text","Text"],["email","Email"]].map(([val,label])=>(
+                        <div key={val||"none"} onClick={()=>setEditDraft(d=>({...d,contactPreference:val}))} style={{border:`2px solid ${(editDraft.contactPreference||"")===val?"#0a1628":"#E4E0D5"}`,borderRadius:10,padding:"6px 10px",cursor:"pointer",fontSize:12,fontWeight:600,color:"#0a1628",background:(editDraft.contactPreference||"")===val?"#FBF9F3":"white"}}>{label}</div>
+                      ))}
+                      <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,color:editDraft.doNotContact?"#b91c1c":"#374151",marginLeft:"auto",cursor:"pointer"}}>
+                        <input type="checkbox" checked={!!editDraft.doNotContact} onChange={e=>setEditDraft(d=>({...d,doNotContact:e.target.checked}))} />
+                        Do not contact
+                      </label>
+                    </div>
+                  </div>
                   <div style={{marginBottom:4}}>
                     <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Notes</label>
                     <textarea value={editDraft.notes} onChange={e=>setEditDraft(d=>({...d,notes:e.target.value}))} rows={3} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",resize:"vertical",boxSizing:"border-box"}} />
@@ -583,6 +596,13 @@ export default function PatientDetail(props) {
                   ))}
                   {p.payType && <div className="detail-row"><span className="detail-key">Pay Type</span><span className="detail-val">{p.payType==="insurance"?"Insurance":"Private Pay"}</span></div>}
                   <div className="detail-row"><span className="detail-key">Language</span><span className="detail-val">{p.preferredLanguage==="es"?"Español":"English"}</span></div>
+                  {(p.contactPreference || p.doNotContact) && (
+                    <div className="detail-row"><span className="detail-key">Outreach</span><span className="detail-val">
+                      {p.doNotContact
+                        ? <span style={{fontSize:11,fontWeight:700,color:"#b91c1c",background:"#fee2e2",borderRadius:4,padding:"1px 6px"}}>DO NOT CONTACT</span>
+                        : ({phone:"Prefers phone",text:"Prefers text",email:"Prefers email"}[p.contactPreference])}
+                    </span></div>
+                  )}
                   {p.notes && <div className="detail-row"><span className="detail-key">Notes</span><span className="detail-val" style={{whiteSpace:"pre-wrap"}}>{p.notes}</span></div>}
                 </div>
               )}
@@ -1042,6 +1062,11 @@ export default function PatientDetail(props) {
               onSetStatus={async (id, status) => {
                 await setAppointmentStatus(id, status);
                 setSelectedPatient(sp => ({ ...sp, appointments: sp.appointments.map(a => a.id === id ? { ...a, status } : a) }));
+                await refreshPatients();
+              }}
+              onSetBooked={async (id, isBooked) => {
+                await setAppointmentBooked(id, isBooked);
+                setSelectedPatient(sp => ({ ...sp, appointments: sp.appointments.map(a => a.id === id ? { ...a, isBooked } : a) }));
                 await refreshPatients();
               }}
             />
