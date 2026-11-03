@@ -857,6 +857,8 @@ function assemblePatient(row) {
       // here when it's the patient's sole fitting — see liveFittings above).
       fittingStatus:  fitting.fitting_status || 'fitted',
       pendingFitting: fitting.fitting_status === 'pending',
+      // 'legacy_fastpath' = aids fit before Distil (no care arc was built).
+      recordSource:   fitting.record_source || null,
       warrantyYears:  fitting.warranty_years ?? null,
       recordedAt:     fitting.created_at || null,
       cancelledAt:    fitting.cancelled_at || null,
@@ -922,6 +924,17 @@ function assemblePatient(row) {
     followUpContactedAt:  row.follow_up_contacted_date || null,
     followUpOutcome:      row.follow_up_outcome       || '',
     followUpNotes:        row.follow_up_notes         || '',
+    // Recall signals (follow-up queue): quote-link opens and medical
+    // referrals awaiting clearance. Embedded in PATIENT_SELECT so the queue,
+    // its sidebar badge, and Reports all classify from the same data.
+    quoteShares: (row.quote_shares || []).map(q => ({
+      viewCount:    q.view_count || 0,
+      lastViewedAt: q.last_viewed_at || null,
+      expiresAt:    q.expires_at || null,
+      revokedAt:    q.revoked_at || null,
+      createdAt:    q.created_at || null,
+    })),
+    medicalReferrals: (row.medical_referrals || []).map(r => ({ createdAt: r.created_at, referredTo: r.referred_to || '' })),
     // Outreach guardrails (recall foundations, 2026-11).
     doNotContact:         row.do_not_contact === true,
     contactPreference:    row.contact_preference      || '',
@@ -983,7 +996,9 @@ const PATIENT_SELECT = `
     *,
     audiogram_thresholds(*)
   ),
-  appointments(*)
+  appointments(*),
+  quote_shares(view_count, last_viewed_at, expires_at, revoked_at, created_at),
+  medical_referrals(created_at, referred_to)
 `
 
 // Load all patients for one clinic, assembled into UI shape. The explicit
@@ -1296,6 +1311,7 @@ export async function savePatient(patient, staffId, clinicId) {
       staff_id:         staffId,
       appointment_date: appt.date,
       appointment_type: appt.type || null,
+      notes:            appt.note || null,
       status:           'scheduled',
     }))
     const { error } = await supabase.from('appointments').insert(apptRows)
@@ -2455,6 +2471,7 @@ export const FOLLOW_UP_OUTCOMES = [
   { id: 'no_answer', label: 'No answer' },
   { id: 'scheduled', label: 'Visit scheduled' },
   { id: 'declined',  label: 'Declined / do not contact' },
+  { id: 'sent',      label: 'Letter / message sent' },
 ]
 
 // Record a follow-up contact attempt. Throws on failure so the queue can
@@ -3795,6 +3812,37 @@ export async function advanceLastVisitDate(patientId, visitDate) {
     .eq('id', patientId)
     .or(`last_visit_date.is.null,last_visit_date.lt."${iso}"`)
   if (error) throw error
+}
+
+// Insert generated DUE (unbooked) appointments for one patient, skipping any
+// type+date already on the chart — the same idempotency guard finalize and
+// confirmDeviceFitting use, so a double-click or re-run never duplicates.
+// Used by recall coverage: legacy-fit care arcs and TNS annual retests.
+// Returns the number of rows inserted.
+export async function insertDueAppointments(patientId, clinicId, staffId, appts = []) {
+  if (!appts.length) return 0
+  const { data: existing, error: exErr } = await supabase
+    .from('appointments')
+    .select('appointment_type, appointment_date')
+    .eq('patient_id', patientId)
+  if (exErr) throw exErr
+  const have = new Set((existing || []).map(a => `${a.appointment_type}|${String(a.appointment_date).split('T')[0]}`))
+  const rows = appts
+    .filter(a => a.date && !have.has(`${a.type}|${a.date}`))
+    .map(a => ({
+      patient_id: patientId,
+      clinic_id: clinicId,
+      staff_id: staffId,
+      appointment_date: a.date,
+      appointment_type: a.type || null,
+      notes: a.note || null,
+      status: 'scheduled',
+      is_booked: false,
+    }))
+  if (!rows.length) return 0
+  const { error } = await supabase.from('appointments').insert(rows)
+  if (error) throw error
+  return rows.length
 }
 
 // Toggle due ↔ booked. Booking can also move the date (the patient agreed to

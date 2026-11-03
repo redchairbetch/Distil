@@ -20,6 +20,7 @@ import { parseDateOnly, fmtDate, warrantyDate, daysUntil, hearingTestCurrent } f
 import { patientMatchesSearch, sortPatients } from "./lib/patientSearch.js";
 import { CARE_ARC, buildCareArc } from "./lib/careArc.js";
 import { buildTnlRetestAppointment, TNL_RETEST_TYPE } from "./lib/audiogram.js";
+import { TNS_RETEST_NOTE } from "./lib/recall.js";
 import {
   isSideCros, nationsCoverageTier, deriveEarPrice, pickBaselinePerAid,
   directPurchaseLockedTech, resolveClassRetailPerAid, tierMatchedTech,
@@ -1652,7 +1653,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         // TNL path: the annual retest recall IS the follow-up plan (no care
         // arc, no fitting). finalizePatient's type+date guard dedupes a
         // double-finalize, same as the care arc.
-        const retestArc = isTnl ? [buildTnlRetestAppointment()] : [];
+        // TNS path (tested, not sold): same annual retest, different framing —
+        // the recall that brings them back to revisit treatment (backlog #43).
+        const isTns = finalizeStatus === "tns";
+        const retestArc = isTnl ? [buildTnlRetestAppointment()]
+          : isTns ? [{ ...buildTnlRetestAppointment(), note: TNS_RETEST_NOTE }]
+          : [];
         const finalizeAppointments = [...(form.appointments || []), ...careArc, ...retestArc];
         await finalizePatient(
           wizardPatientId,
@@ -1735,6 +1741,8 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
       carePlan: (isTnl || isDnt || isReferral) ? null : (form.payType === "insurance" ? form.carePlan : null),
       appointments: isTnl
         ? [...(form.appointments || []), buildTnlRetestAppointment()]
+        : finalizeStatus === "tns"
+          ? [...(form.appointments || []), { ...buildTnlRetestAppointment(), note: TNS_RETEST_NOTE }]
         : paCommitted
           ? [...(form.appointments || []), { date: warrantyStart, type: CARE_ARC[0].type, note: CARE_ARC[0].note }]
           : form.appointments,
@@ -3996,6 +4004,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               patients={patients}
               staffId={staffId}
               clinicId={clinicId}
+              clinicName={clinic?.name}
               onSelectPatient={(p) => { setSelectedPatient(p); setView("patient"); }}
               onRefresh={refreshPatients}
             />
