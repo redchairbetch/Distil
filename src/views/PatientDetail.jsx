@@ -23,6 +23,7 @@ import CreateQuoteModal from "../components/CreateQuoteModal.jsx";
 import PurchaseAgreementModal from "../components/PurchaseAgreementModal.jsx";
 import SendMessageModal from "../components/SendMessageModal.jsx";
 import FormsModal from "../components/FormsModal.jsx";
+import DeviceUnitsCard from "../components/DeviceUnitsCard.jsx";
 import TnsReasonsPicker from "../components/TnsReasonsPicker.jsx";
 import { AudigramSVG, getDegreeName } from "../components/AudiogramSVG.jsx";
 import IntakeResponsesAccordion from "./IntakeResponsesAccordion.jsx";
@@ -45,6 +46,7 @@ import {
   addAppointment,
   updateAppointment,
   setAppointmentStatus,
+  setAppointmentBooked,
   updatePatientStatus,
 } from "../db.js";
 import { shortClinicName } from "../lib/brand.js";
@@ -108,6 +110,7 @@ function PatientCampaignCard({ patient, staffId: sid }) {
 
 export default function PatientDetail(props) {
   const {
+    deviceUnits = [], refreshUnits,
     selectedPatient, setSelectedPatient, setView, clinic, clinicId, staffId, staffRole,
     myClinics, staffProfile, catalog, activePlans, productCatalogTiers, retailAnchorsByClass,
     clinicSwitching, handleClinicSwitch,
@@ -449,6 +452,8 @@ export default function PatientDetail(props) {
             staffId={staffId}
             onClose={() => setShowForms(false)}
             onArchived={() => { refreshDocuments?.(); }}
+            units={deviceUnits.filter(u => u.patient_id === p.id)}
+            onUnitsChanged={async () => { await refreshUnits?.(); }}
           />
         )}
 
@@ -565,6 +570,18 @@ export default function PatientDetail(props) {
                       ))}
                     </div>
                   </div>
+                  <div style={{marginBottom:10}}>
+                    <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:6}}>Outreach</label>
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                      {[["","No preference"],["phone","Phone call"],["text","Text"],["email","Email"]].map(([val,label])=>(
+                        <div key={val||"none"} onClick={()=>setEditDraft(d=>({...d,contactPreference:val}))} style={{border:`2px solid ${(editDraft.contactPreference||"")===val?"#0a1628":"#E4E0D5"}`,borderRadius:10,padding:"6px 10px",cursor:"pointer",fontSize:12,fontWeight:600,color:"#0a1628",background:(editDraft.contactPreference||"")===val?"#FBF9F3":"white"}}>{label}</div>
+                      ))}
+                      <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,color:editDraft.doNotContact?"#b91c1c":"#374151",marginLeft:"auto",cursor:"pointer"}}>
+                        <input type="checkbox" checked={!!editDraft.doNotContact} onChange={e=>setEditDraft(d=>({...d,doNotContact:e.target.checked}))} />
+                        Do not contact
+                      </label>
+                    </div>
+                  </div>
                   <div style={{marginBottom:4}}>
                     <label style={{fontSize:11,fontWeight:700,textTransform:"uppercase",color:"#9ca3af",letterSpacing:1,display:"block",marginBottom:4}}>Notes</label>
                     <textarea value={editDraft.notes} onChange={e=>setEditDraft(d=>({...d,notes:e.target.value}))} rows={3} style={{width:"100%",padding:"8px 10px",border:"1px solid #E4E0D5",borderRadius:8,fontFamily:"'Sora',sans-serif",fontSize:13,outline:"none",resize:"vertical",boxSizing:"border-box"}} />
@@ -583,6 +600,13 @@ export default function PatientDetail(props) {
                   ))}
                   {p.payType && <div className="detail-row"><span className="detail-key">Pay Type</span><span className="detail-val">{p.payType==="insurance"?"Insurance":"Private Pay"}</span></div>}
                   <div className="detail-row"><span className="detail-key">Language</span><span className="detail-val">{p.preferredLanguage==="es"?"Español":"English"}</span></div>
+                  {(p.contactPreference || p.doNotContact) && (
+                    <div className="detail-row"><span className="detail-key">Outreach</span><span className="detail-val">
+                      {p.doNotContact
+                        ? <span style={{fontSize:11,fontWeight:700,color:"#b91c1c",background:"#fee2e2",borderRadius:4,padding:"1px 6px"}}>DO NOT CONTACT</span>
+                        : ({phone:"Prefers phone",text:"Prefers text",email:"Prefers email"}[p.contactPreference])}
+                    </span></div>
+                  )}
                   {p.notes && <div className="detail-row"><span className="detail-key">Notes</span><span className="detail-val" style={{whiteSpace:"pre-wrap"}}>{p.notes}</span></div>}
                 </div>
               )}
@@ -921,6 +945,17 @@ export default function PatientDetail(props) {
                       <div className="detail-row" key={k}><span className="detail-key">{k}</span><span className="detail-val" style={k==="Warranty Status"&&p.devices?.warrantyExpiry?{color:days<0?"#ef4444":days<90?"#f59e0b":"#16a34a"}:{}}>{v||"—"}</span></div>
                     ))}
                   </div>
+                  {/* Physical units: repair / loaner / RFC / L&D (backlog #44) */}
+                  {checkRole(staffRole, ["provider","closer","admin","care_coordinator"]) && (
+                    <DeviceUnitsCard
+                      patient={p}
+                      units={deviceUnits.filter(u => u.patient_id === p.id)}
+                      allUnits={deviceUnits}
+                      clinicId={clinicId}
+                      staffId={staffId}
+                      onChanged={async () => { await refreshUnits?.(); await refreshPatients?.(); }}
+                    />
+                  )}
                 </>
               )}
             </div>
@@ -1042,6 +1077,11 @@ export default function PatientDetail(props) {
               onSetStatus={async (id, status) => {
                 await setAppointmentStatus(id, status);
                 setSelectedPatient(sp => ({ ...sp, appointments: sp.appointments.map(a => a.id === id ? { ...a, status } : a) }));
+                await refreshPatients();
+              }}
+              onSetBooked={async (id, isBooked) => {
+                await setAppointmentBooked(id, isBooked);
+                setSelectedPatient(sp => ({ ...sp, appointments: sp.appointments.map(a => a.id === id ? { ...a, isBooked } : a) }));
                 await refreshPatients();
               }}
             />

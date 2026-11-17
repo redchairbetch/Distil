@@ -25,7 +25,7 @@ import { apptDay, apptDaysUntil, partitionAppointments } from "../lib/appointmen
 const btnSty = { background: "none", border: "1px solid #E4E0D5", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "'Sora',sans-serif", color: "#374151" };
 const inputSty = { padding: "6px 8px", border: "1px solid #E4E0D5", borderRadius: 6, fontSize: 12, fontFamily: "'Sora',sans-serif", outline: "none", boxSizing: "border-box" };
 
-export default function AppointmentSchedule({ appointments, visitTypes = [], onAdd, onUpdate, onSetStatus }) {
+export default function AppointmentSchedule({ appointments, visitTypes = [], onAdd, onUpdate, onSetStatus, onSetBooked }) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(null); // appt id | "new" | null
   const [draft, setDraft] = useState({ date: "", type: "", note: "" });
@@ -80,6 +80,9 @@ export default function AppointmentSchedule({ appointments, visitTypes = [], onA
         <>
           <button style={{ ...btnSty, color: "#16a34a", borderColor: "#bbf7d0" }} title="Mark completed"
             onClick={() => run(() => onSetStatus(a.id, "completed"))}>✓</button>
+          {onSetBooked && (a.isBooked
+            ? <button style={btnSty} title="Patient un-booked — back to due" onClick={() => run(() => onSetBooked(a.id, false))}>Unbook</button>
+            : <button style={{ ...btnSty, color: "#0f766e", borderColor: "#99f6e4" }} title="Patient agreed to this date — mark booked (enables the day-before reminder)" onClick={() => run(() => onSetBooked(a.id, true))}>Book</button>)}
           <button style={btnSty} title="Edit" onClick={() => startEdit(a)}>✎</button>
           <button style={{ ...btnSty, color: "#ef4444" }} title="Cancel appointment"
             onClick={() => { if (window.confirm(`Cancel ${a.type || "this appointment"} on ${fmtDate(apptDay(a.date))}?`)) run(() => onSetStatus(a.id, "cancelled")); }}>✕</button>
@@ -115,6 +118,9 @@ export default function AppointmentSchedule({ appointments, visitTypes = [], onA
         {a.type}
         {a.status === "completed" && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, color: "#16a34a", background: "#dcfce7", borderRadius: 4, padding: "1px 5px" }}>DONE</span>}
         {a.status === "cancelled" && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, color: "#6b7280", background: "#f3f4f6", borderRadius: 4, padding: "1px 5px" }}>CANCELLED</span>}
+        {(!a.status || a.status === "scheduled") && (a.isBooked
+          ? <span title="Patient agreed to this date" style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, color: "#0f766e", background: "#ccfbf1", borderRadius: 4, padding: "1px 5px" }}>BOOKED</span>
+          : <span title="Due around this date — not yet booked with the patient" style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, color: "#92400e", background: "#fef3c7", borderRadius: 4, padding: "1px 5px" }}>DUE</span>)}
       </span>
       <span className="detail-val" style={muted ? { color: "#9ca3af" } : undefined}>
         {fmtDate(apptDay(a.date))}

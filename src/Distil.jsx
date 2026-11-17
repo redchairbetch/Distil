@@ -20,6 +20,7 @@ import { parseDateOnly, fmtDate, warrantyDate, daysUntil, hearingTestCurrent } f
 import { patientMatchesSearch, sortPatients } from "./lib/patientSearch.js";
 import { CARE_ARC, buildCareArc } from "./lib/careArc.js";
 import { buildTnlRetestAppointment, TNL_RETEST_TYPE } from "./lib/audiogram.js";
+import { TNS_RETEST_NOTE } from "./lib/recall.js";
 import {
   isSideCros, nationsCoverageTier, deriveEarPrice, pickBaselinePerAid,
   directPurchaseLockedTech, resolveClassRetailPerAid, tierMatchedTech,
@@ -95,6 +96,7 @@ import {
   updateAppointment,
   setAppointmentStatus,
   loadQuoteViewSignals,
+  listDeviceUnits,
   logAnalyticsEvent,
   listMessagesForPatient,
   listPatientNotes,
@@ -126,6 +128,7 @@ import CampaignManager from "./views/CampaignManager.jsx";
 import LimaCharlie from "./views/LimaCharlie.jsx";
 import FollowUpQueue, { countFollowUpPatients } from "./views/FollowUpQueue.jsx";
 import PendingFittings, { countPendingFittings } from "./views/PendingFittings.jsx";
+import Inventory, { countInventoryAlerts } from "./views/Inventory.jsx";
 import { warrantyYearsFor, estimateFitDate } from "./lib/pendingFitting.js";
 import CommsInbox from "./views/CommsInbox.jsx";
 import DueThisWeek from "./views/DueThisWeek.jsx";
@@ -678,9 +681,16 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
   const refreshQuoteSignals = () =>
     loadQuoteViewSignals(clinicId).then(setQuoteViewSignals).catch(() => {});
 
+  // Serialized device inventory (backlog #44) — shared by the Inventory view,
+  // its sidebar badge, Pending Fittings (order/receive/assign) and the chart.
+  const [deviceUnits, setDeviceUnits] = useState([]);
+  const refreshUnits = () =>
+    listDeviceUnits(clinicId).then(setDeviceUnits).catch(() => {});
+
   useEffect(() => {
     loadAllPatients(clinicId).then(p => { setPatients(p); setLoading(false); });
     refreshQuoteSignals();
+    refreshUnits();
     (async () => {
       try {
         if (clinicId) {
@@ -871,7 +881,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
     const parts = (p.name || "").trim().split(/\s+/);
     const lastName  = parts.length > 1 ? parts.pop() : "";
     const firstName = parts.join(" ");
-    setEditDraft({ firstName, lastName, phone: p.phone || "", email: p.email || "", dob: p.dob || "", payType: p.payType || "insurance", preferredLanguage: p.preferredLanguage || "en", notes: p.notes || "" });
+    setEditDraft({ firstName, lastName, phone: p.phone || "", email: p.email || "", dob: p.dob || "", payType: p.payType || "insurance", preferredLanguage: p.preferredLanguage || "en", notes: p.notes || "", contactPreference: p.contactPreference || "", doNotContact: !!p.doNotContact });
     setEditSection("contact");
     setEditError(null);
     setEditSuccess(null);
@@ -889,10 +899,13 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         pay_type:   editDraft.payType,
         preferred_language: editDraft.preferredLanguage || "en",
         notes:      editDraft.notes  || null,
+        contact_preference: editDraft.contactPreference || null,
+        do_not_contact:     !!editDraft.doNotContact,
       });
       const newName = [editDraft.firstName, editDraft.lastName].filter(Boolean).join(" ");
-      setSelectedPatient(p => ({ ...p, name: newName, phone: editDraft.phone, email: editDraft.email, dob: editDraft.dob, payType: editDraft.payType, preferredLanguage: editDraft.preferredLanguage, notes: editDraft.notes }));
-      setPatients(prev => prev.map(pt => pt.id === selectedPatient.id ? { ...pt, name: newName, phone: editDraft.phone, email: editDraft.email } : pt));
+      const outreach = { contactPreference: editDraft.contactPreference || "", doNotContact: !!editDraft.doNotContact };
+      setSelectedPatient(p => ({ ...p, name: newName, phone: editDraft.phone, email: editDraft.email, dob: editDraft.dob, payType: editDraft.payType, preferredLanguage: editDraft.preferredLanguage, notes: editDraft.notes, ...outreach }));
+      setPatients(prev => prev.map(pt => pt.id === selectedPatient.id ? { ...pt, name: newName, phone: editDraft.phone, email: editDraft.email, ...outreach } : pt));
       setEditSuccess("Saved");
       setTimeout(() => { setEditSection(null); setEditSuccess(null); }, 1400);
     } catch (err) {
@@ -1649,7 +1662,12 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         // TNL path: the annual retest recall IS the follow-up plan (no care
         // arc, no fitting). finalizePatient's type+date guard dedupes a
         // double-finalize, same as the care arc.
-        const retestArc = isTnl ? [buildTnlRetestAppointment()] : [];
+        // TNS path (tested, not sold): same annual retest, different framing —
+        // the recall that brings them back to revisit treatment (backlog #43).
+        const isTns = finalizeStatus === "tns";
+        const retestArc = isTnl ? [buildTnlRetestAppointment()]
+          : isTns ? [{ ...buildTnlRetestAppointment(), note: TNS_RETEST_NOTE }]
+          : [];
         const finalizeAppointments = [...(form.appointments || []), ...careArc, ...retestArc];
         await finalizePatient(
           wizardPatientId,
@@ -1681,7 +1699,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           directPurchase: !!form.directPurchase,
           insurance: form.payType === "insurance" ? { carrier: form.carrier, planGroup: form.planGroup, tpa: form.tpa, tier: form.tier, tierPrice: form.tierPrice } : null,
           privatePay,
-          devices: (isTnl || isDnt || isReferral) ? null : { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: null, pendingFitting: paCommitted, warrantyYears: paCommitted ? years : null, recordedAt: new Date().toISOString(), serialLeft: genId(), serialRight: genId() },
+          devices: (isTnl || isDnt || isReferral) ? null : { left: leftRec, right: rightRec, fittingType, manufacturer: primary?.manufacturer || "", family: primary?.family || "", techLevel: primary?.techLevel || "", style: primary?.style || "", color: primary?.color || "", battery: primary?.battery || "", fittingDate: warrantyStart, warrantyExpiry: null, pendingFitting: paCommitted, warrantyYears: paCommitted ? years : null, recordedAt: new Date().toISOString(), serialLeft: null, serialRight: null },
           audiology: form.audiology,
           carePlan: carePlan,
           appointments: finalizeAppointments,
@@ -1725,13 +1743,17 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
         warrantyExpiry: null,
         pendingFitting: paCommitted,
         warrantyYears: paCommitted ? years : null,
-        serialLeft: genId(),
-        serialRight: genId(),
+        // Real serials arrive with the devices (Pending Fittings → receive);
+        // never invent placeholders — the manufacturer forms print them.
+        serialLeft: null,
+        serialRight: null,
       },
       audiology: form.audiology,
       carePlan: (isTnl || isDnt || isReferral) ? null : (form.payType === "insurance" ? form.carePlan : null),
       appointments: isTnl
         ? [...(form.appointments || []), buildTnlRetestAppointment()]
+        : finalizeStatus === "tns"
+          ? [...(form.appointments || []), { ...buildTnlRetestAppointment(), note: TNS_RETEST_NOTE }]
         : paCommitted
           ? [...(form.appointments || []), { date: warrantyStart, type: CARE_ARC[0].type, note: CARE_ARC[0].note }]
           : form.appointments,
@@ -3641,9 +3663,10 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
             {/* "Schedule" deliberately absent: calendaring was dropped as a product
                 decision — clinics have scheduling tools; Distil tracks
                 next_appointment_date only. */}
-            {[["dashboard","Dashboard","dashboard"],["users","Patients","patients"],["clock","Pending Fittings","pending-fittings"],["bell","Follow-up","followup"],["archive","Archive","archive"],["chart","Reports","reports"],["compare","Compare Devices","compare"],["clipboard","Market Catalog","market-catalog"],["campaign","Campaigns","campaigns"],["book","Content Library","content"],["medal","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
+            {[["dashboard","Dashboard","dashboard"],["users","Patients","patients"],["clock","Pending Fittings","pending-fittings"],["bell","Follow-up","followup"],["box","Inventory","inventory"],["archive","Archive","archive"],["chart","Reports","reports"],["compare","Compare Devices","compare"],["clipboard","Market Catalog","market-catalog"],["campaign","Campaigns","campaigns"],["book","Content Library","content"],["medal","Lima Charlie","lima-charlie"]].map(([icon,label,id])=>{
               const badge = id === "followup" ? countFollowUpPatients(patients)
                 : id === "pending-fittings" ? countPendingFittings(patients)
+                : id === "inventory" ? countInventoryAlerts(deviceUnits)
                 : 0;
               return (
               <div key={id} className={`nav-item ${view===id||(id==="dashboard"&&view==="new")||(id==="patients"&&(view==="dashboard"||view==="patient"))?"active":""}`}
@@ -3852,6 +3875,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
           )}
           {view === "patient" && (
             <PatientDetail {...{
+              deviceUnits, refreshUnits,
               selectedPatient, setSelectedPatient, setView, clinic, clinicId, staffId, staffRole,
               myClinics, staffProfile, catalog, activePlans, productCatalogTiers, retailAnchorsByClass,
               clinicSwitching, handleClinicSwitch,
@@ -3993,8 +4017,20 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               patients={patients}
               staffId={staffId}
               clinicId={clinicId}
+              clinicName={clinic?.name}
               onSelectPatient={(p) => { setSelectedPatient(p); setView("patient"); }}
               onRefresh={refreshPatients}
+            />
+          )}
+          {view === "inventory" && (
+            <Inventory
+              units={deviceUnits}
+              onRefresh={refreshUnits}
+              clinicId={clinicId}
+              staffId={staffId}
+              patients={patients}
+              manufacturerAccounts={clinic?.manufacturerAccounts || {}}
+              onSelectPatient={(p) => { setSelectedPatient(p); setView("patient"); }}
             />
           )}
           {view === "pending-fittings" && (
@@ -4004,6 +4040,9 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
               clinicId={clinicId}
               onSelectPatient={(p) => { setSelectedPatient(p); setView("patient"); }}
               onRefresh={refreshPatients}
+              units={deviceUnits}
+              onRefreshUnits={refreshUnits}
+              manufacturerAccounts={clinic?.manufacturerAccounts || {}}
             />
           )}
           {view === "upgrade" && selectedPatient && (
@@ -4177,7 +4216,7 @@ export default function ProviderCRM({ staffId, clinicId, staffRole, myClinics = 
                                 const rightRec = buildSideRecord(form.right);
                                 const isCROS = [leftRec, rightRec].some(r => r?.variant?.toLowerCase().includes("cros")) || form.left.isCROS || form.right.isCROS;
                                 const fittingType = leftRec && rightRec ? (isCROS ? "cros_bicros" : "bilateral") : leftRec ? "monaural_left" : "monaural_right";
-                                await updatePatientDevices(wizardPatientId, { left: leftRec, right: rightRec, fittingType, serialLeft: genId(), serialRight: genId() }, staffId, wizardVisitId);
+                                await updatePatientDevices(wizardPatientId, { left: leftRec, right: rightRec, fittingType, serialLeft: null, serialRight: null }, staffId, wizardVisitId);
                                 setSaveToast(true); setTimeout(()=>setSaveToast(false), 2000);
                               }
                             } catch(e) { console.error("incremental save:", e); }
